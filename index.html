@@ -1079,8 +1079,8 @@ function drawRocketShape(x,y,w,h,chrome,flipped){
   // Body
   ctx.beginPath();
   ctx.moveTo(x,y-dir*h/2);
-  ctx.lineTo(x+w/2,y+dir*h/2);
-  ctx.lineTo(x-w/2,y+dir*h/2);
+  ctx.lineTo(x+w/2,y-dir*h/2);
+  ctx.lineTo(x-w/2,y-dir*h/2);
   ctx.closePath();
   if(chrome){
     const cg=ctx.createLinearGradient(x-w/2,0,x+w/2,0);
