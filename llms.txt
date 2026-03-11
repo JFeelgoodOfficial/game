@@ -1,0 +1,77 @@
+# NOVA-7: Last Pilot Standing
+
+> A single-page browser game and narrative landing experience. Commander Voss is the last surviving pilot of the Terran Defense Fleet, battling through a weaponized asteroid corridor in deep space. The goal: destroy the GOLIATH dreadnought and reach the paradise planet Elysian-4.
+
+## What This Is
+
+NOVA-7 is a self-contained HTML5 canvas arcade shooter embedded in a cinematic landing page. No frameworks, no dependencies beyond two Google Fonts. The entire experience — lore, UI, and game — lives in a single `nova7_landing.html` file.
+
+## Page Structure
+
+- **Hero section** — Full-screen title, narrative tagline, and a "Launch Mission" CTA that scrolls to the game
+- **Mission Briefing** — In-universe lore establishing Commander Voss, the weaponized asteroids, the ally ECHO-1, the betrayal, and GOLIATH
+- **Threat Escalation Dossier** — Eight intel cards describing every game milestone from 0 pts to Victory
+- **Game section** — Playable 200×300 canvas game with glow frame and control hints
+- **Footer** — In-universe credit line
+
+## The Game
+
+A top-down space shooter. The player controls a triangle-shaped rocket at the bottom of the screen. Blue asteroid spheres fall from the top. Shooting them earns 100 points each. Getting hit by an asteroid or enemy bullet destroys the player and resets the game.
+
+### Controls
+
+- Arrow Left / A — move left
+- Arrow Right / D — move right
+- Space / Arrow Up — fire
+- Touch drag — move (mobile)
+- Tap / click canvas — fire (mobile)
+
+### Progression Milestones
+
+| Score     | Event                                                                                          |
+|-----------|-----------------------------------------------------------------------------------------------|
+| Every 1k  | Asteroids grow larger                                                                          |
+| 3,000     | Asteroids require 2 hits; first hit produces green sparks; damaged asteroids turn green        |
+| 4,000     | Space Warp sequence freezes everything; player rocket becomes chrome; cannon upgraded to double damage |
+| 6,000     | Ally rocket ECHO-1 appears; auto-targets and destroys asteroids alongside the player           |
+| 8,000     | Enemy rocket appears at top, shoots at player and ally; destroying it awards a 3-hit energy shield |
+| 10,000    | ECHO-1 betrays the player — flies up, turns around, fires on the player                       |
+| 12,000    | GOLIATH dreadnought enters — 3x the player's size, dual cannons, requires 10 hits to destroy  |
+| Victory   | GOLIATH destroyed; rocket flies to planet Elysian-4; win screen displayed                     |
+
+### Game Entities
+
+- **Player rocket** — Triangle, blue/white, chrome skin unlocked at 4,000 pts. Shield shown as icons top-left when active.
+- **Asteroids** — Blue glowing spheres; size scales with score tier; 1 or 2 HP depending on score.
+- **ECHO-1 (ally)** — Green-tinted rocket; auto-shoots upward at nearest asteroid; turns red/hostile at 10,000 pts.
+- **Enemy rocket** — Red-tinted rocket, patrols top of screen, fires aimed shots at player and ally.
+- **GOLIATH** — Large orange/red warship with two cannons, HP bar displayed above it.
+- **Planet Elysian-4** — Green planet that descends into view on victory.
+
+### Particle Effects
+
+- Red/orange burst — asteroid explosion or rocket destruction
+- Green sparks — first hit on a hardened (2 HP) asteroid
+- Cyan ripple — shield absorbing a hit
+- Fiery multi-burst — GOLIATH destruction sequence
+
+## Visual Design
+
+- **Aesthetic:** Retro-futuristic military terminal
+- **Fonts:** Orbitron (display/headings), Share Tech Mono (body/UI)
+- **Palette:** Near-black void (#00000a), deep navy (#020818), cyan glow (#00aaff), orange (#ff6600), gold (#ffcc00), green (#00ff88), red (#ff2244)
+- **Effects:** Animated starfield canvas background, CSS scanline overlay, scroll-reveal on section elements, pulsing glow around game canvas, corner bracket decorations on game frame
+
+## Files
+
+- `nova7_landing.html` — Complete single-file experience (HTML + CSS + JS game, ~45 KB)
+- `llms.txt` — This file
+
+## Technical Notes
+
+- No build step required. Open `nova7_landing.html` directly in any modern browser.
+- Game canvas is 200x300 px, centered within the page layout.
+- Background starfield runs on a separate full-page canvas fixed behind all content.
+- All game state is reset on player death after a short delay.
+- Score does not persist between sessions (no localStorage).
+- Mobile playable via touch events on the game canvas.
