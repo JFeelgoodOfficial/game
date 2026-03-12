@@ -798,15 +798,16 @@ function update(){
 
   // Player movement
   if(rocketAlive){
-  if(rocket.left)rocket.x=Math.max(rocket.w/2,rocket.x-rocket.speed);
-  if(rocket.right)rocket.x=Math.min(W-rocket.w/2,rocket.x+rocket.speed);
-  if(rocket.cd>0)rocket.cd--;
-  if(score>=1000 && rocket.firing && rocket.cd===0){
-    const dmg=chromePower?2:1;
-    bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,speed:5,dmg});
-    rocket.cd=14;
+    if(rocket.left)rocket.x=Math.max(rocket.w/2,rocket.x-rocket.speed);
+    if(rocket.right)rocket.x=Math.min(W-rocket.w/2,rocket.x+rocket.speed);
+    if(rocket.cd>0)rocket.cd--;
+    // FIXED: removed the score>=1000 gate so the rocket can fire from the start
+    if(rocket.firing && rocket.cd===0){
+      const dmg=chromePower?2:1;
+      bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,speed:5,dmg});
+      rocket.cd=14;
+    }
   }
-}
 
   // Move player bullets up
   for(let i=bullets.length-1;i>=0;i--){
