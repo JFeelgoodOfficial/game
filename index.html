@@ -747,7 +747,7 @@ let milestoneFlash='', milestoneFlashTimer=0;
 // laserCharge:   ticks remaining (60 ticks = 1 second at 60fps)
 // Each asteroid kill adds 60 ticks. Drains at 1/tick while firing.
 // laserDmgTimer: throttle so the laser doesn't hit every single frame
-const LASER_TICKS_PER_KILL = 60; // 1 second per asteroid
+const LASER_TICKS_PER_KILL = 30; // 0.5 second per asteroid — laser fizzles after half a second
 let laserUnlocked = false;
 let laserCharge   = 0;          // ticks of charge remaining
 let laserDmgTimer = 0;          // cooldown between laser damage ticks (frames)
@@ -760,7 +760,7 @@ const ally={x:W*0.25,y:H-40,w:12,h:20,state:'idle',turnTimer:0,shootTimer:0,acti
   // independent movement waypoint
   wx:W*0.25,wy:H-40,moveTimer:0};
 const er={x:W*0.75,y:40,w:12,h:20,alive:false,cd:0};
-const boss={x:W/2,y:-60,w:42,h:36,alive:false,hp:10,maxHp:10,cd1:0,cd2:0,enterDone:false,exploding:false,explodeTimer:0};
+const boss={x:W/2,y:-60,w:42,h:36,alive:false,hp:50,maxHp:50,cd1:0,cd2:0,enterDone:false,exploding:false,explodeTimer:0};
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function dist(ax,ay,bx,by){const dx=ax-bx,dy=ay-by;return Math.sqrt(dx*dx+dy*dy);}
@@ -808,7 +808,7 @@ function reset(){
   chromePower=false;shieldHits=0;
   allyActive=false;allyTurned=false;ally.state='idle';ally.x=W*0.25;ally.y=H-40;ally.shootTimer=0;ally.active=false;
   enemyRocketActive=false;er.alive=false;er.x=W*0.75;er.y=40;er.cd=0;
-  bossActive=false;boss.alive=false;boss.y=-60;boss.hp=10;boss.enterDone=false;boss.exploding=false;boss.explodeTimer=0;boss.cd1=0;boss.cd2=0;
+  bossActive=false;boss.alive=false;boss.y=-60;boss.hp=50;boss.enterDone=false;boss.exploding=false;boss.explodeTimer=0;boss.cd1=0;boss.cd2=0;
   gameWon=false;winTimer=0;planetY=-40;
   warpPhase=false;warpTimer=0;
   announcement='';announcementTimer=0;
@@ -840,7 +840,7 @@ function checkMilestones(){
   if(m===6000&&!allyActive){allyActive=true;ally.active=true;ally.state='active';ally.wx=W*0.25;ally.wy=H-60;announce('✦ ECHO-1 INBOUND\nALLY ONLINE — WEAPONS HOT');}
   if(m===8000&&!enemyRocketActive){enemyRocketActive=true;er.alive=true;er.x=W*0.75;er.y=30;er.cd=0;announce('☠ HOSTILE BOGEY DETECTED\nENEMY ROCKET — SECTOR UPPER-RIGHT');}
   if(m===10000&&allyActive&&!allyTurned){allyTurned=true;ally.state='turning';ally.turnTimer=0;announce('⚡ ECHO-1 SIGNAL COMPROMISED\nALLY HAS TURNED — TERMINATE ON SIGHT');}
-  if(m===12000&&!bossActive){bossActive=true;boss.alive=true;boss.y=-60;boss.hp=10;boss.enterDone=false;boss.exploding=false;boss.cd1=0;boss.cd2=0;announce('★ GOLIATH DREADNOUGHT INCOMING\n10 HITS TO DESTROY — GOOD LUCK, VOSS');}
+  if(m===12000&&!bossActive){bossActive=true;boss.alive=true;boss.y=-60;boss.hp=50;boss.enterDone=false;boss.exploding=false;boss.cd1=0;boss.cd2=0;announce('★ GOLIATH DREADNOUGHT INCOMING\n50 HITS — LASER BLASTS COUNT 10 EACH');}
 }
 
 // ── Spawn ─────────────────────────────────────────────────────────────────
@@ -859,47 +859,53 @@ function spawnSphere(){
 function updateScene(){
   // ── homeApproach ──────────────────────────────────────────────────────
   if(scene==='homeApproach'){
-    // Planet rises from bottom
-    if(homePlanetY > H/2-20) homePlanetY -= 0.6;
-    if(homePlanetR < 55) homePlanetR += 0.08;
-    // Fly player rocket slowly up toward it
-    if(rocket.y > 80) rocket.y -= 0.5;
-    if(sceneTimer===200) announce('◈ ELYSIAN-4 IN SIGHT\nRETURN TO YOUR HOMEWORLD TO LIVE IN PEACE');
-    if(sceneTimer===380){ scene='homeLaser'; sceneTimer=0; magnaLaserProgress=0; magnaLaserBrightness=0; }
+    // Planet rises from bottom, stops exactly at vertical center
+    if(homePlanetY > H/2) homePlanetY -= 0.8;
+    else homePlanetY = H/2; // hard clamp — never past center
+    if(homePlanetR < 55) homePlanetR += 0.09;
+    // Rocket floats up slowly but stays in lower half
+    if(rocket.y > H*0.72) rocket.y -= 0.4;
+    if(sceneTimer===180) announce('◈ ELYSIAN-4 IN SIGHT\nRETURN TO YOUR HOMEWORLD TO LIVE IN PEACE');
+    if(sceneTimer===360){ scene='homeLaser'; sceneTimer=0; magnaLaserProgress=0; magnaLaserBrightness=0; }
   }
 
-  // ── homeLaser: Magnathora fires from off-screen right, destroys planet ──
+  // ── homeLaser: Magnathora fires from TOP down onto planet ──────────────
   if(scene==='homeLaser'){
     if(sceneTimer===1) announce('☠ UNKNOWN SIGNAL — INCOMING FIRE\nSOMETHING MASSIVE IS OUT THERE');
-    // Laser beam sweeps from right edge to planet
-    magnaLaserProgress = Math.min(1, sceneTimer/80);
-    magnaLaserBrightness = Math.min(1, sceneTimer/60);
-    if(sceneTimer>80 && !homePlanetExploding){
+    // Laser sweeps from top edge down to planet center
+    magnaLaserProgress = Math.min(1, sceneTimer/70);
+    magnaLaserBrightness = Math.min(1, sceneTimer/50);
+    if(sceneTimer>70 && !homePlanetExploding){
       homePlanetExploding=true; homePlanetExplodeTimer=0;
       announce('★ ELYSIAN-4 DESTROYED\nTHEY KILLED YOUR WORLD');
-      for(let i=0;i<80;i++){
-        const ang=Math.random()*Math.PI*2, spd=Math.random()*3+1;
+      for(let i=0;i<100;i++){
+        const ang=Math.random()*Math.PI*2, spd=Math.random()*4+1;
         particles.push({x:W/2,y:homePlanetY,vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,
-          life:1,decay:0.008+Math.random()*0.01,r:2+Math.random()*5,
+          life:1,decay:0.006+Math.random()*0.008,r:2+Math.random()*6,
           col:['rgba(80,255,80,A)','rgba(0,200,100,A)','rgba(255,255,100,A)','rgba(100,200,255,A)'][Math.floor(Math.random()*4)]});
       }
     }
-    if(homePlanetExploding){ homePlanetExplodeTimer++; homePlanetR=Math.max(0,homePlanetR-0.5); }
-    if(sceneTimer>200){
+    if(homePlanetExploding){ homePlanetExplodeTimer++; homePlanetR=Math.max(0,homePlanetR-0.6); }
+    if(sceneTimer>180){
+      // Magnathora slides in from top, positions itself at upper portion of screen
+      // cannon points down, hatch on right side — player can approach from below
       scene='magnaIntro'; sceneTimer=0;
-      magna.x=W+120; magna.y=H/2-40;
+      magna.x=W/2; magna.y=-magna.h-10; // starts off top
       announce('☠ MAGNATHORA DETECTED\nTHE WEAPON THAT KILLED YOUR WORLD');
     }
   }
 
-  // ── magnaIntro: Massive ship slides in from right ─────────────────────
+  // ── magnaIntro: Massive ship descends from top ────────────────────────
   if(scene==='magnaIntro'){
-    if(magna.x > W/2+10) magna.x -= 2.2;
-    if(sceneTimer===120){
+    // Slide down from off-screen top to docking position (upper quarter)
+    const targetY = magna.h/2 + 20;
+    if(magna.y < targetY) magna.y += 1.8;
+    else magna.y = targetY;
+    if(sceneTimer===100){
       magna.hatchOpen=true;
-      announce('◈ HATCH IDENTIFIED — RIGHT SIDE\nFLY CLOSE · EJECT YOUR PILOT');
+      announce('◈ HATCH OPEN — RIGHT SIDE OF SHIP\nFLY YOUR ROCKET UP TO DOCK');
     }
-    if(sceneTimer===180){ scene='magnaBoard'; sceneTimer=0; initBoarding(); }
+    if(sceneTimer===160){ scene='magnaBoard'; sceneTimer=0; initBoarding(); }
   }
 
   // ── magnaBoard: pilot mini-game ───────────────────────────────────────
@@ -1019,27 +1025,27 @@ function initBoarding(){
 
 function updateBoarding(){
   if(!pilot.inShip){
-    // Pilot floats in space, player steers rocket close to hatch
     // Hatch position: right side of magna
     const hatchX = magna.x + magna.w/2 - 8;
     const hatchY = magna.y + 10;
 
-    // Check if rocket is near hatch
-    if(dist(rocket.x, rocket.y, hatchX, hatchY) < 28 && rocket.firing && pilot.pcd===0){
-      // Eject pilot into ship
-      pilot.x = hatchX - 10;
+    // Rocket movement — full freedom to reach hatch
+    if(rocketAlive){
+      if(rocket.left) rocket.x=Math.max(rocket.w/2,rocket.x-rocket.speed);
+      if(rocket.right)rocket.x=Math.min(W-rocket.w/2,rocket.x+rocket.speed);
+      if(rocket.up)   rocket.y=Math.max(rocket.h/2,rocket.y-rocket.speed);
+      if(rocket.down) rocket.y=Math.min(H-rocket.h/2,rocket.y+rocket.speed);
+    }
+
+    // Auto-dock on proximity touch — no button press needed
+    if(dist(rocket.x, rocket.y, hatchX, hatchY) < 22){
+      // Snap rocket to hatch, stays there
+      rocket.x = hatchX; rocket.y = hatchY;
+      pilot.x = hatchX - 15;
       pilot.y = hatchY;
       pilot.inShip = true;
       pilot.pcd = 20;
       announce('◈ PILOT BOARDED\nFIND ENGINE ROOM ★ · PLANT EXPLOSIVE');
-    }
-
-    // Rocket movement still active
-    if(rocketAlive){
-      if(rocket.left) rocket.x=Math.max(rocket.w/2,rocket.x-rocket.speed);
-      if(rocket.right)rocket.x=Math.min(W-rocket.w/2,rocket.x+rocket.speed);
-      if(rocket.up)   rocket.y=Math.max(10,rocket.y-rocket.speed);
-      if(rocket.down) rocket.y=Math.min(H-rocket.h/2,rocket.y+rocket.speed);
     }
     return;
   }
@@ -1058,8 +1064,8 @@ function updateBoarding(){
   pilot.x=Math.max(sx,Math.min(ex,pilot.x));
   pilot.y=Math.max(sy,Math.min(ey,pilot.y));
 
-  // Plant bomb in engine room
-  if(!pilot.planted && dist(pilot.x,pilot.y,engineRoom.x+engineRoom.w/2,engineRoom.y+engineRoom.h/2)<18 && rocket.firing){
+  // Plant bomb in engine room — proximity only
+  if(!pilot.planted && dist(pilot.x,pilot.y,engineRoom.x+engineRoom.w/2,engineRoom.y+engineRoom.h/2)<18){
     pilot.planted=true; bombTimer=300; // 5 seconds at 60fps
     announce('⚡ EXPLOSIVE PLANTED\n5 SECONDS — GET OUT NOW!');
   }
@@ -1103,12 +1109,11 @@ function updateBoarding(){
     }
   }
 
-  // Escape: pilot moves back to hatch while bomb counting
+  // Escape: pilot returns to hatch — proximity triggers escape
   if(pilot.planted && !pilot.escaped){
     const hatchX = magna.x+magna.w/2-12;
     const hatchY = magna.y+10;
-    if(dist(pilot.x,pilot.y,hatchX,hatchY)<18 && rocket.firing && pilot.pcd===0){
-      // Pilot jumps to rocket
+    if(dist(pilot.x,pilot.y,hatchX,hatchY)<18 && pilot.pcd===0){
       pilot.escaped=true;
       pilot.inShip=false;
       announce('◈ PILOT RETRIEVED\nGET CLEAR — DETONATING IN '+(Math.ceil(bombTimer/60))+'s');
@@ -1220,7 +1225,7 @@ function updateEnemyOrbit(){
         if(!sat.alive)continue;
         if(Math.abs(sat.x-rocket.x)<12 && sat.y<rocket.y){
           sat.hp-=chromePower?2:1;
-          if(sat.hp<=0){sat.alive=false;score+=50;laserCharge+=LASER_TICKS_PER_KILL;
+          if(sat.hp<=0){sat.alive=false;score+=50;laserCharge=LASER_TICKS_PER_KILL;
             spawnParticles(sat.x,sat.y,12,['rgba(255,200,0,A)','rgba(255,100,0,A)'],1,0.03,0.06,1,3);}
           break;
         }
@@ -1236,7 +1241,7 @@ function updateEnemyOrbit(){
       if(dist(bullets[j].x,bullets[j].y,s.x,s.y)<s.r+2){
         s.hp-=bullets[j].dmg||1; bullets.splice(j,1);
         if(s.hp<=0){explodeSphere(s);score+=100;spheres.splice(i,1);
-          if(laserUnlocked)laserCharge+=LASER_TICKS_PER_KILL;}
+          if(laserUnlocked)laserCharge=LASER_TICKS_PER_KILL;}
         else sparkSphere(s); break;
       }
     }
@@ -1401,7 +1406,7 @@ function update(){
         bullets.splice(j,1);
         if(s.hp<=0){
           explodeSphere(s);score+=100;spheres.splice(i,1);killed=true;
-          if(laserUnlocked) laserCharge+=LASER_TICKS_PER_KILL; // power the laser
+          if(laserUnlocked) laserCharge=LASER_TICKS_PER_KILL; // power the laser
         } else sparkSphere(s);
         break;
       }
@@ -1415,7 +1420,7 @@ function update(){
           s.hp-=1;allyBullets.splice(j,1);
           if(s.hp<=0){
             explodeSphere(s);score+=100;spheres.splice(i,1);killed=true;
-            if(laserUnlocked) laserCharge+=LASER_TICKS_PER_KILL;
+            if(laserUnlocked) laserCharge=LASER_TICKS_PER_KILL;
           } else sparkSphere(s);
           break;
         }
@@ -1600,7 +1605,7 @@ function update(){
           s.hp -= chromePower ? 2 : 1;
           sparkSphere(s);
           if(s.hp <= 0){ explodeSphere(s); score+=100; spheres.splice(i,1);
-            laserCharge += LASER_TICKS_PER_KILL; } // kill powers it further
+            laserCharge=LASER_TICKS_PER_KILL; } // kill powers it further
           break; // beam stops at first asteroid hit
         }
       }
@@ -1614,9 +1619,10 @@ function update(){
         explodeAt(ally.x,ally.y); allyActive=false; ally.active=false;
         score+=300; laserUnlocked=true; announce('⚡ TRAITOR TERMINATED\nLASER CANNON UNLOCKED — KILL TO CHARGE');
       }
-      // Hit boss
+      // Hit boss — laser counts as 10 bullets worth per damage tick
       if(boss.alive && !boss.exploding && Math.abs(boss.x - lx) < boss.w/2+6 && boss.y < ly && boss.y > -40){
-        boss.hp -= chromePower ? 2 : 1;
+        const laserBossDmg = chromePower ? 20 : 10;
+        boss.hp -= laserBossDmg;
         spawnParticles(lx, boss.y+boss.h/2, 5, ['rgba(255,180,0,A)'], 0.8, 0.05, 0.1, 0.5, 2);
         if(boss.hp <= 0){ boss.exploding=true; boss.explodeTimer=0; explodeBoss(); }
       }
@@ -1890,73 +1896,92 @@ function drawHomePlanet(){
 
 function drawMagnaLaser(){
   if(magnaLaserProgress<=0) return;
-  const px=W+60; // laser source offscreen right
-  const tx=W/2, ty=homePlanetY; // target: home planet
-  // current beam end travels from right to planet
-  const endX=px - (px-tx)*magnaLaserProgress;
-  const endY=ty;
+  const px=W/2;          // laser fires from top-center (where Magnathora will be)
+  const py=-20;          // source: just off top edge
+  const tx=W/2, ty=homePlanetY; // target: home planet center
+  // beam travels downward from top to planet
+  const endY=py + (ty-py)*magnaLaserProgress;
   const b=magnaLaserBrightness;
   ctx.save();
   // Outer glow
-  ctx.beginPath(); ctx.moveTo(px,ty); ctx.lineTo(endX,endY);
-  ctx.strokeStyle=`rgba(255,100,0,${0.25*b})`; ctx.lineWidth=24; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(tx,endY);
+  ctx.strokeStyle=`rgba(255,80,0,${0.3*b})`; ctx.lineWidth=28; ctx.stroke();
+  // Mid beam
+  ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(tx,endY);
+  ctx.strokeStyle=`rgba(255,180,40,${0.85*b})`; ctx.lineWidth=8; ctx.stroke();
   // Core
-  ctx.beginPath(); ctx.moveTo(px,ty); ctx.lineTo(endX,endY);
-  ctx.strokeStyle=`rgba(255,220,80,${0.9*b})`; ctx.lineWidth=5; ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(px,ty); ctx.lineTo(endX,endY);
-  ctx.strokeStyle=`rgba(255,255,200,${b})`; ctx.lineWidth=2; ctx.stroke();
-  ctx.restore();
-  // Hint of Magnathora off-screen right
-  ctx.save();
-  ctx.fillStyle=`rgba(180,60,0,${0.5*b})`;
-  ctx.fillRect(W+10,ty-18,30,36);
-  ctx.fillStyle=`rgba(255,120,0,${0.8*b})`;
-  ctx.fillRect(W+15,ty-10,20,20);
+  ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(tx,endY);
+  ctx.strokeStyle=`rgba(255,255,180,${b})`; ctx.lineWidth=2.5; ctx.stroke();
+  // Silhouette of Magnathora partially visible at top
+  ctx.fillStyle=`rgba(120,40,0,${0.7*b})`;
+  ctx.fillRect(W/2-55,py,110,28);
+  ctx.fillStyle=`rgba(220,80,0,${0.9*b})`;
+  ctx.fillRect(W/2-40,py+4,80,16);
   ctx.restore();
 }
 
 function drawMagnaShip(){
   const x=magna.x, y=magna.y, w=magna.w, h=magna.h;
   ctx.save();
-  // Hull — massive, dark, angular
+  // Hull — massive, dark, angular (wider than tall, faces downward)
   ctx.beginPath();
-  ctx.moveTo(x-w/2,y-h/2+12);
-  ctx.lineTo(x-w/2+18,y-h/2);
-  ctx.lineTo(x+w/2-18,y-h/2);
-  ctx.lineTo(x+w/2,y-h/2+12);
-  ctx.lineTo(x+w/2,y+h/2-8);
+  ctx.moveTo(x-w/2+12,y-h/2);
+  ctx.lineTo(x+w/2-12,y-h/2);
+  ctx.lineTo(x+w/2,y-h/2+10);
+  ctx.lineTo(x+w/2,y+h/2-10);
   ctx.lineTo(x+w/2-12,y+h/2);
   ctx.lineTo(x-w/2+12,y+h/2);
-  ctx.lineTo(x-w/2,y+h/2-8);
+  ctx.lineTo(x-w/2,y+h/2-10);
+  ctx.lineTo(x-w/2,y-h/2+10);
   ctx.closePath();
-  const hg=ctx.createLinearGradient(x-w/2,0,x+w/2,0);
-  hg.addColorStop(0,'#1a0800'); hg.addColorStop(0.3,'#4a1500');
-  hg.addColorStop(0.5,'#7a2500'); hg.addColorStop(0.7,'#4a1500'); hg.addColorStop(1,'#1a0800');
+  const hg=ctx.createLinearGradient(0,y-h/2,0,y+h/2);
+  hg.addColorStop(0,'#2a0a00'); hg.addColorStop(0.4,'#5a1800');
+  hg.addColorStop(0.6,'#8a2800'); hg.addColorStop(1,'#3a0e00');
   ctx.fillStyle=hg; ctx.fill();
-  ctx.strokeStyle='#ff4400'; ctx.lineWidth=2; ctx.stroke();
+  ctx.strokeStyle='#ff5500'; ctx.lineWidth=2; ctx.stroke();
 
-  // Main laser cannon on LEFT
-  ctx.fillStyle='#cc2200';
-  ctx.fillRect(x-w/2-20,y-8,24,16);
-  ctx.fillStyle='#ff4400';
-  ctx.fillRect(x-w/2-22,y-5,6,10);
+  // Detail stripes
+  ctx.strokeStyle='rgba(255,80,0,0.3)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(x-w/3,y-h/2); ctx.lineTo(x-w/3,y+h/2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+w/3,y-h/2); ctx.lineTo(x+w/3,y+h/2); ctx.stroke();
+
+  // Main laser cannon pointing DOWNWARD from center-bottom
+  ctx.fillStyle='#aa1800';
+  ctx.fillRect(x-10,y+h/2-4,20,22); // cannon mount
+  ctx.fillStyle='#dd2200';
+  ctx.fillRect(x-7,y+h/2+14,14,16); // barrel
   const lt=Date.now()/200;
-  ctx.fillStyle=`rgba(255,${120+60*Math.sin(lt)},0,0.8)`;
-  ctx.beginPath(); ctx.arc(x-w/2-22,y,5,0,Math.PI*2); ctx.fill();
+  // Muzzle glow at bottom of cannon
+  const mg=ctx.createRadialGradient(x,y+h/2+30,0,x,y+h/2+30,10);
+  mg.addColorStop(0,`rgba(255,${120+60*Math.sin(lt)},0,0.9)`);
+  mg.addColorStop(1,'rgba(255,50,0,0)');
+  ctx.beginPath(); ctx.arc(x,y+h/2+30,10,0,Math.PI*2); ctx.fillStyle=mg; ctx.fill();
 
-  // Hatch on RIGHT
-  const hatchX=x+w/2-8, hatchY=y+8;
-  ctx.fillStyle=magna.hatchOpen?'rgba(0,255,100,0.4)':'#442200';
-  ctx.fillRect(hatchX-6,hatchY-12,12,24);
+  // Hatch on RIGHT side
+  const hatchX=x+w/2, hatchY=y+10;
   if(magna.hatchOpen){
-    ctx.strokeStyle='#00ff88'; ctx.lineWidth=1.5;
-    ctx.strokeRect(hatchX-6,hatchY-12,12,24);
+    // Open hatch — glowing green outline
+    ctx.strokeStyle='#00ff88'; ctx.lineWidth=2;
+    ctx.strokeRect(hatchX-4,hatchY-14,14,28);
+    ctx.fillStyle='rgba(0,255,100,0.25)';
+    ctx.fillRect(hatchX-4,hatchY-14,14,28);
+    // Blinking indicator
+    const bt=Date.now()/400;
+    ctx.fillStyle=`rgba(0,255,150,${0.5+0.5*Math.sin(bt)})`;
+    ctx.beginPath(); ctx.arc(hatchX+3,hatchY,4,0,Math.PI*2); ctx.fill();
+  } else {
+    ctx.fillStyle='#331100';
+    ctx.fillRect(hatchX-4,hatchY-14,14,28);
   }
 
-  // Engine glow
-  const eg=ctx.createRadialGradient(x+8,y+h/2+4,0,x+8,y+h/2+4,18);
-  eg.addColorStop(0,'rgba(100,160,255,0.9)'); eg.addColorStop(1,'rgba(0,0,80,0)');
-  ctx.beginPath(); ctx.arc(x+8,y+h/2+4,18,0,Math.PI*2); ctx.fillStyle=eg; ctx.fill();
+  // Engine glow on LEFT (drive side)
+  const eg=ctx.createRadialGradient(x-w/2-6,y,0,x-w/2-6,y,20);
+  eg.addColorStop(0,'rgba(80,140,255,0.9)'); eg.addColorStop(1,'rgba(0,0,80,0)');
+  ctx.beginPath(); ctx.arc(x-w/2-6,y,20,0,Math.PI*2); ctx.fillStyle=eg; ctx.fill();
+  // Second engine
+  const eg2=ctx.createRadialGradient(x-w/2-6,y-20,0,x-w/2-6,y-20,12);
+  eg2.addColorStop(0,'rgba(80,140,255,0.7)'); eg2.addColorStop(1,'rgba(0,0,80,0)');
+  ctx.beginPath(); ctx.arc(x-w/2-6,y-20,12,0,Math.PI*2); ctx.fillStyle=eg2; ctx.fill();
 
   // If boarding — draw ship interior + pilot
   if(scene==='magnaBoard' && pilot.inShip){
@@ -1976,21 +2001,24 @@ function drawMagnaShip(){
       if(!al.alive)continue;
       ctx.fillStyle='#ff2200';
       ctx.beginPath(); ctx.arc(al.x,al.y,4,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='rgba(255,80,0,0.6)'; ctx.lineWidth=0.8;
+      ctx.beginPath(); ctx.arc(al.x,al.y,4,0,Math.PI*2); ctx.stroke();
     }
-    // Pilot
+    // Pilot (white dot with blue ring)
     ctx.fillStyle='#ffffff';
     ctx.beginPath(); ctx.arc(pilot.x,pilot.y,4,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle='#00aaff'; ctx.lineWidth=1;
+    ctx.strokeStyle='#00aaff'; ctx.lineWidth=1.2;
     ctx.beginPath(); ctx.arc(pilot.x,pilot.y,4,0,Math.PI*2); ctx.stroke();
 
-    // Bomb timer bar
+    // Bomb timer bar below ship
     if(pilot.planted){
-      const pct=bombTimer/300;
-      ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(x-50,y+h/2+10,100,8);
-      ctx.fillStyle=`hsl(${pct*120},100%,55%)`; ctx.fillRect(x-50,y+h/2+10,100*pct,8);
-      ctx.strokeStyle='#ff8800'; ctx.lineWidth=0.8; ctx.strokeRect(x-50,y+h/2+10,100,8);
+      const pct=Math.max(0,bombTimer/300);
+      const bx=x-55, by=y+h/2+38;
+      ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(bx,by,110,8);
+      ctx.fillStyle=`hsl(${pct*120},100%,55%)`; ctx.fillRect(bx,by,110*pct,8);
+      ctx.strokeStyle='#ff8800'; ctx.lineWidth=0.8; ctx.strokeRect(bx,by,110,8);
       ctx.textAlign='center'; ctx.font='bold 7px "Courier New"'; ctx.fillStyle='#ffff00';
-      ctx.fillText('BOMB: '+Math.ceil(bombTimer/60)+'s',x,y+h/2+24);
+      ctx.fillText('BOMB: '+Math.ceil(bombTimer/60)+'s',x,by+20);
     }
   }
   ctx.restore();
@@ -2155,7 +2183,7 @@ function drawHUD(){
   // Laser charge bar
   if(laserUnlocked){
     const barW=90, barH=5, bx=6, by=H-18;
-    const chargePct=Math.min(1, laserCharge / (LASER_TICKS_PER_KILL * 5)); // full bar = 5 kills
+    const chargePct=Math.min(1, laserCharge / LASER_TICKS_PER_KILL); // full bar = one half-second burst
     // Track
     ctx.fillStyle='rgba(80,0,80,0.5)';
     ctx.fillRect(bx, by, barW, barH);
