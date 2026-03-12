@@ -617,7 +617,7 @@ footer p {
     <div class="corner corner-tr"></div>
     <div class="corner corner-bl"></div>
     <div class="corner corner-br"></div>
-    <canvas id="game" width="200" height="300"></canvas>
+    <canvas id="game" width="400" height="600"></canvas>
   </div>
 
   <div class="controls-hint reveal">
@@ -680,7 +680,7 @@ footer p {
 /* ── GAME CODE ── */
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-const W=200, H=300;
+const W=400, H=600;
 
 // ── State ──────────────────────────────────────────────────────────────────
 let score=0, prevMilestone=0;
@@ -942,10 +942,6 @@ function update(){
       const dx=rocket.x-er.x,dy=rocket.y-er.y,len=Math.sqrt(dx*dx+dy*dy)||1,spd=3;
       enemyBullets.push({x:er.x,y:er.y+10,vx:(dx/len)*spd,vy:(dy/len)*spd});
     }
-    if(allyActive&&ally.state==='active'&&er.cd%90===40){
-      const dx=ally.x-er.x,dy=ally.y-er.y,len=Math.sqrt(dx*dx+dy*dy)||1,spd=3;
-      enemyBullets.push({x:er.x,y:er.y+10,vx:(dx/len)*spd,vy:(dy/len)*spd});
-    }
     // Player bullets hit enemy rocket
     for(let j=bullets.length-1;j>=0;j--){
       if(dist(bullets[j].x,bullets[j].y,er.x,er.y)<13){
@@ -1204,18 +1200,42 @@ function drawSpheres(){
   for(const s of spheres){
     s.glow+=0.05;const pulse=0.7+0.3*Math.sin(s.glow);
     const damaged=s.hp<s.maxHp;
+
+    // Generate consistent jagged points using the sphere's glow as a seed offset
+    const points=10;
+    ctx.beginPath();
+    for(let i=0;i<points;i++){
+      const angle=(i/points)*Math.PI*2;
+      const jag=1+0.25*Math.sin(i*2.3+s.glow*0.1)*Math.cos(i*1.7+s.x*0.1);
+      const r=s.r*jag;
+      const px=s.x+Math.cos(angle)*r;
+      const py=s.y+Math.sin(angle)*r;
+      i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+    }
+    ctx.closePath();
+
+    // Rocky color — grey/brown, green tint if damaged
     const g=ctx.createRadialGradient(s.x-s.r*0.3,s.y-s.r*0.3,s.r*0.1,s.x,s.y,s.r);
     if(damaged){
-      g.addColorStop(0,`rgba(180,255,180,${pulse})`);g.addColorStop(0.3,`rgba(30,180,30,${pulse})`);
-      g.addColorStop(0.7,`rgba(0,100,0,${pulse*0.9})`);g.addColorStop(1,'rgba(0,30,0,0.4)');
+      g.addColorStop(0,`rgba(160,220,140,${pulse})`);
+      g.addColorStop(0.5,`rgba(80,140,60,${pulse})`);
+      g.addColorStop(1,`rgba(30,60,20,0.9)`);
     } else {
-      g.addColorStop(0,`rgba(200,230,255,${pulse})`);g.addColorStop(0.3,`rgba(50,130,255,${pulse})`);
-      g.addColorStop(0.7,`rgba(0,60,200,${pulse*0.9})`);g.addColorStop(1,'rgba(0,20,100,0.4)');
+      g.addColorStop(0,`rgba(200,190,170,${pulse})`);
+      g.addColorStop(0.5,`rgba(110,100,85,${pulse})`);
+      g.addColorStop(1,`rgba(40,35,25,0.9)`);
     }
-    ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();
-    const og=ctx.createRadialGradient(s.x,s.y,s.r*0.7,s.x,s.y,s.r*1.5);
-    og.addColorStop(0,`rgba(50,100,255,${0.2*pulse})`);og.addColorStop(1,'rgba(0,0,255,0)');
-    ctx.beginPath();ctx.arc(s.x,s.y,s.r*1.5,0,Math.PI*2);ctx.fillStyle=og;ctx.fill();
+    ctx.fillStyle=g;ctx.fill();
+    ctx.strokeStyle=damaged?`rgba(80,160,60,0.6)`:`rgba(60,50,35,0.8)`;
+    ctx.lineWidth=1;ctx.stroke();
+
+    // Crater details
+    const craters=[{ox:-s.r*0.3,oy:-s.r*0.2,r:s.r*0.18},{ox:s.r*0.25,oy:s.r*0.3,r:s.r*0.12},{ox:-s.r*0.1,oy:s.r*0.35,r:s.r*0.09}];
+    for(const cr of craters){
+      ctx.beginPath();ctx.arc(s.x+cr.ox,s.y+cr.oy,cr.r,0,Math.PI*2);
+      ctx.fillStyle=`rgba(20,18,12,0.5)`;ctx.fill();
+      ctx.strokeStyle=`rgba(80,70,55,0.4)`;ctx.lineWidth=0.5;ctx.stroke();
+    }
   }
 }
 
