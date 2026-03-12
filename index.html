@@ -701,7 +701,7 @@ let milestoneFlash='', milestoneFlashTimer=0;
 let stars=[];
 for(let i=0;i<40;i++) stars.push({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.2+0.3,tw:Math.random()*Math.PI*2});
 
-const rocket={x:W/2,y:H-40,w:14,h:22,speed:2.5,left:false,right:false,cd:0};
+const rocket={x:W/2,y:H-40,w:14,h:22,speed:2.5,left:false,right:false,cd:0,firing:false};
 const ally={x:W*0.25,y:H-40,w:12,h:20,state:'idle',turnTimer:0,shootTimer:0,active:false};
 const er={x:W*0.75,y:40,w:12,h:20,alive:false,cd:0};
 const boss={x:W/2,y:-60,w:42,h:36,alive:false,hp:10,maxHp:10,cd1:0,cd2:0,enterDone:false,exploding:false,explodeTimer:0};
@@ -798,10 +798,15 @@ function update(){
 
   // Player movement
   if(rocketAlive){
-    if(rocket.left)rocket.x=Math.max(rocket.w/2,rocket.x-rocket.speed);
-    if(rocket.right)rocket.x=Math.min(W-rocket.w/2,rocket.x+rocket.speed);
-    if(rocket.cd>0)rocket.cd--;
+  if(rocket.left)rocket.x=Math.max(rocket.w/2,rocket.x-rocket.speed);
+  if(rocket.right)rocket.x=Math.min(W-rocket.w/2,rocket.x+rocket.speed);
+  if(rocket.cd>0)rocket.cd--;
+  if(score>=1000 && rocket.firing && rocket.cd===0){
+    const dmg=chromePower?2:1;
+    bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,speed:5,dmg});
+    rocket.cd=14;
   }
+}
 
   // Move player bullets up
   for(let i=bullets.length-1;i>=0;i--){
@@ -1098,11 +1103,11 @@ function drawRocketShape(x,y,w,h,chrome,flipped){
     ctx.fillStyle=cg;
   } else {
     const bg=ctx.createLinearGradient(x-w/2,0,x+w/2,0);
-    bg.addColorStop(0,'#b0c8ff');bg.addColorStop(0.5,'#ffffff');bg.addColorStop(1,'#7090cc');
+    bg.addColorStop(0,'#dddddd');bg.addColorStop(0.5,'#ffffff');bg.addColorStop(1,'#dddddd');
     ctx.fillStyle=bg;
   }
   ctx.fill();
-  ctx.strokeStyle=chrome?'#aaaaaa':'#4488ff';ctx.lineWidth=0.8;ctx.stroke();
+  ctx.strokeStyle=chrome?'#aaaaaa':'#cccccc';ctx.lineWidth=0.8;ctx.stroke();
   // Window
   ctx.beginPath();ctx.arc(x,y+dir*2,3,0,Math.PI*2);
   ctx.fillStyle=chrome?'rgba(200,230,255,0.9)':'rgba(80,180,255,0.85)';ctx.fill();
@@ -1354,21 +1359,16 @@ function loop(){update();draw();requestAnimationFrame(loop);}
 document.addEventListener('keydown',e=>{
   if(e.key==='ArrowLeft'||e.key==='a'){rocket.left=true;e.preventDefault();}
   if(e.key==='ArrowRight'||e.key==='d'){rocket.right=true;e.preventDefault();}
-  if((e.key===' '||e.key==='ArrowUp')&&rocketAlive&&rocket.cd===0&&!warpPhase&&!gameWon){
-    const dmg=chromePower?2:1;
-    bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,speed:5,dmg});
-    rocket.cd=14;e.preventDefault();
-  }
+  if(e.key===' '||e.key==='ArrowUp'){rocket.firing=true;e.preventDefault();}
 });
 document.addEventListener('keyup',e=>{
   if(e.key==='ArrowLeft'||e.key==='a')rocket.left=false;
   if(e.key==='ArrowRight'||e.key==='d')rocket.right=false;
+  if(e.key===' '||e.key==='ArrowUp')rocket.firing=false;
 });
+canvas.addEventListener('touchend',()=>{ rocket.firing=false; });
 canvas.addEventListener('touchstart',e=>{
-  if(rocketAlive&&rocket.cd===0&&!warpPhase&&!gameWon){
-    const dmg=chromePower?2:1;
-    bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,speed:5,dmg});rocket.cd=14;
-  }
+  rocket.firing=true;
   e.preventDefault();},{passive:false});
 canvas.addEventListener('touchmove',e=>{
   const rect=canvas.getBoundingClientRect();
