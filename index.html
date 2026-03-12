@@ -696,6 +696,7 @@ let bossActive=false;
 let gameWon=false, winTimer=0, planetY=-40;
 let warpPhase=false, warpTimer=0;
 let announcement='', announcementTimer=0;
+let milestoneFlash='', milestoneFlashTimer=0;
 
 let stars=[];
 for(let i=0;i<40;i++) stars.push({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.2+0.3,tw:Math.random()*Math.PI*2});
@@ -761,6 +762,7 @@ function reset(){
 // ── Milestone checks ───────────────────────────────────────────────────────
 function checkMilestones(){
   const m=Math.floor(score/1000)*1000;
+  if(m>prevMilestone){ milestoneFlash=m.toLocaleString()+' PTS'; milestoneFlashTimer=90; }
   if(m<=prevMilestone)return;
   prevMilestone=m;
   if(m===4000&&!warpPhase&&!chromePower){warpPhase=true;warpTimer=0;announce('SPACE WARP! CHROME UPGRADE!');}
@@ -932,7 +934,19 @@ function update(){
       }
     }
   }
-
+  // Player bullets hit turned ally
+  if(allyActive && ally.state==='enemy'){
+    for(let j=bullets.length-1;j>=0;j--){
+      if(dist(bullets[j].x,bullets[j].y,ally.x,ally.y)<12){
+        bullets.splice(j,1);
+        explodeAt(ally.x,ally.y);
+        allyActive=false;ally.active=false;
+        score+=300;
+        announce('TRAITOR ELIMINATED!');
+        break;
+      }
+    }
+  }
   // Enemy Rocket AI
   if(er.alive){
     er.cd++;
@@ -1292,6 +1306,28 @@ function drawHUD(){
     ctx.textAlign='center';ctx.font='bold 14px "Courier New"';ctx.fillStyle='#ff4422';
     ctx.fillText('DESTROYED',W/2,H/2-8);
     ctx.font='9px "Courier New"';ctx.fillStyle='#aaccff';ctx.fillText('restarting...',W/2,H/2+10);
+  }
+  if(milestoneFlashTimer>0){
+  milestoneFlashTimer--;
+  const progress=milestoneFlashTimer/90;
+  const scale=1+0.6*(1-Math.min(1,(90-milestoneFlashTimer)/15)); // pop in big, settle
+  const alpha=milestoneFlashTimer<20?milestoneFlashTimer/20:1;
+  ctx.save();
+  ctx.globalAlpha=alpha;
+  ctx.translate(W/2,H/2);
+  ctx.scale(scale,scale);
+  ctx.textAlign='center';
+  ctx.shadowColor='#00ffff';
+  ctx.shadowBlur=40;
+  ctx.font='bold 28px "Orbitron", "Courier New"';
+  ctx.fillStyle='#ffffff';
+  ctx.fillText(milestoneFlash,0,-10);
+  ctx.shadowBlur=0;
+  ctx.font='bold 10px "Courier New"';
+  ctx.fillStyle='#ffcc00';
+  ctx.letterSpacing='4px';
+  ctx.fillText('MILESTONE',0,12);
+  ctx.restore();
   }
 }
 
