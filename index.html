@@ -456,7 +456,7 @@ footer p {
 
 <!-- ── VERSION BAR ── -->
 <div style="position:fixed;top:0;left:0;width:100%;z-index:9999;background:rgba(0,0,0,0.75);border-bottom:1px solid rgba(0,200,255,0.2);text-align:center;padding:5px 0;font-family:'Orbitron','Courier New',monospace;font-size:11px;letter-spacing:3px;color:rgba(0,210,255,0.8);pointer-events:none;">
-  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.0.8</span>
+  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.0.9</span>
 </div>
 <div style="height:26px"></div><!-- spacer so content isn't hidden under bar -->
 
@@ -887,6 +887,11 @@ let satBullets = [];
 let entryVisible = false;
 let entryDrones = [];
 let droneBullets = [];
+// Planet zoom-in after sats destroyed
+let enemyPlanetZoomed = false;       // true once all sats are dead
+let enemyPlanetZoomProgress = 0;    // 0→1 over ~120 frames
+const ENEMY_PLANET_ZOOMED_R = 0;    // computed at zoom time, stored here
+let enemyPlanetTargetY = 0;         // y when zoomed (sit at H/4 so it fills top half)
 
 let gameWon=false, winTimer=0, planetY=-40;
 let warpPhase=false, warpTimer=0;
@@ -985,6 +990,7 @@ function reset(){
   warpLineStars=[];warpProgress=0;
   enemyPlanet.x=W/2;enemyPlanet.y=-150;
   satellites=[];satBullets=[];entryVisible=false;entryDrones=[];droneBullets=[];
+  enemyPlanetZoomed=false;enemyPlanetZoomProgress=0;enemyPlanetTargetY=0;
   gameWon=false;winTimer=0;planetY=-40;
   warpPhase=false;warpTimer=0;
   rocket.x=W/2;rocket.y=H-40;rocket.left=false;rocket.right=false;rocket.up=false;rocket.down=false;rocket.cd=0;
@@ -1373,35 +1379,30 @@ function updateBoarding(){
     if(dist(pilot.x, pilot.y, rocket.x, rocket.y) < 10 || cinematicTimer > 80){
       cinematicPhase = 5;
       cinematicTimer = 0;
-      bombTimer = 300; // reset to exactly 5 seconds for the escape phase
-      announce('⚠ 5 SECOND DETONATION!\nMOVE AWAY FROM MAGNATHORA IMMEDIATELY!');
+      bombTimer = 180; // 3 seconds for auto-departure animation
+      announce('⚠ BOMB ARMED — DEPARTING NOW!\nWARP SEQUENCE INITIATING...');
     }
   }
 
-  // ── Phase 5: PLAYER CONTROLS rocket — fly away from Magnathora into warp zone ──
+  // ── Phase 5: AUTO-DEPARTURE — rocket flies away from Magnathora to warp zone ──
   else if(cinematicPhase === 5){
     pilot.x = rocket.x;
     pilot.y = rocket.y;
 
-    // *** PLAYER takes control of rocket here ***
-    if(rocket.left)  rocket.x = Math.max(rocket.w/2, rocket.x - rocket.speed*2);
-    if(rocket.right) rocket.x = Math.min(W-rocket.w/2, rocket.x + rocket.speed*2);
-    if(rocket.up)    rocket.y = Math.max(0, rocket.y - rocket.speed*2);
-    if(rocket.down)  rocket.y = Math.min(H-rocket.h/2, rocket.y + rocket.speed*2);
+    // Animate rocket flying toward bottom-center (warp zone) automatically
+    const warpTargetX = W / 2;
+    const warpTargetY = H + 40; // fly off bottom edge into warp
+    const dxW = warpTargetX - rocket.x;
+    const dyW = warpTargetY - rocket.y;
+    const distW = Math.sqrt(dxW*dxW + dyW*dyW) || 1;
+    const departSpeed = 4.5;
+    rocket.x += (dxW / distW) * departSpeed;
+    rocket.y += (dyW / distW) * departSpeed;
 
     if(bombTimer > 0) bombTimer--;
 
-    // Show countdown every second
-    const secs = Math.ceil(bombTimer/60);
-    if(bombTimer > 0 && bombTimer % 60 === 0){
-      announce('⚠ DETONATION IN '+secs+'s\nMOVE AWAY FROM MAGNATHORA · FLY TO WARP ZONE!');
-    }
-
-    // Warp zone — glowing cyan area at bottom of screen
-    const warpZoneY = H - 40;
-    const inWarpZone = rocket.y > warpZoneY - 20 && Math.abs(rocket.x - W/2) < W*0.35;
-
-    if(bombTimer <= 0 || inWarpZone){
+    // Trigger warp once rocket has cleared far enough down
+    if(rocket.y > H + 20 || bombTimer <= 0){
       triggerMagnaExplode();
       return;
     }
@@ -1471,16 +1472,18 @@ function getHatchPos(){
 
 // ── ENEMY ORBIT SETUP ─────────────────────────────────────────────────────
 function initEnemyWorld(){
+  // Planet starts same visual size as the player's homeworld (r=55), at center
   enemyPlanet.x=W/2; enemyPlanet.y=H/2;
-  enemyPlanet.r=0; // grows in
+  enemyPlanet.r=55;  // same as homePlanetR final size — matches homeworld
+  enemyPlanetZoomed=false; enemyPlanetZoomProgress=0; enemyPlanetTargetY=0;
   satellites=[];
   const COUNT=40;
   for(let i=0;i<COUNT;i++){
     const angle=(i/COUNT)*Math.PI*2;
-    const orbitR=200+Math.random()*30;
+    const orbitR=160+Math.random()*30;
     satellites.push({
       angle, orbitR, speed:0.008+Math.random()*0.006,
-      x:0,y:0, hp:2, maxHp:2, cd:0, alive:true
+      x:0,y:0, hp:10, maxHp:10, cd:Math.floor(Math.random()*90), alive:true
     });
   }
   satBullets=[];
@@ -1495,8 +1498,21 @@ function initEnemyWorld(){
 
 function updateEnemyOrbit(){
   sceneTimer++;
-  // Grow planet
-  if(enemyPlanet.r < 160) enemyPlanet.r += 0.5;
+
+  // ── Planet zoom-in after all sats destroyed ──────────────────────────
+  if(enemyPlanetZoomed){
+    enemyPlanetZoomProgress = Math.min(1, enemyPlanetZoomProgress + 0.008);
+    const t = enemyPlanetZoomProgress;
+    // Ease in-out
+    const ease = t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
+    // Target: planet fills top half → r ≈ H/2, centered at y = H/4
+    const targetR = H * 0.52;
+    const startR  = 55;
+    const startY  = H/2;
+    const tY      = H * 0.26;
+    enemyPlanet.r = startR + (targetR - startR) * ease;
+    enemyPlanet.y = startY + (tY - startY) * ease;
+  }
 
   // Player movement (full freedom this scene)
   if(rocketAlive){
@@ -1512,7 +1528,7 @@ function updateEnemyOrbit(){
     }
   }
 
-  // Satellite orbit + fire
+  // Satellite orbit + fire (one bullet at a time)
   let aliveSats=0;
   for(const sat of satellites){
     if(!sat.alive) continue;
@@ -1521,6 +1537,7 @@ function updateEnemyOrbit(){
     sat.x=enemyPlanet.x+Math.cos(sat.angle)*sat.orbitR;
     sat.y=enemyPlanet.y+Math.sin(sat.angle)*sat.orbitR;
     sat.cd++;
+    // Fire one bullet toward player
     if(sat.cd%90===0 && rocketAlive){
       const dx=rocket.x-sat.x, dy=rocket.y-sat.y, l=Math.sqrt(dx*dx+dy*dy)||1;
       satBullets.push({x:sat.x,y:sat.y,vx:dx/l*2.5,vy:dy/l*2.5});
@@ -1596,26 +1613,47 @@ function updateEnemyOrbit(){
   }
   if(!rocketAlive){gameOverTimer++;if(gameOverTimer>150&&particles.length<5)reset();return;}
 
-  // All sats dead → reveal entry + drones
+  // All sats dead → trigger zoom + reveal entry + 4 drones
   if(aliveSats===0 && !entryVisible){
     entryVisible=true;
-    // Spawn 6 guard drones around the atmospheric gateway entry point
-    const ey_entry=enemyPlanet.y-enemyPlanet.r+10;
-    for(let i=0;i<6;i++){
-      entryDrones.push({x:enemyPlanet.x+(i-2.5)*26,y:ey_entry-28,hp:4,cd:0,alive:true});
+    enemyPlanetZoomed=true;
+    // Wait a moment then place drones after zoom starts settling
+    // Drones will circle the atmospheric gateway: 4 drones, 100hp each
+    // Their position updates each frame relative to the entry point
+    for(let i=0;i<4;i++){
+      const angle=(i/4)*Math.PI*2;
+      entryDrones.push({
+        baseAngle:angle,   // orbit angle around the gateway
+        orbitR:40,         // orbit radius around entry point
+        angle:angle,
+        x:0,y:0,
+        hp:100, maxHp:100, cd:Math.floor(i*15), alive:true
+      });
     }
-    announce('◈ ATMOSPHERIC GATEWAY REVEALED\nDESTROY ALL DRONES TO ENTER · FLY IN TO DESTROY');
+    announce('◈ SATELLITES DESTROYED\nATMOSPHERIC GATEWAY REVEALED — DESTROY DRONES TO ENTER');
   }
 
   if(entryVisible){
-    // Drone AI
+    const entryX=enemyPlanet.x;
+    const entryY=enemyPlanet.y - enemyPlanet.r + 10;
+
+    // Drone AI — orbit the atmospheric gateway entry
     let aliveDrones=0;
     for(const d of entryDrones){
       if(!d.alive)continue; aliveDrones++;
-      d.cd++; d.x+=Math.sin(d.cd*0.04)*0.8;
-      if(d.cd%60===0&&rocketAlive){
-        const dx=rocket.x-d.x,dy=rocket.y-d.y,l=Math.sqrt(dx*dx+dy*dy)||1;
-        droneBullets.push({x:d.x,y:d.y,vx:dx/l*3,vy:dy/l*3});
+      d.cd++;
+      // Circle the gateway
+      d.angle = d.baseAngle + d.cd * 0.022;
+      d.x = entryX + Math.cos(d.angle) * d.orbitR;
+      d.y = entryY + Math.sin(d.angle) * d.orbitR * 0.5;
+      // Double guns — fire two bullets simultaneously
+      if(d.cd%60===0 && rocketAlive){
+        const dx=rocket.x-d.x, dy=rocket.y-d.y, l=Math.sqrt(dx*dx+dy*dy)||1;
+        // Left and right cannon offset
+        const perp={x:-dy/l, y:dx/l};
+        const gunOffset=5;
+        droneBullets.push({x:d.x+perp.x*gunOffset, y:d.y+perp.y*gunOffset, vx:dx/l*3.2,vy:dy/l*3.2});
+        droneBullets.push({x:d.x-perp.x*gunOffset, y:d.y-perp.y*gunOffset, vx:dx/l*3.2,vy:dy/l*3.2});
       }
     }
     // Drone bullets
@@ -1629,21 +1667,33 @@ function updateEnemyOrbit(){
     }
     // Player bullets hit drones
     for(let j=bullets.length-1;j>=0;j--){
-      for(const d of entryDrones){
+      for(let k=entryDrones.length-1;k>=0;k--){
+        const d=entryDrones[k];
         if(!d.alive)continue;
-        if(dist(bullets[j].x,bullets[j].y,d.x,d.y)<12){
-          d.hp-=bullets[j].dmg||1; bullets.splice(j,1);
-          if(d.hp<=0){d.alive=false;score+=200;
-            spawnParticles(d.x,d.y,18,['rgba(255,80,0,A)','rgba(255,200,0,A)'],1.2,0.02,0.05,1,4);}
+        if(dist(bullets[j].x,bullets[j].y,d.x,d.y)<16){
+          d.hp-=bullets[j].dmg||1;
+          bullets.splice(j,1);
+          playEnemyHit();
+          spawnParticles(d.x,d.y,6,['rgba(255,120,0,A)','rgba(255,200,0,A)'],0.8,0.04,0.08,0.5,2);
+          if(d.hp<=0){
+            d.alive=false; score+=300;
+            spawnParticles(d.x,d.y,20,['rgba(255,100,0,A)','rgba(255,200,50,A)','rgba(200,50,0,A)'],1.2,0.02,0.05,1,4);
+          }
           break;
         }
       }
     }
-    // All drones dead — player can enter atmospheric gateway
-    if(aliveDrones===0){
-      const entryX=enemyPlanet.x, entryY=enemyPlanet.y-enemyPlanet.r+10;
-      if(rocketAlive&&dist(rocket.x,rocket.y,entryX,entryY)<28){
-        scene='finalDive';sceneTimer=0;
+    // All drones dead → player can fly into gateway
+    if(aliveDrones===0 && entryDrones.length>0){
+      // Only trigger once
+      if(!entryDrones._allDead){
+        entryDrones._allDead=true;
+        announce('◈ DRONES ELIMINATED\nFLY INTO THE GATEWAY TO END THIS!');
+      }
+      // Check if rocket reaches the entry portal
+      if(rocketAlive&&dist(rocket.x,rocket.y,entryX,entryY)<30){
+        scene='finalDive'; sceneTimer=0;
+        announce('★ FINAL APPROACH — NO TURNING BACK\nFOR ELYSIAN-4. FOR ALL OF THEM.');
       }
     }
   }
@@ -2832,6 +2882,11 @@ function drawEnemyWorld(){
     // solar panel stubs
     ctx.fillStyle='rgba(0,180,255,0.6)';
     ctx.fillRect(-9,-2,4,4); ctx.fillRect(5,-2,4,4);
+    // HP bar (10hp)
+    ctx.rotate(-(sat.angle*2)); // keep bar upright
+    const bw=14, bh=2;
+    ctx.fillStyle='rgba(80,0,0,0.8)'; ctx.fillRect(-bw/2,7,bw,bh);
+    ctx.fillStyle=`hsl(${(sat.hp/sat.maxHp)*120},100%,50%)`; ctx.fillRect(-bw/2,7,bw*(sat.hp/sat.maxHp),bh);
     ctx.restore();
   }
   // Sat bullets
@@ -2839,29 +2894,50 @@ function drawEnemyWorld(){
     ctx.beginPath(); ctx.arc(b.x,b.y,3,0,Math.PI*2);
     ctx.fillStyle='rgba(255,80,0,0.9)'; ctx.fill();
   }
-  // Drones — only draw when entry is visible (after all sats destroyed)
+  // Drones — circle the atmospheric gateway (drawn only when entry is visible)
   if(entryVisible){
     for(const d of entryDrones){
       if(!d.alive)continue;
       ctx.save();
       ctx.translate(d.x,d.y);
       const dp=0.7+0.3*Math.sin(Date.now()/150);
-      ctx.shadowColor='#ff4400'; ctx.shadowBlur=10*dp;
+      // Angle drone toward player for visual direction
+      const dang=Math.atan2(rocket.y-d.y, rocket.x-d.x);
+      ctx.rotate(dang + Math.PI/2);
+      ctx.shadowColor='#ff4400'; ctx.shadowBlur=12*dp;
       ctx.fillStyle=`rgba(255,${Math.floor(30+30*dp)},0,0.95)`;
+      // Main drone body
       ctx.beginPath();
-      ctx.moveTo(0,-10); ctx.lineTo(9,8); ctx.lineTo(0,4); ctx.lineTo(-9,8); ctx.closePath();
+      ctx.moveTo(0,-13); ctx.lineTo(10,8); ctx.lineTo(0,4); ctx.lineTo(-10,8); ctx.closePath();
       ctx.fill(); ctx.strokeStyle='#ff8800'; ctx.lineWidth=1.2; ctx.stroke();
-      // Drone HP bar
-      ctx.shadowBlur=0; ctx.fillStyle='rgba(0,0,0,0.5)';
-      ctx.fillRect(-8,12,16,3); ctx.fillStyle=`hsl(${(d.hp/4)*120},100%,55%)`;
-      ctx.fillRect(-8,12,16*(d.hp/4),3);
+      // Double cannon barrels — left and right of center
+      ctx.fillStyle='#cc3300';
+      ctx.fillRect(-7, 4, 4, 10);
+      ctx.fillRect( 3, 4, 4, 10);
+      ctx.fillStyle='#ff6600';
+      ctx.fillRect(-6.5, 5, 3, 8);
+      ctx.fillRect( 3.5, 5, 3, 8);
+      // Reset rotation for HP bar
+      ctx.rotate(-(dang + Math.PI/2));
+      ctx.shadowBlur=0;
+      // HP bar (100hp)
+      const bw=28, bh=4;
+      ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(-bw/2,14,bw,bh);
+      ctx.fillStyle=`hsl(${(d.hp/d.maxHp)*120},100%,55%)`; ctx.fillRect(-bw/2,14,bw*(d.hp/d.maxHp),bh);
+      ctx.strokeStyle='rgba(255,80,0,0.5)'; ctx.lineWidth=0.6; ctx.strokeRect(-bw/2,14,bw,bh);
+      // HP text
+      ctx.font='bold 6px "Courier New"'; ctx.textAlign='center';
+      ctx.fillStyle='rgba(255,200,100,0.9)';
+      ctx.fillText(d.hp+'/'+d.maxHp, 0, 26);
       ctx.restore();
     }
   }
-  // Drone bullets
+  // Drone bullets — dual yellow bolts
   for(const b of droneBullets){
-    ctx.beginPath(); ctx.arc(b.x,b.y,3,0,Math.PI*2);
-    ctx.fillStyle='rgba(255,200,0,0.9)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(b.x,b.y,3.5,0,Math.PI*2);
+    const dg=ctx.createRadialGradient(b.x,b.y,0,b.x,b.y,3.5);
+    dg.addColorStop(0,'rgba(255,255,100,1)'); dg.addColorStop(1,'rgba(255,100,0,0)');
+    ctx.fillStyle=dg; ctx.fill();
   }
 }
 
@@ -3007,6 +3083,50 @@ function drawHUD(){
     ctx.fillStyle= laserCharge>0 ? '#ff88ff' : 'rgba(150,0,180,0.5)';
     ctx.fillText('LASER'+(laserCharge>0?' ▮':' —'), bx, by-2);
   }
+  // ── Enemy Orbit HUD ──────────────────────────────────────────────────────
+  if(scene==='enemyOrbit'){
+    ctx.save();
+    if(!entryVisible){
+      // Satellite counter
+      const aliveSatCount = satellites.filter(s=>s.alive).length;
+      const satPct = aliveSatCount / 40;
+      ctx.textAlign='center';
+      ctx.font='bold 8px "Orbitron","Courier New"';
+      ctx.fillStyle='rgba(255,180,0,0.9)';
+      ctx.shadowColor='#ffaa00'; ctx.shadowBlur=8;
+      ctx.fillText('SATELLITES: '+aliveSatCount+' / 40', W/2, H-28);
+      ctx.shadowBlur=0;
+      // Bar
+      const bw=140, bh=4, bx=W/2-bw/2, by=H-20;
+      ctx.fillStyle='rgba(80,40,0,0.6)'; ctx.fillRect(bx,by,bw,bh);
+      ctx.fillStyle=`hsl(${satPct*55},100%,55%)`; ctx.fillRect(bx,by,bw*satPct,bh);
+      ctx.strokeStyle='rgba(255,160,0,0.5)'; ctx.lineWidth=0.8; ctx.strokeRect(bx,by,bw,bh);
+    } else {
+      // Drone counter
+      const aliveDroneCount = entryDrones.filter(d=>d.alive).length;
+      if(aliveDroneCount > 0){
+        ctx.textAlign='center';
+        ctx.font='bold 8px "Orbitron","Courier New"';
+        ctx.fillStyle='rgba(255,80,0,0.95)';
+        ctx.shadowColor='#ff4400'; ctx.shadowBlur=10;
+        ctx.fillText('DRONES: '+aliveDroneCount+' / 4', W/2, H-28);
+        ctx.shadowBlur=0;
+        const bw=100, bh=4, bx=W/2-bw/2, by=H-20;
+        ctx.fillStyle='rgba(80,0,0,0.6)'; ctx.fillRect(bx,by,bw,bh);
+        ctx.fillStyle='#ff4400'; ctx.fillRect(bx,by,bw*(aliveDroneCount/4),bh);
+        ctx.strokeStyle='rgba(255,60,0,0.5)'; ctx.lineWidth=0.8; ctx.strokeRect(bx,by,bw,bh);
+      } else {
+        ctx.textAlign='center';
+        ctx.font='bold 8px "Orbitron","Courier New"';
+        const gpulse=0.6+0.4*Math.sin(Date.now()/200);
+        ctx.fillStyle=`rgba(0,255,180,${gpulse})`;
+        ctx.shadowColor='#00ffaa'; ctx.shadowBlur=12;
+        ctx.fillText('▲ FLY INTO THE GATEWAY ▲', W/2, H-18);
+        ctx.shadowBlur=0;
+      }
+    }
+    ctx.restore();
+  }
   // Announcement — supports "HEADER\nsubline" format
   if(announcementTimer>0){
     const a=Math.min(1,announcementTimer/40);
@@ -3057,16 +3177,16 @@ function drawHUD(){
       ctx.fillStyle=s.done?'#44ff88':'rgba(150,180,200,0.7)';
       ctx.fillText((s.done?'✓ ':'○ ')+s.label, 10, H-52+i*13);
     });
-    // Phase 5 escape indicator
+    // Phase 5 auto-departure indicator
     if(cinematicPhase===5){
       ctx.fillStyle='rgba(0,0,20,0.8)'; ctx.fillRect(0,H-60,W,60);
       ctx.textAlign='center';
-      ctx.shadowColor='#ff4400'; ctx.shadowBlur=20;
-      ctx.font='bold 10px "Orbitron","Courier New"'; ctx.fillStyle='#ff6622';
-      ctx.fillText('⚠ FLY YOUR ROCKET TO THE WARP ZONE BELOW!', W/2, H-38);
+      ctx.shadowColor='#00ccff'; ctx.shadowBlur=20;
+      ctx.font='bold 10px "Orbitron","Courier New"'; ctx.fillStyle='#44ddff';
+      ctx.fillText('◈ DEPARTING — WARP SEQUENCE INITIATED', W/2, H-38);
       ctx.shadowBlur=0;
       ctx.font='bold 8px "Courier New"'; ctx.fillStyle='rgba(150,200,255,0.8)';
-      ctx.fillText('USE ARROW KEYS / WASD  ·  AVOID THE BLAST ZONE', W/2, H-22);
+      ctx.fillText('BOMB ARMED · CLEAR OF BLAST ZONE', W/2, H-22);
     }
     // Bomb bar if planted (not in escape phase)
     if(pilot.planted && !pilot.escaped && cinematicPhase<5){
@@ -3195,7 +3315,7 @@ function drawTitleScreen(){
   ctx.textAlign='center';
   ctx.fillStyle='rgba(80,120,160,0.6)';
   ctx.font='8px "Courier New"';
-  ctx.fillText('v1.0.8', cx, H - 12);
+  ctx.fillText('v1.0.9', cx, H - 12);
   ctx.restore();
 }
 
@@ -3243,8 +3363,6 @@ function draw(){
         if(rocketAlive) drawRocketShape(rocket.x,rocket.y,rocket.w,rocket.h,'blue',false);
         drawAlienShots();
       }
-      // Draw warp zone indicator during phase 5 escape
-      if(scene==='magnaBoard' && cinematicPhase===5) drawWarpZone();
     } else if(scene==='magnaExplode'){
       drawParticles();
     } else if(scene==='enemyOrbit'||scene==='finalDive'){
