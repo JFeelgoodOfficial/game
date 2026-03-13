@@ -454,6 +454,12 @@ footer p {
 </head>
 <body>
 
+<!-- ── VERSION BAR ── -->
+<div style="position:fixed;top:0;left:0;width:100%;z-index:9999;background:rgba(0,0,0,0.75);border-bottom:1px solid rgba(0,200,255,0.2);text-align:center;padding:5px 0;font-family:'Orbitron','Courier New',monospace;font-size:11px;letter-spacing:3px;color:rgba(0,210,255,0.8);pointer-events:none;">
+  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.0.0</span>
+</div>
+<div style="height:26px"></div><!-- spacer so content isn't hidden under bar -->
+
 <!-- ── BACKGROUND STARFIELD ── -->
 <canvas id="starfield"></canvas>
 
@@ -761,7 +767,7 @@ const rocket={x:W/2,y:H-40,w:14,h:22,speed:2.5,left:false,right:false,up:false,d
 const ally={x:W*0.25,y:H-40,w:12,h:20,state:'idle',turnTimer:0,shootTimer:0,active:false,
   // independent movement waypoint
   wx:W*0.25,wy:H-40,moveTimer:0};
-const er={x:W*0.75,y:40,w:12,h:20,alive:false,cd:0};
+const er={x:W*0.75,y:40,w:24,h:40,alive:false,cd:0,hp:20,maxHp:20};
 const boss={x:W/2,y:-60,w:42,h:36,alive:false,hp:50,maxHp:50,cd1:0,cd2:0,enterDone:false,exploding:false,explodeTimer:0};
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -809,7 +815,7 @@ function reset(){
   rocketAlive=true;gameOverTimer=0;spawnTimer=0;spawnInterval=90;
   chromePower=false;shieldHits=0;
   allyActive=false;allyTurned=false;ally.state='idle';ally.x=W*0.25;ally.y=H-40;ally.shootTimer=0;ally.active=false;
-  enemyRocketActive=false;er.alive=false;er.x=W*0.75;er.y=40;er.cd=0;
+  enemyRocketActive=false;er.alive=false;er.x=W*0.75;er.y=40;er.cd=0;er.hp=20;
   bossActive=false;boss.alive=false;boss.y=-60;boss.hp=50;boss.enterDone=false;boss.exploding=false;boss.explodeTimer=0;boss.cd1=0;boss.cd2=0;
   gameWon=false;winTimer=0;planetY=-40;
   warpPhase=false;warpTimer=0;
@@ -1511,24 +1517,31 @@ function update(){
     er.x=Math.max(10,Math.min(W-10,er.x));
     if(er.cd%65===0&&rocketAlive){
       const dx=rocket.x-er.x,dy=rocket.y-er.y,len=Math.sqrt(dx*dx+dy*dy)||1,spd=3;
-      enemyBullets.push({x:er.x,y:er.y+10,vx:(dx/len)*spd,vy:(dy/len)*spd});
+      enemyBullets.push({x:er.x,y:er.y+20,vx:(dx/len)*spd,vy:(dy/len)*spd});
     }
-    // Player bullets hit enemy rocket
+    // Player bullets hit enemy rocket — 20 hp total
     for(let j=bullets.length-1;j>=0;j--){
-      if(dist(bullets[j].x,bullets[j].y,er.x,er.y)<13){
+      if(dist(bullets[j].x,bullets[j].y,er.x,er.y)<22){
+        er.hp-=bullets[j].dmg||1;
+        spawnParticles(bullets[j].x,bullets[j].y,5,['rgba(255,100,0,A)'],0.8,0.05,0.1,0.5,2);
         bullets.splice(j,1);
-        explodeAt(er.x,er.y);er.alive=false;enemyRocketActive=false;
-        shieldHits=3;score+=500;announce('✦ BOGEY DESTROYED\nENERGY SHIELD ONLINE — 3 HITS');
+        if(er.hp<=0){
+          explodeAt(er.x,er.y);er.alive=false;enemyRocketActive=false;
+          shieldHits=3;score+=500;announce('✦ BOGEY DESTROYED\nENERGY SHIELD ONLINE — 3 HITS');
+        }
         break;
       }
     }
     // Ally bullets hit enemy rocket
     if(er.alive&&allyActive&&ally.state==='active'){
       for(let j=allyBullets.length-1;j>=0;j--){
-        if(dist(allyBullets[j].x,allyBullets[j].y,er.x,er.y)<13){
+        if(dist(allyBullets[j].x,allyBullets[j].y,er.x,er.y)<22){
+          er.hp-=1;
           allyBullets.splice(j,1);
-          explodeAt(er.x,er.y);er.alive=false;enemyRocketActive=false;
-          shieldHits=3;score+=500;announce('✦ BOGEY DESTROYED\nENERGY SHIELD ONLINE — 3 HITS');
+          if(er.hp<=0){
+            explodeAt(er.x,er.y);er.alive=false;enemyRocketActive=false;
+            shieldHits=3;score+=500;announce('✦ BOGEY DESTROYED\nENERGY SHIELD ONLINE — 3 HITS');
+          }
           break;
         }
       }
@@ -1604,10 +1617,14 @@ function update(){
           break; // beam stops at first asteroid hit
         }
       }
-      // Hit enemy rocket
-      if(er.alive && Math.abs(er.x - lx) < 14 && er.y < ly && er.y > -20){
-        explodeAt(er.x,er.y); er.alive=false; enemyRocketActive=false;
-        shieldHits=3; score+=500; announce('SHIELD ACQUIRED! (3 hits)');
+      // Hit enemy rocket — uses HP system
+      if(er.alive && Math.abs(er.x - lx) < 26 && er.y < ly && er.y > -42){
+        er.hp -= chromePower ? 2 : 1;
+        spawnParticles(er.x,er.y,4,['rgba(255,100,0,A)'],0.8,0.06,0.1,0.5,2);
+        if(er.hp <= 0){
+          explodeAt(er.x,er.y); er.alive=false; enemyRocketActive=false;
+          shieldHits=3; score+=500; announce('✦ BOGEY DESTROYED\nENERGY SHIELD ONLINE — 3 HITS');
+        }
       }
       // Hit turned ally
       if(allyActive && ally.state==='enemy' && Math.abs(ally.x - lx) < 14 && ally.y < ly){
@@ -1676,9 +1693,10 @@ function drawWarpEffect(){
 
 function drawRocketShape(x,y,w,h,chrome,flipped){
   const dir=flipped?1:-1;
-  // Glow
+  // Glow — white for player, blue-white stays for chrome/enemy
+  const glowColor=chrome?'rgba(80,160,255,0.5)':'rgba(255,255,255,0.35)';
   const gr=ctx.createRadialGradient(x,y-dir*12,0,x,y-dir*12,14);
-  gr.addColorStop(0,'rgba(80,160,255,0.5)');gr.addColorStop(1,'rgba(0,0,80,0)');
+  gr.addColorStop(0,glowColor);gr.addColorStop(1,'rgba(0,0,80,0)');
   ctx.fillStyle=gr;ctx.fillRect(x-14,y-dir*18,28,28);
   // Flame
   const fh=7+Math.random()*5;
@@ -1700,14 +1718,14 @@ function drawRocketShape(x,y,w,h,chrome,flipped){
     cg.addColorStop(0,'#888');cg.addColorStop(0.2,'#ccc');cg.addColorStop(0.5,'#fff');cg.addColorStop(0.8,'#ccc');cg.addColorStop(1,'#888');
     ctx.fillStyle=cg;
   } else {
-    ctx.fillStyle='#ffffff';
+    ctx.fillStyle='#ffffff'; // pure white always
   }
   ctx.fill();
-  ctx.strokeStyle=chrome?'#aaaaaa':'#ffffff';ctx.lineWidth=0.8;ctx.stroke();
-  // Window
+  ctx.strokeStyle='#ffffff';ctx.lineWidth=0.8;ctx.stroke();
+  // Window — bright white tint for pure white rocket, chrome blue for chrome
   ctx.beginPath();ctx.arc(x,y+dir*2,3,0,Math.PI*2);
-  ctx.fillStyle=chrome?'rgba(200,230,255,0.9)':'rgba(80,180,255,0.85)';ctx.fill();
-  ctx.strokeStyle=chrome?'#ddeeff':'#aadaff';ctx.lineWidth=0.5;ctx.stroke();
+  ctx.fillStyle=chrome?'rgba(200,230,255,0.9)':'rgba(255,255,255,0.95)';ctx.fill();
+  ctx.strokeStyle=chrome?'#ddeeff':'rgba(200,230,255,0.8)';ctx.lineWidth=0.5;ctx.stroke();
 }
 
 function drawShield(x,y){
@@ -1744,11 +1762,19 @@ function drawAlly(){
 function drawEnemyRocket(){
   if(!er.alive)return;
   drawRocketShape(er.x,er.y,er.w,er.h,false,true);
+  // Red tint overlay
   ctx.beginPath();
-  ctx.moveTo(er.x,er.y+10);ctx.lineTo(er.x+6,er.y-10);ctx.lineTo(er.x-6,er.y-10);ctx.closePath();
-  ctx.fillStyle='rgba(255,0,0,0.4)';ctx.fill();
-  ctx.font='6px Courier New';ctx.textAlign='center';ctx.fillStyle='#ff4444';
-  ctx.fillText('ENEMY',er.x,er.y+20);
+  ctx.moveTo(er.x,er.y+er.h/2);ctx.lineTo(er.x+er.w/2,er.y-er.h/2);ctx.lineTo(er.x-er.w/2,er.y-er.h/2);ctx.closePath();
+  ctx.fillStyle='rgba(255,0,0,0.35)';ctx.fill();
+  // Label
+  ctx.font='7px "Courier New"';ctx.textAlign='center';ctx.fillStyle='#ff4444';
+  ctx.fillText('ENEMY',er.x,er.y+er.h/2+12);
+  // HP bar
+  const bw=36, bh=4, bx=er.x-bw/2, by=er.y-er.h/2-10;
+  const pct=Math.max(0,er.hp/er.maxHp);
+  ctx.fillStyle='rgba(80,0,0,0.7)'; ctx.fillRect(bx,by,bw,bh);
+  ctx.fillStyle=`hsl(${pct*120},100%,50%)`; ctx.fillRect(bx,by,bw*pct,bh);
+  ctx.strokeStyle='rgba(255,50,0,0.6)'; ctx.lineWidth=0.7; ctx.strokeRect(bx,by,bw,bh);
 }
 
 function drawBoss(){
@@ -2360,28 +2386,28 @@ function drawHUD(){
   if(announcementTimer>0){
     const a=Math.min(1,announcementTimer/40);
     const lines=announcement.split('\n');
-    const cy=H/2-30;
+    const cy=H*0.62; // moved down — milestone flash lives at H/2, no overlap
     ctx.save();
     ctx.globalAlpha=a;
-    // Backdrop bar
-    ctx.fillStyle=`rgba(0,0,20,${0.72*a})`;
-    ctx.fillRect(0,cy-22,W,lines.length>1?52:34);
+    // Backdrop bar — taller to fit bigger text
+    ctx.fillStyle=`rgba(0,0,20,${0.80*a})`;
+    ctx.fillRect(0,cy-30,W,lines.length>1?72:46);
     // Top accent line
     ctx.fillStyle=`rgba(255,200,0,${0.9*a})`;
-    ctx.fillRect(0,cy-22,W,2);
-    ctx.fillRect(0,cy+(lines.length>1?28:10),W,2);
-    // Header line
+    ctx.fillRect(0,cy-30,W,2);
+    ctx.fillRect(0,cy+(lines.length>1?40:14),W,2);
+    // Header line — doubled from 11px to 22px
     ctx.textAlign='center';
-    ctx.font='bold 11px "Orbitron","Courier New"';
-    ctx.shadowColor='#ffaa00'; ctx.shadowBlur=18;
+    ctx.font='bold 22px "Orbitron","Courier New"';
+    ctx.shadowColor='#ffaa00'; ctx.shadowBlur=24;
     ctx.fillStyle='#ffff66';
     ctx.fillText(lines[0],W/2,cy);
-    // Subline
+    // Subline — doubled from 9px to 18px
     if(lines[1]){
-      ctx.shadowColor='#00aaff'; ctx.shadowBlur=10;
-      ctx.font='bold 9px "Courier New"';
+      ctx.shadowColor='#00aaff'; ctx.shadowBlur=14;
+      ctx.font='bold 18px "Courier New"';
       ctx.fillStyle='#88ddff';
-      ctx.fillText(lines[1],W/2,cy+18);
+      ctx.fillText(lines[1],W/2,cy+26);
     }
     ctx.restore();
   }
