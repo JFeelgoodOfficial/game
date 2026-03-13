@@ -456,7 +456,7 @@ footer p {
 
 <!-- ── VERSION BAR ── -->
 <div style="position:fixed;top:0;left:0;width:100%;z-index:9999;background:rgba(0,0,0,0.75);border-bottom:1px solid rgba(0,200,255,0.2);text-align:center;padding:5px 0;font-family:'Orbitron','Courier New',monospace;font-size:11px;letter-spacing:3px;color:rgba(0,210,255,0.8);pointer-events:none;">
-  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.0.0</span>
+  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.0.2</span>
 </div>
 <div style="height:26px"></div><!-- spacer so content isn't hidden under bar -->
 
@@ -688,6 +688,29 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const W=400, H=600;
 
+// ── Audio ──────────────────────────────────────────────────────────────────
+let audioCtx = null;
+function getAudio(){
+  if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  return audioCtx;
+}
+function playShoot(){
+  try {
+    const ac = getAudio();
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.connect(gain);
+    gain.connect(ac.destination);
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(880, ac.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(220, ac.currentTime + 0.08);
+    gain.gain.setValueAtTime(0.18, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.10);
+    osc.start(ac.currentTime);
+    osc.stop(ac.currentTime + 0.10);
+  } catch(e){}
+}
+
 // ── State ──────────────────────────────────────────────────────────────────
 let score=0, prevMilestone=0;
 let bullets=[], spheres=[], particles=[];
@@ -763,8 +786,8 @@ let laserDmgTimer = 0;          // cooldown between laser damage ticks (frames)
 let stars=[];
 for(let i=0;i<40;i++) stars.push({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.2+0.3,tw:Math.random()*Math.PI*2});
 
-const rocket={x:W/2,y:H-40,w:14,h:22,speed:2.5,left:false,right:false,up:false,down:false,cd:0,firing:false};
-const ally={x:W*0.25,y:H-40,w:12,h:20,state:'idle',turnTimer:0,shootTimer:0,active:false,
+const rocket={x:W/2,y:H-40,w:28,h:44,speed:2.5,left:false,right:false,up:false,down:false,cd:0,firing:false};
+const ally={x:W*0.25,y:H-40,w:24,h:40,state:'idle',turnTimer:0,shootTimer:0,active:false,
   // independent movement waypoint
   wx:W*0.25,wy:H-40,moveTimer:0};
 const er={x:W*0.75,y:40,w:24,h:40,alive:false,cd:0,hp:20,maxHp:20};
@@ -844,7 +867,7 @@ function checkMilestones(){
   if(m<=prevMilestone)return;
   prevMilestone=m;
   if(m===3000&&!allyActive){announce('⚠ HARDENED CORES DETECTED\nARMOR-PIERCING REQUIRED');}
-  if(m===4000&&!warpPhase&&!chromePower){warpPhase=true;warpTimer=0;announce('◈ SPACE WARP INITIATED\nCHROME HULL · CANNON OVERCHARGED');}
+  if(m===4000&&!warpPhase&&!chromePower){warpPhase=true;warpTimer=0;announce('◈ SPACE WARP INITIATED\nPOWER SURGE · CANNON OVERCHARGED');}
   if(m===6000&&!allyActive){allyActive=true;ally.active=true;ally.state='active';ally.wx=W*0.25;ally.wy=H-60;announce('✦ ECHO-1 INBOUND\nALLY ONLINE — WEAPONS HOT');}
   if(m===8000&&!enemyRocketActive){enemyRocketActive=true;er.alive=true;er.x=W*0.75;er.y=30;er.cd=0;announce('☠ HOSTILE BOGEY DETECTED\nENEMY ROCKET — SECTOR UPPER-RIGHT');}
   if(m===10000&&allyActive&&!allyTurned){allyTurned=true;ally.state='turning';ally.turnTimer=0;announce('⚡ ECHO-1 SIGNAL COMPROMISED\nALLY HAS TURNED — TERMINATE ON SIGHT');}
@@ -1169,7 +1192,7 @@ function updateEnemyOrbit(){
     if(rocket.cd>0) rocket.cd--;
     if(rocket.firing && rocket.cd===0){
       const dmg=chromePower?2:1;
-      bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,speed:6,dmg});
+      bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,speed:6,dmg}); playShoot();
       rocket.cd=14;
     }
   }
@@ -1327,7 +1350,7 @@ function update(){
 
   if(warpPhase){
     warpTimer++;
-    if(warpTimer>=180){warpPhase=false;chromePower=true;announce('◈ WARP COMPLETE\nCHROME CANNON ACTIVE — DOUBLE DAMAGE');}
+    if(warpTimer>=180){warpPhase=false;chromePower=true;announce('◈ WARP COMPLETE\nCANNON OVERCHARGED — DOUBLE DAMAGE');}
     return;
   }
 
@@ -1342,7 +1365,7 @@ function update(){
     if(rocket.cd>0)rocket.cd--;
     if(rocket.firing && rocket.cd===0){
       const dmg=chromePower?2:1;
-      bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,speed:5,dmg});
+      bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,speed:5,dmg}); playShoot();
       rocket.cd=14;
     }
   }
@@ -1691,41 +1714,82 @@ function drawWarpEffect(){
   ctx.restore();
 }
 
-function drawRocketShape(x,y,w,h,chrome,flipped){
+function drawRocketShape(x,y,w,h,color,flipped){
+  // color: 'blue' = player, 'green' = ally/friendly, 'red' = enemy, 'chrome' = legacy
   const dir=flipped?1:-1;
-  // Glow — white for player, blue-white stays for chrome/enemy
-  const glowColor=chrome?'rgba(80,160,255,0.5)':'rgba(255,255,255,0.35)';
-  const gr=ctx.createRadialGradient(x,y-dir*12,0,x,y-dir*12,14);
-  gr.addColorStop(0,glowColor);gr.addColorStop(1,'rgba(0,0,80,0)');
-  ctx.fillStyle=gr;ctx.fillRect(x-14,y-dir*18,28,28);
+
+  const bodyColor  = color==='chrome' ? null
+                   : color==='green'  ? '#00ff88'
+                   : color==='red'    ? '#ff4444'
+                   : '#22aaff'; // blue default (player)
+
+  const glowRGB    = color==='green'  ? '0,255,120'
+                   : color==='red'    ? '255,60,0'
+                   : color==='chrome' ? '180,210,255'
+                   : '30,160,255'; // blue
+
+  // Glow halo
+  const gr=ctx.createRadialGradient(x,y-dir*14,0,x,y-dir*14,18);
+  gr.addColorStop(0,`rgba(${glowRGB},0.45)`);
+  gr.addColorStop(1,`rgba(${glowRGB},0)`);
+  ctx.fillStyle=gr; ctx.fillRect(x-18,y-dir*24,36,36);
+
   // Flame
-  const fh=7+Math.random()*5;
+  const fh=9+Math.random()*6;
   const fy=y+dir*(h/2);
   const fg=ctx.createLinearGradient(x,fy,x,fy+dir*fh);
-  fg.addColorStop(0,'rgba(120,200,255,0.9)');
-  fg.addColorStop(0.4,'rgba(255,120,30,0.85)');
+  fg.addColorStop(0,'rgba(140,210,255,0.95)');
+  fg.addColorStop(0.4,'rgba(255,140,30,0.9)');
   fg.addColorStop(1,'rgba(255,60,0,0)');
-  ctx.beginPath();ctx.moveTo(x-4,fy);ctx.lineTo(x+4,fy);ctx.lineTo(x,fy+dir*fh);ctx.closePath();
-  ctx.fillStyle=fg;ctx.fill();
-  // Body
   ctx.beginPath();
-  ctx.moveTo(x,y-dir*h/2);
-  ctx.lineTo(x+w/2,y-dir*h/2);
-  ctx.lineTo(x-w/2,y-dir*h/2);
+  ctx.moveTo(x-w*0.28,fy);ctx.lineTo(x+w*0.28,fy);ctx.lineTo(x,fy+dir*fh);
+  ctx.closePath(); ctx.fillStyle=fg; ctx.fill();
+
+  // Main body — triangular rocket pointing in dir
+  ctx.beginPath();
+  ctx.moveTo(x,           y-dir*h/2);           // nose tip
+  ctx.lineTo(x+w/2,       y+dir*h*0.20);         // right shoulder
+  ctx.lineTo(x+w*0.28,    y+dir*h/2);            // right base
+  ctx.lineTo(x-w*0.28,    y+dir*h/2);            // left base
+  ctx.lineTo(x-w/2,       y+dir*h*0.20);         // left shoulder
   ctx.closePath();
-  if(chrome){
+
+  if(color==='chrome'){
     const cg=ctx.createLinearGradient(x-w/2,0,x+w/2,0);
-    cg.addColorStop(0,'#888');cg.addColorStop(0.2,'#ccc');cg.addColorStop(0.5,'#fff');cg.addColorStop(0.8,'#ccc');cg.addColorStop(1,'#888');
+    cg.addColorStop(0,'#888');cg.addColorStop(0.2,'#ccc');
+    cg.addColorStop(0.5,'#fff');cg.addColorStop(0.8,'#ccc');cg.addColorStop(1,'#888');
     ctx.fillStyle=cg;
   } else {
-    ctx.fillStyle='#ffffff'; // pure white always
+    ctx.fillStyle=bodyColor;
   }
   ctx.fill();
-  ctx.strokeStyle='#ffffff';ctx.lineWidth=0.8;ctx.stroke();
-  // Window — bright white tint for pure white rocket, chrome blue for chrome
-  ctx.beginPath();ctx.arc(x,y+dir*2,3,0,Math.PI*2);
-  ctx.fillStyle=chrome?'rgba(200,230,255,0.9)':'rgba(255,255,255,0.95)';ctx.fill();
-  ctx.strokeStyle=chrome?'#ddeeff':'rgba(200,230,255,0.8)';ctx.lineWidth=0.5;ctx.stroke();
+  ctx.strokeStyle=color==='chrome'?'#aaaaaa':bodyColor;
+  ctx.lineWidth=1.2; ctx.stroke();
+
+  // Wing fins
+  ctx.beginPath();
+  ctx.moveTo(x+w/2,        y+dir*h*0.20);
+  ctx.lineTo(x+w*0.65,     y+dir*h*0.42);
+  ctx.lineTo(x+w*0.28,     y+dir*h/2);
+  ctx.closePath();
+  ctx.fillStyle=color==='chrome'?'rgba(180,180,180,0.7)':`${bodyColor}bb`;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(x-w/2,        y+dir*h*0.20);
+  ctx.lineTo(x-w*0.65,     y+dir*h*0.42);
+  ctx.lineTo(x-w*0.28,     y+dir*h/2);
+  ctx.closePath();
+  ctx.fillStyle=color==='chrome'?'rgba(180,180,180,0.7)':`${bodyColor}bb`;
+  ctx.fill();
+
+  // Cockpit window
+  ctx.beginPath();
+  ctx.ellipse(x, y-dir*h*0.08, w*0.14, h*0.12, 0, 0, Math.PI*2);
+  ctx.fillStyle=color==='chrome'?'rgba(200,230,255,0.9)':'rgba(255,255,255,0.9)';
+  ctx.fill();
+  ctx.strokeStyle=color==='chrome'?'#ddeeff':'rgba(255,255,255,0.6)';
+  ctx.lineWidth=0.8; ctx.stroke();
 }
 
 function drawShield(x,y){
@@ -1743,7 +1807,7 @@ function drawShield(x,y){
 function drawAlly(){
   if(!allyActive)return;
   const flipped=ally.state==='enemy';
-  drawRocketShape(ally.x,ally.y,ally.w,ally.h,false,flipped);
+  drawRocketShape(ally.x,ally.y,ally.w,ally.h,'green',flipped);
   // Color overlay
   ctx.beginPath();
   ctx.moveTo(ally.x,ally.y+(flipped?10:-10));
@@ -1761,7 +1825,7 @@ function drawAlly(){
 
 function drawEnemyRocket(){
   if(!er.alive)return;
-  drawRocketShape(er.x,er.y,er.w,er.h,false,true);
+  drawRocketShape(er.x,er.y,er.w,er.h,'red',true);
   // Red tint overlay
   ctx.beginPath();
   ctx.moveTo(er.x,er.y+er.h/2);ctx.lineTo(er.x+er.w/2,er.y-er.h/2);ctx.lineTo(er.x-er.w/2,er.y-er.h/2);ctx.closePath();
@@ -2221,7 +2285,7 @@ function drawWarpLines(){
   }
   // Show rocket moving forward
   if(rocketAlive){
-    drawRocketShape(rocket.x,rocket.y,rocket.w,rocket.h,chromePower,false);
+    drawRocketShape(rocket.x,rocket.y,rocket.w,rocket.h,'blue',false);
   }
   ctx.restore();
 }
@@ -2357,8 +2421,8 @@ function drawHUD(){
     const shields='◈'.repeat(shieldHits);ctx.fillText(shields,5,15);
   }
   if(chromePower){
-    ctx.textAlign='center';ctx.fillStyle='rgba(200,200,255,0.65)';
-    ctx.font='7px "Courier New"';ctx.fillText('CHROME CANNON ACTIVE',W/2,H-4);
+    ctx.textAlign='center';ctx.fillStyle='rgba(80,180,255,0.75)';
+    ctx.font='7px "Courier New"';ctx.fillText('CANNON OVERCHARGED — 2× DMG',W/2,H-4);
   }
   // Laser charge bar
   if(laserUnlocked){
@@ -2494,7 +2558,7 @@ function draw(){
       drawBoss();
       drawBullets();
       drawParticles();
-      if(rocketAlive)drawRocketShape(rocket.x,rocket.y,rocket.w,rocket.h,chromePower,false);
+      if(rocketAlive)drawRocketShape(rocket.x,rocket.y,rocket.w,rocket.h,'blue',false);
       if(shieldHits>0&&rocketAlive)drawShield(rocket.x,rocket.y);
       drawLaser();
       drawAlly();
@@ -2503,14 +2567,14 @@ function draw(){
       drawBullets();
       drawParticles();
       // Always draw rocket — it's parked at hatch when pilot is inside
-      if(rocketAlive)drawRocketShape(rocket.x,rocket.y,rocket.w,rocket.h,chromePower,false);
+      if(rocketAlive)drawRocketShape(rocket.x,rocket.y,rocket.w,rocket.h,'blue',false);
     } else if(scene==='magnaExplode'){
       drawParticles();
     } else if(scene==='enemyOrbit'||scene==='finalDive'){
       drawSpheres();
       drawBullets();
       drawParticles();
-      if(rocketAlive)drawRocketShape(rocket.x,rocket.y,rocket.w,rocket.h,chromePower,false);
+      if(rocketAlive)drawRocketShape(rocket.x,rocket.y,rocket.w,rocket.h,'blue',false);
       if(shieldHits>0&&rocketAlive)drawShield(rocket.x,rocket.y);
       drawLaser();
     } else if(scene==='victory'){
@@ -2521,7 +2585,7 @@ function draw(){
       drawBoss();
       drawBullets();
       drawParticles();
-      if(rocketAlive)drawRocketShape(rocket.x,rocket.y,rocket.w,rocket.h,chromePower,false);
+      if(rocketAlive)drawRocketShape(rocket.x,rocket.y,rocket.w,rocket.h,'blue',false);
       if(shieldHits>0&&rocketAlive)drawShield(rocket.x,rocket.y);
       drawLaser();
       drawAlly();
@@ -2560,7 +2624,7 @@ canvas.addEventListener('touchmove',e=>{
 canvas.addEventListener('click',()=>{
   if(rocketAlive&&rocket.cd===0&&!warpPhase&&scene!=='victory'&&scene!=='warpTravel'&&scene!=='magnaBoard'){
     const dmg=chromePower?2:1;
-    bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,speed:5,dmg});rocket.cd=14;
+    bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,speed:5,dmg}); playShoot();rocket.cd=14;
   }
 });
 
