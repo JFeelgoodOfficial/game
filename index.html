@@ -456,7 +456,7 @@ footer p {
 
 <!-- ── VERSION BAR ── -->
 <div style="position:fixed;top:0;left:0;width:100%;z-index:9999;background:rgba(0,0,0,0.75);border-bottom:1px solid rgba(0,200,255,0.2);text-align:center;padding:5px 0;font-family:'Orbitron','Courier New',monospace;font-size:11px;letter-spacing:3px;color:rgba(0,210,255,0.8);pointer-events:none;">
-  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.0.9</span>
+  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.0.99</span>
 </div>
 <div style="height:26px"></div><!-- spacer so content isn't hidden under bar -->
 
@@ -1472,12 +1472,12 @@ function getHatchPos(){
 
 // ── ENEMY ORBIT SETUP ─────────────────────────────────────────────────────
 function initEnemyWorld(){
-  // Planet starts same visual size as the player's homeworld (r=55), at center
-  enemyPlanet.x=W/2; enemyPlanet.y=H/2;
+  // Planet starts in top half of viewport, centered horizontally
+  enemyPlanet.x=W/2; enemyPlanet.y=H*0.28;
   enemyPlanet.r=55;  // same as homePlanetR final size — matches homeworld
   enemyPlanetZoomed=false; enemyPlanetZoomProgress=0; enemyPlanetTargetY=0;
   satellites=[];
-  const COUNT=40;
+  const COUNT=10;
   for(let i=0;i<COUNT;i++){
     const angle=(i/COUNT)*Math.PI*2;
     const orbitR=160+Math.random()*30;
@@ -1508,7 +1508,7 @@ function updateEnemyOrbit(){
     // Target: planet fills top half → r ≈ H/2, centered at y = H/4
     const targetR = H * 0.52;
     const startR  = 55;
-    const startY  = H/2;
+    const startY  = H * 0.28;
     const tY      = H * 0.26;
     enemyPlanet.r = startR + (targetR - startR) * ease;
     enemyPlanet.y = startY + (tY - startY) * ease;
@@ -1540,7 +1540,7 @@ function updateEnemyOrbit(){
     // Fire one bullet toward player
     if(sat.cd%90===0 && rocketAlive){
       const dx=rocket.x-sat.x, dy=rocket.y-sat.y, l=Math.sqrt(dx*dx+dy*dy)||1;
-      satBullets.push({x:sat.x,y:sat.y,vx:dx/l*2.5,vy:dy/l*2.5});
+      satBullets.push({x:sat.x,y:sat.y,vx:dx/l*1.25,vy:dy/l*1.25});
     }
   }
 
@@ -3315,7 +3315,7 @@ function drawTitleScreen(){
   ctx.textAlign='center';
   ctx.fillStyle='rgba(80,120,160,0.6)';
   ctx.font='8px "Courier New"';
-  ctx.fillText('v1.0.9', cx, H - 12);
+  ctx.fillText('v1.0.99', cx, H - 12);
   ctx.restore();
 }
 
