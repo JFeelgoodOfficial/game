@@ -456,7 +456,7 @@ footer p {
 
 <!-- ── VERSION BAR ── -->
 <div style="position:fixed;top:0;left:0;width:100%;z-index:9999;background:rgba(0,0,0,0.75);border-bottom:1px solid rgba(0,200,255,0.2);text-align:center;padding:5px 0;font-family:'Orbitron','Courier New',monospace;font-size:11px;letter-spacing:3px;color:rgba(0,210,255,0.8);pointer-events:none;">
-  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.0.99</span>
+  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.1.0</span>
 </div>
 <div style="height:26px"></div><!-- spacer so content isn't hidden under bar -->
 
@@ -2314,40 +2314,178 @@ function drawEnemyRocket(){
 
 function drawBoss(){
   if(!boss.alive||boss.exploding)return;
-  const x=boss.x,y=boss.y;
+  const x=boss.x, y=boss.y;
+  const R=boss.w*0.72; // main hull radius (~26px at w=36... scaled up feel)
+  const t=Date.now()/1000;
+
+  ctx.save();
+
+  // ── Side wing/cannon mounts ──────────────────────────────
+  // Left wing block
+  ctx.fillStyle='#8B6914';
+  ctx.fillRect(x-R-18, y-6, 18, 12);
+  ctx.fillStyle='#A07820';
+  ctx.fillRect(x-R-16, y-5, 14, 10);
+  // Left cannon barrel
+  ctx.fillStyle='#6B4F10';
+  ctx.fillRect(x-R-22, y-2, 10, 5);
+  ctx.fillStyle='#C8A030';
+  ctx.fillRect(x-R-21, y-1, 8, 3);
+  // Left side stud
+  ctx.fillStyle='#C8A030';
+  ctx.beginPath(); ctx.arc(x-R-4, y, 2, 0, Math.PI*2); ctx.fill();
+
+  // Right wing block
+  ctx.fillStyle='#8B6914';
+  ctx.fillRect(x+R, y-6, 18, 12);
+  ctx.fillStyle='#A07820';
+  ctx.fillRect(x+R+2, y-5, 14, 10);
+  // Right cannon barrel
+  ctx.fillStyle='#6B4F10';
+  ctx.fillRect(x+R+12, y-2, 10, 5);
+  ctx.fillStyle='#C8A030';
+  ctx.fillRect(x+R+13, y-1, 8, 3);
+  // Right side stud
+  ctx.fillStyle='#C8A030';
+  ctx.beginPath(); ctx.arc(x+R+4, y, 2, 0, Math.PI*2); ctx.fill();
+
+  // ── Exhaust stacks (top) ─────────────────────────────────
+  // Left stack
+  ctx.fillStyle='#7A4A18';
+  ctx.fillRect(x-11, y-R-10, 7, 10);
+  ctx.fillStyle='#5A3510';
+  ctx.fillRect(x-10, y-R-11, 5, 3);
+  // Right stack
+  ctx.fillRect(x+4, y-R-10, 7, 10);
+  ctx.fillRect(x+5, y-R-11, 5, 3);
+  // Stack smoke puffs (animated)
+  for(let i=0;i<2;i++){
+    const so=i===0?-8:7;
+    const pOff=(t*40+i*60)%30;
+    ctx.fillStyle=`rgba(80,60,40,${0.25-pOff/120})`;
+    ctx.beginPath();ctx.arc(x+so, y-R-11-pOff*0.4, 2+pOff*0.06, 0, Math.PI*2);ctx.fill();
+  }
+  // Center antenna
+  ctx.strokeStyle='#C8A030'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(x, y-R-1); ctx.lineTo(x, y-R-12); ctx.stroke();
+  ctx.fillStyle='#E8C050';
+  ctx.beginPath(); ctx.arc(x, y-R-12, 1.5, 0, Math.PI*2); ctx.fill();
+
+  // ── Main hull outer ring ─────────────────────────────────
+  const hullGrad=ctx.createRadialGradient(x-R*0.3, y-R*0.3, R*0.1, x, y, R);
+  hullGrad.addColorStop(0,'#D4A030');
+  hullGrad.addColorStop(0.6,'#A07820');
+  hullGrad.addColorStop(1,'#7A5A10');
+  ctx.beginPath(); ctx.arc(x, y, R, 0, Math.PI*2);
+  ctx.fillStyle=hullGrad; ctx.fill();
+  ctx.strokeStyle='#C89020'; ctx.lineWidth=1.2; ctx.stroke();
+
+  // ── Dashed bolt ring ────────────────────────────────────
+  ctx.save();
+  ctx.strokeStyle='#D4AA40'; ctx.lineWidth=0.6;
+  ctx.setLineDash([2,3]);
+  ctx.beginPath(); ctx.arc(x, y, R*0.88, 0, Math.PI*2); ctx.stroke();
+  ctx.setLineDash([]);
+  // Bolt dots around ring
+  for(let i=0;i<12;i++){
+    const a=i/12*Math.PI*2;
+    const bx2=x+Math.cos(a)*R*0.88, by2=y+Math.sin(a)*R*0.88;
+    ctx.fillStyle='#C8A030';
+    ctx.beginPath(); ctx.arc(bx2, by2, 1.2, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+
+  // ── Inner dark cockpit circle ────────────────────────────
+  const innerR=R*0.62;
+  ctx.beginPath(); ctx.arc(x, y, innerR, 0, Math.PI*2);
+  ctx.fillStyle='#1A1208'; ctx.fill();
+  ctx.strokeStyle='#7A5A10'; ctx.lineWidth=1; ctx.stroke();
+
+  // ── Navigation cross / targeting reticle (top center) ───
+  const cx2=x, cy2=y-innerR*0.42;
+  // Outer diamond
+  ctx.fillStyle='#8B6914';
   ctx.beginPath();
-  ctx.moveTo(x,y-boss.h/2-5);
-  ctx.lineTo(x+boss.w/2,y-boss.h/4);
-  ctx.lineTo(x+boss.w/2,y+boss.h/2);
-  ctx.lineTo(x-boss.w/2,y+boss.h/2);
-  ctx.lineTo(x-boss.w/2,y-boss.h/4);
-  ctx.closePath();
-  const bg=ctx.createLinearGradient(x-boss.w/2,0,x+boss.w/2,0);
-  bg.addColorStop(0,'#442200');bg.addColorStop(0.3,'#aa4400');
-  bg.addColorStop(0.5,'#ff7700');bg.addColorStop(0.7,'#aa4400');bg.addColorStop(1,'#442200');
-  ctx.fillStyle=bg;ctx.fill();
-  ctx.strokeStyle='#ff4400';ctx.lineWidth=1.5;ctx.stroke();
-  // Cannons
-  ctx.fillStyle='#cc3300';
-  ctx.fillRect(x-boss.w/2-4,y+boss.h/4,8,12);
-  ctx.fillRect(x+boss.w/2-4,y+boss.h/4,8,12);
-  ctx.fillStyle='#ff6600';
-  ctx.fillRect(x-boss.w/2-3,y+boss.h/4,6,10);
-  ctx.fillRect(x+boss.w/2-3,y+boss.h/4,6,10);
-  // Eyes
-  ctx.fillStyle='rgba(255,80,0,0.9)';
-  ctx.beginPath();ctx.arc(x-9,y-3,4,0,Math.PI*2);ctx.fill();
-  ctx.beginPath();ctx.arc(x+9,y-3,4,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle='rgba(255,200,0,0.6)';
-  ctx.beginPath();ctx.arc(x,y+8,5,0,Math.PI*2);ctx.fill();
-  // HP bar
-  const bw=boss.w*1.1,bx=x-bw/2,by=y-boss.h/2-14;
-  ctx.fillStyle='#400';ctx.fillRect(bx,by,bw,5);
+  ctx.moveTo(cx2, cy2-6); ctx.lineTo(cx2+5,cy2);
+  ctx.lineTo(cx2, cy2+6); ctx.lineTo(cx2-5,cy2);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='#C8A030'; ctx.lineWidth=0.7; ctx.stroke();
+  // Inner circle
+  ctx.beginPath(); ctx.arc(cx2, cy2, 2.5, 0, Math.PI*2);
+  ctx.fillStyle='#C8A030'; ctx.fill();
+  // Cross arms
+  ctx.strokeStyle='#C8A030'; ctx.lineWidth=0.8;
+  ctx.beginPath(); ctx.moveTo(cx2-8,cy2); ctx.lineTo(cx2-5,cy2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx2+5,cy2); ctx.lineTo(cx2+8,cy2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx2,cy2-8); ctx.lineTo(cx2,cy2-6); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx2,cy2+6); ctx.lineTo(cx2,cy2+8); ctx.stroke();
+
+  // ── Twin engine eyes ────────────────────────────────────
+  const eyeY=y+innerR*0.1;
+  const eyeOff=innerR*0.38;
+  for(let s=-1;s<=1;s+=2){
+    const ex=x+s*eyeOff;
+    // Outer ring
+    ctx.beginPath(); ctx.arc(ex, eyeY, 7, 0, Math.PI*2);
+    ctx.fillStyle='#3A2800'; ctx.fill();
+    ctx.strokeStyle='#8B6914'; ctx.lineWidth=1.2; ctx.stroke();
+    // Mid ring
+    ctx.beginPath(); ctx.arc(ex, eyeY, 5, 0, Math.PI*2);
+    ctx.fillStyle='#C87010'; ctx.fill();
+    // Glow pulse
+    const pulse=0.7+0.3*Math.sin(t*3+s);
+    const eyeGlow=ctx.createRadialGradient(ex,eyeY,0,ex,eyeY,5);
+    eyeGlow.addColorStop(0,`rgba(255,255,200,${pulse})`);
+    eyeGlow.addColorStop(0.4,`rgba(255,160,20,${pulse*0.9})`);
+    eyeGlow.addColorStop(1,'rgba(180,80,0,0)');
+    ctx.beginPath(); ctx.arc(ex, eyeY, 5, 0, Math.PI*2);
+    ctx.fillStyle=eyeGlow; ctx.fill();
+    // Bright core
+    ctx.beginPath(); ctx.arc(ex, eyeY, 2, 0, Math.PI*2);
+    ctx.fillStyle=`rgba(255,255,220,${pulse})`; ctx.fill();
+  }
+
+  // ── Speaker/status panel (below eyes) ───────────────────
+  const panY=y+innerR*0.52;
+  ctx.fillStyle='#2A1E08';
+  ctx.fillRect(x-10, panY-2, 20, 5);
+  ctx.strokeStyle='#7A5A10'; ctx.lineWidth=0.5; ctx.strokeRect(x-10, panY-2, 20, 5);
+  for(let i=0;i<4;i++){
+    ctx.fillStyle='#C8A030';
+    ctx.beginPath(); ctx.arc(x-7+i*5, panY+0.5, 1, 0, Math.PI*2); ctx.fill();
+  }
+
+  // ── Bottom clamp / bracket ───────────────────────────────
+  ctx.fillStyle='#7A5A10';
+  ctx.fillRect(x-14, y+R*0.72, 28, 5);
+  ctx.fillStyle='#9A7A20';
+  ctx.fillRect(x-12, y+R*0.72, 24, 3);
+
+  // ── Bottom thruster pods ─────────────────────────────────
+  for(let i=-1;i<=1;i++){
+    const tx=x+i*10, ty=y+R+2;
+    ctx.fillStyle='#7A4A10';
+    ctx.beginPath(); ctx.arc(tx, ty, 4, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle='#C86010';
+    ctx.beginPath(); ctx.arc(tx, ty, 2.5, 0, Math.PI*2); ctx.fill();
+    // Thruster glow
+    const tg=ctx.createRadialGradient(tx,ty+3,0,tx,ty+3,5);
+    tg.addColorStop(0,`rgba(255,140,20,${0.6+0.4*Math.sin(t*5+i)})`);
+    tg.addColorStop(1,'rgba(255,60,0,0)');
+    ctx.beginPath(); ctx.arc(tx, ty+3, 5, 0, Math.PI*2);
+    ctx.fillStyle=tg; ctx.fill();
+  }
+
+  // ── HP bar ───────────────────────────────────────────────
+  const bw=boss.w*1.8, bx2=x-bw/2, by2=y-R-16;
+  ctx.fillStyle='#2A1500'; ctx.fillRect(bx2, by2, bw, 5);
   const pct=Math.max(0,boss.hp/boss.maxHp);
-  ctx.fillStyle=`hsl(${pct*110},100%,50%)`;ctx.fillRect(bx,by,bw*pct,5);
-  ctx.strokeStyle='#888';ctx.lineWidth=0.5;ctx.strokeRect(bx,by,bw,5);
-  ctx.font='7px Courier New';ctx.textAlign='center';ctx.fillStyle='#ffaa00';
-  ctx.fillText(boss.hp+'/'+boss.maxHp,x,by-2);
+  ctx.fillStyle=`hsl(${pct*110},100%,50%)`; ctx.fillRect(bx2, by2, bw*pct, 5);
+  ctx.strokeStyle='#666'; ctx.lineWidth=0.5; ctx.strokeRect(bx2, by2, bw, 5);
+  ctx.font='7px Courier New'; ctx.textAlign='center'; ctx.fillStyle='#ffaa00';
+  ctx.fillText(boss.hp+'/'+boss.maxHp, x, by2-2);
+
+  ctx.restore();
 }
 
 function drawBullets(){
@@ -3315,7 +3453,7 @@ function drawTitleScreen(){
   ctx.textAlign='center';
   ctx.fillStyle='rgba(80,120,160,0.6)';
   ctx.font='8px "Courier New"';
-  ctx.fillText('v1.0.99', cx, H - 12);
+  ctx.fillText('v1.1.0', cx, H - 12);
   ctx.restore();
 }
 
