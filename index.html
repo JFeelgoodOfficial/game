@@ -456,7 +456,7 @@ footer p {
 
 <!-- ── VERSION BAR ── -->
 <div style="position:fixed;top:0;left:0;width:100%;z-index:9999;background:rgba(0,0,0,0.75);border-bottom:1px solid rgba(0,200,255,0.2);text-align:center;padding:5px 0;font-family:'Orbitron','Courier New',monospace;font-size:11px;letter-spacing:3px;color:rgba(0,210,255,0.8);pointer-events:none;">
-  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.0.5</span>
+  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.0.6</span>
 </div>
 <div style="height:26px"></div><!-- spacer so content isn't hidden under bar -->
 
@@ -780,28 +780,14 @@ function _sound(type, freqStart, freqEnd, duration, gainPeak, gainShape){
 }
 
 // Normal bullet fire — short crisp pew
-const CHORD_NOTES = [261.63, 392.00, 440.00, 349.23]; // C4, G4, A4, F4
-let shotIndex = 0;
-
-function playShoot() {
-  const freq = CHORD_NOTES[shotIndex % 4];
-  shotIndex++;
-  _sound('sine', freq, 300, 0.045, 0.25, 'decay');
+function playShoot(){
+  _sound('square', 900, 200, 0.09, 0.15, 'decay');
 }
 
 // Surge cannon fire — deeper, punchier zap
-const CHORD_NOTES = [261.63, 392.00, 440.00, 349.23]; // C4, G4, A4, F4
-let shotIndex = 0; // shared with playShoot if they're in the same scope
-
-function playShootSurge() {
-  const freq = CHORD_NOTES[shotIndex % 4];
-  shotIndex++;
-
-  // Low body — warm triangle punch
-  _sound('triangle', freq * 0.5, 120, 0.07, 0.28, 'punch');
-
-  // High shimmer — sine harmonic one octave up
-  setTimeout(() => _sound('sine', freq * 2, 350, 0.035, 0.18, 'decay'), 18);
+function playShootSurge(){
+  _sound('sawtooth', 600, 80,  0.13, 0.22, 'punch');
+  setTimeout(()=>_sound('square', 1200, 300, 0.07, 0.10, 'decay'), 15);
 }
 
 // Laser hum — called once per second while firing (throttled externally)
