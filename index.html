@@ -456,7 +456,7 @@ footer p {
 
 <!-- ── VERSION BAR ── -->
 <div style="position:fixed;top:0;left:0;width:100%;z-index:9999;background:rgba(0,0,0,0.75);border-bottom:1px solid rgba(0,200,255,0.2);text-align:center;padding:5px 0;font-family:'Orbitron','Courier New',monospace;font-size:11px;letter-spacing:3px;color:rgba(0,210,255,0.8);pointer-events:none;">
-  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.0.3</span>
+  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.0.4</span>
 </div>
 <div style="height:26px"></div><!-- spacer so content isn't hidden under bar -->
 
@@ -563,15 +563,33 @@ footer p {
       </div>
 
       <div class="intel-card reveal">
+        <div class="intel-pts">1,000 PTS</div>
+        <div class="intel-title">NICE SHOOTING</div>
+        <div class="intel-desc">Fleet Command acknowledges your early performance. "Nice shooting, Pilot!" Keep it up — the sector is just getting warmed up.</div>
+      </div>
+
+      <div class="intel-card reveal">
+        <div class="intel-pts red">2,000 PTS</div>
+        <div class="intel-title">ASTEROID SURGE</div>
+        <div class="intel-desc">The belt destabilizes — a temporary wave of double the asteroids floods the sector. Survive until 3,000 and things normalize. Barely.</div>
+      </div>
+
+      <div class="intel-card reveal">
         <div class="intel-pts">3,000 PTS</div>
         <div class="intel-title">HARDENED CORE</div>
-        <div class="intel-desc">Asteroids develop crystalline shells. First hit sparks green fire — second hit destroys. Double the patience required.</div>
+        <div class="intel-desc">Asteroids develop crystalline shells. First hit sparks — second hit destroys. Double the patience required.</div>
       </div>
 
       <div class="intel-card reveal">
         <div class="intel-pts chrome">4,000 PTS</div>
         <div class="intel-title">SPACE WARP EVENT</div>
-        <div class="intel-desc">Reality bends. Time freezes. Your hull chromes over and your cannon is upgraded to double-damage output. Emerge transformed.</div>
+        <div class="intel-desc">Reality bends. Your cannon surges to double-damage output. Emerge transformed and ready to deal serious damage.</div>
+      </div>
+
+      <div class="intel-card reveal">
+        <div class="intel-pts" style="color:#cc88ff;">5,000 PTS</div>
+        <div class="intel-title">ABANDONED VESSEL</div>
+        <div class="intel-desc">A drifting purple wreck blinks through the sector. Shoot it to salvage a 1-hit energy shield. Don't let it pass.</div>
       </div>
 
       <div class="intel-card reveal">
@@ -581,21 +599,39 @@ footer p {
       </div>
 
       <div class="intel-card reveal">
+        <div class="intel-pts" style="color:#cc88ff;">7,000 PTS</div>
+        <div class="intel-title">ABANDONED VESSEL II</div>
+        <div class="intel-desc">Another derelict drifter. This one carries a 2-hit shield. Shoot the blinking light before it exits the sector.</div>
+      </div>
+
+      <div class="intel-card reveal">
         <div class="intel-pts red">8,000 PTS</div>
         <div class="intel-title">ENEMY ROCKET</div>
-        <div class="intel-desc">A hostile pilot appears at the top of the sector, shooting at you and ECHO-1. Destroy it to earn a 3-hit energy shield.</div>
+        <div class="intel-desc">A hostile pilot appears in the upper-right, guns blazing. Takes 10 direct hits to destroy. Reward: a 3-hit energy shield.</div>
+      </div>
+
+      <div class="intel-card reveal">
+        <div class="intel-pts">9,000 PTS</div>
+        <div class="intel-title">WAY TO GO</div>
+        <div class="intel-desc">Fleet Command again: "Way to go, Pilot!" You've outlasted every prediction. The next few thousand points will test that.</div>
       </div>
 
       <div class="intel-card reveal">
         <div class="intel-pts red">10,000 PTS</div>
         <div class="intel-title">THE BETRAYAL</div>
-        <div class="intel-desc">ECHO-1 flies up, turns around, and opens fire. She becomes your most dangerous enemy. Deal with it.</div>
+        <div class="intel-desc">ECHO-1 flies up, turns around, and opens fire. She becomes your most dangerous enemy. Destroy her to unlock the laser cannon.</div>
+      </div>
+
+      <div class="intel-card reveal">
+        <div class="intel-pts" style="color:#cc88ff;">11,000 PTS</div>
+        <div class="intel-title">ABANDONED VESSEL III</div>
+        <div class="intel-desc">A spinning derelict with a blinking light drifts through. This one's worth 4 shield hits — your last resupply before the final boss.</div>
       </div>
 
       <div class="intel-card reveal">
         <div class="intel-pts red" style="font-size:16px;">12,000 PTS</div>
         <div class="intel-title">GOLIATH DREADNOUGHT</div>
-        <div class="intel-desc">The final boss. Dual cannons, 10 HP, slow but relentless. Ten direct hits to destroy. Survive this — and the war is over.</div>
+        <div class="intel-desc">The final boss. Dual cannons, 250 HP, slow but relentless. Laser blasts count 10 hits each. Survive this — and the war is over.</div>
       </div>
 
       <div class="intel-card reveal" style="border-color:rgba(0,255,136,0.3);background:rgba(0,40,20,0.4);">
@@ -695,6 +731,21 @@ function getAudio(){
   return audioCtx;
 }
 
+// ── Background music ────────────────────────────────────────────────────────
+const bgMusic = new Audio('assets/audio/pallasade.mp3');
+bgMusic.loop = true;
+bgMusic.volume = 0.09; // ~half of shoot gain (0.18)
+let musicStarted = false;
+function startMusic(){
+  if(musicStarted) return;
+  musicStarted = true;
+  bgMusic.play().catch(()=>{}); // ignore autoplay block
+}
+// Kick off on first any user interaction with the game
+['keydown','touchstart','click'].forEach(ev =>
+  document.addEventListener(ev, startMusic, {once:true})
+);
+
 // Tiny helper — builds osc+gain, starts and stops
 function _sound(type, freqStart, freqEnd, duration, gainPeak, gainShape){
   try {
@@ -773,6 +824,9 @@ let bullets=[], spheres=[], particles=[];
 let enemyBullets=[], allyBullets=[], bossBullets=[];
 let rocketAlive=true, gameOverTimer=0;
 let spawnTimer=0, spawnInterval=90;
+let doubleWaveActive=false; // 2000pts surge — doubles spawn rate until 3000pts
+// Abandoned vessels: array of {x,y,speed,shieldAmt,blink,spin,alive}
+let vessels=[];
 let chromePower=false;
 let shieldHits=0;
 let allyActive=false, allyTurned=false;
@@ -847,8 +901,8 @@ const rocket={x:W/2,y:H-40,w:28,h:44,speed:2.5,left:false,right:false,up:false,d
 const ally={x:W*0.25,y:H-40,w:24,h:40,state:'idle',turnTimer:0,shootTimer:0,active:false,
   // independent movement waypoint
   wx:W*0.25,wy:H-40,moveTimer:0};
-const er={x:W*0.75,y:40,w:24,h:40,alive:false,cd:0,hp:20,maxHp:20};
-const boss={x:W/2,y:-60,w:42,h:36,alive:false,hp:50,maxHp:50,cd1:0,cd2:0,enterDone:false,exploding:false,explodeTimer:0};
+const er={x:W*0.75,y:40,w:24,h:40,alive:false,cd:0,hp:10,maxHp:10};
+const boss={x:W/2,y:-60,w:42,h:36,alive:false,hp:250,maxHp:250,cd1:0,cd2:0,enterDone:false,exploding:false,explodeTimer:0};
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function dist(ax,ay,bx,by){const dx=ax-bx,dy=ay-by;return Math.sqrt(dx*dx+dy*dy);}
@@ -892,11 +946,11 @@ function announce(txt){announcement=txt;announcementTimer=260;}
 function reset(){
   score=0;prevMilestone=0;
   bullets=[];spheres=[];particles=[];enemyBullets=[];allyBullets=[];bossBullets=[];
-  rocketAlive=true;gameOverTimer=0;spawnTimer=0;spawnInterval=90;
+  rocketAlive=true;gameOverTimer=0;spawnTimer=0;spawnInterval=90;doubleWaveActive=false;vessels=[];
   chromePower=false;shieldHits=0;
   allyActive=false;allyTurned=false;ally.state='idle';ally.x=W*0.25;ally.y=H-40;ally.shootTimer=0;ally.active=false;
-  enemyRocketActive=false;er.alive=false;er.x=W*0.75;er.y=40;er.cd=0;er.hp=20;
-  bossActive=false;boss.alive=false;boss.y=-60;boss.hp=50;boss.enterDone=false;boss.exploding=false;boss.explodeTimer=0;boss.cd1=0;boss.cd2=0;
+  enemyRocketActive=false;er.alive=false;er.x=W*0.75;er.y=40;er.cd=0;er.hp=10;
+  bossActive=false;boss.alive=false;boss.y=-60;boss.hp=250;boss.enterDone=false;boss.exploding=false;boss.explodeTimer=0;boss.cd1=0;boss.cd2=0;
   gameWon=false;winTimer=0;planetY=-40;
   warpPhase=false;warpTimer=0;
   announcement='';announcementTimer=0;
@@ -917,18 +971,40 @@ function reset(){
   ally.wx=W*0.25;ally.wy=H-40;ally.moveTimer=0;
 }
 
+// ── Abandoned vessel spawn ─────────────────────────────────────────────────
+function spawnVessel(shieldAmt, spin){
+  vessels.push({
+    x: 20+Math.random()*(W-40),
+    y: -20,
+    speed: 0.6+Math.random()*0.4,
+    drift: (Math.random()-0.5)*0.5,
+    shieldAmt,
+    spin,          // true = spinning vessel (11k variant)
+    angle: 0,
+    blink: 0,
+    alive: true,
+    r: 12
+  });
+}
+
 // ── Milestone checks ───────────────────────────────────────────────────────
 function checkMilestones(){
   const m=Math.floor(score/1000)*1000;
   if(m>prevMilestone){ milestoneFlash=m.toLocaleString()+' PTS'; milestoneFlashTimer=90; }
   if(m<=prevMilestone)return;
   prevMilestone=m;
-  if(m===3000&&!allyActive){announce('⚠ HARDENED CORES DETECTED\nARMOR-PIERCING REQUIRED');}
+  if(m===1000){ announce('✓ NICE SHOOTING, PILOT!'); }
+  if(m===2000){ doubleWaveActive=true; announce('⚠ ASTEROID SURGE DETECTED\nDENSITY DOUBLED — HOLD THE LINE'); }
+  if(m===3000){ doubleWaveActive=false; announce('⚠ HARDENED CORES DETECTED\nARMOR-PIERCING REQUIRED'); }
   if(m===4000&&!warpPhase&&!chromePower){warpPhase=true;warpTimer=0;announce('◈ SPACE WARP INITIATED\nPOWER SURGE · CANNON OVERCHARGED');}
+  if(m===5000){ spawnVessel(1,false); announce('◈ DERELICT VESSEL DETECTED\nSHOOT IT — 1-HIT SHIELD INSIDE'); }
   if(m===6000&&!allyActive){allyActive=true;ally.active=true;ally.state='active';ally.wx=W*0.25;ally.wy=H-60;announce('✦ ECHO-1 INBOUND\nALLY ONLINE — WEAPONS HOT');}
-  if(m===8000&&!enemyRocketActive){enemyRocketActive=true;er.alive=true;er.x=W*0.75;er.y=30;er.cd=0;announce('☠ HOSTILE BOGEY DETECTED\nENEMY ROCKET — SECTOR UPPER-RIGHT');}
+  if(m===7000){ spawnVessel(2,false); announce('◈ DERELICT VESSEL DETECTED\nSHOOT IT — 2-HIT SHIELD INSIDE'); }
+  if(m===8000&&!enemyRocketActive){enemyRocketActive=true;er.alive=true;er.hp=10;er.x=W*0.75;er.y=30;er.cd=0;announce('☠ HOSTILE BOGEY DETECTED\nENEMY ROCKET — SECTOR UPPER-RIGHT');}
+  if(m===9000){ announce('✓ WAY TO GO, PILOT!'); }
   if(m===10000&&allyActive&&!allyTurned){allyTurned=true;ally.state='turning';ally.turnTimer=0;announce('⚡ ECHO-1 SIGNAL COMPROMISED\nALLY HAS TURNED — TERMINATE ON SIGHT');}
-  if(m===12000&&!bossActive){bossActive=true;boss.alive=true;boss.y=-60;boss.hp=50;boss.enterDone=false;boss.exploding=false;boss.cd1=0;boss.cd2=0;announce('★ GOLIATH DREADNOUGHT INCOMING\n50 HITS — LASER BLASTS COUNT 10 EACH');}
+  if(m===11000){ spawnVessel(4,true); announce('◈ DERELICT VESSEL DETECTED\nSHOOT IT — 4-HIT SHIELD INSIDE'); }
+  if(m===12000&&!bossActive){bossActive=true;boss.alive=true;boss.y=-60;boss.hp=250;boss.enterDone=false;boss.exploding=false;boss.cd1=0;boss.cd2=0;announce('★ GOLIATH DREADNOUGHT INCOMING\n250 HP — LASER BLASTS COUNT 10 EACH');}
 }
 
 // ── Spawn ─────────────────────────────────────────────────────────────────
@@ -1472,9 +1548,32 @@ function update(){
   if(!boss.alive){
     spawnTimer++;
     if(spawnTimer>=spawnInterval&&rocketAlive){
-      spawnSphere();spawnTimer=0;
+      spawnSphere();
+      if(doubleWaveActive) spawnSphere(); // 2000pts surge: spawn 2 at once
+      spawnTimer=0;
       if(spawnInterval>35)spawnInterval=Math.max(35,spawnInterval-0.5);
     }
+  }
+
+  // Abandoned vessels — move, blink, check bullet hits & player collection
+  for(let i=vessels.length-1;i>=0;i--){
+    const v=vessels[i];
+    if(!v.alive){vessels.splice(i,1);continue;}
+    v.y+=v.speed; v.x+=v.drift; v.blink++;
+    if(v.spin) v.angle+=0.04;
+    // Bullet hits vessel
+    let hit=false;
+    for(let j=bullets.length-1;j>=0;j--){
+      if(dist(bullets[j].x,bullets[j].y,v.x,v.y)<v.r+4){
+        bullets.splice(j,1);
+        v.alive=false;
+        shieldHits=Math.min(shieldHits+v.shieldAmt,6);
+        spawnParticles(v.x,v.y,18,['rgba(180,80,255,A)','rgba(255,180,255,A)','rgba(100,50,200,A)'],1.2,0.02,0.05,1,4);
+        announce('◈ SHIELD SALVAGED\n+'+v.shieldAmt+' SHIELD HIT'+(v.shieldAmt>1?'S':''));
+        hit=true; break;
+      }
+    }
+    if(!hit && v.y>H+v.r) vessels.splice(i,1); // off screen
   }
 
   // Asteroids
@@ -1883,6 +1982,62 @@ function drawShield(x,y){
   ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();
   ctx.strokeStyle='rgba(100,240,255,0.7)';ctx.lineWidth=1.5;
   ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.stroke();
+}
+
+function drawVessels(){
+  for(const v of vessels){
+    if(!v.alive)continue;
+    ctx.save();
+    ctx.translate(v.x, v.y);
+    if(v.spin) ctx.rotate(v.angle);
+
+    // Hull — squat hexagonal purple derelict
+    ctx.beginPath();
+    ctx.moveTo(0,-v.r);
+    ctx.lineTo(v.r*0.75,-v.r*0.5);
+    ctx.lineTo(v.r*0.75, v.r*0.5);
+    ctx.lineTo(0, v.r);
+    ctx.lineTo(-v.r*0.75, v.r*0.5);
+    ctx.lineTo(-v.r*0.75,-v.r*0.5);
+    ctx.closePath();
+    ctx.fillStyle='rgba(80,20,120,0.85)';
+    ctx.fill();
+    ctx.strokeStyle='rgba(160,80,220,0.9)';
+    ctx.lineWidth=1.5;
+    ctx.stroke();
+
+    // Damage cracks
+    ctx.strokeStyle='rgba(200,100,255,0.4)';
+    ctx.lineWidth=0.7;
+    ctx.beginPath();ctx.moveTo(-v.r*0.3,-v.r*0.6);ctx.lineTo(v.r*0.1,0);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(v.r*0.4, v.r*0.3);ctx.lineTo(v.r*0.1,0);ctx.stroke();
+
+    // Blinking distress light — pulses on and off
+    const blinkOn = Math.floor(v.blink/18)%2===0;
+    if(blinkOn){
+      // glow
+      const gl=ctx.createRadialGradient(0,-v.r*0.2,0, 0,-v.r*0.2,7);
+      gl.addColorStop(0,'rgba(255,100,255,0.9)');
+      gl.addColorStop(1,'rgba(180,50,220,0)');
+      ctx.fillStyle=gl;
+      ctx.beginPath();ctx.arc(0,-v.r*0.2,7,0,Math.PI*2);ctx.fill();
+      // dot
+      ctx.beginPath();ctx.arc(0,-v.r*0.2,2.5,0,Math.PI*2);
+      ctx.fillStyle='#ff88ff';ctx.fill();
+    } else {
+      ctx.beginPath();ctx.arc(0,-v.r*0.2,1.5,0,Math.PI*2);
+      ctx.fillStyle='rgba(120,40,160,0.6)';ctx.fill();
+    }
+
+    // Shield amount label
+    ctx.rotate(v.spin ? -v.angle : 0); // keep text upright on spinning vessel
+    ctx.font='bold 8px "Courier New"';
+    ctx.textAlign='center';
+    ctx.fillStyle='rgba(220,160,255,0.9)';
+    ctx.fillText('+'+v.shieldAmt+'◈', 0, v.r+10);
+
+    ctx.restore();
+  }
 }
 
 function drawAlly(){
@@ -2642,6 +2797,7 @@ function draw(){
     if(scene==='play'||scene==='homeApproach'||scene==='homeLaser'){
       drawSpheres();
       drawBoss();
+      drawVessels();
       drawBullets();
       drawParticles();
       if(rocketAlive)drawRocketShape(rocket.x,rocket.y,rocket.w,rocket.h,'blue',false);
