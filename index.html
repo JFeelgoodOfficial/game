@@ -456,7 +456,7 @@ footer p {
 
 <!-- ── VERSION BAR ── -->
 <div style="position:fixed;top:0;left:0;width:100%;z-index:9999;background:rgba(0,0,0,0.75);border-bottom:1px solid rgba(0,200,255,0.2);text-align:center;padding:5px 0;font-family:'Orbitron','Courier New',monospace;font-size:11px;letter-spacing:3px;color:rgba(0,210,255,0.8);pointer-events:none;">
-  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.1.6</span>
+  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.1.7</span>
 </div>
 <div style="height:26px"></div><!-- spacer so content isn't hidden under bar -->
 
@@ -817,6 +817,7 @@ let enemyBullets=[], allyBullets=[], bossBullets=[], magnaBullets=[];
 let planetKillerLaserUnlocked = false;
 let planetHP = 10000;
 let planetLaserDmgTimer = 0;
+let planetFlashTimer = 0; // frames of white flash on planet hit
 let rocketAlive=true, gameOverTimer=0;
 let spawnTimer=0, spawnInterval=90;
 let doubleWaveActive=false; // 2000pts surge — doubles spawn rate until 3000pts
@@ -893,19 +894,18 @@ let alienShots=[];
 
 // ── Laser state ────────────────────────────────────────────────────────────
 // laserUnlocked: true once the traitor is destroyed
-// laserCharge:   ticks remaining for the current pulse burst
-// Pressing fire while laser is ready fires a pulse (LASER_PULSE_DURATION ticks).
-// No asteroid kills needed — cooldown recharges automatically.
+// Pulse laser: fires while button is held (continuous) or on tap.
+// Beam length = player rocket height (44px). 25pts per hit.
 // laserDmgTimer: throttle so the laser doesn't hit every single frame
-const LASER_PULSE_DURATION = 30;  // pulse lasts 0.5 seconds
-const LASER_COOLDOWN_TICKS = 90;  // 1.5 seconds between pulses
+const LASER_PULSE_DURATION = 30;  // kept for HUD bar scale reference
+const LASER_COOLDOWN_TICKS = 0;   // no cooldown — continuous fire while held
 const LASER_TICKS_PER_KILL = 30;  // kept for HUD bar scale reference
 let laserUnlocked = false;
-let laserCharge   = 0;            // ticks remaining in current pulse
-let laserCooldown = 0;            // ticks until next pulse is ready
+let laserCharge   = 0;            // 1 while firing, 0 while not
+let laserCooldown = 0;            // not used for pulse laser
 let laserDmgTimer = 0;            // cooldown between laser damage ticks (frames)
 let laserSoundTimer = 0;          // throttle: play laser sound every ~30 frames
-let laserWasFiring = false;       // edge-detect for pulse trigger
+let laserWasFiring = false;       // not used but kept for reset compatibility
 
 let stars=[];
 for(let i=0;i<40;i++) stars.push({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.2+0.3,tw:Math.random()*Math.PI*2});
@@ -968,7 +968,7 @@ function reset(){
   warpPhase=false;warpTimer=0;
   announcement='';announcementTimer=0;
   laserUnlocked=false;laserCharge=0;laserCooldown=0;laserDmgTimer=0;laserSoundTimer=0;laserWasFiring=false;
-  planetKillerLaserUnlocked=false;planetHP=10000;planetLaserDmgTimer=0;
+  planetKillerLaserUnlocked=false;planetHP=10000;planetLaserDmgTimer=0;planetFlashTimer=0;
   scene='title';sceneTimer=0;
   homePlanetY=H+80;homePlanetR=30;homePlanetExploding=false;homePlanetExplodeTimer=0;
   magnaLaserProgress=0;magnaLaserBrightness=0;
@@ -1167,12 +1167,29 @@ function updateScene(){
           bullets.splice(j,1);
           if(magna.hp<=0){
             magna.alive=false;
-            // Big explosion
-            for(let k=0;k<8;k++){
-              const ox=(Math.random()-0.5)*magna.w, oy=(Math.random()-0.5)*magna.h*0.6;
-              spawnParticles(magna.x+ox,magna.y+oy,25,
-                ['rgba(255,100,0,A)','rgba(255,200,0,A)','rgba(255,50,0,A)','rgba(100,200,255,A)'],
-                2,0.008,0.02,2,9);
+            // MASSIVE explosion — many waves, screen-filling
+            for(let k=0;k<20;k++){
+              const ox=(Math.random()-0.5)*magna.w*2.5, oy=(Math.random()-0.5)*magna.h*1.8;
+              spawnParticles(magna.x+ox,magna.y+oy,40,
+                ['rgba(255,100,0,A)','rgba(255,220,0,A)','rgba(255,50,0,A)','rgba(100,200,255,A)','rgba(255,255,200,A)','rgba(200,80,255,A)'],
+                3.5,0.004,0.012,3,16);
+            }
+            // Shockwave ring of particles
+            for(let k=0;k<80;k++){
+              const ang=(k/80)*Math.PI*2;
+              particles.push({x:magna.x,y:magna.y,
+                vx:Math.cos(ang)*18*(0.7+Math.random()*0.6),
+                vy:Math.sin(ang)*18*(0.7+Math.random()*0.6),
+                life:1,decay:0.008+Math.random()*0.008,r:4+Math.random()*10,
+                col:['rgba(255,200,80,A)','rgba(255,120,0,A)','rgba(255,255,180,A)'][Math.floor(Math.random()*3)]});
+            }
+            // Screen-edge shrapnel
+            for(let k=0;k<60;k++){
+              const ang=Math.random()*Math.PI*2, spd=Math.random()*25+8;
+              particles.push({x:magna.x,y:magna.y,
+                vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,
+                life:1,decay:0.003+Math.random()*0.006,r:2+Math.random()*7,
+                col:['rgba(255,80,0,A)','rgba(255,200,0,A)','rgba(100,220,255,A)'][Math.floor(Math.random()*3)]});
             }
             score += 25000;
             planetKillerLaserUnlocked = true;
@@ -1182,8 +1199,9 @@ function updateScene(){
           break;
         }
       }
-      // Laser pulse hits Magnathora
-      if(laserUnlocked && rocketAlive && laserCharge>0){
+      // Laser pulse hits Magnathora (continuous while firing)
+      if(laserUnlocked && rocketAlive && rocket.firing){
+        laserCharge = 1; // signal beam is active
         if(laserDmgTimer>0) laserDmgTimer--; else{
           laserDmgTimer=6;
           if(Math.abs(magna.x-rocket.x)<magna.w*0.55 && magna.y>-magna.h){
@@ -1192,9 +1210,27 @@ function updateScene(){
             spawnParticles(rocket.x,magna.y,5,['rgba(255,180,0,A)'],0.8,0.05,0.1,0.5,2);
             if(magna.hp<=0 && magna.alive){
               magna.alive=false;
-              for(let k=0;k<8;k++){
-                const ox=(Math.random()-0.5)*magna.w, oy=(Math.random()-0.5)*magna.h*0.6;
-                spawnParticles(magna.x+ox,magna.y+oy,25,['rgba(255,100,0,A)','rgba(255,200,0,A)'],2,0.008,0.02,2,9);
+              // MASSIVE explosion
+              for(let k=0;k<20;k++){
+                const ox=(Math.random()-0.5)*magna.w*2.5, oy=(Math.random()-0.5)*magna.h*1.8;
+                spawnParticles(magna.x+ox,magna.y+oy,40,
+                  ['rgba(255,100,0,A)','rgba(255,220,0,A)','rgba(255,50,0,A)','rgba(100,200,255,A)','rgba(255,255,200,A)','rgba(200,80,255,A)'],
+                  3.5,0.004,0.012,3,16);
+              }
+              for(let k=0;k<80;k++){
+                const ang=(k/80)*Math.PI*2;
+                particles.push({x:magna.x,y:magna.y,
+                  vx:Math.cos(ang)*18*(0.7+Math.random()*0.6),
+                  vy:Math.sin(ang)*18*(0.7+Math.random()*0.6),
+                  life:1,decay:0.008+Math.random()*0.008,r:4+Math.random()*10,
+                  col:['rgba(255,200,80,A)','rgba(255,120,0,A)','rgba(255,255,180,A)'][Math.floor(Math.random()*3)]});
+              }
+              for(let k=0;k<60;k++){
+                const ang=Math.random()*Math.PI*2, spd=Math.random()*25+8;
+                particles.push({x:magna.x,y:magna.y,
+                  vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,
+                  life:1,decay:0.003+Math.random()*0.006,r:2+Math.random()*7,
+                  col:['rgba(255,80,0,A)','rgba(255,200,0,A)','rgba(100,220,255,A)'][Math.floor(Math.random()*3)]});
               }
               score+=25000;
               planetKillerLaserUnlocked=true;
@@ -1202,8 +1238,11 @@ function updateScene(){
             }
           }
         }
+      } else if(laserUnlocked) {
+        laserCharge = 0;
+        laserDmgTimer = 0;
       }
-    }
+    } // end if(magna.alive)
 
     // Asteroids still appear
     if(Math.random()<0.006 && spheres.length<8) spawnSphere();
@@ -1308,7 +1347,7 @@ function updateScene(){
 
   // ── finalDive ─────────────────────────────────────────────────────────
   if(scene==='finalDive'){
-    // Legacy fallback — shouldn't reach here in v1.1.6 but keep for safety
+    // Legacy fallback — shouldn't reach here in v1.1.5 but keep for safety
     scene='victory'; sceneTimer=0; winTimer=0; nebulousExplosionTimer=0;
     announce('★ AMAZING WORK, PILOT!\nYOU ARE VICTORIOUS!');
   }
@@ -1353,7 +1392,7 @@ let transponderY = 0;
 let transponderPickedUp = false;
 
 function initBoarding(){
-  // v1.1.6: Magnathora is now a combat boss — no boarding mini-game
+  // v1.1.5: Magnathora is now a combat boss — no boarding mini-game
   magna.hp = magna.maxHp;
   magna.alive = true;
   magna.gunTimer = 0;
@@ -1655,16 +1694,18 @@ function updateEnemyOrbit(){
 
   if(!rocketAlive){gameOverTimer++;if(gameOverTimer>150&&particles.length<5)reset();return;}
 
-  // Planet killer laser — continuous beam damages planet 1000pt/hit (throttled to 1/sec = 60 frames)
-  if(planetKillerLaserUnlocked && rocketAlive && rocket.firing && laserCharge>0){
-    laserCharge=Math.max(0,laserCharge-1);
+  // Planet killer laser — continuous beam damages planet 1000pt/hit (throttled 1/sec)
+  if(planetKillerLaserUnlocked && rocketAlive && rocket.firing){
+    laserCharge = 1; // keep beam visible
     if(laserSoundTimer>0)laserSoundTimer--; else{laserSoundTimer=28;playLaser();}
     if(planetLaserDmgTimer>0)planetLaserDmgTimer--;
     if(planetLaserDmgTimer===0){
       planetLaserDmgTimer=60; // 1 hit per second
-      // Check if beam hits planet
+      // Check if beam hits planet (beam shoots upward from rocket nose to top of screen)
       if(Math.abs(enemyPlanet.x-rocket.x)<enemyPlanet.r+10 && enemyPlanet.y<rocket.y){
         planetHP-=1000;
+        score+=1000;
+        planetFlashTimer = 8; // flash for ~8 frames
         playEnemyHit();
         spawnParticles(enemyPlanet.x+(Math.random()-0.5)*enemyPlanet.r,enemyPlanet.y+(Math.random()-0.5)*enemyPlanet.r*0.5,
           15,['rgba(255,100,0,A)','rgba(255,200,50,A)','rgba(200,50,0,A)'],1.5,0.015,0.03,2,7);
@@ -1698,19 +1739,10 @@ function updateEnemyOrbit(){
         }
       }
     }
-  } else { planetLaserDmgTimer=0; }
-
-  // Laser pulse recharge
-  if(planetKillerLaserUnlocked && rocketAlive){
-    if(laserCooldown>0) laserCooldown--;
-    const firingNow=rocket.firing;
-    if(firingNow&&!laserWasFiring&&laserCooldown===0&&laserCharge===0) laserCharge=LASER_PULSE_DURATION;
-    laserWasFiring=firingNow;
-    if(laserCharge>0){
-      laserCharge=Math.max(0,laserCharge-1);
-      if(laserCharge===0) laserCooldown=LASER_COOLDOWN_TICKS;
-      if(laserSoundTimer>0)laserSoundTimer--; else{laserSoundTimer=28;playLaser();}
-    } else { laserSoundTimer=0; }
+  } else if(planetKillerLaserUnlocked) {
+    laserCharge = 0;
+    planetLaserDmgTimer=0;
+    laserSoundTimer=0;
   }
 }
 
@@ -2030,45 +2062,36 @@ function update(){
     }
   }
 
-  // ── Laser pulse update ─────────────────────────────────────────────────
+  // ── Pulse laser update (continuous fire while held, tap or hold) ──────────
   if(laserUnlocked && rocketAlive){
-    // Cooldown ticks down when not firing
-    if(laserCooldown > 0) laserCooldown--;
-
-    // Trigger a pulse on the leading edge of fire press (when ready)
+    // Laser is active whenever the player is firing
     const firingNow = rocket.firing;
-    if(firingNow && !laserWasFiring && laserCooldown === 0 && laserCharge === 0){
-      laserCharge = LASER_PULSE_DURATION;
-    }
-    laserWasFiring = firingNow;
+    laserCharge = firingNow ? 1 : 0; // 1=visible, 0=off
 
-    // Run the active pulse
-    if(laserCharge > 0){
-      laserCharge = Math.max(0, laserCharge - 1);
-      if(laserCharge === 0) laserCooldown = LASER_COOLDOWN_TICKS; // start cooldown
-
+    if(firingNow){
       if(laserSoundTimer>0) laserSoundTimer--; else{laserSoundTimer=28;playLaser();}
       if(laserDmgTimer > 0) laserDmgTimer--;
 
       if(laserDmgTimer === 0){
         laserDmgTimer = 6;
         const lx = rocket.x;
-        const ly = rocket.y - rocket.h / 2;
+        const ly = rocket.y - rocket.h / 2;        // tip of rocket
+        const laserEnd = ly - rocket.h;             // beam length = rocket height (44px)
 
         // Hit spheres along the beam
         for(let i=spheres.length-1;i>=0;i--){
           const s=spheres[i];
-          if(Math.abs(s.x - lx) < s.r + 6 && s.y < ly && s.y > -s.r){
+          if(Math.abs(s.x - lx) < s.r + 6 && s.y < ly && s.y > laserEnd - s.r){
             s.hp -= chromePower ? 2 : 1;
             sparkSphere(s);
-            if(s.hp <= 0){ explodeSphere(s); score+=10; spheres.splice(i,1);
+            if(s.hp <= 0){ explodeSphere(s); score+=25; spheres.splice(i,1);
               playAsteroidExplode(); }
             else { playAsteroidHit(); }
             break;
           }
         }
         // Hit enemy rocket
-        if(er.alive && Math.abs(er.x - lx) < 26 && er.y < ly && er.y > -42){
+        if(er.alive && Math.abs(er.x - lx) < 26 && er.y < ly && er.y > laserEnd - 42){
           er.hp -= chromePower ? 2 : 1;
           playEnemyHit();
           spawnParticles(er.x,er.y,4,['rgba(255,100,0,A)'],0.8,0.06,0.1,0.5,2);
@@ -2078,14 +2101,14 @@ function update(){
           }
         }
         // Hit turned ally
-        if(allyActive && ally.state==='enemy' && Math.abs(ally.x - lx) < 14 && ally.y < ly){
+        if(allyActive && ally.state==='enemy' && Math.abs(ally.x - lx) < 14 && ally.y < ly && ally.y > laserEnd){
           playEnemyHit();
           explodeAt(ally.x,ally.y); allyActive=false; ally.active=false;
-          score+=300; laserUnlocked=true; announce('⚡ TRAITOR TERMINATED\nLASER CANNON UNLOCKED — PULSE READY');
+          score+=300; laserUnlocked=true; announce('⚡ TRAITOR TERMINATED\nLASER CANNON UNLOCKED — PULSE FIRE ACTIVE');
         }
         // Hit boss
-        if(boss.alive && !boss.exploding && Math.abs(boss.x - lx) < boss.w/2+6 && boss.y < ly && boss.y > -40){
-          const laserBossDmg = chromePower ? 20 : 10;
+        if(boss.alive && !boss.exploding && Math.abs(boss.x - lx) < boss.w/2+6 && boss.y < ly && boss.y > laserEnd - 40){
+          const laserBossDmg = chromePower ? 50 : 25;
           boss.hp -= laserBossDmg;
           playEnemyHit();
           spawnParticles(lx, boss.y+boss.h/2, 5, ['rgba(255,180,0,A)'], 0.8, 0.05, 0.1, 0.5, 2);
@@ -2097,6 +2120,7 @@ function update(){
       laserSoundTimer = 0;
     }
   } else if(!laserUnlocked) {
+    laserCharge = 0;
     laserDmgTimer = 0;
     laserSoundTimer = 0;
   }
@@ -3077,58 +3101,71 @@ function drawEnemyWorld(){
     const ag=ctx.createRadialGradient(ep.x,ep.y,ep.r*0.9,ep.x,ep.y,ep.r+28);
     ag.addColorStop(0,'rgba(220,60,0,0.5)'); ag.addColorStop(0.5,'rgba(160,40,0,0.25)'); ag.addColorStop(1,'rgba(100,20,0,0)');
     ctx.beginPath(); ctx.arc(ep.x,ep.y,ep.r+28,0,Math.PI*2); ctx.fillStyle=ag; ctx.fill();
+
+    // White flash on hit
+    if(planetFlashTimer > 0){
+      planetFlashTimer--;
+      const flashAlpha = planetFlashTimer / 8;
+      ctx.save();
+      ctx.globalAlpha = flashAlpha * 0.85;
+      ctx.beginPath(); ctx.arc(ep.x,ep.y,ep.r+10,0,Math.PI*2);
+      ctx.fillStyle='#ffffff'; ctx.fill();
+      ctx.restore();
+    }
   }
 }
 
 function drawLaser(){
   if(!laserUnlocked || !rocketAlive || laserCharge <= 0) return;
   const x = rocket.x;
-  const y0 = rocket.y - rocket.h / 2;
+  const y0 = rocket.y - rocket.h / 2;   // tip of rocket
+  // Planet killer laser: full-length beam to top of screen; pulse laser: rocket-height beam
+  const y1 = planetKillerLaserUnlocked ? 0 : y0 - rocket.h;
   const t = Date.now() / 80;
-
-  // Charge fraction for intensity (caps at 1)
-  const intensity = Math.min(1, laserCharge / 30);
+  const intensity = 1.0;
+  // Planet killer beam is wider/brighter
+  const isPK = planetKillerLaserUnlocked;
 
   ctx.save();
 
   // Outer soft glow
   ctx.beginPath();
   ctx.moveTo(x, y0);
-  ctx.lineTo(x, 0);
-  const glowGrad = ctx.createLinearGradient(0, y0, 0, 0);
-  glowGrad.addColorStop(0, `rgba(255,0,200,${0.18 * intensity})`);
-  glowGrad.addColorStop(1, `rgba(255,0,255,${0.06 * intensity})`);
+  ctx.lineTo(x, y1);
+  const glowGrad = ctx.createLinearGradient(0, y0, 0, y1);
+  glowGrad.addColorStop(0, `rgba(255,0,200,${(isPK?0.35:0.18) * intensity})`);
+  glowGrad.addColorStop(1, `rgba(255,0,255,${(isPK?0.15:0.06) * intensity})`);
   ctx.strokeStyle = glowGrad;
-  ctx.lineWidth = 18;
+  ctx.lineWidth = isPK ? 32 : 18;
   ctx.stroke();
 
   // Mid beam
   ctx.beginPath();
   ctx.moveTo(x, y0);
-  ctx.lineTo(x, 0);
-  const midGrad = ctx.createLinearGradient(0, y0, 0, 0);
-  midGrad.addColorStop(0, `rgba(255,80,255,${0.7 * intensity})`);
-  midGrad.addColorStop(0.5, `rgba(200,0,255,${0.8 * intensity})`);
-  midGrad.addColorStop(1, `rgba(255,0,200,${0.4 * intensity})`);
+  ctx.lineTo(x, y1);
+  const midGrad = ctx.createLinearGradient(0, y0, 0, y1);
+  midGrad.addColorStop(0, `rgba(255,80,255,${(isPK?0.95:0.7) * intensity})`);
+  midGrad.addColorStop(0.5, `rgba(200,0,255,${(isPK?1.0:0.8) * intensity})`);
+  midGrad.addColorStop(1, `rgba(255,0,200,${(isPK?0.6:0.4) * intensity})`);
   ctx.strokeStyle = midGrad;
-  ctx.lineWidth = 5 + 2 * Math.sin(t);
+  ctx.lineWidth = (isPK ? 10 : 5) + 2 * Math.sin(t);
   ctx.stroke();
 
   // Bright core
   ctx.beginPath();
   ctx.moveTo(x, y0);
-  ctx.lineTo(x, 0);
-  const coreGrad = ctx.createLinearGradient(0, y0, 0, 0);
+  ctx.lineTo(x, y1);
+  const coreGrad = ctx.createLinearGradient(0, y0, 0, y1);
   coreGrad.addColorStop(0, `rgba(255,220,255,${intensity})`);
   coreGrad.addColorStop(1, `rgba(255,100,255,${0.6 * intensity})`);
   ctx.strokeStyle = coreGrad;
-  ctx.lineWidth = 1.5 + Math.sin(t * 1.3);
+  ctx.lineWidth = (isPK ? 3 : 1.5) + Math.sin(t * 1.3);
   ctx.shadowColor = '#ff00ff';
-  ctx.shadowBlur = 12;
+  ctx.shadowBlur = isPK ? 22 : 12;
   ctx.stroke();
 
   // Muzzle flare at ship nose
-  const flareR = 5 + 3 * Math.sin(t * 2);
+  const flareR = (isPK ? 9 : 5) + 3 * Math.sin(t * 2);
   const fg = ctx.createRadialGradient(x, y0, 0, x, y0, flareR);
   fg.addColorStop(0, `rgba(255,255,255,${intensity})`);
   fg.addColorStop(0.5, `rgba(255,100,255,${0.8 * intensity})`);
@@ -3228,31 +3265,21 @@ function drawHUD(){
   // Laser pulse bar
   if(laserUnlocked){
     const barW=90, barH=5, bx=6, by=H-18;
-    // Show charge if pulsing, otherwise show cooldown recharge
-    const pulsing = laserCharge > 0;
-    const ready   = laserCooldown === 0 && laserCharge === 0;
-    const chargePct = pulsing
-      ? laserCharge / LASER_PULSE_DURATION
-      : ready ? 1 : 1 - laserCooldown / LASER_COOLDOWN_TICKS;
     // Track
     ctx.fillStyle='rgba(80,0,80,0.5)';
     ctx.fillRect(bx, by, barW, barH);
-    // Fill
-    if(chargePct > 0){
-      const t=Date.now()/300;
-      const pulse=0.7+0.3*Math.sin(t);
-      ctx.fillStyle = pulsing
-        ? `rgba(255,${Math.floor(80+80*pulse)},255,${pulse})`
-        : ready
-          ? `rgba(0,255,160,0.85)`
-          : `rgba(100,0,160,0.6)`;
-      ctx.fillRect(bx, by, barW * chargePct, barH);
-    }
+    // Fill — always ready, pink when firing
+    const t2=Date.now()/300;
+    const barPulse=0.7+0.3*Math.sin(t2);
+    ctx.fillStyle = laserCharge > 0
+      ? `rgba(255,${Math.floor(80+80*barPulse)},255,${barPulse})`
+      : `rgba(0,255,160,0.85)`;
+    ctx.fillRect(bx, by, barW, barH);
     ctx.strokeStyle='rgba(200,0,255,0.5)'; ctx.lineWidth=0.8;
     ctx.strokeRect(bx, by, barW, barH);
     ctx.textAlign='left'; ctx.font='6px "Courier New"';
-    ctx.fillStyle = pulsing ? '#ff88ff' : ready ? '#88ffcc' : 'rgba(150,0,180,0.5)';
-    ctx.fillText('LASER'+(pulsing?' ▮':ready?' READY':' ▯'), bx, by-2);
+    ctx.fillStyle = laserCharge > 0 ? '#ff88ff' : '#88ffcc';
+    ctx.fillText('PULSE LASER'+(laserCharge > 0 ?' ▮':' READY'), bx, by-2);
   }
   // ── Enemy Orbit HUD — Planet HP bar ─────────────────────────────────────
   if(scene==='enemyOrbit'){
@@ -3461,7 +3488,7 @@ function drawTitleScreen(){
   ctx.textAlign='center';
   ctx.fillStyle='rgba(80,120,160,0.6)';
   ctx.font='8px "Courier New"';
-  ctx.fillText('v1.1.6', cx, H - 12);
+  ctx.fillText('v1.1.7', cx, H - 12);
   ctx.restore();
 }
 
