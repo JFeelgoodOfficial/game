@@ -456,7 +456,7 @@ footer p {
 
 <!-- ── VERSION BAR ── -->
 <div style="position:fixed;top:0;left:0;width:100%;z-index:9999;background:rgba(0,0,0,0.75);border-bottom:1px solid rgba(0,200,255,0.2);text-align:center;padding:5px 0;font-family:'Orbitron','Courier New',monospace;font-size:11px;letter-spacing:3px;color:rgba(0,210,255,0.8);pointer-events:none;">
-  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.1.99</span>
+  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.1.999</span>
 </div>
 <div style="height:26px"></div><!-- spacer so content isn't hidden under bar -->
 
@@ -858,9 +858,6 @@ const magna = {x:W/2, y:-540, w:130, h:520, hatchOpen:false, vy:0.55, stopped:fa
 let boardingActive = false;
 let pilot = {x:0, y:0, vx:0, vy:0, inShip:false, planted:false, escaped:false, left:false, right:false, up:false, down:false, pcd:0};
 let bombTimer = 0;
-let shipRooms = [];
-let engineRoom = {x:0,y:0,w:0,h:0};
-let shipAliens = [];
 let magnaExplodeTimer = 0;
 
 // Warp travel
@@ -886,10 +883,6 @@ let announcement='', announcementTimer=0;
 let milestoneFlash='', milestoneFlashTimer=0;
 let nebulousExplosionTimer=0;
 
-// Boarding cinematic zoom state
-let boardingZoom=1.0, boardingZoomTarget=1.0;
-let boardingZoomCX=0, boardingZoomCY=0;
-// Alien gunfire at pilot during boarding
 let alienShots=[];
 
 // ── Laser state ────────────────────────────────────────────────────────────
@@ -975,9 +968,8 @@ function reset(){
   magna.x=W/2;magna.y=-540;magna.hatchOpen=false;magna.vy=1.05;magna.stopped=false;magna.hp=400;magna.laserTimer=0;magna.gunTimer=0;magna.alive=true;
   boardingActive=false;
   pilot.x=0;pilot.y=0;pilot.vx=0;pilot.vy=0;pilot.inShip=false;pilot.planted=false;pilot.escaped=false;pilot.left=false;pilot.right=false;pilot.up=false;pilot.down=false;pilot.pcd=0;
-  bombTimer=0;shipRooms=[];shipAliens=[];magnaExplodeTimer=0;
-  cinematicPhase=0;cinematicTimer=0;transponderVisible=false;transponderPickedUp=false;
-  boardingZoom=1.0;boardingZoomTarget=1.0;boardingZoomCX=W/2;boardingZoomCY=H/2;alienShots=[];
+  bombTimer=0;magnaExplodeTimer=0;
+  alienShots=[];
   nebulousExplosionTimer=0;
   warpLineStars=[];warpProgress=0;
   enemyPlanet.x=W/2;enemyPlanet.y=-150;
@@ -1187,6 +1179,7 @@ function updateScene(){
           bullets.splice(j,1);
           if(magna.hp<=0){
             magna.alive=false;
+            shieldHits += 10;  // survivor's shield surge — Magnathora's death shockwave energizes deflectors
             spheres=[];  // clear asteroids after magnathora dies
             // MASSIVE explosion — many waves, screen-filling
             for(let k=0;k<20;k++){
@@ -1341,20 +1334,7 @@ function updateScene(){
   }
 }
 
-// ── CINEMATIC BOARDING ANIMATION ─────────────────────────────────────────
-// cinematicPhase: 0=docking approach, 1=walk to engine, 2=plant explosive,
-//                 3=walk to hatch + retrieve transponder, 4=escape to rocket, 5=depart
-let cinematicPhase = 0;
-let cinematicTimer = 0;
-let cinematicTargetX = 0;
-let cinematicTargetY = 0;
-let transponderVisible = false;
-let transponderX = 0;
-let transponderY = 0;
-let transponderPickedUp = false;
-
 function initBoarding(){
-  // v1.1.5: Magnathora is now a combat boss — no boarding mini-game
   magna.hp = magna.maxHp;
   magna.alive = true;
   magna.gunTimer = 0;
@@ -1365,231 +1345,6 @@ function initBoarding(){
   rocket.x = W/2; rocket.y = H - 60;
   announce('☠ MAGNATHORA BATTLE STATIONS\nDESTROY IT — 400 HP — DODGE LASER & GUNS');
 }
-
-function updateBoarding(){
-  cinematicTimer++;
-  buildInterior(); // keep rooms updated to magna.y
-
-  const hp = getHatchPos();
-  // Rocket always parks at hatch
-  rocket.x = hp.x + 10;
-  rocket.y = hp.y + 15;
-
-  const spd = 1.6;
-
-  // ── Update alien shots ──────────────────────────────────────────────
-  for(let i=alienShots.length-1;i>=0;i--){
-    const as=alienShots[i];
-    as.x+=as.vx; as.y+=as.vy; as.life-=0.02;
-    if(as.life<=0||as.x<-10||as.x>W+10||as.y<-10||as.y>H+10){
-      alienShots.splice(i,1); continue;
-    }
-    // Check if shot hits pilot
-    if(pilot.inShip && dist(as.x,as.y,pilot.x,pilot.y)<6){
-      alienShots.splice(i,1);
-      spawnParticles(pilot.x,pilot.y,8,['rgba(255,50,50,A)','rgba(255,150,0,A)'],1,0.06,0.1,0.5,2);
-    }
-  }
-
-  // ── Alien movement & shooting at pilot ──────────────────────────────
-  if(pilot.inShip){
-    for(const al of shipAliens){
-      if(!al.alive) continue;
-      // Patrol
-      al.x += al.vx;
-      if(al.x > al.room.x+al.room.w-4 || al.x < al.room.x+4) al.vx *= -1;
-      al.cd++;
-      // Shoot at pilot every ~100 ticks
-      if(al.cd%100===0){
-        const dx=pilot.x-al.x, dy=pilot.y-al.y;
-        const d=Math.sqrt(dx*dx+dy*dy)||1;
-        if(d<120){
-          alienShots.push({x:al.x,y:al.y,vx:(dx/d)*2.5,vy:(dy/d)*2.5,life:1});
-        }
-      }
-    }
-  }
-
-  // ── Phase 0: Pilot floats up to hatch ─────────────────────────────
-  if(cinematicPhase === 0){
-    boardingZoom = 1.0; boardingZoomTarget = 1.0;
-    const tx = hp.x - 8, ty = hp.y;
-    movePilotToward(tx, ty, spd);
-    if(dist(pilot.x, pilot.y, tx, ty) < 6){
-      pilot.inShip = true;
-      cinematicPhase = 1;
-      cinematicTimer = 0;
-      // Zoom into the ship
-      boardingZoomTarget = 1.5;
-      boardingZoomCX = magna.x;
-      boardingZoomCY = magna.y;
-      announce('◈ PILOT BOARDED\nLOCATING ENGINE ROOM — MOVE FAST, DODGE FIRE');
-    }
-  }
-
-  // ── Phase 1: Walk to engine room — aliens fire! ────────────────────
-  else if(cinematicPhase === 1){
-    // Zoom in 50% centered on pilot
-    boardingZoomTarget = 1.5;
-    boardingZoomCX = pilot.x;
-    boardingZoomCY = pilot.y;
-    const ec = {x: engineRoom.x + engineRoom.w/2, y: engineRoom.y + engineRoom.h/2};
-    movePilotToward(ec.x, ec.y, spd);
-    // Clamp inside ship
-    clampPilotToShip();
-    if(dist(pilot.x, pilot.y, ec.x, ec.y) < 10){
-      cinematicPhase = 2;
-      cinematicTimer = 0;
-      pilot.planted = true;
-      bombTimer = 420; // 7 seconds at 60fps
-      // Spawn transponder in engine room area
-      transponderX = engineRoom.x + engineRoom.w * 0.75;
-      transponderY = engineRoom.y + engineRoom.h * 0.5;
-      transponderVisible = true;
-      announce('⚡ EXPLOSIVE PLANTED\nTRANSPONDER LOCATED — RETRIEVING');
-    }
-  }
-
-  // ── Phase 2: Pick up transponder ──────────────────────────────────
-  else if(cinematicPhase === 2){
-    boardingZoomTarget = 1.5;
-    boardingZoomCX = pilot.x;
-    boardingZoomCY = pilot.y;
-    if(cinematicTimer < 40){
-      pilot.x += Math.sin(cinematicTimer * 0.8) * 0.5;
-    } else {
-      movePilotToward(transponderX, transponderY, spd * 1.1);
-      clampPilotToShip();
-      if(dist(pilot.x, pilot.y, transponderX, transponderY) < 8){
-        transponderPickedUp = true;
-        cinematicPhase = 3;
-        cinematicTimer = 0;
-        announce('◈ TRANSPONDER SECURED\nRETURN TO HATCH — BOMB TICKING · DODGE FIRE!');
-      }
-    }
-    if(bombTimer > 0) bombTimer--;
-    if(bombTimer <= 0){ triggerMagnaExplode(); return; }
-  }
-
-  // ── Phase 3: Run back to hatch — aliens fire aggressively ─────────
-  else if(cinematicPhase === 3){
-    boardingZoomTarget = 1.5;
-    boardingZoomCX = pilot.x;
-    boardingZoomCY = pilot.y;
-    const tx = hp.x - 8, ty = hp.y;
-    movePilotToward(tx, ty, spd * 1.4);
-    clampPilotToShip();
-    if(bombTimer > 0) bombTimer--;
-    if(bombTimer <= 0){ triggerMagnaExplode(); return; }
-    if(dist(pilot.x, pilot.y, tx, ty) < 8){
-      pilot.escaped = true;
-      pilot.inShip = false;
-      cinematicPhase = 4;
-      cinematicTimer = 0;
-      // Zoom back out
-      boardingZoomTarget = 1.0;
-      announce('◈ PILOT ESCAPED\nBREAKING AWAY — DETONATING IN '+(Math.ceil(bombTimer/60))+'s');
-    }
-  }
-
-  // ── Phase 4: Pilot moves to rocket ────────────────────────────────
-  else if(cinematicPhase === 4){
-    boardingZoomTarget = 1.0;
-    if(bombTimer > 0) bombTimer--;
-    if(bombTimer <= 0){ triggerMagnaExplode(); return; }
-    movePilotToward(rocket.x, rocket.y, spd * 1.6);
-    if(dist(pilot.x, pilot.y, rocket.x, rocket.y) < 10 || cinematicTimer > 80){
-      cinematicPhase = 5;
-      cinematicTimer = 0;
-      bombTimer = 180; // 3 seconds for auto-departure animation
-      announce('⚠ BOMB ARMED — DEPARTING NOW!\nWARP SEQUENCE INITIATING...');
-    }
-  }
-
-  // ── Phase 5: AUTO-DEPARTURE — rocket flies away from Magnathora to warp zone ──
-  else if(cinematicPhase === 5){
-    pilot.x = rocket.x;
-    pilot.y = rocket.y;
-
-    // Animate rocket flying toward bottom-center (warp zone) automatically
-    const warpTargetX = W / 2;
-    const warpTargetY = H + 40; // fly off bottom edge into warp
-    const dxW = warpTargetX - rocket.x;
-    const dyW = warpTargetY - rocket.y;
-    const distW = Math.sqrt(dxW*dxW + dyW*dyW) || 1;
-    const departSpeed = 4.5;
-    rocket.x += (dxW / distW) * departSpeed;
-    rocket.y += (dyW / distW) * departSpeed;
-
-    if(bombTimer > 0) bombTimer--;
-
-    // Trigger warp once rocket has cleared far enough down
-    if(rocket.y > H + 20 || bombTimer <= 0){
-      triggerMagnaExplode();
-      return;
-    }
-  }
-
-  // Smooth zoom
-  boardingZoom += (boardingZoomTarget - boardingZoom) * 0.08;
-}
-
-function movePilotToward(tx, ty, spd){
-  const dx = tx - pilot.x, dy = ty - pilot.y;
-  const d = Math.sqrt(dx*dx + dy*dy) || 1;
-  pilot.x += (dx/d) * Math.min(spd, d);
-  pilot.y += (dy/d) * Math.min(spd, d);
-}
-
-function clampPilotToShip(){
-  const minX = magna.x - magna.w*0.35, maxX = magna.x + magna.w*0.50;
-  const minY = magna.y - magna.h*0.44, maxY = magna.y + magna.h*0.32;
-  pilot.x = Math.max(minX, Math.min(maxX, pilot.x));
-  pilot.y = Math.max(minY, Math.min(maxY, pilot.y));
-}
-
-function triggerMagnaExplode(){
-  scene='magnaExplode'; sceneTimer=0; magnaExplodeTimer=0;
-  pilot.inShip=false;
-  boardingZoom=1.0; boardingZoomTarget=1.0;
-  alienShots=[];
-  announce('★ MAGNATHORA DESTROYED\nFIND THEIR HOMEWORLD · WARP ZONE BELOW!');
-}
-
-function buildInterior(){
-  const cx=magna.x, cy=magna.y;
-  const bw=magna.w*0.64, bh=magna.h*0.70;
-  const bx=cx-bw/2, by=cy-magna.h*0.42;
-  shipRooms=[
-    {id:'SUPPLY BAY', x:bx,           y:by,             w:bw,      h:bh*0.18, label:'SUPPLY BAY'},
-    {id:'ENGINE ★',   x:bx,           y:by+bh*0.18,     w:bw*0.45, h:bh*0.28, label:'ENGINE ★'},
-    {id:'STAFF',      x:bx+bw*0.45,   y:by+bh*0.18,     w:bw*0.55, h:bh*0.28, label:'STAFF QUARTERS'},
-    {id:'WAR ROOM',   x:bx,           y:by+bh*0.46,     w:bw,      h:bh*0.26, label:'WAR ROOM'},
-    {id:'COMMAND',    x:cx-bw*0.30,   y:by+bh*0.72,     w:bw*0.60, h:bh*0.24, label:'COMMAND CENTER'},
-  ];
-  engineRoom=shipRooms[1];
-  if(shipAliens.length===0){
-    for(const r of shipRooms){
-      for(let i=0;i<2;i++){
-        shipAliens.push({
-          x:r.x+r.w*0.2+Math.random()*r.w*0.6,
-          y:r.y+r.h*0.3+Math.random()*r.h*0.4,
-          vx:(Math.random()-0.5)*0.7, vy:0,
-          room:r, cd:Math.floor(Math.random()*80), alive:true
-        });
-      }
-    }
-  }
-}
-
-function getHatchPos(){
-  return {
-    x: magna.x + magna.w*0.50,
-    y: magna.y - magna.h*0.06
-  };
-}
-
-
 
 
 // ── ENEMY ORBIT SETUP ─────────────────────────────────────────────────────
@@ -2825,162 +2580,7 @@ function drawMagnaShip(){
   ctx.fillStyle='rgba(180,210,255,0.4)';
   ctx.fillRect(x-4,y-h*0.44,8,3);
 
-  // ── 8. Hatch — right pod, glowing green ─────────────────────────────
-  const hp=getHatchPos();
-  const hw=18, hh=24; // hatch width, height
-  const hatchX=hp.x-hw/2, hatchY=hp.y-hh/2;
-  const t=Date.now()/400;
-  const pulse=0.7+0.3*Math.sin(t*Math.PI*2);
 
-  if(magna.hatchOpen){
-    // Outer green glow
-    const hg2=ctx.createRadialGradient(hp.x,hp.y,4,hp.x,hp.y,28);
-    hg2.addColorStop(0,`rgba(0,255,100,${0.35*pulse})`);
-    hg2.addColorStop(1,'rgba(0,200,80,0)');
-    ctx.beginPath(); ctx.arc(hp.x,hp.y,28,0,Math.PI*2); ctx.fillStyle=hg2; ctx.fill();
-    // Hatch body
-    ctx.fillStyle=`rgba(0,${Math.floor(180+40*pulse)},80,0.85)`;
-    ctx.fillRect(hatchX,hatchY,hw,hh);
-    // Hatch frame
-    ctx.strokeStyle=`rgba(0,255,${Math.floor(100+80*pulse)},${pulse})`;
-    ctx.lineWidth=2.5; ctx.strokeRect(hatchX,hatchY,hw,hh);
-    // Interior symbol
-    ctx.strokeStyle=`rgba(0,255,150,${0.6*pulse})`; ctx.lineWidth=1;
-    ctx.beginPath(); ctx.moveTo(hp.x-4,hp.y-8); ctx.lineTo(hp.x-4,hp.y+8); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(hp.x+4,hp.y-8); ctx.lineTo(hp.x+4,hp.y+8); ctx.stroke();
-    // Green corridor line connecting hatch to pod
-    ctx.strokeStyle=`rgba(0,220,100,${0.4*pulse})`; ctx.lineWidth=3;
-    ctx.beginPath(); ctx.moveTo(hatchX,hp.y); ctx.lineTo(hatchX-20,hp.y); ctx.stroke();
-  } else {
-    ctx.fillStyle='#1a2830';
-    ctx.fillRect(hatchX,hatchY,hw,hh);
-    ctx.strokeStyle='rgba(40,70,60,0.6)'; ctx.lineWidth=1;
-    ctx.strokeRect(hatchX,hatchY,hw,hh);
-  }
-
-  // ── 9. Interior overlay when boarded ────────────────────────────────
-  if(scene==='magnaBoard' && pilot.inShip){
-    // Clip to hull body for interior rendering
-    ctx.save();
-    ctx.globalAlpha=0.95;
-    // Interior floor — light grey topographic
-    ctx.fillStyle='rgba(110,130,140,0.55)';
-    ctx.fillRect(x-w*0.33, y-h*0.40, w*0.65, h*0.75);
-
-    // Room boundaries
-    for(const r of shipRooms){
-      ctx.strokeStyle='rgba(80,130,160,0.7)'; ctx.lineWidth=0.8;
-      ctx.strokeRect(r.x,r.y,r.w,r.h);
-      // Room fill
-      ctx.fillStyle='rgba(90,120,135,0.4)';
-      ctx.fillRect(r.x+1,r.y+1,r.w-2,r.h-2);
-      // Room label
-      ctx.font='5.5px "Courier New"'; ctx.textAlign='center';
-      ctx.fillStyle='rgba(160,220,255,0.9)';
-      ctx.fillText(r.label,r.x+r.w/2,r.y+r.h/2+2);
-    }
-
-    // Engine room special highlight (orange like the reference image)
-    const er2=engineRoom;
-    ctx.fillStyle=pilot.planted?'rgba(255,60,0,0.35)':'rgba(255,140,0,0.30)';
-    ctx.fillRect(er2.x,er2.y,er2.w,er2.h);
-    ctx.strokeStyle=pilot.planted?'rgba(255,60,0,0.9)':'rgba(255,160,0,0.9)';
-    ctx.lineWidth=1.8; ctx.strokeRect(er2.x,er2.y,er2.w,er2.h);
-    // Engine core square
-    const ecx=er2.x+er2.w/2, ecy=er2.y+er2.h/2;
-    ctx.fillStyle=pilot.planted?'rgba(255,80,0,0.7)':'rgba(255,160,60,0.7)';
-    ctx.fillRect(ecx-6,ecy-6,12,12);
-
-    // War room: blue screens
-    const wr=shipRooms[3];
-    ctx.fillStyle='rgba(0,80,160,0.5)';
-    ctx.fillRect(wr.x+4,wr.y+3,wr.w*0.55,wr.h*0.5);
-    ctx.fillRect(wr.x+wr.w*0.62,wr.y+3,wr.w*0.30,wr.h*0.5);
-    ctx.fillStyle='rgba(0,160,255,0.3)';
-    ctx.fillRect(wr.x+6,wr.y+wr.h*0.6,wr.w*0.85,wr.h*0.3);
-
-    // Staff quarters: bed icons
-    const sq=shipRooms[2];
-    for(let bi=0;bi<3;bi++){
-      ctx.fillStyle='rgba(80,110,140,0.6)';
-      ctx.fillRect(sq.x+3,sq.y+3+bi*(sq.h*0.28),sq.w-6,sq.h*0.22);
-    }
-
-    // Aliens — red aggressive figures with shooting pose
-    for(const al of shipAliens){
-      if(!al.alive) continue;
-      const shoot = al.cd % 100 > 85; // shooting pose in last 15 frames
-      ctx.fillStyle=shoot?'rgba(255,100,0,0.95)':'rgba(220,40,0,0.9)';
-      ctx.beginPath(); ctx.arc(al.x,al.y,3.5,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle=shoot?'rgba(255,200,0,0.9)':'rgba(255,80,0,0.7)'; ctx.lineWidth=0.8;
-      ctx.beginPath(); ctx.arc(al.x,al.y,3.5,0,Math.PI*2); ctx.stroke();
-      // Tiny gun barrel pointing toward pilot
-      if(shoot){
-        const dx2=pilot.x-al.x, dy2=pilot.y-al.y;
-        const dl=Math.sqrt(dx2*dx2+dy2*dy2)||1;
-        ctx.strokeStyle='rgba(255,220,0,0.8)'; ctx.lineWidth=1;
-        ctx.beginPath(); ctx.moveTo(al.x,al.y);
-        ctx.lineTo(al.x+(dx2/dl)*7, al.y+(dy2/dl)*7); ctx.stroke();
-      }
-    }
-
-    // Alien shots inside ship interior
-    for(const as of alienShots){
-      const g=ctx.createRadialGradient(as.x,as.y,0,as.x,as.y,3);
-      g.addColorStop(0,'rgba(255,80,0,'+as.life+')');
-      g.addColorStop(1,'rgba(255,0,0,0)');
-      ctx.beginPath(); ctx.arc(as.x,as.y,3,0,Math.PI*2);
-      ctx.fillStyle=g; ctx.fill();
-    }
-
-    // Transponder — cyan glowing pickup
-    if(transponderVisible && !transponderPickedUp){
-      const t2=Date.now()/300;
-      const tp=0.6+0.4*Math.sin(t2*Math.PI*2);
-      const tg=ctx.createRadialGradient(transponderX,transponderY,1,transponderX,transponderY,9);
-      tg.addColorStop(0,`rgba(0,255,220,${tp})`);
-      tg.addColorStop(1,'rgba(0,200,180,0)');
-      ctx.beginPath(); ctx.arc(transponderX,transponderY,9,0,Math.PI*2);
-      ctx.fillStyle=tg; ctx.fill();
-      ctx.beginPath(); ctx.arc(transponderX,transponderY,3.5,0,Math.PI*2);
-      ctx.fillStyle=`rgba(0,255,230,${tp})`; ctx.fill();
-      ctx.font='5px "Courier New"'; ctx.textAlign='center';
-      ctx.fillStyle=`rgba(0,255,200,${tp})`;
-      ctx.fillText('T',transponderX,transponderY+1.5);
-    }
-
-    // Pilot — white with blue ring, running wobble effect
-    const runWobble = Math.sin(cinematicTimer*0.4)*1.5;
-    ctx.save();
-    ctx.translate(pilot.x, pilot.y + (pilot.inShip ? runWobble : 0));
-    // Glow
-    const pg=ctx.createRadialGradient(0,0,2,0,0,10);
-    pg.addColorStop(0,'rgba(100,200,255,0.6)');
-    pg.addColorStop(1,'rgba(0,100,255,0)');
-    ctx.beginPath(); ctx.arc(0,0,10,0,Math.PI*2); ctx.fillStyle=pg; ctx.fill();
-    // Body
-    ctx.fillStyle='#e8f4ff';
-    ctx.beginPath(); ctx.arc(0,0,4.5,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle='#44aaff'; ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.arc(0,0,4.5,0,Math.PI*2); ctx.stroke();
-    // Helmet visor glint
-    ctx.fillStyle='rgba(100,220,255,0.7)';
-    ctx.beginPath(); ctx.arc(-1.2,-1.2,1.8,0,Math.PI*2); ctx.fill();
-    ctx.restore();
-
-    ctx.restore();
-
-    // Bomb timer bar below ship
-    if(pilot.planted){
-      const pct=Math.max(0,bombTimer/300);
-      const bx2=x-58, by2=y+h*0.54;
-      ctx.fillStyle='rgba(0,0,0,0.75)'; ctx.fillRect(bx2,by2,116,9);
-      ctx.fillStyle=`hsl(${pct*120},100%,55%)`; ctx.fillRect(bx2,by2,116*pct,9);
-      ctx.strokeStyle='#ff8800'; ctx.lineWidth=0.8; ctx.strokeRect(bx2,by2,116,9);
-      ctx.textAlign='center'; ctx.font='bold 7px "Courier New"'; ctx.fillStyle='#ffff00';
-      ctx.fillText('BOMB: '+Math.ceil(bombTimer/60)+'s',x,by2+20);
-    }
-  }
 
   // ── 10. Hull edge highlights / ambient light ─────────────────────────
   ctx.strokeStyle='rgba(60,100,130,0.4)'; ctx.lineWidth=3;
@@ -3253,15 +2853,6 @@ function drawWarpZone(){
   ctx.fillStyle=`rgba(0,255,220,${0.7+0.3*pulse})`;
   ctx.fillText('▼ WARP ZONE — FLY HERE TO ESCAPE ▼', W/2, H-20);
   ctx.shadowBlur=0;
-  // Countdown bar
-  if(bombTimer>0){
-    const pct=Math.max(0,bombTimer/300);
-    ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(zoneX,H-66,zoneW,6);
-    ctx.fillStyle=`hsl(${pct*120},100%,55%)`; ctx.fillRect(zoneX,H-66,zoneW*pct,6);
-    ctx.strokeStyle='rgba(255,200,0,0.6)'; ctx.lineWidth=0.8; ctx.strokeRect(zoneX,H-66,zoneW,6);
-    ctx.font='bold 8px "Courier New"'; ctx.fillStyle='#ffee00'; ctx.textAlign='center';
-    ctx.fillText('DETONATION: '+Math.ceil(bombTimer/60)+'s',W/2,H-70);
-  }
 }
 
 function drawHUD(){
@@ -3507,7 +3098,7 @@ function drawTitleScreen(){
   ctx.textAlign='center';
   ctx.fillStyle='rgba(80,120,160,0.6)';
   ctx.font='8px "Courier New"';
-  ctx.fillText('v1.1.99', cx, H - 12);
+  ctx.fillText('v1.1.999', cx, H - 12);
   ctx.restore();
 }
 
