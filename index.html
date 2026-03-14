@@ -456,7 +456,7 @@ footer p {
 
 <!-- ── VERSION BAR ── -->
 <div style="position:fixed;top:0;left:0;width:100%;z-index:9999;background:rgba(0,0,0,0.75);border-bottom:1px solid rgba(0,200,255,0.2);text-align:center;padding:5px 0;font-family:'Orbitron','Courier New',monospace;font-size:11px;letter-spacing:3px;color:rgba(0,210,255,0.8);pointer-events:none;">
-  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.1.85</span>
+  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.1.9</span>
 </div>
 <div style="height:26px"></div><!-- spacer so content isn't hidden under bar -->
 
@@ -1354,7 +1354,7 @@ function updateScene(){
 
   // ── finalDive ─────────────────────────────────────────────────────────
   if(scene==='finalDive'){
-    // Legacy fallback — shouldn't reach here in v1.1.85 but keep for safety
+    // Legacy fallback — shouldn't reach here in v1.1.5 but keep for safety
     scene='victory'; sceneTimer=0; winTimer=0; nebulousExplosionTimer=0;
     announce('★ AMAZING WORK, PILOT!\nYOU ARE VICTORIOUS!');
   }
@@ -1399,7 +1399,7 @@ let transponderY = 0;
 let transponderPickedUp = false;
 
 function initBoarding(){
-  // v1.1.85: Magnathora is now a combat boss — no boarding mini-game
+  // v1.1.5: Magnathora is now a combat boss — no boarding mini-game
   magna.hp = magna.maxHp;
   magna.alive = true;
   magna.gunTimer = 0;
@@ -1788,20 +1788,18 @@ function update(){
     if(rocket.up)   rocket.y=Math.max(H/2, rocket.y-rocket.speed);
     if(rocket.down) rocket.y=Math.min(H-rocket.h/2, rocket.y+rocket.speed);
     if(rocket.cd>0)rocket.cd--;
-    if(rocket.firing && rocket.cd===0){
+    if(rocket.firing && rocket.cd===0 && !laserUnlocked){
       const dmg=chromePower?2:1;
       bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,speed:5,dmg}); chromePower?playShootSurge():playShoot();
       rocket.cd=14;
     }
   }
-
-  // Move player bullets up
   for(let i=bullets.length-1;i>=0;i--){
     bullets[i].y-=bullets[i].speed;
     if(bullets[i].y<-5)bullets.splice(i,1);
   }
 
-  // Move ally bullets
+  // Move player bullets up
   for(let i=allyBullets.length-1;i>=0;i--){
     const b=allyBullets[i];b.x+=b.vx;b.y+=b.vy;
     if(b.y<-5||b.y>H+5||b.x<-5||b.x>W+5)allyBullets.splice(i,1);
@@ -1844,11 +1842,15 @@ function update(){
     }
   }
 
-  // Abandoned vessels — move, blink, check bullet hits & player collection
+  // Abandoned vessels — move toward player, blink, check bullet hits & player collection
   for(let i=vessels.length-1;i>=0;i--){
     const v=vessels[i];
     if(!v.alive){vessels.splice(i,1);continue;}
-    v.y+=v.speed; v.x+=v.drift; v.blink++;
+    // Home in on player
+    const vdx=rocket.x-v.x, vdy=rocket.y-v.y;
+    const vlen=Math.sqrt(vdx*vdx+vdy*vdy)||1;
+    v.x+=vdx/vlen*v.speed; v.y+=vdy/vlen*v.speed;
+    v.blink++;
     if(v.spin) v.angle+=0.04;
     // Bullet hits vessel
     let hit=false;
@@ -1862,7 +1864,7 @@ function update(){
         hit=true; break;
       }
     }
-    if(!hit && v.y>H+v.r) vessels.splice(i,1); // off screen
+    if(!hit && (v.y>H+v.r || v.y<-H || v.x<-W || v.x>W*2)) vessels.splice(i,1); // off screen
   }
 
   // Asteroids
@@ -2115,7 +2117,7 @@ function update(){
         }
         // Hit boss
         if(boss.alive && !boss.exploding && Math.abs(boss.x - lx) < boss.w/2+6 && boss.y < ly && boss.y > laserEnd - 40){
-          const laserBossDmg = chromePower ? 50 : 25;
+          const laserBossDmg = 10;
           boss.hp -= laserBossDmg;
           playEnemyHit();
           spawnParticles(lx, boss.y+boss.h/2, 5, ['rgba(255,180,0,A)'], 0.8, 0.05, 0.1, 0.5, 2);
@@ -3513,7 +3515,7 @@ function drawTitleScreen(){
   ctx.textAlign='center';
   ctx.fillStyle='rgba(80,120,160,0.6)';
   ctx.font='8px "Courier New"';
-  ctx.fillText('v1.1.85', cx, H - 12);
+  ctx.fillText('v1.1.9', cx, H - 12);
   ctx.restore();
 }
 
@@ -3607,7 +3609,7 @@ canvas.addEventListener('touchmove',e=>{
   e.preventDefault();},{passive:false});
 canvas.addEventListener('click',()=>{
   if(scene==='title'){startGame();return;}
-  if(rocketAlive&&rocket.cd===0&&!warpPhase&&scene!=='victory'&&scene!=='warpTravel'&&scene!=='magnaBoard'){
+  if(rocketAlive&&rocket.cd===0&&!warpPhase&&scene!=='victory'&&scene!=='warpTravel'&&scene!=='magnaBoard'&&!laserUnlocked){
     const dmg=chromePower?2:1;
     bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,speed:5,dmg}); chromePower?playShootSurge():playShoot();rocket.cd=14;
   }
