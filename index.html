@@ -456,7 +456,7 @@ footer p {
 
 <!-- ── VERSION BAR ── -->
 <div style="position:fixed;top:0;left:0;width:100%;z-index:9999;background:rgba(0,0,0,0.75);border-bottom:1px solid rgba(0,200,255,0.2);text-align:center;padding:5px 0;font-family:'Orbitron','Courier New',monospace;font-size:11px;letter-spacing:3px;color:rgba(0,210,255,0.8);pointer-events:none;">
-  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.1.999</span>
+  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.2.0</span>
 </div>
 <div style="height:26px"></div><!-- spacer so content isn't hidden under bar -->
 
@@ -834,11 +834,10 @@ let bossActive=false;
 //  'homeApproach' player planet flies in, message
 //  'homeLaser'    Magnathora fires laser, planet explodes
 //  'magnaIntro'   Magnathora descends
-//  'magnaBoard'   pilot ejects, boards ship (mini-game)
+//  'magnaBoard'   Magnathora combat — destroy it to unlock Planet Killing Laser
 //  'magnaExplode' ship blows up
 //  'warpTravel'   hyperspace to enemy world
-//  'enemyOrbit'   satellite field + entry point
-//  'finalDive'    player dives into planet
+//  'enemyOrbit'   enemy planet — fire planet killer laser to destroy it
 //  'victory'      win screen
 let scene = 'title';
 let sceneTimer = 0;
@@ -854,13 +853,8 @@ let magnaLaserProgress = 0, magnaLaserBrightness = 0;
 const magna = {x:W/2, y:-540, w:130, h:520, hatchOpen:false, vy:0.55, stopped:false,
   hp:400, maxHp:400, laserTimer:0, gunTimer:0, alive:true};
 
-// Boarding mini-game state
-let boardingActive = false;
-let pilot = {x:0, y:0, vx:0, vy:0, inShip:false, planted:false, escaped:false, left:false, right:false, up:false, down:false, pcd:0};
-let bombTimer = 0;
-let magnaExplodeTimer = 0;
-
 // Warp travel
+let magnaExplodeTimer = 0;
 let warpLineStars = [];
 let warpProgress = 0;
 
@@ -966,9 +960,7 @@ function reset(){
   homePlanetY=H+80;homePlanetR=30;homePlanetExploding=false;homePlanetExplodeTimer=0;
   magnaLaserProgress=0;magnaLaserBrightness=0;
   magna.x=W/2;magna.y=-540;magna.hatchOpen=false;magna.vy=1.05;magna.stopped=false;magna.hp=400;magna.laserTimer=0;magna.gunTimer=0;magna.alive=true;
-  boardingActive=false;
-  pilot.x=0;pilot.y=0;pilot.vx=0;pilot.vy=0;pilot.inShip=false;pilot.planted=false;pilot.escaped=false;pilot.left=false;pilot.right=false;pilot.up=false;pilot.down=false;pilot.pcd=0;
-  bombTimer=0;magnaExplodeTimer=0;
+  magnaExplodeTimer=0;
   alienShots=[];
   nebulousExplosionTimer=0;
   warpLineStars=[];warpProgress=0;
@@ -1082,7 +1074,11 @@ function updateScene(){
       }
     }
     // Once stopped, transition to combat
-    if(magna.stopped && sceneTimer >= 180){ scene='magnaBoard'; sceneTimer=0; initBoarding(); }
+    if(magna.stopped && sceneTimer >= 180){ scene='magnaBoard'; sceneTimer=0;
+      magna.hp = magna.maxHp; magna.alive = true; magna.gunTimer = 0; magna.laserTimer = 0; magna._explodeDone = false;
+      magnaBullets = []; spheres = []; rocket.x = W/2; rocket.y = H - 60;
+      announce('☠ MAGNATHORA BATTLE STATIONS\nDESTROY IT — 400 HP — DODGE LASER & GUNS');
+    }
   }
 
   // ── magnaBoard: COMBAT — player fights Magnathora (guns + laser) ──────────
@@ -1334,18 +1330,6 @@ function updateScene(){
   }
 }
 
-function initBoarding(){
-  magna.hp = magna.maxHp;
-  magna.alive = true;
-  magna.gunTimer = 0;
-  magna.laserTimer = 0;
-  magna._explodeDone = false;
-  magnaBullets = [];
-  spheres = [];
-  rocket.x = W/2; rocket.y = H - 60;
-  announce('☠ MAGNATHORA BATTLE STATIONS\nDESTROY IT — 400 HP — DODGE LASER & GUNS');
-}
-
 
 // ── ENEMY ORBIT SETUP ─────────────────────────────────────────────────────
 function initEnemyWorld(){
@@ -1354,9 +1338,7 @@ function initEnemyWorld(){
   enemyPlanetZoomed=false; enemyPlanetZoomProgress=0; enemyPlanetTargetY=0;
   satellites=[]; satBullets=[]; entryVisible=false; entryDrones=[]; droneBullets=[];
   planetHP=10000;
-  // Asteroid field
   spheres=[];
-  for(let i=0;i<10;i++) spawnSphere();
   announce('◈ ENEMY HOMEWORLD FOUND\nUNLEASH THE PLANET KILLER LASER — 10,000 HP');
 }
 
@@ -1370,39 +1352,12 @@ function updateEnemyOrbit(){
     if(rocket.up)   rocket.y=Math.max(rocket.h/2,rocket.y-rocket.speed);
     if(rocket.down) rocket.y=Math.min(H-rocket.h/2,rocket.y+rocket.speed);
     if(rocket.cd>0) rocket.cd--;
-    if(rocket.firing && rocket.cd===0){
-      const dmg=chromePower?2:1;
-      bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,speed:6,dmg}); chromePower?playShootSurge():playShoot();
-      rocket.cd=14;
-    }
+    // No regular bullets in enemy orbit — only the Planet Killer Laser fires here
   }
 
   // Planet floats with gentle drift
   enemyPlanet.x = W/2 + Math.sin(sceneTimer*0.008)*18;
   enemyPlanet.y = H*0.26 + Math.sin(sceneTimer*0.005)*10;
-
-  // Asteroids flying around
-  if(Math.random()<0.012 && spheres.length<14) spawnSphere();
-  for(let i=spheres.length-1;i>=0;i--){
-    const s=spheres[i]; s.y+=s.speed; s.x+=s.drift;
-    for(let j=bullets.length-1;j>=0;j--){
-      if(dist(bullets[j].x,bullets[j].y,s.x,s.y)<s.r+2){
-        s.hp-=bullets[j].dmg||1; bullets.splice(j,1);
-        if(s.hp<=0){explodeSphere(s);score+=100;spheres.splice(i,1);playAsteroidExplode();}
-        else{sparkSphere(s);playAsteroidHit();} break;
-      }
-    }
-    if(s.y>H+s.r) spheres.splice(i,1);
-  }
-
-  // Asteroid collision with player
-  for(let i=spheres.length-1;i>=0;i--){
-    const s=spheres[i];
-    if(rocketAlive&&dist(s.x,s.y,rocket.x,rocket.y)<s.r+7){
-      if(shieldHits>0){shieldHits--;explodeSphere(s);spheres.splice(i,1);}
-      else{explodeAt(rocket.x,rocket.y);rocketAlive=false;gameOverTimer=0;}
-    }
-  }
 
   // Planet collision with player
   if(rocketAlive&&dist(rocket.x,rocket.y,enemyPlanet.x,enemyPlanet.y)<enemyPlanet.r+4){
@@ -1451,7 +1406,7 @@ function updateEnemyOrbit(){
           }
           enemyPlanet.r=0;
           scene='victory'; sceneTimer=0; winTimer=0; nebulousExplosionTimer=0;
-          announce('★ AMAZING WORK, PILOT!\nYOU ARE VICTORIOUS!');
+          // Victory screen drawn by drawHUD
           return;
         }
       }
@@ -2965,15 +2920,6 @@ function drawHUD(){
     ctx.restore();
     ctx.restore();
   }
-  // magnaBoard combat tip
-  if(scene==='magnaBoard' && magna.alive && sceneTimer < 200){
-    const alpha = Math.min(1, (200-sceneTimer)/60);
-    ctx.save(); ctx.globalAlpha=alpha;
-    ctx.textAlign='center'; ctx.font='bold 8px "Courier New"';
-    ctx.fillStyle='rgba(100,200,255,0.85)';
-    ctx.fillText('SHOOT MAGNATHORA — DODGE ITS LASER & GUN BULLETS', W/2, H-8);
-    ctx.restore();
-  }
   if(scene==='victory'&&winTimer>80){
     const vy = H*0.72;
     ctx.fillStyle='rgba(0,0,0,0.85)';ctx.fillRect(0,vy-58,W,134);
@@ -3098,7 +3044,7 @@ function drawTitleScreen(){
   ctx.textAlign='center';
   ctx.fillStyle='rgba(80,120,160,0.6)';
   ctx.font='8px "Courier New"';
-  ctx.fillText('v1.1.999', cx, H - 12);
+  ctx.fillText('v1.2.0', cx, H - 12);
   ctx.restore();
 }
 
@@ -3167,17 +3113,17 @@ function loop(){update();draw();requestAnimationFrame(loop);}
 // ── CONTROLS ───────────────────────────────────────────────────────────────
 document.addEventListener('keydown',e=>{
   if(scene==='title'){startGame();return;}
-  if(e.key==='ArrowLeft'||e.key==='a'){rocket.left=true;if(pilot.inShip)pilot.left=true;e.preventDefault();}
-  if(e.key==='ArrowRight'||e.key==='d'){rocket.right=true;if(pilot.inShip)pilot.right=true;e.preventDefault();}
-  if(e.key==='ArrowUp'||e.key==='w'){rocket.up=true;if(pilot.inShip)pilot.up=true;e.preventDefault();}
-  if(e.key==='ArrowDown'||e.key==='s'){rocket.down=true;if(pilot.inShip)pilot.down=true;e.preventDefault();}
+  if(e.key==='ArrowLeft'||e.key==='a'){rocket.left=true;e.preventDefault();}
+  if(e.key==='ArrowRight'||e.key==='d'){rocket.right=true;e.preventDefault();}
+  if(e.key==='ArrowUp'||e.key==='w'){rocket.up=true;e.preventDefault();}
+  if(e.key==='ArrowDown'||e.key==='s'){rocket.down=true;e.preventDefault();}
   if(e.key===' '){rocket.firing=true;e.preventDefault();}
 });
 document.addEventListener('keyup',e=>{
-  if(e.key==='ArrowLeft'||e.key==='a'){rocket.left=false;pilot.left=false;}
-  if(e.key==='ArrowRight'||e.key==='d'){rocket.right=false;pilot.right=false;}
-  if(e.key==='ArrowUp'||e.key==='w'){rocket.up=false;pilot.up=false;}
-  if(e.key==='ArrowDown'||e.key==='s'){rocket.down=false;pilot.down=false;}
+  if(e.key==='ArrowLeft'||e.key==='a'){rocket.left=false;}
+  if(e.key==='ArrowRight'||e.key==='d'){rocket.right=false;}
+  if(e.key==='ArrowUp'||e.key==='w'){rocket.up=false;}
+  if(e.key==='ArrowDown'||e.key==='s'){rocket.down=false;}
   if(e.key===' ')rocket.firing=false;
 });
 canvas.addEventListener('touchend',()=>{ rocket.firing=false; });
