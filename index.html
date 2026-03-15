@@ -611,7 +611,7 @@ footer p {
 
 <!-- ── VERSION BAR ── -->
 <div style="position:fixed;top:0;left:0;width:100%;z-index:9999;background:rgba(0,0,0,0.75);border-bottom:1px solid rgba(0,200,255,0.2);text-align:center;padding:5px 0;font-family:'Orbitron','Courier New',monospace;font-size:11px;letter-spacing:3px;color:rgba(0,210,255,0.8);pointer-events:none;">
-  NOVA&#8209;7 &nbsp;·&nbsp; ENDLESS VOID &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.8.0</span> &nbsp;·&nbsp; INFINITE SECTORS &nbsp;·&nbsp; <span style="color:rgba(0,255,140,0.9);">BOSS PHASES</span> &nbsp;·&nbsp; <span style="color:rgba(255,120,80,0.9);">COMBO MULTIPLIER</span> &nbsp;·&nbsp; <span style="color:rgba(100,200,255,0.9);">LEADERBOARD</span>
+  NOVA&#8209;7 &nbsp;·&nbsp; ENDLESS VOID &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.9.9</span> &nbsp;·&nbsp; INFINITE SECTORS &nbsp;·&nbsp; <span style="color:rgba(0,255,140,0.9);">BOSS PHASES</span> &nbsp;·&nbsp; <span style="color:rgba(255,120,80,0.9);">COMBO MULTIPLIER</span> &nbsp;·&nbsp; <span style="color:rgba(100,200,255,0.9);">LASER CANNONS</span>
 </div>
 <div style="height:26px"></div><!-- spacer so content isn't hidden under bar -->
 
@@ -946,7 +946,7 @@ footer p {
      FOOTER
 ══════════════════════════════════════ -->
 <footer>
-  <p>NOVA-7 · Endless Void · v1.8.0 · Infinite Sectors · 9 Upgrades · 12 Boss Archetypes · ECHO-1 Wingmate</p>
+  <p>NOVA-7 · Endless Void · v1.9.9 · Infinite Sectors · 9 Upgrades · 12 Boss Archetypes · ECHO-1 Wingmate · Laser Cannons</p>
 </footer>
 
 <!-- ══════════════════════════════════════
@@ -1565,8 +1565,8 @@ function fireBullet(){
   const baseDmg=1+playerUpgrades.bulletDmg;
   const dmg=chromePower?baseDmg*2:baseDmg;
   if(laserUnlocked){
-    // Pulse shot: fires a powerful single projectile upward (no continuous beam)
-    const pulseDmg=chromePower?20:10*baseDmg;
+    // Laser projectile: fires a powerful beam that deals 50 damage per hit to boss
+    const pulseDmg=50;
     bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,vx:0,vy:-14,speed:14,dmg:pulseDmg,isPulse:true});
     if(playerUpgrades.tripleShot){
       bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,vx:-2,vy:-13,speed:14,dmg:pulseDmg,isPulse:true});
@@ -2037,7 +2037,11 @@ function update(){
         er.hp-=bullets[j].dmg||1;playEnemyHit();
         spawnParticles(bullets[j].x,bullets[j].y,5,['rgba(255,100,0,A)'],0.8,0.05,0.1,0.5,2);
         bullets.splice(j,1);
-        if(er.hp<=0){explodeAt(er.x,er.y);er.alive=false;enemyRocketActive=false;shieldHits=Math.min(shieldHits+3,30);score+=500;announce('✦ BOGEY DESTROYED\nENERGY SHIELD ONLINE — 3 HITS');}
+        if(er.hp<=0){explodeAt(er.x,er.y);er.alive=false;enemyRocketActive=false;shieldHits=Math.min(shieldHits+3,30);score+=500;
+          // Upgrade bullets to laser projectiles
+          if(!laserUnlocked){laserUnlocked=true;playerUpgrades.laserUnlocked=true;updatePlayerStats();announce('✦ BOGEY DESTROYED\nSHIELD +3 · LASER CANNONS ONLINE\n50 DAMAGE PER HIT');}
+          else{announce('✦ BOGEY DESTROYED\nENERGY SHIELD ONLINE — 3 HITS');}
+        }
         break;
       }
     }
@@ -3066,22 +3070,35 @@ function drawParticles(){
 }
 
 function drawLaser(){
-  // Pulse laser: draw a brief muzzle flash for pulse shots (not a continuous beam)
+  // Laser cannon: draw a sharp beam/bolt projectile replacing bullets after enemy rocket kill
   if(!laserUnlocked||!rocketAlive)return;
-  // Draw pulse projectiles with special visual
   for(const b of bullets){
     if(!b.isPulse)continue;
     const t2=Date.now()/60;
     ctx.save();
-    // Outer glow
-    const fR=9+2*Math.sin(t2);const fG=ctx.createRadialGradient(b.x,b.y,0,b.x,b.y,fR*2);
-    fG.addColorStop(0,'rgba(255,200,255,1.0)');fG.addColorStop(0.3,'rgba(200,80,255,0.9)');fG.addColorStop(1,'rgba(100,0,200,0)');
-    ctx.beginPath();ctx.arc(b.x,b.y,fR*2,0,Math.PI*2);ctx.fillStyle=fG;ctx.fill();
-    // Core bolt
-    ctx.shadowColor='#ff44ff';ctx.shadowBlur=18;
-    const bh=20;const bg=ctx.createLinearGradient(b.x,b.y+bh/2,b.x,b.y-bh/2);
-    bg.addColorStop(0,'rgba(255,255,255,1.0)');bg.addColorStop(0.4,'rgba(220,100,255,0.95)');bg.addColorStop(1,'rgba(180,0,255,0)');
-    ctx.fillStyle=bg;ctx.beginPath();ctx.roundRect(b.x-3,b.y-bh/2,6,bh,3);ctx.fill();
+    // Wide outer glow — electric cyan
+    const fR=11+2*Math.sin(t2*1.3);
+    const fG=ctx.createRadialGradient(b.x,b.y,0,b.x,b.y,fR*2.2);
+    fG.addColorStop(0,'rgba(255,255,255,1.0)');
+    fG.addColorStop(0.2,'rgba(80,220,255,0.95)');
+    fG.addColorStop(0.6,'rgba(0,150,255,0.5)');
+    fG.addColorStop(1,'rgba(0,80,200,0)');
+    ctx.beginPath();ctx.arc(b.x,b.y,fR*2.2,0,Math.PI*2);ctx.fillStyle=fG;ctx.fill();
+    // Core beam shaft
+    ctx.shadowColor='#00eeff';ctx.shadowBlur=22;
+    const bh=28;
+    const bg=ctx.createLinearGradient(b.x,b.y+bh/2,b.x,b.y-bh/2);
+    bg.addColorStop(0,'rgba(180,240,255,0)');
+    bg.addColorStop(0.2,'rgba(0,220,255,0.9)');
+    bg.addColorStop(0.5,'rgba(255,255,255,1.0)');
+    bg.addColorStop(0.8,'rgba(0,220,255,0.9)');
+    bg.addColorStop(1,'rgba(180,240,255,0)');
+    ctx.fillStyle=bg;
+    ctx.beginPath();ctx.roundRect(b.x-2.5,b.y-bh/2,5,bh,2.5);ctx.fill();
+    // Side energy lines
+    ctx.strokeStyle=`rgba(0,240,255,${0.4+0.3*Math.sin(t2*2)})`;ctx.lineWidth=0.8;ctx.shadowBlur=6;
+    ctx.beginPath();ctx.moveTo(b.x-6,b.y+bh*0.3);ctx.lineTo(b.x-4,b.y-bh*0.3);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(b.x+6,b.y+bh*0.3);ctx.lineTo(b.x+4,b.y-bh*0.3);ctx.stroke();
     ctx.restore();
   }
 }
@@ -3162,11 +3179,12 @@ function drawHUD(){
   }
   if(chromePower){ctx.textAlign='center';ctx.fillStyle='rgba(80,180,255,0.75)';ctx.font='7px "Courier New"';ctx.fillText('CANNON OVERCHARGED — 2× DMG',W/2,H-4);}
   if(laserUnlocked){
-    const barW=90,barH=5,bx=6,by=H-18;ctx.fillStyle='rgba(60,20,0,0.5)';ctx.fillRect(bx,by,barW,barH);
     const t2=Date.now()/300,barPulse=0.7+0.3*Math.sin(t2);
-    ctx.fillStyle=`rgba(255,${Math.floor(80+80*barPulse)},255,${barPulse})`;ctx.fillRect(bx,by,barW,barH);
-    ctx.strokeStyle='rgba(200,0,255,0.5)';ctx.lineWidth=0.8;ctx.strokeRect(bx,by,barW,barH);
-    ctx.textAlign='left';ctx.font='6px "Courier New"';ctx.fillStyle='#ff88ff';ctx.fillText('PULSE LASER — TAP TO FIRE',bx,by-2);
+    ctx.textAlign='left';ctx.font='bold 7px "Orbitron","Courier New"';
+    ctx.shadowColor='rgba(0,220,255,0.9)';ctx.shadowBlur=10;
+    ctx.fillStyle=`rgba(0,${Math.floor(180+60*barPulse)},255,${0.85+0.15*barPulse})`;
+    ctx.fillText('⚡ LASER CANNONS — 50 DMG',5,H-6);
+    ctx.shadowBlur=0;
   }
   // Upgrade indicator
   if(Object.values(playerUpgrades).some(v=>v&&v!==false&&v!==0)){
@@ -3345,7 +3363,7 @@ function drawTitleScreen(){
     ctx.restore();
   }
 
-  ctx.save();ctx.textAlign='center';ctx.fillStyle='rgba(80,120,160,0.4)';ctx.font='7px "Courier New"';ctx.fillText('v1.7.0 — COMBO ·  BOSS PHASES · LEADERBOARD · QUICK RESTART [R]',cx,H-6);ctx.restore();
+  ctx.save();ctx.textAlign='center';ctx.fillStyle='rgba(80,120,160,0.4)';ctx.font='7px "Courier New"';ctx.fillText('v1.9.9 — LASER CANNONS · COMBO · BOSS PHASES · LEADERBOARD · QUICK RESTART [R]',cx,H-6);ctx.restore();
 }
 
 // ══════════════════════════════════════════════════════════════════════════
