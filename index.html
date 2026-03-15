@@ -456,7 +456,7 @@ footer p {
 
 <!-- ── VERSION BAR ── -->
 <div style="position:fixed;top:0;left:0;width:100%;z-index:9999;background:rgba(0,0,0,0.75);border-bottom:1px solid rgba(0,200,255,0.2);text-align:center;padding:5px 0;font-family:'Orbitron','Courier New',monospace;font-size:11px;letter-spacing:3px;color:rgba(0,210,255,0.8);pointer-events:none;">
-  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.2.1</span>
+  NOVA&#8209;7 &nbsp;·&nbsp; LAST PILOT STANDING &nbsp;·&nbsp; <span style="color:rgba(255,200,80,0.9);">v1.2.2</span>
 </div>
 <div style="height:26px"></div><!-- spacer so content isn't hidden under bar -->
 
@@ -688,7 +688,7 @@ footer p {
 ══════════════════════════════════════ -->
 <script>
 /* ── Starfield Background ── */
-/* OPT v1.2.1: removed independent rAF; drawBgStarfield() called from game loop */
+/* OPT v1.2.2: removed independent rAF; drawBgStarfield() called from game loop */
 (function(){
   const c = document.getElementById('starfield');
   const sCtx = c.getContext('2d');
@@ -906,10 +906,10 @@ const boss={x:W/2,y:-60,w:42,h:36,alive:false,hp:100,maxHp:100,cd1:0,cd2:0,enter
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function dist(ax,ay,bx,by){const dx=ax-bx,dy=ay-by;return Math.sqrt(dx*dx+dy*dy);}
-/* OPT v1.2.1: distSq avoids Math.sqrt for collision checks */
+/* OPT v1.2.2: distSq avoids Math.sqrt for collision checks */
 function distSq(ax,ay,bx,by){const dx=ax-bx,dy=ay-by;return dx*dx+dy*dy;}
 
-/* OPT v1.2.1: hard cap prevents GC spikes during large explosions */
+/* OPT v1.2.2: hard cap prevents GC spikes during large explosions */
 const MAX_PARTICLES = 500;
 function spawnParticles(x,y,count,colors,speedMult,decayMin,decayMax,rMin,rMax){
   speedMult=speedMult||1; decayMin=decayMin||0.025; decayMax=decayMax||0.04; rMin=rMin||0.8; rMax=rMax||2.5;
@@ -974,8 +974,8 @@ function reset(){
   enemyPlanet.x=W/2;enemyPlanet.y=-150;
   satellites=[];satBullets=[];entryVisible=false;entryDrones=[];droneBullets=[];
   enemyPlanetZoomed=false;enemyPlanetZoomProgress=0;enemyPlanetTargetY=0;
-  // OPT v1.2.1: removed duplicate assignments that appeared again below
-  rocket.x=W/2;rocket.y=H-40;rocket.left=false;rocket.right=false;rocket.up=false;rocket.down=false;rocket.cd=0;
+  // OPT v1.2.2: removed duplicate assignments that appeared again below
+  rocket.x=W/2;rocket.y=H-40;rocket.left=false;rocket.right=false;rocket.up=false;rocket.down=false;rocket.cd=0;rocket.firing=false;rocket._pkBurstTimer=0;rocket._pkWasFiring=false;
   ally.wx=W*0.25;ally.wy=H-40;ally.moveTimer=0;
 }
 
@@ -1181,7 +1181,7 @@ function updateScene(){
           bullets.splice(j,1);
           if(magna.hp<=0){
             magna.alive=false;
-            shieldHits += 10;  // survivor's shield surge — Magnathora's death shockwave energizes deflectors
+            shieldHits += 5;  // survivor's shield surge — Magnathora's death shockwave energizes deflectors
             spheres=[];  // clear asteroids after magnathora dies
             // MASSIVE explosion — many waves, screen-filling
             for(let k=0;k<20;k++){
@@ -1261,7 +1261,7 @@ function updateScene(){
       }
       if(magna.explodeCooldown<=0){
         scene='magnaExplode'; sceneTimer=0; magnaExplodeTimer=0;
-        announce('★ MAGNATHORA GONE\nFIND THEIR HOMEWORLD · WARP ZONE BELOW!');
+        announce('★ MAGNATHORA GONE\nFIND THEIR HOMEWORLD — INITIATING WARP');
       }
     }
   }
@@ -1374,9 +1374,17 @@ function updateEnemyOrbit(){
 
   if(!rocketAlive){gameOverTimer++;if(gameOverTimer>150&&particles.length<5)reset();return;}
 
-  // Planet killer laser — continuous beam damages planet 1000pt/hit (throttled 1/sec)
-  if(planetKillerLaserUnlocked && rocketAlive && rocket.firing){
-    laserCharge = 1; // keep beam visible
+  // Planet killer laser — fires for 0.2s (12 frames) per trigger, then must re-press
+  if(planetKillerLaserUnlocked && rocketAlive){
+    if(rocket._pkBurstTimer===undefined) rocket._pkBurstTimer=0;
+    if(rocket._pkWasFiring===undefined) rocket._pkWasFiring=false;
+    // Detect new press edge to start a burst
+    if(rocket.firing && !rocket._pkWasFiring){ rocket._pkBurstTimer=12; }
+    rocket._pkWasFiring = rocket.firing;
+    if(rocket._pkBurstTimer>0) rocket._pkBurstTimer--;
+    const pkFiring = rocket._pkBurstTimer>0;
+    laserCharge = pkFiring ? 1 : 0;
+  if(pkFiring){
     if(laserSoundTimer>0)laserSoundTimer--; else{laserSoundTimer=28;playLaser();}
     if(planetLaserDmgTimer>0)planetLaserDmgTimer--;
     if(planetLaserDmgTimer===0){
@@ -1385,6 +1393,7 @@ function updateEnemyOrbit(){
       if(Math.abs(enemyPlanet.x-rocket.x)<enemyPlanet.r+10 && enemyPlanet.y<rocket.y){
         planetHP-=1000;
         score+=1000;
+        enemyPlanet.r += 4; // planet grows a little with each hit
         planetFlashTimer = 8; // flash for ~8 frames
         playEnemyHit();
         spawnParticles(enemyPlanet.x+(Math.random()-0.5)*enemyPlanet.r,enemyPlanet.y+(Math.random()-0.5)*enemyPlanet.r*0.5,
@@ -1421,10 +1430,15 @@ function updateEnemyOrbit(){
         }
       }
     }
+  } else {
+    laserSoundTimer=0;
+  }
   } else if(planetKillerLaserUnlocked) {
     laserCharge = 0;
     planetLaserDmgTimer=0;
     laserSoundTimer=0;
+    if(rocket._pkBurstTimer!==undefined) rocket._pkBurstTimer=0;
+    if(rocket._pkWasFiring!==undefined) rocket._pkWasFiring=false;
   }
 }
 
@@ -1437,7 +1451,7 @@ function update(){
   if(scene !== 'play'){
     sceneTimer++;
     updateScene();
-    // Particles still tick in all scenes — OPT v1.2.1: swap-and-pop
+    // Particles still tick in all scenes — OPT v1.2.2: swap-and-pop
     for(let i=particles.length-1;i>=0;i--){
       const p=particles[i];p.x+=p.vx;p.y+=p.vy;p.vy+=0.04;p.life-=p.decay;
       if(p.life<=0){particles[i]=particles[particles.length-1];particles.pop();}
@@ -1825,7 +1839,7 @@ function update(){
     laserSoundTimer = 0;
   }
 
-  // Particles — OPT v1.2.1: swap-and-pop avoids O(n) splice shifting
+  // Particles — OPT v1.2.2: swap-and-pop avoids O(n) splice shifting
   for(let i=particles.length-1;i>=0;i--){
     const p=particles[i];p.x+=p.vx;p.y+=p.vy;p.vy+=0.04;p.life-=p.decay;
     if(p.life<=0){particles[i]=particles[particles.length-1];particles.pop();}
@@ -1838,7 +1852,7 @@ function update(){
   if(announcementTimer>0)announcementTimer--;
 }
 
-/* OPT v1.2.1: nebula gradient cached — was being created every frame */
+/* OPT v1.2.2: nebula gradient cached — was being created every frame */
 let _nebGrad = null;
 function drawBg(){
   ctx.fillStyle='#00000f';ctx.fillRect(0,0,W,H);
@@ -3057,7 +3071,7 @@ function drawTitleScreen(){
   ctx.textAlign='center';
   ctx.fillStyle='rgba(80,120,160,0.6)';
   ctx.font='8px "Courier New"';
-  ctx.fillText('v1.2.1', cx, H - 12);
+  ctx.fillText('v1.2.2', cx, H - 12);
   ctx.restore();
 }
 
@@ -3141,9 +3155,16 @@ document.addEventListener('keyup',e=>{
   if(e.key==='ArrowDown'||e.key==='s'){rocket.down=false;}
   if(e.key===' ')rocket.firing=false;
 });
-/* OPT v1.2.1: cache getBoundingClientRect on touchstart to avoid layout reflow in touchmove */
+// Fix: reset all input state when window loses focus so keys/firing never get stuck
+function resetInputState(){
+  rocket.left=false; rocket.right=false; rocket.up=false; rocket.down=false; rocket.firing=false;
+}
+window.addEventListener('blur', resetInputState);
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden) resetInputState(); });
+/* OPT v1.2.2: cache getBoundingClientRect on touchstart to avoid layout reflow in touchmove */
 let _touchRect = null;
-canvas.addEventListener('touchend',()=>{ rocket.firing=false; });
+canvas.addEventListener('touchend',e=>{ if(e.touches.length===0) rocket.firing=false; });
+canvas.addEventListener('touchcancel',()=>{ rocket.firing=false; });
 canvas.addEventListener('touchstart',e=>{
   _touchRect=canvas.getBoundingClientRect();
   if(scene==='title'){startGame();return;}
