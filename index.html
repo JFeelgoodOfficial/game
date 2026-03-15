@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NOVA-7 | Endless Void</title>
+<title>NOVA-7 | Endless Void v2.0.0</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
@@ -946,7 +946,7 @@ footer p {
      FOOTER
 ══════════════════════════════════════ -->
 <footer>
-  <p>NOVA-7 · Endless Void · v1.9.9 · Infinite Sectors · 9 Upgrades · 12 Boss Archetypes · ECHO-1 Wingmate · Laser Cannons</p>
+  <p>NOVA-7 · Endless Void · v2.0.0 · Infinite Sectors · 9 Upgrades · 12 Boss Archetypes · ECHO-1 Wingmate · Laser Cannons · Transwarp Drive</p>
 </footer>
 
 <!-- ══════════════════════════════════════
@@ -989,6 +989,7 @@ footer p {
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const W=400, H=600;
+const DASHBOARD_H=44; // dashboard panel height = player ship height
 
 // ── Pixel Art Starship Image ──
 const _shipImg = new Image();
@@ -1198,6 +1199,8 @@ function resetCombo(){comboCount=0;comboMult=1;comboTimer=0;}
 let deathScreen=false,deathScreenTimer=0;
 let runStats={score:0,sector:1,kills:0,upgrades:[],topCombo:0};
 let totalKills=0,runTopCombo=0;
+// ── TRANSWARP DRIVE ──
+let transwarpCharges=0; // each boss kill grants 1 charge; transwarp uses 1 charge to skip 10 sectors
 
 // ── BOSS PHASE TRANSITION ──
 let bossPhase2Active=false,bossPhase2FlashTimer=0;
@@ -1288,7 +1291,7 @@ const LASER_COOLDOWN_TICKS=0;
 let laserUnlocked=false;
 let laserCharge=0,laserCooldown=0,laserDmgTimer=0,laserSoundTimer=0,laserWasFiring=false;
 
-const rocket={x:W/2,y:H-40,w:28,h:44,speed:2.5,left:false,right:false,up:false,down:false,cd:0,firing:false};
+const rocket={x:W/2,y:H-DASHBOARD_H-40,w:28,h:44,speed:2.5,left:false,right:false,up:false,down:false,cd:0,firing:false};
 const ally={x:W*0.25,y:H-40,w:24,h:40,state:'idle',turnTimer:0,shootTimer:0,active:false,wx:W*0.25,wy:H-40,moveTimer:0,hp:50,maxHp:50};
 const er={x:W*0.75,y:40,w:24,h:40,alive:false,cd:0,hp:10,maxHp:10};
 
@@ -1486,7 +1489,7 @@ function reset(){
   laserUnlocked=false;laserCharge=0;laserCooldown=0;laserDmgTimer=0;laserSoundTimer=0;laserWasFiring=false;
   scene='title';sceneTimer=0;
   alienShots=[];nebulousExplosionTimer=0;
-  rocket.x=W/2;rocket.y=H-40;rocket.left=false;rocket.right=false;rocket.up=false;rocket.down=false;rocket.cd=0;rocket.firing=false;
+  rocket.x=W/2;rocket.y=H-DASHBOARD_H-40;rocket.left=false;rocket.right=false;rocket.up=false;rocket.down=false;rocket.cd=0;rocket.firing=false;
   ally.wx=W*0.25;ally.wy=H-40;ally.moveTimer=0;
   // Reset sector
   sectorNum=1;sectorParams=buildSectorParams(1);procBoss=generateBoss(1);
@@ -1494,6 +1497,8 @@ function reset(){
   warpAsteroidBoost=0;
   upgradeMenuActive=false;upgradeOptions=[];upgradeSelected=-1;upgradeScoreTriggers=new Set();
   playerUpgrades={fireRate:0,bulletDmg:0,shipSpeed:0,tripleShot:false,homing:false,shieldRegen:false,rearGun:false,burstFire:false,laserUnlocked:false,chromePower:false};
+  transwarpCharges=0;
+  _transwarpPending=0;
   gravityWells=[];mines=[];anomalies=[];debrisObjects=[];energyPulseTimer=0;energyPulseActive=false;
   challengeMods={bulletHell:false,fastEnemies:false,gravityWells:false,pulsarField:false,minefield:false};
 }
@@ -1723,6 +1728,7 @@ function updateBossExplosion(){
     const baseReward=2000+sectorNum*500;
     score+=baseReward;
     shieldHits=Math.min(shieldHits+2,30);
+    transwarpCharges++; // boss kill charges transwarp drive
     // Massive explosion
     for(let k=0;k<12;k++){
       const ox=(Math.random()-0.5)*b.w*3,oy=(Math.random()-0.5)*b.h*3;
@@ -1814,9 +1820,19 @@ function updateHazards(){
 function updateWarpAnim(){
   if(warpAnimPhase===0)return;
   warpAnimTimer++;
-  if(warpAnimPhase===1&&warpAnimTimer>=80){warpAnimPhase=2;warpAnimTimer=0;advanceSector();}
+  if(warpAnimPhase===1&&warpAnimTimer>=80){
+    warpAnimPhase=2;warpAnimTimer=0;
+    if(_transwarpPending>0){
+      // Advance 10 sectors at once
+      for(let i=0;i<_transwarpPending;i++)advanceSector();
+      _transwarpPending=0;
+      sectorTransitioning=true; // keep locked until animation fully completes
+    } else {
+      advanceSector();
+    }
+  }
   else if(warpAnimPhase===2&&warpAnimTimer>=60){warpAnimPhase=3;warpAnimTimer=0;}
-  else if(warpAnimPhase===3&&warpAnimTimer>=80){warpAnimPhase=0;warpAnimTimer=0;}
+  else if(warpAnimPhase===3&&warpAnimTimer>=80){warpAnimPhase=0;warpAnimTimer=0;sectorTransitioning=false;}
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1881,7 +1897,7 @@ function update(){
     if(rocket.left)rocket.x=Math.max(rocket.w/2,rocket.x-rocket.speed);
     if(rocket.right)rocket.x=Math.min(W-rocket.w/2,rocket.x+rocket.speed);
     if(rocket.up)rocket.y=Math.max(H/2,rocket.y-rocket.speed);
-    if(rocket.down)rocket.y=Math.min(H-rocket.h/2,rocket.y+rocket.speed);
+    if(rocket.down)rocket.y=Math.min(H-DASHBOARD_H-rocket.h/2,rocket.y+rocket.speed);
     if(rocket.cd>0)rocket.cd--;
     if(rocket.firing&&rocket.cd===0)fireBullet();
   }
@@ -3103,6 +3119,24 @@ function drawLaser(){
   }
 }
 
+// ── TRANSWARP DRIVE ──────────────────────────────────────────────────────
+// Transwarp button rect in canvas coords (dashboard area)
+const TRANSWARP_BTN={x:W-90,y:H-DASHBOARD_H+4,w:84,h:36};
+let _transwarpPending=0;
+
+function activateTranswarp(){
+  if(transwarpCharges<=0){announce('⚠ TRANSWARP LOCKED\nKILL A BOSS TO CHARGE DRIVE');return;}
+  if(scene!=='play'||!rocketAlive||sectorTransitioning||warpAnimPhase!==0)return;
+  transwarpCharges--;
+  announce('◈ TRANSWARP ENGAGED\nSKIPPING 10 SECTORS — BRACE');
+  playWarp();
+  // Chain 10 sector advances with a single warp flash
+  sectorTransitioning=true;
+  warpAnimPhase=1;warpAnimTimer=0;
+  // We'll advance 10 sectors at once when the warp hold phase fires
+  _transwarpPending=10;
+}
+
 // ── UPGRADE MENU ─────────────────────────────────────────────────────────
 function drawUpgradeMenu(){
   if(!upgradeMenuActive)return;
@@ -3151,6 +3185,124 @@ function drawUpgradeMenu(){
   ctx.fillText('SECTOR '+sectorNum+' — '+sectorParams.theme.name+' — SCORE: '+score.toLocaleString(),W/2,H-16);
 }
 
+// ── DASHBOARD ─────────────────────────────────────────────────────────────
+function drawDashboard(){
+  if(scene==='title')return;
+  const DH=DASHBOARD_H;
+  const dy=H-DH;
+  const t2=Date.now()/1000;
+
+  // Background bar
+  ctx.save();
+  ctx.fillStyle='rgba(0,5,20,0.92)';
+  ctx.fillRect(0,dy,W,DH);
+  // Top border line
+  ctx.strokeStyle='rgba(0,150,255,0.5)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(0,dy);ctx.lineTo(W,dy);ctx.stroke();
+
+  // ── LEFT: UPGRADE ICONS + STACKS ──
+  const upgrades=[];
+  if(playerUpgrades.tripleShot)upgrades.push({icon:'🔱',label:'×3 CANNON',stacks:1});
+  if(playerUpgrades.homing)upgrades.push({icon:'🎯',label:'HOMING',stacks:1});
+  if(playerUpgrades.rearGun)upgrades.push({icon:'↩',label:'REAR GUN',stacks:1});
+  if(playerUpgrades.burstFire)upgrades.push({icon:'☄',label:'BURST',stacks:1});
+  if(playerUpgrades.shieldRegen)upgrades.push({icon:'🛡',label:'S-REGEN',stacks:1});
+  if(playerUpgrades.laserUnlocked)upgrades.push({icon:'⚡',label:'LASER',stacks:1});
+  if(playerUpgrades.fireRate>0)upgrades.push({icon:'⚡',label:'RAPID',stacks:playerUpgrades.fireRate});
+  if(playerUpgrades.bulletDmg>0)upgrades.push({icon:'💥',label:'PIERCE',stacks:playerUpgrades.bulletDmg});
+  if(playerUpgrades.shipSpeed>0)upgrades.push({icon:'🚀',label:'BURN',stacks:playerUpgrades.shipSpeed});
+
+  const slotW=50;
+  upgrades.forEach((upg,i)=>{
+    const sx=4+i*slotW;
+    if(sx+slotW>TRANSWARP_BTN.x-4)return; // don't overlap transwarp button
+    // Slot bg
+    ctx.fillStyle='rgba(0,80,160,0.25)';
+    ctx.fillRect(sx,dy+2,slotW-3,DH-4);
+    ctx.strokeStyle='rgba(0,150,255,0.3)';ctx.lineWidth=0.7;
+    ctx.strokeRect(sx,dy+2,slotW-3,DH-4);
+    // Icon
+    ctx.font='14px sans-serif';ctx.textAlign='center';
+    ctx.fillText(upg.icon,sx+(slotW-3)/2,dy+18);
+    // Label
+    ctx.font='6px "Courier New"';ctx.fillStyle='rgba(140,200,255,0.85)';
+    ctx.fillText(upg.label,sx+(slotW-3)/2,dy+28);
+    // Stack count badge
+    if(upg.stacks>1){
+      const bx=sx+slotW-11,by=dy+4;
+      ctx.fillStyle='rgba(255,160,0,0.9)';
+      ctx.beginPath();ctx.arc(bx,by,7,0,Math.PI*2);ctx.fill();
+      ctx.font='bold 8px "Courier New"';ctx.fillStyle='#000';
+      ctx.fillText(upg.stacks,bx,by+3);
+    }
+  });
+
+  // Empty slots placeholder when no upgrades
+  if(upgrades.length===0){
+    ctx.font='7px "Courier New"';ctx.fillStyle='rgba(0,100,160,0.4)';ctx.textAlign='left';
+    ctx.fillText('NO MODS EQUIPPED',6,dy+DH/2+3);
+  }
+
+  // ── CENTER: Shield & charge mini-readout ──
+  const cx2=W/2-30;
+  ctx.font='bold 8px "Orbitron","Courier New"';ctx.textAlign='center';
+  ctx.fillStyle='rgba(100,180,255,0.5)';
+  ctx.fillText('SHIELDS: '+shieldHits,cx2,dy+14);
+  const ac=sectorParams.theme.accent;
+  ctx.fillStyle=`rgba(${ac[0]},${ac[1]},${ac[2]},0.55)`;
+  ctx.fillText('SEC '+sectorNum,cx2,dy+26);
+  if(chromePower){
+    const cp=0.6+0.4*Math.sin(t2*4);
+    ctx.fillStyle=`rgba(80,200,255,${cp})`;
+    ctx.fillText('2× DMG',cx2,dy+37);
+  }
+
+  // ── RIGHT: TRANSWARP BUTTON ──
+  const tb=TRANSWARP_BTN;
+  const charged=transwarpCharges>0&&scene==='play'&&rocketAlive&&!sectorTransitioning&&warpAnimPhase===0;
+  const pulse=charged?(0.7+0.3*Math.sin(t2*3)):0;
+
+  // Button bg
+  if(charged){
+    const tg=ctx.createLinearGradient(tb.x,tb.y,tb.x,tb.y+tb.h);
+    tg.addColorStop(0,'rgba(0,80,255,0.85)');
+    tg.addColorStop(1,'rgba(0,30,120,0.85)');
+    ctx.fillStyle=tg;
+  } else {
+    ctx.fillStyle='rgba(10,15,30,0.85)';
+  }
+  ctx.beginPath();
+  ctx.roundRect(tb.x,tb.y,tb.w,tb.h,4);
+  ctx.fill();
+
+  // Border
+  ctx.strokeStyle=charged?`rgba(0,${Math.floor(180+60*pulse)},255,${0.7+0.3*pulse})`:'rgba(0,60,120,0.4)';
+  ctx.lineWidth=charged?1.5:0.8;
+  ctx.beginPath();ctx.roundRect(tb.x,tb.y,tb.w,tb.h,4);ctx.stroke();
+
+  if(charged){
+    ctx.shadowColor=`rgba(0,200,255,${pulse})`;ctx.shadowBlur=12*pulse;
+  }
+
+  // Button label
+  ctx.font='bold 8px "Orbitron","Courier New"';ctx.textAlign='center';
+  ctx.fillStyle=charged?`rgba(100,220,255,${0.9+0.1*pulse})`:'rgba(60,100,150,0.6)';
+  ctx.fillText('TRANSWARP',tb.x+tb.w/2,tb.y+13);
+
+  // Charge count
+  ctx.font='bold 11px "Orbitron","Courier New"';
+  ctx.fillStyle=charged?`rgba(255,255,255,${0.9+0.1*pulse})`:'rgba(60,100,150,0.5)';
+  ctx.fillText(transwarpCharges>0?transwarpCharges+'× CHARGE':'UNCHARGED',tb.x+tb.w/2,tb.y+26);
+
+  // Small label below
+  ctx.font='5px "Courier New"';
+  ctx.fillStyle=charged?'rgba(0,200,255,0.55)':'rgba(40,70,120,0.4)';
+  ctx.fillText('SKIPS 10 SECTORS',tb.x+tb.w/2,tb.y+35);
+
+  ctx.shadowBlur=0;
+  ctx.restore();
+}
+
 // ── HUD ───────────────────────────────────────────────────────────────────
 function drawHUD(){
   ctx.font='bold 28px "Courier New"';ctx.textAlign='right';
@@ -3177,28 +3329,14 @@ function drawHUD(){
     }
     ctx.shadowBlur=0;
   }
-  if(chromePower){ctx.textAlign='center';ctx.fillStyle='rgba(80,180,255,0.75)';ctx.font='7px "Courier New"';ctx.fillText('CANNON OVERCHARGED — 2× DMG',W/2,H-4);}
+  if(chromePower){ctx.textAlign='center';ctx.fillStyle='rgba(80,180,255,0.75)';ctx.font='7px "Courier New"';ctx.fillText('CANNON OVERCHARGED — 2× DMG',W/2,H-DASHBOARD_H-4);}
   if(laserUnlocked){
     const t2=Date.now()/300,barPulse=0.7+0.3*Math.sin(t2);
     ctx.textAlign='left';ctx.font='bold 7px "Orbitron","Courier New"';
     ctx.shadowColor='rgba(0,220,255,0.9)';ctx.shadowBlur=10;
     ctx.fillStyle=`rgba(0,${Math.floor(180+60*barPulse)},255,${0.85+0.15*barPulse})`;
-    ctx.fillText('⚡ LASER CANNONS — 50 DMG',5,H-6);
+    ctx.fillText('⚡ LASER CANNONS — 50 DMG',5,H-DASHBOARD_H-6);
     ctx.shadowBlur=0;
-  }
-  // Upgrade indicator
-  if(Object.values(playerUpgrades).some(v=>v&&v!==false&&v!==0)){
-    ctx.textAlign='left';ctx.font='6px "Courier New"';ctx.fillStyle='rgba(255,200,100,0.6)';
-    const upgList=[];
-    if(playerUpgrades.tripleShot)upgList.push('×3');
-    if(playerUpgrades.homing)upgList.push('HOM');
-    if(playerUpgrades.rearGun)upgList.push('REAR');
-    if(playerUpgrades.burstFire)upgList.push('BRST');
-    if(playerUpgrades.shieldRegen)upgList.push('S-REG');
-    if(playerUpgrades.fireRate>0)upgList.push('SPD+'+playerUpgrades.fireRate);
-    if(playerUpgrades.bulletDmg>0)upgList.push('DMG+'+playerUpgrades.bulletDmg);
-    if(playerUpgrades.shipSpeed>0)upgList.push('MVS+'+playerUpgrades.shipSpeed);
-    if(upgList.length)ctx.fillText('MODS: '+upgList.join(' '),5,H-6);
   }
   // ── COMBO DISPLAY ──
   if(comboCount>=3&&comboTimer>0&&rocketAlive){
@@ -3363,7 +3501,7 @@ function drawTitleScreen(){
     ctx.restore();
   }
 
-  ctx.save();ctx.textAlign='center';ctx.fillStyle='rgba(80,120,160,0.4)';ctx.font='7px "Courier New"';ctx.fillText('v1.9.9 — LASER CANNONS · COMBO · BOSS PHASES · LEADERBOARD · QUICK RESTART [R]',cx,H-6);ctx.restore();
+  ctx.save();ctx.textAlign='center';ctx.fillStyle='rgba(80,120,160,0.4)';ctx.font='7px "Courier New"';ctx.fillText('v2.0.0 — LASER CANNONS · COMBO · BOSS PHASES · LEADERBOARD · TRANSWARP DRIVE · QUICK RESTART [R]',cx,H-6);ctx.restore();
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -3385,6 +3523,7 @@ function draw(){
   } else if(scene==='victory'){drawParticles();}
   drawWarpAnimEffect();
   drawUpgradeMenu();
+  drawDashboard();
   drawHUD();
 }
 
@@ -3440,19 +3579,32 @@ canvas.addEventListener('touchstart',e=>{
     if(optIdx>=0&&optIdx<upgradeOptions.length){applyUpgrade(upgradeOptions[optIdx]);upgradeMenuActive=false;}
     e.preventDefault();return;
   }
+  // Check transwarp button touch
+  const trx=(e.touches[0].clientX-_touchRect.left)*(_touchRect.width>0?W/_touchRect.width:1);
+  const try2=(e.touches[0].clientY-_touchRect.top)*(_touchRect.height>0?H/_touchRect.height:1);
+  const tb=TRANSWARP_BTN;
+  if(trx>=tb.x&&trx<=tb.x+tb.w&&try2>=tb.y&&try2<=tb.y+tb.h){activateTranswarp();e.preventDefault();return;}
   rocket.firing=true;e.preventDefault();},{passive:false});
 canvas.addEventListener('touchmove',e=>{
   const rect=_touchRect||canvas.getBoundingClientRect();
   rocket.x=Math.max(7,Math.min(W-7,(e.touches[0].clientX-rect.left)*(W/rect.width)));
-  rocket.y=Math.max(H/2,Math.min(H-rocket.h/2,(e.touches[0].clientY-rect.top)*(H/rect.height)-60));
+  rocket.y=Math.max(H/2,Math.min(H-DASHBOARD_H-rocket.h/2,(e.touches[0].clientY-rect.top)*(H/rect.height)-60));
   e.preventDefault();},{passive:false});
 window.addEventListener('resize',()=>{_touchRect=null;});
-canvas.addEventListener('click',()=>{
+canvas.addEventListener('click',(e)=>{
   if(!rocketAlive&&deathScreen){quickRestart();return;}
   if(scene==='title'){startGame();return;}
   if(upgradeMenuActive){
     if(upgradeSelected>=0&&upgradeSelected<upgradeOptions.length){applyUpgrade(upgradeOptions[upgradeSelected]);upgradeMenuActive=false;}
     return;
+  }
+  // Check transwarp button click
+  const rect2=canvas.getBoundingClientRect();
+  const cx=(e.clientX-rect2.left)*(W/rect2.width);
+  const cy=(e.clientY-rect2.top)*(H/rect2.height);
+  const tb=TRANSWARP_BTN;
+  if(cx>=tb.x&&cx<=tb.x+tb.w&&cy>=tb.y&&cy<=tb.y+tb.h){
+    activateTranswarp();return;
   }
   if(rocketAlive&&rocket.cd===0&&!warpPhase&&scene!=='victory'&&!sectorTransitioning)fireBullet();
 });
