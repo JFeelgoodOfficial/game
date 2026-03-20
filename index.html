@@ -9,12 +9,12 @@
 <meta property="og:description" content="Battle 12 named bosses across infinite procedural sectors. Free to play. No download. How deep can you survive the void?">
 <meta property="og:image" content="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDAgMzAwIj48cG9seWdvbiBwb2ludHM9IjEwMCwxMCAxNjAsMjkwIDEwMCwyNDAgNDAsMjkwIiBmaWxsPSJ3aGl0ZSIvPjwvc3ZnPg==">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://nova7game.org">
+<meta property="og:url" content="https://yoursite.com/nova7">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="NOVA-7 Endless Void v2.0.0 — Free Browser Asteroid Shooter">
 <meta name="twitter:description" content="Battle 12 named bosses across infinite procedural sectors. Free to play. No download. How deep can you survive the void?">
 <meta name="twitter:image" content="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDAgMzAwIj48cG9seWdvbiBwb2ludHM9IjEwMCwxMCAxNjAsMjkwIDEwMCwyNDAgNDAsMjkwIiBmaWxsPSJ3aGl0ZSIvPjwvc3ZnPg==">
-<link rel="canonical" href="https://nova7game.org">
+<link rel="canonical" href="https://yoursite.com/nova7">
 <link rel="preload" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" as="style">
 <script type="application/ld+json">
 {
@@ -27,7 +27,7 @@
   "genre": "Arcade, Shooter",
   "playMode": "SinglePlayer",
   "gamePlatform": "Browser",
-  "url": "https://nova7game.org",
+  "url": "https://yoursite.com/nova7",
   "image": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDAgMzAwIj48cG9seWdvbiBwb2ludHM9IjEwMCwxMCAxNjAsMjkwIDEwMCwyNDAgNDAsMjkwIiBmaWxsPSJ3aGl0ZSIvPjwvc3ZnPg==",
   "datePublished": "2026-03-15",
   "keywords": "asteroid shooter, browser game, endless arcade, boss fight, free game, no download, NOVA-7, space shooter",
@@ -1157,10 +1157,11 @@ table.lb-table td.lb-score {
    SUPABASE: start
    Replace the two constants below with your real Supabase credentials:
      Dashboard -> Project Settings -> API
-      
+       SUPABASE_URL      = "Project URL"
+       SUPABASE_ANON_KEY = "anon / public" key
    ====================================================================== */
-const SUPABASE_URL      = 'https://mqvcearljygixhczgrpb.supabase.co'; 
-const SUPABASE_ANON_KEY = 'sb_publishable_XrZnQFS2KY0A3HLwFPEsEg_XzYIWBll';                       
+const SUPABASE_URL      = 'https://YOUR-PROJECT-ID.supabase.co'; // <- replace
+const SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';                        // <- replace
 
 const _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -1797,8 +1798,9 @@ function checkMilestones(){
   if(m===9000){spawnVessel(4,true);announce('◈ DERELICT VESSEL DETECTED\nSHOOT IT — 4-HIT SHIELD INSIDE');}
   // Boss trigger: every 10000 points (10000, 20000, 30000, ...)
   const BOSS_INTERVAL=10000;
-  // Reset defeated flag at each new 12k boundary so next boss is eligible
-  if(m>0&&m%BOSS_INTERVAL===0)bossDefeatedThisSector=false;
+  // Reset defeated flag only when sector transition is fully done
+  // (prevents a second boss spawning during post-kill warp delay)
+  if(m>0&&m%BOSS_INTERVAL===0&&!bossDefeatedThisSector)bossDefeatedThisSector=false;
   if(m>0&&m%BOSS_INTERVAL===0&&!bossActive&&!bossDefeatedThisSector){
     bossActive=true;procBoss.alive=true;procBoss.y=-120;procBoss.hp=procBoss.maxHp;
     procBoss.enterDone=false;procBoss.exploding=false;procBoss.cd1=0;procBoss.cd2=0;procBoss.cd3=0;
@@ -1990,6 +1992,8 @@ function updateBossExplosion(){
   if(b.explodeTimer%15===0&&b.explodeTimer<150)explodeBossProc();
   if(b.explodeTimer>180){
     b.alive=false;b.exploding=false;bossActive=false;bossDefeatedThisSector=true;
+    // Clear remaining asteroids and projectiles so the field is clean for warp
+    spheres=[];bossBullets=[];enemyBullets=[];spawnTimer=0;
     warpAsteroidBoost+=0.2; // each boss warp makes asteroids faster by 0.2
     const baseReward=2000+sectorNum*500;
     score+=baseReward;
@@ -2206,7 +2210,7 @@ function update(){
   }
 
   // Spawn asteroids
-  if(!procBoss.alive||procBoss.exploding){
+  if((!procBoss.alive||procBoss.exploding)&&!bossDefeatedThisSector){
     spawnTimer++;
     if(spawnTimer>=spawnInterval&&rocketAlive){
       spawnSphere();
