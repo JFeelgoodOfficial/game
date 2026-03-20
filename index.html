@@ -638,7 +638,113 @@ footer p {
   flex-wrap: wrap;
   margin-top: 16px;
 }
+
+/* ════════════════════════════════════════
+   LEADERBOARD SECTION
+════════════════════════════════════════ */
+#leaderboard {
+  padding: 80px 20px 100px;
+  background: linear-gradient(180deg, var(--void) 0%, var(--deep) 60%, var(--void) 100%);
+}
+.lb-inner { max-width: 700px; margin: 0 auto; }
+.lb-table-wrap { margin-top: 36px; overflow-x: auto; }
+table.lb-table {
+  width: 100%; border-collapse: collapse;
+  font-family: "Share Tech Mono", monospace; font-size: 13px;
+}
+table.lb-table thead tr { border-bottom: 1px solid rgba(0,170,255,0.3); }
+table.lb-table th {
+  font-family: "Orbitron", monospace; font-size: 9px; letter-spacing: 3px;
+  color: rgba(0,170,255,0.6); text-transform: uppercase;
+  padding: 8px 12px; text-align: left; font-weight: 400;
+}
+table.lb-table td {
+  padding: 10px 12px; color: rgba(180,210,255,0.8);
+  border-bottom: 1px solid rgba(0,80,180,0.12);
+}
+table.lb-table tbody tr:hover { background: rgba(0,40,100,0.3); }
+table.lb-table td.lb-rank {
+  font-family: "Orbitron", monospace; font-weight: 700;
+  color: var(--glow); font-size: 14px; width: 40px;
+}
+table.lb-table tbody tr:first-child td.lb-rank { color: var(--gold); }
+table.lb-table tbody tr:nth-child(2) td.lb-rank { color: var(--chrome); }
+table.lb-table tbody tr:nth-child(3) td.lb-rank { color: var(--hot); }
+table.lb-table td.lb-score {
+  font-family: "Orbitron", monospace; font-weight: 700;
+  color: var(--gold); font-size: 15px;
+}
+.lb-loading, .lb-empty, .lb-error {
+  text-align: center; padding: 40px 0; font-size: 12px;
+  letter-spacing: 3px; color: rgba(0,120,200,0.5); text-transform: uppercase;
+}
+.lb-refresh-btn {
+  display: inline-block; font-family: "Orbitron", monospace;
+  font-size: 9px; letter-spacing: 3px; text-transform: uppercase;
+  color: rgba(0,170,255,0.7); background: rgba(0,20,50,0.6);
+  border: 1px solid rgba(0,120,255,0.25); padding: 8px 20px; cursor: pointer;
+  clip-path: polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%);
+  transition: all 0.2s; margin-top: 20px;
+}
+.lb-refresh-btn:hover { border-color: rgba(0,200,255,0.6); color: #fff; }
+
+/* NAME CAPTURE MODAL */
+#nameModal {
+  display: none; position: fixed; inset: 0; z-index: 10000;
+  background: rgba(0,0,10,0.88); align-items: center; justify-content: center;
+}
+#nameModal.open { display: flex; }
+.name-modal-box {
+  background: rgba(2,8,24,0.97); border: 1px solid rgba(0,150,255,0.4);
+  padding: 36px 40px; max-width: 340px; width: 90%; text-align: center;
+  clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 18px 100%, 0 calc(100% - 18px));
+  position: relative;
+}
+.name-modal-box::before {
+  content:""; position:absolute; top:0; left:0; width:100%; height:2px;
+  background: linear-gradient(90deg, var(--glow), transparent);
+}
+.name-modal-title {
+  font-family: "Orbitron", monospace; font-size: 14px; font-weight: 700;
+  letter-spacing: 3px; color: #ffffff; margin-bottom: 8px;
+}
+.name-modal-sub {
+  font-size: 11px; color: rgba(0,170,255,0.6); letter-spacing: 2px;
+  text-transform: uppercase; margin-bottom: 28px;
+}
+#pilotNameInput {
+  width: 100%; background: rgba(0,15,40,0.9);
+  border: 1px solid rgba(0,120,255,0.4); color: var(--glow);
+  font-family: "Share Tech Mono", monospace; font-size: 16px; letter-spacing: 2px;
+  padding: 12px 16px; text-align: center; outline: none;
+  margin-bottom: 20px; box-sizing: border-box;
+}
+#pilotNameInput:focus { border-color: rgba(0,200,255,0.8); }
+#pilotNameInput::placeholder { color: rgba(0,100,180,0.4); }
+.name-modal-confirm {
+  font-family: "Orbitron", monospace; font-weight: 700; font-size: 11px;
+  letter-spacing: 4px; text-transform: uppercase; color: var(--void);
+  background: linear-gradient(90deg, var(--glow), #0055ff); border: none;
+  padding: 13px 32px;
+  clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%);
+  cursor: pointer; transition: all 0.2s; width: 100%;
+}
+.name-modal-confirm:hover { background: linear-gradient(90deg, #ffffff, var(--glow)); }
+
+/* TOAST NOTIFICATION */
+#toastMsg {
+  position: fixed; bottom: 30px; left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: rgba(10,5,30,0.95); border: 1px solid rgba(255,60,60,0.5);
+  color: rgba(255,140,140,0.9); font-family: "Share Tech Mono", monospace;
+  font-size: 12px; letter-spacing: 2px; padding: 10px 24px; border-radius: 2px;
+  z-index: 9999; opacity: 0; transition: all 0.4s ease; pointer-events: none;
+}
+#toastMsg.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 </style>
+<!-- SUPABASE: start — load Supabase JS v2 from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- SUPABASE: end -->
 </head>
 <body>
 
@@ -977,6 +1083,38 @@ footer p {
 <!-- ══════════════════════════════════════
      FOOTER
 ══════════════════════════════════════ -->
+<!-- NOVA-7 LEADERBOARD SECTION -->
+<section id="leaderboard">
+  <div class="lb-inner">
+    <div class="section-label reveal">Global Ranking</div>
+    <h2 class="lore-title reveal" style="font-family:'Orbitron',monospace;font-size:clamp(22px,3.5vw,34px);color:#fff;margin-bottom:8px;">
+      Void Pilots &mdash; All-Time Best
+    </h2>
+    <p class="reveal" style="font-size:13px;color:rgba(140,180,255,0.6);letter-spacing:2px;text-transform:uppercase;margin-bottom:0;">
+      Live scores from all pilots across the endless void.
+    </p>
+    <div class="lb-table-wrap reveal">
+      <div id="lbContent" class="lb-loading">FETCHING TRANSMISSIONS&hellip;</div>
+    </div>
+    <div style="text-align:center;">
+      <button class="lb-refresh-btn reveal" onclick="fetchLeaderboard()">&#8635; &nbsp;REFRESH SCORES</button>
+    </div>
+  </div>
+</section>
+
+<!-- NOVA-7 PILOT NAME MODAL -->
+<div id="nameModal" role="dialog" aria-modal="true" aria-label="Enter pilot name">
+  <div class="name-modal-box">
+    <div class="name-modal-title">PILOT IDENTIFICATION</div>
+    <div class="name-modal-sub">Your callsign will appear on the global leaderboard</div>
+    <input id="pilotNameInput" type="text" maxlength="20" placeholder="ENTER CALLSIGN" autocomplete="off" spellcheck="false">
+    <button class="name-modal-confirm" id="nameConfirmBtn">CONFIRM &amp; LAUNCH</button>
+  </div>
+</div>
+
+<!-- NOVA-7 TOAST NOTIFICATION -->
+<div id="toastMsg"></div>
+
 <footer>
   <p>NOVA-7 · Endless Void · v2.0.0 · Free Browser Game · No Download · 12 Bosses: GOLIATH · XERATH · VOIDMAW · CORRUPTUS · SPECTERION · IRONCLAD · GAZER-PRIME · QUEEN VESPA · MYCOTHRIX · PRISMACH · REAPER-IX · CHRONOVORE</p>
 </footer>
@@ -1014,6 +1152,103 @@ footer p {
   },{threshold:0.12});
   els.forEach(el=>obs.observe(el));
 })();
+
+/* ======================================================================
+   SUPABASE: start
+   Replace the two constants below with your real Supabase credentials:
+     Dashboard -> Project Settings -> API
+       SUPABASE_URL      = "Project URL"
+       SUPABASE_ANON_KEY = "anon / public" key
+   ====================================================================== */
+const SUPABASE_URL      = 'https://YOUR-PROJECT-ID.supabase.co'; // <- replace
+const SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';                        // <- replace
+
+const _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+window.playerName = 'Anonymous';
+window._nameAsked = false;
+
+function showToast(msg, duration) {
+  duration = duration || 4000;
+  var t = document.getElementById('toastMsg');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, duration);
+}
+
+async function submitScoreToSupabase(name, score) {
+  try {
+    var res = await _sb.from('scores').insert([{
+      name:       name,
+      score:      score,
+      created_at: new Date().toISOString()
+    }]);
+    if (res.error) throw res.error;
+    await fetchLeaderboard();
+  } catch (e) {
+    console.error('[NOVA-7] Score submit failed:', e);
+    showToast('SCORE TRANSMISSION FAILED -- SEE CONSOLE');
+  }
+}
+
+async function fetchLeaderboard() {
+  var el = document.getElementById('lbContent');
+  if (!el) return;
+  el.className = 'lb-loading';
+  el.textContent = 'FETCHING TRANSMISSIONS...';
+  try {
+    var res = await _sb
+      .from('scores')
+      .select('name, score, created_at')
+      .order('score',      { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(10);
+    if (res.error) throw res.error;
+    renderLeaderboard(res.data || []);
+  } catch (e) {
+    console.error('[NOVA-7] Leaderboard fetch failed:', e);
+    el.className = 'lb-error';
+    el.textContent = 'SIGNAL LOST -- CHECK SUPABASE CONFIG';
+  }
+}
+
+function renderLeaderboard(rows) {
+  var el = document.getElementById('lbContent');
+  if (!el) return;
+  if (!rows || rows.length === 0) {
+    el.className = 'lb-empty';
+    el.innerHTML = 'NO PILOTS ON RECORD YET -- BE THE FIRST';
+    return;
+  }
+  var rankLabels = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10'];
+  var rankColors  = ['var(--gold)', 'var(--chrome)', 'var(--hot)'];
+  function safeDate(ts) {
+    try { return new Date(ts).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}); }
+    catch(e) { return '--'; }
+  }
+  var rows_html = rows.map(function(r, i) {
+    var safeName = (r.name || 'Anonymous').replace(/</g, '&lt;').substring(0, 20);
+    var rColor   = rankColors[i] || 'var(--glow)';
+    return '<tr>' +
+      '<td class="lb-rank" style="color:' + rColor + '">' + rankLabels[i] + '</td>' +
+      '<td>' + safeName + '</td>' +
+      '<td class="lb-score">' + Number(r.score).toLocaleString() + '</td>' +
+      '<td style="font-size:11px;color:rgba(100,150,220,0.6)">' + safeDate(r.created_at) + '</td>' +
+      '</tr>';
+  }).join('');
+  el.className = '';
+  el.innerHTML =
+    '<table class="lb-table">' +
+      '<thead><tr><th>#</th><th>Pilot</th><th>Score</th><th>Date</th></tr></thead>' +
+      '<tbody>' + rows_html + '</tbody>' +
+    '</table>';
+}
+
+fetchLeaderboard();
+/* SUPABASE: end */
+
+
 
 /* ══════════════════════════════════════════════════════════════════════════
    NOVA-7 ENDLESS VOID — Procedural Engine v2.0
@@ -2130,6 +2365,9 @@ function update(){
     if(gameOverTimer===30&&!deathScreen){
       deathScreen=true;deathScreenTimer=0;
       saveHighScore(score,sectorNum,totalKills);
+      // SUPABASE: start -- submit run score to global leaderboard
+      submitScoreToSupabase(window.playerName || 'Anonymous', score);
+      // SUPABASE: end
       runStats={score,sector:sectorNum,kills:totalKills,topCombo:runTopCombo,
         upgrades:Object.entries(playerUpgrades).filter(([k,v])=>v&&v!==false&&v!==0).map(([k])=>k)};
     }
@@ -3539,7 +3777,31 @@ function drawTitleScreen(){
 // ══════════════════════════════════════════════════════════════════════════
 // MAIN GAME ENTRY
 // ══════════════════════════════════════════════════════════════════════════
-function startGame(){if(scene!=='title')return;scene='play';sceneTimer=0;}
+// SUPABASE: start -- intercept first launch to capture pilot callsign
+function startGame(){
+  if(scene!=='title')return;
+  if(!window._nameAsked){
+    window._nameAsked=true;
+    var modal=document.getElementById('nameModal');
+    var inp=document.getElementById('pilotNameInput');
+    var btn=document.getElementById('nameConfirmBtn');
+    if(modal&&inp&&btn){
+      modal.classList.add('open');
+      setTimeout(function(){inp.focus();},50);
+      function _confirmName(){
+        var raw=(inp.value||'').trim();
+        window.playerName=raw.length>0?raw.substring(0,20):'Anonymous';
+        modal.classList.remove('open');
+        scene='play';sceneTimer=0;
+      }
+      btn.onclick=_confirmName;
+      inp.onkeydown=function(e){if(e.key==='Enter')_confirmName();};
+      return;
+    }
+  }
+  scene='play';sceneTimer=0;
+}
+// SUPABASE: end
 
 function draw(){
   drawBg();
