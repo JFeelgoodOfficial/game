@@ -4,7 +4,7 @@
 
 A single-file HTML5 arcade game where you pilot a lone fighter through infinite procedural sectors, face 12 named boss dreadnoughts, and build a ship loadout from 9 upgrades — one run at a time. The difficulty never plateaus. The void never ends.
 
-**[▶ Play Now — https://nov7game.org)**
+**[▶ Play Now — https://nova7game.org)**
 
 ---
 
