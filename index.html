@@ -688,48 +688,54 @@ table.lb-table td.lb-score {
 }
 .lb-refresh-btn:hover { border-color: rgba(0,200,255,0.6); color: #fff; }
 
-/* NAME CAPTURE MODAL */
-#nameModal {
-  display: none; position: fixed; inset: 0; z-index: 10000;
-  background: rgba(0,0,10,0.88); align-items: center; justify-content: center;
+/* CALLSIGN INPUT OVERLAY (sits over canvas on title screen) */
+#callsignOverlay {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, 18%);
+  width: 84%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  pointer-events: none;
+  z-index: 20;
 }
-#nameModal.open { display: flex; }
-.name-modal-box {
-  background: rgba(2,8,24,0.97); border: 1px solid rgba(0,150,255,0.4);
-  padding: 36px 40px; max-width: 340px; width: 90%; text-align: center;
-  clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 18px 100%, 0 calc(100% - 18px));
-  position: relative;
-}
-.name-modal-box::before {
-  content:""; position:absolute; top:0; left:0; width:100%; height:2px;
-  background: linear-gradient(90deg, var(--glow), transparent);
-}
-.name-modal-title {
-  font-family: "Orbitron", monospace; font-size: 14px; font-weight: 700;
-  letter-spacing: 3px; color: #ffffff; margin-bottom: 8px;
-}
-.name-modal-sub {
-  font-size: 11px; color: rgba(0,170,255,0.6); letter-spacing: 2px;
-  text-transform: uppercase; margin-bottom: 28px;
-}
+#callsignOverlay.active { pointer-events: auto; }
 #pilotNameInput {
-  width: 100%; background: rgba(0,15,40,0.9);
-  border: 1px solid rgba(0,120,255,0.4); color: var(--glow);
-  font-family: "Share Tech Mono", monospace; font-size: 16px; letter-spacing: 2px;
-  padding: 12px 16px; text-align: center; outline: none;
-  margin-bottom: 20px; box-sizing: border-box;
+  width: 100%;
+  background: rgba(0,8,28,0.92);
+  border: 1px solid rgba(0,170,255,0.55);
+  border-bottom: none;
+  color: #00ddff;
+  font-family: "Share Tech Mono", monospace;
+  font-size: 15px;
+  letter-spacing: 3px;
+  padding: 10px 14px;
+  text-align: center;
+  outline: none;
+  box-sizing: border-box;
+  text-transform: uppercase;
+  clip-path: polygon(8px 0%, 100% 0%, 100% 100%, 0% 100%, 0% 8px);
 }
-#pilotNameInput:focus { border-color: rgba(0,200,255,0.8); }
-#pilotNameInput::placeholder { color: rgba(0,100,180,0.4); }
-.name-modal-confirm {
-  font-family: "Orbitron", monospace; font-weight: 700; font-size: 11px;
-  letter-spacing: 4px; text-transform: uppercase; color: var(--void);
-  background: linear-gradient(90deg, var(--glow), #0055ff); border: none;
-  padding: 13px 32px;
-  clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%);
-  cursor: pointer; transition: all 0.2s; width: 100%;
+#pilotNameInput::placeholder { color: rgba(0,130,200,0.4); letter-spacing:2px; }
+#pilotNameInput:focus { border-color: rgba(0,220,255,0.9); color: #ffffff; }
+#nameConfirmBtn {
+  width: 100%;
+  font-family: "Orbitron", monospace;
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: #000010;
+  background: linear-gradient(90deg, #00aaff, #0044ff);
+  border: none;
+  padding: 11px 0;
+  clip-path: polygon(0% 0%, 100% 0%, calc(100% - 8px) 100%, 8px 100%);
+  cursor: pointer;
+  transition: background 0.2s;
 }
-.name-modal-confirm:hover { background: linear-gradient(90deg, #ffffff, var(--glow)); }
+#nameConfirmBtn:hover { background: linear-gradient(90deg, #ffffff, #00aaff); }
 
 /* TOAST NOTIFICATION */
 #toastMsg {
@@ -1053,6 +1059,10 @@ table.lb-table td.lb-score {
     <div class="corner corner-tr"></div>
     <div class="corner corner-bl"></div>
     <div class="corner corner-br"></div>
+    <div id="callsignOverlay" class="active">
+      <input id="pilotNameInput" type="text" maxlength="20" placeholder="ENTER CALLSIGN" autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="characters">
+      <button id="nameConfirmBtn">CONFIRM &amp; LAUNCH</button>
+    </div>
     <canvas id="game" width="400" height="600" role="application" aria-label="NOVA-7 Endless Void game canvas — WASD or arrow keys to move, Space to fire" tabindex="0"></canvas>
   </div>
 
@@ -1102,15 +1112,7 @@ table.lb-table td.lb-score {
   </div>
 </section>
 
-<!-- NOVA-7 PILOT NAME MODAL -->
-<div id="nameModal" role="dialog" aria-modal="true" aria-label="Enter pilot name">
-  <div class="name-modal-box">
-    <div class="name-modal-title">PILOT IDENTIFICATION</div>
-    <div class="name-modal-sub">Your callsign will appear on the global leaderboard</div>
-    <input id="pilotNameInput" type="text" maxlength="20" placeholder="ENTER CALLSIGN" autocomplete="off" spellcheck="false">
-    <button class="name-modal-confirm" id="nameConfirmBtn">CONFIRM &amp; LAUNCH</button>
-  </div>
-</div>
+<!-- NOVA-7 CALLSIGN OVERLAY — sits inside .game-frame over the canvas -->
 
 <!-- NOVA-7 TOAST NOTIFICATION -->
 <div id="toastMsg"></div>
@@ -1161,7 +1163,7 @@ table.lb-table td.lb-score {
        SUPABASE_ANON_KEY = "anon / public" key
    ====================================================================== */
 const SUPABASE_URL      = 'https://mqvcearljygixhczgrpb.supabase.co'; // <- replace
-const SUPABASE_ANON_KEY = 'sb_publishable_XrZnQFS2KY0A3HLwFPEsEg_XzYIWBll';                        // <- replace
+const SUPABASE_ANON_KEY = 'sb_publishable_XrZnQFS2KY0A3HLwFPEsEg_XzYIWBll';                       // <- replace
 
 const _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -1491,6 +1493,7 @@ let shieldHits=0;
 let enemyRocketActive=false;
 let bossActive=false;
 let scene='title',sceneTimer=0;
+let titlePhase='callsign'; // 'callsign' | 'ready'
 let gameWon=false,winTimer=0;
 let warpPhase=false,warpTimer=0,warpColor=[0,150,255];
 let announcement='',announcementTimer=0;
@@ -1755,6 +1758,8 @@ function reset(){
   announcement='';announcementTimer=0;
   laserUnlocked=false;laserCharge=0;laserCooldown=0;laserDmgTimer=0;laserSoundTimer=0;laserWasFiring=false;
   scene='title';sceneTimer=0;
+  titlePhase='ready'; // after first run, skip callsign entry
+  // overlay already hidden after first callsign — no need to re-show
   alienShots=[];nebulousExplosionTimer=0;
   rocket.x=W/2;rocket.y=H-DASHBOARD_H-40;rocket.left=false;rocket.right=false;rocket.up=false;rocket.down=false;rocket.cd=0;rocket.firing=false;
   ally.wx=W*0.25;ally.wy=H-40;ally.moveTimer=0;
@@ -3744,7 +3749,31 @@ function drawTitleScreen(){
   ctx.fillStyle='rgba(160,220,255,0.95)';ctx.font='bold 11px "Orbitron","Courier New"';ctx.fillText('ENDLESS VOID',cx,cy-44);ctx.restore();
   ctx.save();ctx.strokeStyle='rgba(0,180,255,0.35)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(cx-100,cy-28);ctx.lineTo(cx+100,cy-28);ctx.stroke();ctx.restore();
   const blinkOn=Math.floor(t/28)%2===0;
-  if(blinkOn){ctx.save();ctx.textAlign='center';ctx.shadowColor='rgba(255,220,80,0.8)';ctx.shadowBlur=14;ctx.fillStyle='#ffee88';ctx.font='bold 11px "Orbitron","Courier New"';ctx.fillText('— PRESS TO START —',cx,cy-6);ctx.restore();}
+  if(titlePhase==='callsign'){
+    // Draw the callsign prompt label above the HTML input
+    ctx.save();ctx.textAlign='center';
+    ctx.font='bold 9px "Orbitron","Courier New"';ctx.fillStyle='rgba(0,170,255,0.7)';ctx.letterSpacing='4px';
+    ctx.fillText('PILOT IDENTIFICATION',cx,cy+4);
+    ctx.font='8px "Courier New"';ctx.fillStyle='rgba(100,160,220,0.5)';
+    ctx.fillText('YOUR CALLSIGN WILL APPEAR ON THE LEADERBOARD',cx,cy+18);
+    ctx.restore();
+  } else {
+    // Ready phase — show pilot name and launch prompt
+    ctx.save();ctx.textAlign='center';
+    ctx.font='bold 9px "Orbitron","Courier New"';ctx.fillStyle='rgba(0,170,255,0.55)';
+    ctx.fillText('PILOT',cx,cy+4);
+    ctx.font='bold 16px "Orbitron","Courier New"';
+    ctx.shadowColor='rgba(0,220,255,0.8)';ctx.shadowBlur=16;
+    ctx.fillStyle='#00eeff';ctx.fillText((window.playerName||'ANONYMOUS').toUpperCase(),cx,cy+24);
+    ctx.shadowBlur=0;
+    if(blinkOn){
+      ctx.shadowColor='rgba(255,220,80,0.8)';ctx.shadowBlur=14;
+      ctx.fillStyle='#ffee88';ctx.font='bold 11px "Orbitron","Courier New"';
+      ctx.fillText('— PRESS TO LAUNCH —',cx,cy+44);
+      ctx.shadowBlur=0;
+    }
+    ctx.restore();
+  }
 
   // Leaderboard on title screen (if scores exist)
   if(highScores.length>0){
@@ -3780,30 +3809,34 @@ function drawTitleScreen(){
 // ══════════════════════════════════════════════════════════════════════════
 // MAIN GAME ENTRY
 // ══════════════════════════════════════════════════════════════════════════
-// SUPABASE: start -- intercept first launch to capture pilot callsign
+// SUPABASE: start -- callsign entry on title screen
+function _confirmCallsign(){
+  var inp=document.getElementById('pilotNameInput');
+  var overlay=document.getElementById('callsignOverlay');
+  var raw=inp?(inp.value||'').trim():'';
+  window.playerName=raw.length>0?raw.substring(0,20):'Anonymous';
+  titlePhase='ready';
+  if(overlay){overlay.classList.remove('active');overlay.style.display='none';}
+}
+
 function startGame(){
   if(scene!=='title')return;
-  if(!window._nameAsked){
-    window._nameAsked=true;
-    var modal=document.getElementById('nameModal');
-    var inp=document.getElementById('pilotNameInput');
-    var btn=document.getElementById('nameConfirmBtn');
-    if(modal&&inp&&btn){
-      modal.classList.add('open');
-      setTimeout(function(){inp.focus();},50);
-      function _confirmName(){
-        var raw=(inp.value||'').trim();
-        window.playerName=raw.length>0?raw.substring(0,20):'Anonymous';
-        modal.classList.remove('open');
-        scene='play';sceneTimer=0;
-      }
-      btn.onclick=_confirmName;
-      inp.onkeydown=function(e){if(e.key==='Enter')_confirmName();};
-      return;
-    }
+  if(titlePhase==='callsign'){
+    // Don't launch yet — let the player confirm their callsign
+    return;
   }
   scene='play';sceneTimer=0;
 }
+
+// Wire up the confirm button and Enter key on page init
+(function(){
+  var btn=document.getElementById('nameConfirmBtn');
+  var inp=document.getElementById('pilotNameInput');
+  if(btn) btn.addEventListener('click', _confirmCallsign);
+  if(inp) inp.addEventListener('keydown', function(e){
+    if(e.key==='Enter'){ e.preventDefault(); _confirmCallsign(); }
+  });
+})();
 // SUPABASE: end
 
 function draw(){
