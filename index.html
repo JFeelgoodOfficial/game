@@ -1182,7 +1182,7 @@ table.lb-table td.lb-score {
        SUPABASE_ANON_KEY = "anon / public" key
    ====================================================================== */
 const SUPABASE_URL      = 'https://mqvcearljygixhczgrpb.supabase.co'; // <- replace
-const SUPABASE_ANON_KEY = 'sb_publishable_XrZnQFS2KY0A3HLwFPEsEg_XzYIWBll';                        // <- replace
+const SUPABASE_ANON_KEY = 'sb_publishable_XrZnQFS2KY0A3HLwFPEsEg_XzYIWBll';                       // <- replace
 
 const _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -1256,7 +1256,9 @@ function renderLeaderboard(rows) {
     shieldRegen:  { label: 'SHIELD REGEN',  max: 1 },
     rearGun:      { label: 'REAR TURRET',   max: 1 },
     burstFire:    { label: 'BURST MODE',    max: 1 },
-    laserUnlocked:{ label: 'LASER CANNONS', max: 1 }
+    laserUnlocked:{ label: 'LASER CANNONS', max: 1 },
+    ramHatchet:   { label: 'RAM-HATCHET',   max: 1 },
+    echoShield:   { label: 'ECHO-1 SHIELD', max: 1 }
   };
   var rankColors = ['var(--gold)', 'var(--chrome)', 'var(--hot)'];
   function safeDate(ts) {
@@ -1512,6 +1514,7 @@ function generateBoss(sector){
 let score=0,prevMilestone=0;
 let bullets=[],spheres=[],particles=[];
 let enemyBullets=[],allyBullets=[],bossBullets=[];
+let ramHatchets=[]; // RAM-HATCHET missiles
 let rocketAlive=true,gameOverTimer=0;
 
 // ── HIGH SCORE LEADERBOARD (session-persistent) ──
@@ -1600,6 +1603,8 @@ let playerUpgrades={
   burstFire:false,
   laserUnlocked:false,
   chromePower:false,
+  ramHatchet:false,   // RAM-HATCHET missile
+  echoShield:false,   // ECHO-1 Shield barrier
 };
 
 // Challenge modifiers (escalate with sectors)
@@ -1688,6 +1693,8 @@ const ALL_UPGRADES=[
   {id:'rearGun',     label:'REAR TURRET',     desc:'Auto-fires backward',     icon:'↩',condition:()=>!playerUpgrades.rearGun},
   {id:'burstFire',   label:'BURST MODE',      desc:'Each shot = 3 bullets',   icon:'☄',condition:()=>!playerUpgrades.burstFire},
   {id:'shieldBoost', label:'SHIELD BOOST',    desc:'+1 shield (3 hits)',     icon:'◈',condition:()=>true},
+  {id:'ramHatchet',  label:'RAM-HATCHET',    desc:'Missile explodes after 1s — 50% boss HP',icon:'🚀',condition:()=>!playerUpgrades.ramHatchet},
+  {id:'echoShield',  label:'ECHO-1 SHIELD',  desc:'Egg barrier around ECHO-1 — deflects bullets',icon:'🥚',condition:()=>!playerUpgrades.echoShield&&allyActive},
 ];
 
 function getUpgradeOptions(){
@@ -1808,7 +1815,7 @@ function quickRestart(){
 }
 function reset(){
   score=0;prevMilestone=0;
-  bullets=[];spheres=[];particles=[];enemyBullets=[];allyBullets=[];bossBullets=[];
+  bullets=[];spheres=[];particles=[];enemyBullets=[];allyBullets=[];bossBullets=[];ramHatchets=[];window._hatchetCd=0;
   rocketAlive=true;gameOverTimer=0;spawnTimer=0;spawnInterval=60;doubleWaveActive=false;vessels=[];
   // Reset combo
   comboCount=0;comboMult=1;comboTimer=0;comboFlashTimer=0;
@@ -1838,7 +1845,7 @@ function reset(){
   bossDefeatedThisSector=false;
   warpAsteroidBoost=0;
   upgradeMenuActive=false;upgradeOptions=[];upgradeSelected=-1;upgradeScoreTriggers=new Set();
-  playerUpgrades={fireRate:0,bulletDmg:0,shipSpeed:0,tripleShot:false,homing:false,shieldRegen:false,rearGun:false,burstFire:false,laserUnlocked:false,chromePower:false};
+  playerUpgrades={fireRate:0,bulletDmg:0,shipSpeed:0,tripleShot:false,homing:false,shieldRegen:false,rearGun:false,burstFire:false,laserUnlocked:false,chromePower:false,ramHatchet:false,echoShield:false};
   transwarpCharges=0;
   _transwarpPending=0;
   gravityWells=[];mines=[];anomalies=[];debrisObjects=[];energyPulseTimer=0;energyPulseActive=false;
@@ -1929,9 +1936,9 @@ function fireBullet(){
       const bvx=Math.sin(ang)*5,bvy=-5;
       if(playerUpgrades.burstFire){
         // staggered burst
-        setTimeout(()=>{if(rocketAlive)bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,vx:bvx,vy:bvy,speed:5,dmg});},i*50);
+        setTimeout(()=>{if(rocketAlive)bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,vx:bvx,vy:bvy,speed:5,dmg,homing:!!playerUpgrades.homing});},i*50);
       } else {
-        bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,vx:bvx,vy:bvy,speed:5,dmg});
+        bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,vx:bvx,vy:bvy,speed:5,dmg,homing:!!playerUpgrades.homing});
       }
     }
     if(playerUpgrades.rearGun){
@@ -1939,6 +1946,19 @@ function fireBullet(){
     }
     chromePower?playShootSurge():playShoot();
     rocket.cd=cdTime;
+  }
+  // RAM-HATCHET: fire a slow missile on its own cooldown
+  if(playerUpgrades.ramHatchet){
+    if(!window._hatchetCd||window._hatchetCd<=0){
+      // Find best target to launch at
+      let hTx=rocket.x,hTy=0,hBest=999999;
+      for(const s of spheres){const d=distSq(rocket.x,rocket.y,s.x,s.y);if(d<hBest){hBest=d;hTx=s.x;hTy=s.y;}}
+      if(procBoss.alive&&!procBoss.exploding){hTx=procBoss.x;hTy=procBoss.y;}
+      const hdx=hTx-rocket.x,hdy=hTy-rocket.y,hl=Math.sqrt(hdx*hdx+hdy*hdy)||1;
+      ramHatchets.push({x:rocket.x,y:rocket.y,vx:(hdx/hl)*3,vy:(hdy/hl)*3,timer:0,alive:true});
+      window._hatchetCd=90; // ~1.5s between launches
+      _sound('sawtooth',300,80,0.2,0.25,'decay');
+    }
   }
 }
 
@@ -2247,9 +2267,22 @@ function update(){
     if(rocket.firing&&rocket.cd===0)fireBullet();
   }
 
-  // Bullet movement
+  // Bullet movement — homing bullets steer toward nearest enemy
   for(let i=bullets.length-1;i>=0;i--){
     const b2=bullets[i];
+    if(b2.homing){
+      // Find nearest target (asteroid or boss)
+      let tx=b2.x,ty=b2.y-999,bestD=999999;
+      for(const s of spheres){const d=distSq(b2.x,b2.y,s.x,s.y);if(d<bestD){bestD=d;tx=s.x;ty=s.y;}}
+      if(procBoss.alive&&!procBoss.exploding){const d=distSq(b2.x,b2.y,procBoss.x,procBoss.y);if(d<bestD){tx=procBoss.x;ty=procBoss.y;}}
+      const hdx=tx-b2.x,hdy=ty-b2.y,hl=Math.sqrt(hdx*hdx+hdy*hdy)||1;
+      const turnRate=0.28;
+      b2.vx=b2.vx*(1-turnRate)+(hdx/hl)*b2.speed*turnRate;
+      b2.vy=b2.vy*(1-turnRate)+(hdy/hl)*b2.speed*turnRate;
+      // Normalise to keep speed constant
+      const spd=Math.sqrt(b2.vx*b2.vx+b2.vy*b2.vy)||1;
+      b2.vx=b2.vx/spd*b2.speed;b2.vy=b2.vy/spd*b2.speed;
+    }
     if(b2.vx!==undefined){b2.x+=b2.vx;b2.y+=b2.vy;}
     else{b2.y-=b2.speed;}
     if(b2.y<-5||b2.y>H+5||b2.x<-10||b2.x>W+10)bullets.splice(i,1);
@@ -2261,6 +2294,25 @@ function update(){
   for(let i=enemyBullets.length-1;i>=0;i--){
     const b=enemyBullets[i];b.x+=b.vx;b.y+=b.vy;
     if(b.y>H+5||b.y<-5||b.x<-5||b.x>W+5){enemyBullets.splice(i,1);continue;}
+    // ECHO-1 SHIELD: egg barrier 4× ally size (rx=40,ry=60) deflects bullets
+    if(playerUpgrades.echoShield&&allyActive&&ally.state==='active'){
+      const erx=40,ery=60;
+      const edx=(b.x-ally.x)/erx,edy=(b.y-ally.y)/ery;
+      if(edx*edx+edy*edy<1){
+        // Player inside shield? protect them
+        if(rocketAlive&&distSq(b.x,b.y,rocket.x,rocket.y)<100){
+          enemyBullets.splice(i,1);
+          spawnParticles(b.x,b.y,6,['rgba(0,220,255,A)'],0.8,0.05,0.1,0.4,2);
+          continue;
+        }
+        // Bounce bullet off shield interior
+        const nx=edx/erx,ny=edy/ery,nl=Math.sqrt(nx*nx+ny*ny)||1;
+        const dot=b.vx*(nx/nl)+b.vy*(ny/nl);
+        b.vx-=2*dot*(nx/nl);b.vy-=2*dot*(ny/nl);
+        spawnParticles(b.x,b.y,5,['rgba(0,200,255,A)'],0.7,0.05,0.1,0.4,2);
+        continue;
+      }
+    }
     if(rocketAlive&&distSq(b.x,b.y,rocket.x,rocket.y)<100){
       enemyBullets.splice(i,1);
       if(shieldHits>0){shieldHits--;spawnParticles(rocket.x,rocket.y,12,['rgba(0,220,255,A)'],1,0.04,0.08,0.5,2);}
@@ -2277,6 +2329,23 @@ function update(){
   for(let i=bossBullets.length-1;i>=0;i--){
     const b=bossBullets[i];b.x+=b.vx;b.y+=b.vy;
     if(b.y>H+5||b.y<-5||b.x<-5||b.x>W+5){bossBullets.splice(i,1);continue;}
+    // ECHO-1 SHIELD: deflect boss bullets too
+    if(playerUpgrades.echoShield&&allyActive&&ally.state==='active'){
+      const erx=40,ery=60;
+      const edx=(b.x-ally.x)/erx,edy=(b.y-ally.y)/ery;
+      if(edx*edx+edy*edy<1){
+        if(rocketAlive&&distSq(b.x,b.y,rocket.x,rocket.y)<100){
+          bossBullets.splice(i,1);
+          spawnParticles(b.x,b.y,6,['rgba(0,220,255,A)'],0.8,0.05,0.1,0.4,2);
+          continue;
+        }
+        const nx=edx/erx,ny=edy/ery,nl=Math.sqrt(nx*nx+ny*ny)||1;
+        const dot=b.vx*(nx/nl)+b.vy*(ny/nl);
+        b.vx-=2*dot*(nx/nl);b.vy-=2*dot*(ny/nl);
+        spawnParticles(b.x,b.y,5,['rgba(0,200,255,A)'],0.7,0.05,0.1,0.4,2);
+        continue;
+      }
+    }
     if(rocketAlive&&distSq(b.x,b.y,rocket.x,rocket.y)<100){
       bossBullets.splice(i,1);
       if(shieldHits>0){shieldHits--;spawnParticles(rocket.x,rocket.y,12,['rgba(0,220,255,A)'],1,0.04,0.08,0.5,2);}
@@ -2423,6 +2492,43 @@ function update(){
 
   // Combo timer decay
   if(comboTimer>0){comboTimer--;if(comboTimer===0)resetCombo();}
+  if(window._hatchetCd>0)window._hatchetCd--;
+
+  // RAM-HATCHET missile update
+  for(let i=ramHatchets.length-1;i>=0;i--){
+    const h=ramHatchets[i];if(!h.alive){ramHatchets.splice(i,1);continue;}
+    // Steer toward nearest target
+    let hTx=h.x,hTy=h.y-999,hBest=999999;
+    for(const s of spheres){const d=distSq(h.x,h.y,s.x,s.y);if(d<hBest){hBest=d;hTx=s.x;hTy=s.y;}}
+    if(procBoss.alive&&!procBoss.exploding){const d=distSq(h.x,h.y,procBoss.x,procBoss.y);if(d<hBest){hTx=procBoss.x;hTy=procBoss.y;}}
+    const hdx2=hTx-h.x,hdy2=hTy-h.y,hl2=Math.sqrt(hdx2*hdx2+hdy2*hdy2)||1;
+    h.vx=h.vx*0.85+(hdx2/hl2)*3*0.15;h.vy=h.vy*0.85+(hdy2/hl2)*3*0.15;
+    const hspd=Math.sqrt(h.vx*h.vx+h.vy*h.vy)||1;h.vx=h.vx/hspd*3;h.vy=h.vy/hspd*3;
+    h.x+=h.vx;h.y+=h.vy;h.timer++;
+    // Detonate after 60 frames (~1 second)
+    if(h.timer>=60){
+      h.alive=false;
+      // Ripple explosion: 50% HP to all enemies in radius 80
+      const hRadius=80;
+      for(let j=spheres.length-1;j>=0;j--){
+        if(distSq(h.x,h.y,spheres[j].x,spheres[j].y)<hRadius*hRadius){
+          spheres[j].hp=Math.ceil(spheres[j].hp*0.5);
+          if(spheres[j].hp<=0){explodeSphere(spheres[j]);score+=100*comboMult;totalKills++;spheres.splice(j,1);playAsteroidExplode();}
+        }
+      }
+      if(procBoss.alive&&!procBoss.exploding&&distSq(h.x,h.y,procBoss.x,procBoss.y)<hRadius*hRadius){
+        procBoss.hp=Math.ceil(procBoss.hp*0.5);
+        if(procBoss.hp<=0){procBoss.exploding=true;procBoss.explodeTimer=0;explodeBossProc();}
+      }
+      // Big ripple particle burst
+      for(let r=0;r<3;r++){
+        spawnParticles(h.x,h.y,20,['rgba(255,160,0,A)','rgba(255,80,0,A)','rgba(255,220,80,A)'],2+r*0.5,0.008,0.018,2+r,10+r*4);
+      }
+      spawnParticles(h.x,h.y,30,['rgba(255,255,200,A)'],3,0.005,0.01,3,14);
+      _sound('sawtooth',180,20,0.5,0.4,'decay');
+    }
+    if(h.x<-20||h.x>W+20||h.y<-20||h.y>H+20)h.alive=false;
+  }
   if(comboFlashTimer>0)comboFlashTimer--;
   if(bossPhase2FlashTimer>0)bossPhase2FlashTimer--;
 
@@ -3436,6 +3542,34 @@ function drawEnemyRocket(){
   ctx.fillStyle='rgba(80,0,0,0.7)';ctx.fillRect(bx,by,bw,bh);ctx.fillStyle=`hsl(${pct*120},100%,50%)`;ctx.fillRect(bx,by,bw*pct,bh);ctx.strokeStyle='rgba(255,50,0,0.6)';ctx.lineWidth=0.7;ctx.strokeRect(bx,by,bw,bh);
 }
 
+function drawRamHatchets(){
+  const t2=Date.now()/200;
+  for(const h of ramHatchets){
+    if(!h.alive)continue;
+    ctx.save();
+    // Body
+    const ang=Math.atan2(h.vy,h.vx);
+    ctx.translate(h.x,h.y);ctx.rotate(ang+Math.PI/2);
+    // Glow
+    const hg=ctx.createRadialGradient(0,0,0,0,0,14);
+    hg.addColorStop(0,'rgba(255,160,0,0.9)');hg.addColorStop(0.5,'rgba(255,80,0,0.5)');hg.addColorStop(1,'rgba(255,40,0,0)');
+    ctx.fillStyle=hg;ctx.beginPath();ctx.arc(0,0,14,0,Math.PI*2);ctx.fill();
+    // Missile body
+    ctx.fillStyle='#ffaa22';
+    ctx.beginPath();ctx.moveTo(0,-10);ctx.lineTo(5,4);ctx.lineTo(0,2);ctx.lineTo(-5,4);ctx.closePath();ctx.fill();
+    // Thruster flicker
+    const fh=6+Math.random()*5;
+    const fg=ctx.createLinearGradient(0,4,0,4+fh);
+    fg.addColorStop(0,'rgba(255,200,80,0.95)');fg.addColorStop(1,'rgba(255,60,0,0)');
+    ctx.beginPath();ctx.moveTo(-3,4);ctx.lineTo(3,4);ctx.lineTo(0,4+fh);ctx.closePath();ctx.fillStyle=fg;ctx.fill();
+    // Timer ring — shows time until detonation
+    const progress=h.timer/60;
+    ctx.strokeStyle=`rgba(255,220,80,${0.5+0.5*Math.sin(t2*3)})`;ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.arc(0,0,9,0,Math.PI*2*progress);ctx.stroke();
+    ctx.restore();
+  }
+}
+
 function drawAlly(){
   if(!allyActive)return;
   drawRocketShape(ally.x,ally.y,ally.w,ally.h,'green',false);
@@ -3447,6 +3581,34 @@ function drawAlly(){
   const pct=Math.max(0,ally.hp/ally.maxHp);
   ctx.fillStyle=`hsl(${pct*120},100%,50%)`;ctx.fillRect(bx2,by2,bw*pct,5);
   ctx.strokeStyle='rgba(0,255,140,0.5)';ctx.lineWidth=0.7;ctx.strokeRect(bx2,by2,bw,5);
+  // ECHO-1 SHIELD: draw egg barrier
+  if(playerUpgrades.echoShield){
+    const t3=Date.now()/900;
+    const pulse=0.5+0.3*Math.sin(t3);
+    ctx.save();
+    // Outer glow fill
+    const shieldGrad=ctx.createRadialGradient(ally.x,ally.y-10,5,ally.x,ally.y,55);
+    shieldGrad.addColorStop(0,'rgba(0,220,255,0.0)');
+    shieldGrad.addColorStop(0.75,'rgba(0,220,255,0.04)');
+    shieldGrad.addColorStop(1,`rgba(0,220,255,${0.12*pulse})`);
+    ctx.fillStyle=shieldGrad;
+    ctx.beginPath();ctx.ellipse(ally.x,ally.y,40,60,0,0,Math.PI*2);ctx.fill();
+    // Edge stroke — dual rings for depth
+    ctx.strokeStyle=`rgba(0,240,255,${0.55+0.25*pulse})`;ctx.lineWidth=1.5;
+    ctx.setLineDash([6,4]);ctx.lineDashOffset=t3*30;
+    ctx.beginPath();ctx.ellipse(ally.x,ally.y,40,60,0,0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle=`rgba(100,255,255,${0.2*pulse})`;ctx.lineWidth=3;
+    ctx.setLineDash([]);
+    ctx.beginPath();ctx.ellipse(ally.x,ally.y,40,60,0,0,Math.PI*2);ctx.stroke();
+    // Hex pattern overlay
+    ctx.strokeStyle=`rgba(0,200,255,${0.12*pulse})`;ctx.lineWidth=0.6;ctx.setLineDash([2,8]);
+    ctx.beginPath();ctx.ellipse(ally.x,ally.y,28,42,Math.PI/4,0,Math.PI*2);ctx.stroke();
+    ctx.setLineDash([]);
+    // "SHIELD ACTIVE" label
+    ctx.font='6px "Courier New"';ctx.textAlign='center';ctx.fillStyle=`rgba(0,220,255,${0.6*pulse})`;
+    ctx.fillText('SHIELD ACTIVE',ally.x,ally.y+75);
+    ctx.restore();
+  }
 }
 
 function drawParticles(){
@@ -3578,6 +3740,8 @@ function drawDashboard(){
   if(playerUpgrades.rearGun)upgrades.push({icon:'↩',label:'REAR GUN',stacks:1});
   if(playerUpgrades.burstFire)upgrades.push({icon:'☄',label:'BURST',stacks:1});
   if(playerUpgrades.shieldRegen)upgrades.push({icon:'🛡',label:'S-REGEN',stacks:1});
+  if(playerUpgrades.ramHatchet)upgrades.push({icon:'🚀',label:'HATCHET',stacks:1});
+  if(playerUpgrades.echoShield)upgrades.push({icon:'🥚',label:'E1-SHLD',stacks:1});
   if(playerUpgrades.laserUnlocked)upgrades.push({icon:'⚡',label:'LASER',stacks:1});
   if(playerUpgrades.fireRate>0)upgrades.push({icon:'⚡',label:'RAPID',stacks:playerUpgrades.fireRate});
   if(playerUpgrades.bulletDmg>0)upgrades.push({icon:'💥',label:'PIERCE',stacks:playerUpgrades.bulletDmg});
@@ -3941,7 +4105,7 @@ function draw(){
   drawBgStarfield();drawStars();
   drawHazards();drawDebris();
   if(scene==='play'){
-    drawSpheres();drawProcBoss();drawVessels();drawBullets();drawParticles();
+    drawSpheres();drawProcBoss();drawVessels();drawBullets();drawRamHatchets();drawParticles();
     if(rocketAlive)drawPlayerShip(rocket.x,rocket.y,rocket.w,rocket.h);
     if(shieldHits>0&&rocketAlive)drawShield(rocket.x,rocket.y);
     drawLaser();drawAlly();drawEnemyRocket();
