@@ -1198,11 +1198,16 @@ function showToast(msg, duration) {
   setTimeout(function(){ t.classList.remove('show'); }, duration);
 }
 
-async function submitScoreToSupabase(name, score) {
+async function submitScoreToSupabase(name, runData) {
   try {
     var res = await _sb.from('scores').insert([{
       name:       name,
-      score:      score,
+      score:      runData.score,
+      sector:     runData.sector,
+      kills:      runData.kills,
+      top_combo:  runData.topCombo,
+      mods_count: runData.modsCount,
+      mods:       runData.mods,
       created_at: new Date().toISOString()
     }]);
     if (res.error) throw res.error;
@@ -1221,7 +1226,7 @@ async function fetchLeaderboard() {
   try {
     var res = await _sb
       .from('scores')
-      .select('name, score, created_at')
+      .select('name, score, sector, kills, top_combo, mods_count, mods, created_at')
       .order('score',      { ascending: false })
       .order('created_at', { ascending: false })
       .limit(10);
@@ -1242,26 +1247,72 @@ function renderLeaderboard(rows) {
     el.innerHTML = 'NO PILOTS ON RECORD YET -- BE THE FIRST';
     return;
   }
-  var rankLabels = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10'];
-  var rankColors  = ['var(--gold)', 'var(--chrome)', 'var(--hot)'];
+  var MOD_LABELS = {
+    fireRate:     { label: 'RAPID FIRE',    max: 3 },
+    bulletDmg:    { label: 'ARMOR PIERCE',  max: 3 },
+    shipSpeed:    { label: 'AFTERBURNER',   max: 3 },
+    tripleShot:   { label: 'TRIPLE CANNON', max: 1 },
+    homing:       { label: 'HOMING ROUNDS', max: 1 },
+    shieldRegen:  { label: 'SHIELD REGEN',  max: 1 },
+    rearGun:      { label: 'REAR TURRET',   max: 1 },
+    burstFire:    { label: 'BURST MODE',    max: 1 },
+    laserUnlocked:{ label: 'LASER CANNONS', max: 1 }
+  };
+  var rankColors = ['var(--gold)', 'var(--chrome)', 'var(--hot)'];
   function safeDate(ts) {
     try { return new Date(ts).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}); }
     catch(e) { return '--'; }
   }
+  function buildModsHtml(modsJson) {
+    if (!modsJson) return '<span style="color:rgba(100,130,180,0.5);font-size:10px">NO MODS</span>';
+    var mods;
+    try { mods = typeof modsJson === 'string' ? JSON.parse(modsJson) : modsJson; }
+    catch(e) { return '<span style="color:rgba(100,130,180,0.5);font-size:10px">--</span>'; }
+    var chips = [];
+    Object.keys(MOD_LABELS).forEach(function(k) {
+      var v = mods[k];
+      if (!v || v === false || v === 0) return;
+      var def   = MOD_LABELS[k];
+      var stack = (def.max > 1 && typeof v === 'number') ? (' x' + v) : '';
+      chips.push(
+        '<span style="display:inline-block;background:rgba(0,50,120,0.6);border:1px solid rgba(0,120,255,0.3);' +
+        'color:rgba(140,200,255,0.9);font-size:9px;letter-spacing:1px;padding:2px 6px;margin:2px 2px 0 0;' +
+        'clip-path:polygon(4px 0%,100% 0%,calc(100% - 4px) 100%,0% 100%)">' +
+        def.label + stack + '</span>'
+      );
+    });
+    return chips.length ? chips.join('') : '<span style="color:rgba(100,130,180,0.5);font-size:10px">NO MODS</span>';
+  }
   var rows_html = rows.map(function(r, i) {
-    var safeName = (r.name || 'Anonymous').replace(/</g, '&lt;').substring(0, 20);
-    var rColor   = rankColors[i] || 'var(--glow)';
-    return '<tr>' +
-      '<td class="lb-rank" style="color:' + rColor + '">' + rankLabels[i] + '</td>' +
-      '<td>' + safeName + '</td>' +
-      '<td class="lb-score">' + Number(r.score).toLocaleString() + '</td>' +
-      '<td style="font-size:11px;color:rgba(100,150,220,0.6)">' + safeDate(r.created_at) + '</td>' +
-      '</tr>';
+    var safeName  = (r.name || 'Anonymous').replace(/</g, '&lt;').substring(0, 20);
+    var rColor    = rankColors[i] || 'var(--glow)';
+    var rankLabel = (i < 9 ? '0' : '') + (i + 1);
+    var modsHtml  = buildModsHtml(r.mods);
+    return (
+      '<tr style="border-bottom:1px solid rgba(0,60,140,0.2)">' +
+        '<td class="lb-rank" style="color:' + rColor + ';vertical-align:top;padding-top:12px">' + rankLabel + '</td>' +
+        '<td style="vertical-align:top;padding-top:12px">' +
+          '<div style="font-size:13px;color:rgba(200,225,255,0.9)">' + safeName + '</div>' +
+          '<div style="margin-top:5px">' + modsHtml + '</div>' +
+        '</td>' +
+        '<td class="lb-score" style="vertical-align:top;padding-top:12px;white-space:nowrap">' +
+          Number(r.score).toLocaleString() +
+        '</td>' +
+        '<td style="vertical-align:top;padding-top:12px;font-size:11px;color:rgba(160,200,255,0.7);white-space:nowrap">' +
+          '<div>SEC ' + (r.sector || '--') + '</div>' +
+          '<div style="margin-top:2px">' + (r.kills || 0) + ' KILLS</div>' +
+          '<div style="margin-top:2px">COMBO ' + (r.top_combo || 1) + 'x</div>' +
+          '<div style="margin-top:2px;color:rgba(100,140,200,0.5)">' + safeDate(r.created_at) + '</div>' +
+        '</td>' +
+      '</tr>'
+    );
   }).join('');
   el.className = '';
   el.innerHTML =
     '<table class="lb-table">' +
-      '<thead><tr><th>#</th><th>Pilot</th><th>Score</th><th>Date</th></tr></thead>' +
+      '<thead><tr>' +
+        '<th>#</th><th>Pilot &amp; Loadout</th><th>Score</th><th>Run Stats</th>' +
+      '</tr></thead>' +
       '<tbody>' + rows_html + '</tbody>' +
     '</table>';
 }
@@ -2392,8 +2443,31 @@ function update(){
     if(gameOverTimer===30&&!deathScreen){
       deathScreen=true;deathScreenTimer=0;
       saveHighScore(score,sectorNum,totalKills);
-      // SUPABASE: start -- submit run score to global leaderboard
-      submitScoreToSupabase(window.playerName || 'Anonymous', score);
+      // SUPABASE: start -- submit full run stats to leaderboard
+      (function(){
+        var _pu = playerUpgrades;
+        var _mods = {};
+        if(_pu.fireRate>0)    _mods.fireRate     = _pu.fireRate;
+        if(_pu.bulletDmg>0)  _mods.bulletDmg    = _pu.bulletDmg;
+        if(_pu.shipSpeed>0)  _mods.shipSpeed    = _pu.shipSpeed;
+        if(_pu.tripleShot)   _mods.tripleShot   = true;
+        if(_pu.homing)       _mods.homing       = true;
+        if(_pu.shieldRegen)  _mods.shieldRegen  = true;
+        if(_pu.rearGun)      _mods.rearGun      = true;
+        if(_pu.burstFire)    _mods.burstFire    = true;
+        if(_pu.laserUnlocked)_mods.laserUnlocked= true;
+        var _modsCount = Object.keys(_mods).reduce(function(acc,k){
+          var v=_mods[k]; return acc+(typeof v==='number'?v:1);
+        },0);
+        submitScoreToSupabase(window.playerName || 'Anonymous', {
+          score:     score,
+          sector:    sectorNum,
+          kills:     totalKills,
+          topCombo:  runTopCombo,
+          modsCount: _modsCount,
+          mods:      _mods
+        });
+      })();
       // SUPABASE: end
       runStats={score,sector:sectorNum,kills:totalKills,topCombo:runTopCombo,
         upgrades:Object.entries(playerUpgrades).filter(([k,v])=>v&&v!==false&&v!==0).map(([k])=>k)};
