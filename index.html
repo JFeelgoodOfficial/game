@@ -1358,24 +1358,25 @@ function _sound(type,freqStart,freqEnd,duration,gainPeak,gainShape){
     osc.start(t);osc.stop(t+duration+0.01);
   }catch(e){}
 }
-const _SHOOT_NOTES=[261,294,330,392,440];
+// 4-note melodic cycle: C5 E5 G5 A5 — major pentatonic, higher register cuts through sfx
+const _SHOOT_NOTES=[523,659,784,880,1047]; // C5 E5 G5 A5 C6 — 5-note pentatonic
 let _shootNoteIdx=0;
 function playShoot(){
   try{
     const ac=getAudio();
     const freq=_SHOOT_NOTES[_shootNoteIdx%_SHOOT_NOTES.length];
     _shootNoteIdx++;
-    const osc=ac.createOscillator(),osc2=ac.createOscillator(),gain=ac.createGain();
-    osc.connect(gain);osc2.connect(gain);gain.connect(ac.destination);
-    osc.type='triangle';osc2.type='sine';
+    const osc=ac.createOscillator(),gain=ac.createGain();
+    osc.connect(gain);gain.connect(ac.destination);
+    osc.type='square';
     const t=ac.currentTime;
-    osc.frequency.setValueAtTime(freq*1.5,t);
-    osc.frequency.exponentialRampToValueAtTime(freq,t+0.04);
-    osc2.frequency.setValueAtTime(freq*2,t);
-    gain.gain.setValueAtTime(0.0,t);
-    gain.gain.linearRampToValueAtTime(0.13,t+0.01);
-    gain.gain.exponentialRampToValueAtTime(0.001,t+0.18);
-    osc.start(t);osc.stop(t+0.19);osc2.start(t);osc2.stop(t+0.12);
+    // Slight downward pitch sweep for a satisfying "pew" shape
+    osc.frequency.setValueAtTime(freq,t);
+    osc.frequency.exponentialRampToValueAtTime(freq*0.75,t+0.08);
+    // Immediate attack — no silent frame — clean decay
+    gain.gain.setValueAtTime(0.18,t);
+    gain.gain.exponentialRampToValueAtTime(0.001,t+0.12);
+    osc.start(t);osc.stop(t+0.13);
   }catch(e){}
 }
 function playShootSurge(){_sound('sawtooth',600,80,0.13,0.22,'punch');setTimeout(()=>_sound('square',1200,300,0.07,0.10,'decay'),15);}
