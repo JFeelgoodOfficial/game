@@ -1182,7 +1182,7 @@ table.lb-table td.lb-score {
        SUPABASE_ANON_KEY = "anon / public" key
    ====================================================================== */
 const SUPABASE_URL      = 'https://mqvcearljygixhczgrpb.supabase.co'; // <- replace
-const SUPABASE_ANON_KEY = 'sb_publishable_XrZnQFS2KY0A3HLwFPEsEg_XzYIWBll';                        // <- replace
+const SUPABASE_ANON_KEY = 'sb_publishable_XrZnQFS2KY0A3HLwFPEsEg_XzYIWBll';                       // <- replace
 
 const _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -1200,13 +1200,19 @@ function showToast(msg, duration) {
 
 async function submitScoreToSupabase(name, runData) {
   try {
+    // Sanitise before insert
+    var _safeName  = String(name || 'Anonymous').trim().slice(0, 32) || 'Anonymous';
+    var _safeScore = Math.max(0, Math.floor(Number(runData.score) || 0));
+    var _safeSec   = Math.max(1, Math.floor(Number(runData.sector) || 1));
+    var _safeKills = Math.max(0, Math.floor(Number(runData.kills) || 0));
+    var _safeCombo = Math.max(1, Math.floor(Number(runData.topCombo) || 1));
     var res = await _sb.from('scores').insert([{
-      name:       name,
-      score:      runData.score,
-      sector:     runData.sector,
-      kills:      runData.kills,
-      top_combo:  runData.topCombo,
-      mods_count: runData.modsCount,
+      name:       _safeName,
+      score:      _safeScore,
+      sector:     _safeSec,
+      kills:      _safeKills,
+      top_combo:  _safeCombo,
+      mods_count: Math.max(0, Math.floor(Number(runData.modsCount) || 0)),
       mods:       runData.mods,
       created_at: new Date().toISOString()
     }]);
@@ -1237,6 +1243,16 @@ async function fetchLeaderboard() {
     el.className = 'lb-error';
     el.textContent = 'SIGNAL LOST -- CHECK SUPABASE CONFIG';
   }
+}
+
+// HTML-escape helper — prevents XSS from DB-sourced strings
+function _escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function renderLeaderboard(rows) {
@@ -1288,7 +1304,7 @@ function renderLeaderboard(rows) {
     return chips.length ? chips.join('') : '<span style="color:rgba(100,130,180,0.5);font-size:10px">NO MODS</span>';
   }
   var rows_html = rows.map(function(r, i) {
-    var safeName  = (r.name || 'Anonymous').replace(/</g, '&lt;').substring(0, 20);
+    var safeName  = _escHtml((r.name || 'Anonymous').substring(0, 20));
     var rColor    = rankColors[i] || 'var(--glow)';
     var rankLabel = (i < 9 ? '0' : '') + (i + 1);
     var modsHtml  = buildModsHtml(r.mods);
@@ -1303,9 +1319,9 @@ function renderLeaderboard(rows) {
           Number(r.score).toLocaleString() +
         '</td>' +
         '<td style="vertical-align:top;padding-top:12px;font-size:11px;color:rgba(160,200,255,0.7);white-space:nowrap">' +
-          '<div>SEC ' + (r.sector || '--') + '</div>' +
-          '<div style="margin-top:2px">' + (r.kills || 0) + ' KILLS</div>' +
-          '<div style="margin-top:2px">COMBO ' + (r.top_combo || 1) + 'x</div>' +
+          '<div>SEC ' + _escHtml(r.sector || '--') + '</div>' +
+          '<div style="margin-top:2px">' + _escHtml(r.kills || 0) + ' KILLS</div>' +
+          '<div style="margin-top:2px">COMBO ' + _escHtml(r.top_combo || 1) + 'x</div>' +
           '<div style="margin-top:2px;color:rgba(100,140,200,0.5)">' + safeDate(r.created_at) + '</div>' +
         '</td>' +
       '</tr>'
@@ -1538,6 +1554,7 @@ let bullets=[],spheres=[],particles=[];
 let enemyBullets=[],allyBullets=[],bossBullets=[];
 let ramHatchets=[]; // RAM-HATCHET missiles
 let rocketAlive=true,gameOverTimer=0;
+let _scoreSubmitted=false; // prevents double-submit per run
 
 // ── HIGH SCORE LEADERBOARD (session-persistent) ──
 let highScores=JSON.parse(sessionStorage.getItem('nova7_scores')||'[]');
@@ -1644,6 +1661,7 @@ let challengeMods={
 
 // Hazard objects
 let gravityWells=[];
+let gravWellEvents=[];
 let mines=[];
 let anomalies=[];
 let energyPulseTimer=0;
@@ -1857,7 +1875,7 @@ function reset(){
   enemyRocketActive=false;er.alive=false;er.x=W*0.75;er.y=40;er.cd=0;er.hp=10;
   bossActive=false;procBoss.alive=false;procBoss.y=-80;
   gameWon=false;winTimer=0;
-  warpPhase=false;warpTimer=0;pendingWarpGrant='';_overchargeCount=0;
+  warpPhase=false;warpTimer=0;pendingWarpGrant='';_overchargeCount=0;_scoreSubmitted=false;
   warpAnimPhase=0;warpAnimTimer=0;sectorTransitioning=false;
   announcement='';announcementTimer=0;
   laserUnlocked=false;laserCharge=0;laserCooldown=0;laserDmgTimer=0;laserSoundTimer=0;laserWasFiring=false;
@@ -1962,10 +1980,10 @@ function fireBullet(){
   if(laserUnlocked){
     // Laser projectile: fires a powerful beam that deals 50 damage per hit to boss
     const pulseDmg=50;
-    bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,vx:0,vy:-14,speed:14,dmg:pulseDmg,isPulse:true});
+    bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,vx:0,vy:-14,speed:14,dmg:pulseDmg,isPulse:true,homing:!!playerUpgrades.homing});
     if(playerUpgrades.tripleShot){
-      bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,vx:-2,vy:-13,speed:14,dmg:pulseDmg,isPulse:true});
-      bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,vx:2,vy:-13,speed:14,dmg:pulseDmg,isPulse:true});
+      bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,vx:-2,vy:-13,speed:14,dmg:pulseDmg,isPulse:true,homing:!!playerUpgrades.homing});
+      bullets.push({x:rocket.x,y:rocket.y-rocket.h/2,vx:2,vy:-13,speed:14,dmg:pulseDmg,isPulse:true,homing:!!playerUpgrades.homing});
     }
     playLaser();playShoot();rocket.cd=Math.max(10,22-playerUpgrades.fireRate*3);
   } else {
@@ -2159,6 +2177,13 @@ function updateHazards(){
       rocket.x+=dx/d*f;rocket.y+=dy/d*f;
     }
   }
+  // Player gravity-well upgrade — pull asteroids toward kill points each frame
+  for(let i=gravWellEvents.length-1;i>=0;i--){
+    const gwe=gravWellEvents[i];gwe.timer--;
+    if(gwe.timer<=0){gravWellEvents.splice(i,1);continue;}
+    const str=Math.max(2,10*(gwe.timer/24));
+    for(const ns of spheres){const gdx=gwe.x-ns.x,gdy=gwe.y-ns.y,gd=Math.sqrt(gdx*gdx+gdy*gdy)||1;if(gd<140&&gd>4){ns.x+=gdx/gd*str;ns.y+=gdy/gd*str;}}
+  }
   // Mines
   for(let i=mines.length-1;i>=0;i--){
     const m=mines[i];if(!m.alive){mines.splice(i,1);continue;}
@@ -2336,7 +2361,7 @@ function update(){
     }
     if(b2.vx!==undefined){b2.x+=b2.vx;b2.y+=b2.vy;}
     else{b2.y-=b2.speed;}
-    if(playerUpgrades.phantomRound&&b2.y<-5&&!b2.phantom&&!b2.isPulse){
+    if(playerUpgrades.phantomRound&&b2.y<-5&&!b2.phantom){
       b2.y=H+4;b2.phantom=true;b2.homing=true;
       if(!b2.speed)b2.speed=5; // guarantee speed is set for homing normalisation
       b2.vx=0;b2.vy=-b2.speed; // start moving upward immediately
@@ -2473,9 +2498,9 @@ function update(){
           const _kx=s.x,_ky=s.y; // capture before splice
           explodeSphere(s);const m=addComboKill();score+=100*m;totalKills++;if(comboMult>runTopCombo)runTopCombo=comboMult;spheres.splice(i,1);killed=true;playAsteroidExplode();
           if(playerUpgrades.gravityWellUpg){
-            // Pull remaining asteroids toward kill point — iterate after splice so indices are stable
-            for(const ns of spheres){const gdx=_kx-ns.x,gdy=_ky-ns.y,gd=Math.sqrt(gdx*gdx+gdy*gdy)||1;if(gd<80&&gd>2){ns.x+=gdx/gd*14;ns.y+=gdy/gd*14;}}
-            spawnParticles(_kx,_ky,16,['rgba(180,80,255,A)','rgba(100,0,255,A)'],1.5,0.02,0.05,2,6);
+            // Push a sustained pull event — applied every frame in updateHazards
+            gravWellEvents.push({x:_kx,y:_ky,timer:24});
+            spawnParticles(_kx,_ky,24,['rgba(180,80,255,A)','rgba(100,0,255,A)','rgba(220,160,255,A)'],2.2,0.015,0.04,2,8);
           }
           break; // asteroid removed — always break inner j-loop to avoid stale index
         } else{sparkSphere(s);playAsteroidHit();}
@@ -2615,7 +2640,7 @@ function update(){
   }
 
   if(!rocketAlive){gameOverTimer++;
-    if(gameOverTimer===30&&!deathScreen){
+    if(gameOverTimer===30&&!deathScreen&&!_scoreSubmitted){
       deathScreen=true;deathScreenTimer=0;
       saveHighScore(score,sectorNum,totalKills);
       // SUPABASE: start -- submit full run stats to leaderboard
@@ -2638,6 +2663,7 @@ function update(){
         var _modsCount = Object.keys(_mods).reduce(function(acc,k){
           var v=_mods[k]; return acc+(typeof v==='number'?v:1);
         },0);
+        _scoreSubmitted = true; // mark before async to prevent race
         submitScoreToSupabase(window.playerName || 'Anonymous', {
           score:     score,
           sector:    sectorNum,
