@@ -688,16 +688,16 @@ table.lb-table td.lb-score {
 }
 .lb-refresh-btn:hover { border-color: rgba(0,200,255,0.6); color: #fff; }
 
-/* CALLSIGN INPUT OVERLAY (sits over canvas on title screen) */
+/* CALLSIGN INPUT OVERLAY — sits inside .game-frame directly over the canvas */
 #callsignOverlay {
-  display: none;          /* hidden by default */
-  position: fixed;
+  display: none;
+  position: absolute;      /* relative to .game-frame */
   top: 0; left: 0; right: 0; bottom: 0;
   z-index: 5000;
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  background: transparent;
+  background: rgba(0,4,20,0.72); /* dim the canvas behind it */
   pointer-events: none;
 }
 #callsignOverlay.active {
@@ -1074,16 +1074,17 @@ table.lb-table td.lb-score {
     <div class="corner corner-bl"></div>
     <div class="corner corner-br"></div>
     <canvas id="game" width="400" height="600" role="application" aria-label="NOVA-7 Endless Void game canvas — WASD or arrow keys to move, Space to fire" tabindex="0"></canvas>
-  </div>
-
-  <!-- NOVA-7 CALLSIGN OVERLAY — fixed over canvas, outside game-frame -->
-  <div id="callsignOverlay" class="active">
-    <div class="callsign-box">
-      <p style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:4px;color:rgba(0,180,255,0.7);text-transform:uppercase;margin-bottom:14px;text-align:center;">PILOT IDENTIFICATION</p>
-      <input id="pilotNameInput" type="text" maxlength="20" placeholder="ENTER CALLSIGN" autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="characters">
-      <button id="nameConfirmBtn">CONFIRM &amp; LAUNCH</button>
+    <!-- CALLSIGN OVERLAY — inside game-frame so it always covers the canvas -->
+    <div id="callsignOverlay" class="active">
+      <div class="callsign-box">
+        <p style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:4px;color:rgba(0,180,255,0.7);text-transform:uppercase;margin-bottom:14px;text-align:center;">PILOT IDENTIFICATION</p>
+        <input id="pilotNameInput" type="text" maxlength="20" placeholder="ENTER CALLSIGN" autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="characters">
+        <button id="nameConfirmBtn">CONFIRM &amp; LAUNCH</button>
+      </div>
     </div>
   </div>
+
+
 
   <div class="game-btn-row reveal">
     <button class="fs-btn" id="fsBtn" onclick="enterFullscreen()">
@@ -1182,7 +1183,7 @@ table.lb-table td.lb-score {
        SUPABASE_ANON_KEY = "anon / public" key
    ====================================================================== */
 const SUPABASE_URL      = 'https://mqvcearljygixhczgrpb.supabase.co'; // <- replace
-const SUPABASE_ANON_KEY = 'sb_publishable_XrZnQFS2KY0A3HLwFPEsEg_XzYIWBll';                       // <- replace
+const SUPABASE_ANON_KEY = 'sb_publishable_XrZnQFS2KY0A3HLwFPEsEg_XzYIWBll';                        // <- replace
 
 const _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
