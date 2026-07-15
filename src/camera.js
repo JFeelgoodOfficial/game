@@ -27,10 +27,13 @@ const _back = new THREE.Vector3();
 let boostBlend = 0;
 
 export function updateCamera(ship) {
-  const target = input.boost && (input.forward || input.reverse) ? 1 : 0;
+  const boosting = input.boost && (input.forward || input.reverse);
+  const target = input.warp || boosting ? 1 : 0;
   boostBlend += (target - boostBlend) * 0.06;
 
-  camera.fov = C.FOV + boostBlend * C.BOOST_FOV;
+  // warp gets a bigger FOV kick than boost — the speed rush
+  const fovKick = input.warp ? C.WARP_FOV : C.BOOST_FOV;
+  camera.fov = C.FOV + boostBlend * fovKick;
   camera.updateProjectionMatrix();
 
   // Rotation lag: slerp toward the ship, never snap.

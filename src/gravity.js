@@ -49,7 +49,7 @@ export function accelAt(point, out) {
 // A body may carry groundAt(dirNormalized) -> height above its base radius
 // (terra's terrain, see planet.js); the floor and the drag band then follow
 // the local ground instead of the base sphere.
-export function applyAltitudeFloor(pos, vel) {
+export function applyAltitudeFloor(pos, vel, dt) {
   for (let i = 0; i < bodies.length; i++) {
     const b = bodies[i];
     if (!b.radius) continue;
@@ -58,6 +58,21 @@ export function applyAltitudeFloor(pos, vel) {
     _up.normalize(); // radial "up", surface → ship
     const ground = b.groundAt ? b.groundAt(_up) : 0;
     const altitude = r - b.radius - ground;
+
+    // Anti-tunnel: at warp speed the drag band can't decelerate a dive in one
+    // step, so cap the inward velocity to what still lands above a hard safety
+    // floor this tick. Only bites when the soft floor is being overrun (normal
+    // flight leaves plenty of margin, so this never fires).
+    if (dt) {
+      const safety = C.MIN_ALTITUDE * 0.5; // hard floor, below the soft one
+      const vInward = -vel.dot(_up);
+      if (vInward > 0) {
+        const room = Math.max(altitude - safety, 0);
+        const maxInward = room / dt;
+        if (vInward > maxInward) vel.addScaledVector(_up, vInward - maxInward);
+      }
+    }
+
     if (altitude >= C.ATMOS_TOP) continue;
     // t: 0 at the top of the atmosphere, ramping to 1 at the floor and below.
     const t = Math.min(

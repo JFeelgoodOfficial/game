@@ -1,7 +1,10 @@
 // Game menu + hull-stress UI (user mechanics — deliberate overrides of the
 // GDD's "no menus" (3.3) and "no death" (1.2), at the user's request).
 // All DOM: the menu overlay (start / ship-lost states), the heat vignette,
-// the runtime-generated canopy cracks, and the explosion flash.
+// the runtime-generated canopy cracks, the explosion flash, and the
+// hold-to-warp button.
+
+import { input } from './input.js';
 
 const CSS = `
 #menu {
@@ -44,9 +47,27 @@ const CSS = `
   position: fixed; inset: 0; z-index: 28; pointer-events: none; opacity: 0;
   background: radial-gradient(ellipse at center, #fff7e8 0%, #ffb347 45%, rgba(255,80,20,0.9) 100%);
 }
+#warpBtn {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+  z-index: 12; padding: 11px 40px; cursor: pointer; user-select: none;
+  font-family: 'Courier New', ui-monospace, monospace; font-size: 14px;
+  letter-spacing: 0.34em; color: #a9f7ff;
+  background: rgba(130,247,255,0.06); border: 1px solid rgba(130,247,255,0.5);
+  border-radius: 4px; text-shadow: 0 0 8px rgba(130,247,255,0.7);
+  box-shadow: 0 0 20px rgba(130,247,255,0.22), inset 0 0 16px rgba(130,247,255,0.06);
+  transition: opacity 0.3s, background 0.15s, box-shadow 0.15s;
+  touch-action: none;
+}
+#warpBtn:hover { background: rgba(130,247,255,0.16); }
+#warpBtn.active {
+  background: rgba(212,64,143,0.35); color: #ffd0ee;
+  border-color: rgba(212,64,143,0.8);
+  box-shadow: 0 0 34px rgba(212,64,143,0.7), inset 0 0 22px rgba(212,64,143,0.25);
+}
+#warpBtn.hidden { opacity: 0; pointer-events: none; }
 `;
 
-let menu, title, sub, button, vignette, cracks, flash;
+let menu, title, sub, button, vignette, cracks, flash, warpBtn;
 let onLaunch = null;
 
 function el(tag, id, parent) {
@@ -117,6 +138,20 @@ export function initMenu(launchCallback) {
   button = el('button', null, menu);
   button.addEventListener('click', () => onLaunch && onLaunch());
 
+  // hold-to-warp button (also bound to F on the keyboard, see input.js)
+  warpBtn = el('div', 'warpBtn');
+  warpBtn.textContent = 'WARP';
+  const setWarp = (v) => (e) => {
+    e.preventDefault();
+    input.warp = v;
+    warpBtn.classList.toggle('active', v);
+  };
+  warpBtn.addEventListener('mousedown', setWarp(true));
+  warpBtn.addEventListener('touchstart', setWarp(true), { passive: false });
+  window.addEventListener('mouseup', setWarp(false));
+  warpBtn.addEventListener('touchend', setWarp(false));
+  warpBtn.addEventListener('mouseleave', setWarp(false));
+
   showMenu('start');
 }
 
@@ -126,16 +161,20 @@ export function showMenu(mode) {
     sub.className = 'sub dead';
     button.textContent = 'FLY AGAIN';
   } else {
-    sub.textContent = 'W/S THRUST · MOUSE STEER · SHIFT BOOST · SPACE BRAKE';
+    sub.textContent = 'W/S THRUST · MOUSE STEER · SHIFT BOOST · F WARP · SPACE BRAKE';
     sub.className = 'sub';
     button.textContent = 'LAUNCH';
   }
   menu.classList.remove('hidden');
+  warpBtn.classList.add('hidden');
+  input.warp = false;
+  warpBtn.classList.remove('active');
   document.exitPointerLock?.();
 }
 
 export function hideMenu() {
   menu.classList.add('hidden');
+  warpBtn.classList.remove('hidden');
 }
 
 // heat: 0..1; crackAt: threshold; flashAmt: 0..1 explosion flash

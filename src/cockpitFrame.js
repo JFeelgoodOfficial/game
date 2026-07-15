@@ -10,16 +10,20 @@
 import { C } from './constants.js';
 import { input } from './input.js';
 import frameUrl from './assets/cockpit-frame.png';
+import yokeUrl from './assets/yoke.png';
 
 let img = null;
+let yoke = null;
 let blend = 0;
+// smoothed steering, so the yoke eases rather than jitters
+let sYaw = 0, sPitch = 0, sRoll = 0;
 
-export function initCockpitFrame() {
-  img = document.createElement('img');
-  img.src = frameUrl;
-  img.alt = '';
-  img.draggable = false;
-  Object.assign(img.style, {
+function makeLayer(url, z) {
+  const el = document.createElement('img');
+  el.src = url;
+  el.alt = '';
+  el.draggable = false;
+  Object.assign(el.style, {
     position: 'fixed',
     inset: '0',
     width: '100%',
@@ -28,23 +32,46 @@ export function initCockpitFrame() {
     pointerEvents: 'none',
     userSelect: 'none',
     opacity: '0',
-    zIndex: '5', // above the canvas, below the hologram panel & menu
+    zIndex: String(z),
     willChange: 'opacity, transform',
   });
-  document.body.appendChild(img);
+  document.body.appendChild(el);
+  return el;
+}
+
+export function initCockpitFrame() {
+  img = makeLayer(frameUrl, 5); // frame: above canvas, below hologram & menu
+  yoke = makeLayer(yokeUrl, 6); // the moving yoke sits over the frame
+  yoke.style.transformOrigin = '50% 86%'; // pivot at the column base
 }
 
 // Returns the current blend (0..1) so main.js can hide the 3D cockpit.
 export function updateCockpitFrame(ship, delta) {
-  const target = input.boost && (input.forward || input.reverse) ? 1 : 0;
+  const target =
+    input.warp || (input.boost && (input.forward || input.reverse)) ? 1 : 0;
   // time-based ease so the fade speed is framerate-independent
   blend += (target - blend) * Math.min(C.FRAME_FADE * delta * 60, 1);
   if (blend < 0.005 && target === 0) blend = 0;
-  img.style.opacity = blend.toFixed(3);
-  // parallax: shift opposite the turn, a few px at most
+  const o = blend.toFixed(3);
+  img.style.opacity = o;
+  yoke.style.opacity = o;
+
+  // parallax: whole frame shifts opposite the turn, a few px
   const av = ship.angularVelocity;
-  const px = (-av.y * 26).toFixed(1);
-  const py = (av.x * 18).toFixed(1);
-  img.style.transform = `translate(${px}px, ${py}px) scale(1.04)`;
+  const px = -av.y * 26;
+  const py = av.x * 18;
+  img.style.transform = `translate(${px.toFixed(1)}px, ${py.toFixed(1)}px) scale(1.04)`;
+
+  // yoke follows the ship's actual steering: rotate with yaw+roll, rock with
+  // pitch. Smoothed and clamped so it reads as a hand on the controls.
+  sYaw += (av.y - sYaw) * 0.2;
+  sPitch += (av.x - sPitch) * 0.2;
+  sRoll += (av.z - sRoll) * 0.2;
+  const clamp = (v, m) => Math.max(-m, Math.min(m, v));
+  const rot = clamp(-sYaw * 900 - sRoll * 700, 15); // degrees
+  const ty = py + clamp(sPitch * 700, 12);
+  yoke.style.transform =
+    `translate(${px.toFixed(1)}px, ${ty.toFixed(1)}px) scale(1.06) rotate(${rot.toFixed(2)}deg)`;
+
   return blend;
 }
