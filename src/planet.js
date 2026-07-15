@@ -10,7 +10,7 @@ import surfaceFrag from './shaders/surface.frag?raw';
 import atmosphereFrag from './shaders/atmosphere.frag?raw';
 
 // A fixed sun for the system, off to one side so the terminator is visible.
-const SUN = new THREE.Vector3(1.0, 0.35, 0.5).normalize();
+export const SUN = new THREE.Vector3(1.0, 0.35, 0.5).normalize();
 
 export const planet = { group: null, surface: null, surfaceMat: null, atmoMat: null };
 
@@ -44,7 +44,7 @@ export function initPlanet(scene) {
     depthWrite: false,
   });
   const atmosphere = new THREE.Mesh(
-    new THREE.SphereGeometry(C.TEST_MASS_RADIUS * 1.055, 64, 32),
+    new THREE.SphereGeometry(C.TEST_MASS_RADIUS * C.ATMO_SHELL, 64, 32),
     atmoMat
   );
 

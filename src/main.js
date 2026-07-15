@@ -27,10 +27,11 @@ import { initStarfield, updateStarfield } from './starfield.js';
 import { initNebula, updateNebula } from './nebula.js';
 import { cockpitScene, updateCockpit, CockpitOverlayPass } from './cockpit.js';
 import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
-import { initPlanet, updatePlanet, planet } from './planet.js';
+import { initPlanet, updatePlanet, planet, SUN } from './planet.js';
 import lensingFrag from './shaders/lensing.frag?raw';
 import aberrationFrag from './shaders/aberration.frag?raw';
 import collapseFrag from './shaders/collapse.frag?raw';
+import skyfogFrag from './shaders/skyfog.frag?raw';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -116,6 +117,28 @@ const aberrationPass = new ShaderPass({
 });
 composer.addPass(aberrationPass);
 
+// Atmospheric entry: washes the frame toward sky colour as the ship descends
+// into the planet's air. Disabled above the atmosphere (zero cost).
+const skyfogPass = new ShaderPass({
+  uniforms: {
+    tDiffuse: { value: null },
+    uAtmo: { value: 0 },
+    uDay: { value: 0 },
+    uSkyDay: { value: new THREE.Color(C.SKY_COLOR) },
+    uDensity: { value: C.SKY_DENSITY },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: skyfogFrag,
+});
+skyfogPass.enabled = false;
+composer.addPass(skyfogPass);
+
 // Horizon collapse: stretches the whole composited frame (cockpit included)
 // when the ship falls into the black hole. Disabled — zero cost — until it
 // fires (see the reset state machine below).
@@ -185,6 +208,7 @@ if (import.meta.env.DEV) {
 
 const DT = 1 / 60;
 const MAX_FRAME_DELTA = 0.1; // tab-switch guard: never spiral the accumulator
+const _up = new THREE.Vector3(); // scratch: camera→planet radial, for atmosphere
 let last = performance.now();
 let accumulator = 0;
 
@@ -262,6 +286,21 @@ function frame(now) {
   camera.updateMatrixWorld();
   camera.matrixWorldInverse.copy(camera.matrixWorld).invert(); // fresh for projection
   updateBlackHole(camera, lensPass.uniforms, now / 1000);
+
+  // atmospheric entry: fade the frame to sky as the ship descends
+  _up.subVectors(camera.position, planetGroup.position);
+  const altitude = _up.length() - C.TEST_MASS_RADIUS;
+  const atmoHeight = C.TEST_MASS_RADIUS * (C.ATMO_SHELL - 1);
+  const atmo = Math.min(Math.max(1 - altitude / atmoHeight, 0), 1);
+  skyfogPass.enabled = atmo > 0.001;
+  if (skyfogPass.enabled) {
+    _up.normalize();
+    const su = skyfogPass.uniforms;
+    su.uAtmo.value = atmo;
+    su.uDay.value = Math.min(Math.max(_up.dot(SUN) * 0.5 + 0.5, 0), 1);
+    su.uSkyDay.value.set(C.SKY_COLOR);
+    su.uDensity.value = C.SKY_DENSITY;
+  }
 
   // live panel bindings (GDD 2.3): cheap scalar copies each frame
   bloomPass.threshold = C.BLOOM_THRESHOLD;

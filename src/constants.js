@@ -28,15 +28,21 @@ export const C = {
 
   // --- camera ---
   FOV: 70,
-  BOOST_PULLBACK: 0.3, // how far the camera dollies back on boost (reveals the cockpit)
-  BOOST_FOV: 9.0, // extra degrees of FOV on boost (speed rush)
+  BOOST_PULLBACK: 0.08, // tiny sink-back on boost — you stay in the seat, not pulled out
+  BOOST_FOV: 13.0, // extra FOV on boost: widens to reveal the cockpit while first-person
 
   // --- the planet (test mass, now with a procedural surface) ---
-  TEST_MASS: 5.0e5, // orbital speed at start distance ≈ 108 u/s, under the soft cap
-  TEST_MASS_RADIUS: 200.0,
-  START_DISTANCE: 1500.0, // ship spawns this far from the planet
+  // Bigger than a toy sphere so its atmosphere is a place you can fly into
+  // and still climb out of: surface gravity (28) sits under boost thrust (42),
+  // so thrust always frees you even from a low skim.
+  TEST_MASS: 8.0e5,
+  TEST_MASS_RADIUS: 1000.0,
+  START_DISTANCE: 3500.0, // ship spawns this far from the planet (2500 up)
   SEA_LEVEL: 0.48, // surface noise threshold for water. lower = more land.
-  PLANET_SPIN: 0.02, // radians/sec, slow rotation
+  PLANET_SPIN: 0.01, // radians/sec, slow rotation
+  ATMO_SHELL: 1.25, // atmosphere radius, × planet radius (250 units thick)
+  SKY_COLOR: 0x6ea0ff, // daytime sky the view washes to inside the atmosphere
+  SKY_DENSITY: 0.6, // how thickly the atmosphere fogs the view
 
   // --- look (GDD 4) ---
   // The one accent color, chosen once and committed to across the whole
@@ -71,8 +77,8 @@ export const C = {
   // reads as a planet you skim rather than one you fly through. Thickening
   // drag only — never a collision, never a hard stop, and no outward push
   // (a spring bounces; GDD 3.2). Applies to any gravity body given a radius.
-  ATMOS_TOP: 900.0, // altitude above the surface where the air starts (drag begins)
-  MIN_ALTITUDE: 450.0, // the floor: drag reaches full strength here, ship settles above it
+  ATMOS_TOP: 250.0, // altitude above the surface where the air starts (drag begins)
+  MIN_ALTITUDE: 40.0, // the floor: you skim this low but can't land (drag holds you)
   FLOOR_DRAG_POWER: 2.5, // how sharply drag ramps from ATMOS_TOP down to the floor
-  FLOOR_DRAG_MAX: 0.05, // speed bled per tick at the floor (air thickening)
+  FLOOR_DRAG_MAX: 0.06, // speed bled per tick at the floor (air thickening)
 };
