@@ -55,11 +55,11 @@ export const C = {
 
   // --- altitude floor (GDD 5.1) ---
   // Strictly a Phase 5 mechanic, pulled forward on request so the test mass
-  // reads as a planet you skim rather than one you fly through. Enforced by
-  // thickening drag + an outward cushion near the surface — never a collision,
-  // never a hard stop (GDD 5.1, 8). Applies to any gravity body given a radius.
-  MIN_ALTITUDE: 500.0, // altitude above the surface where the floor begins to bite
-  FLOOR_DRAG_POWER: 3.0, // how sharply the floor ramps toward the surface. higher = harder.
-  FLOOR_DRAG_MAX: 0.08, // light isotropic speed bleed at the surface (air thickening)
-  FLOOR_PUSH: 260.0, // outward cushion accel at the surface — sets the skim height
+  // reads as a planet you skim rather than one you fly through. Thickening
+  // drag only — never a collision, never a hard stop, and no outward push
+  // (a spring bounces; GDD 3.2). Applies to any gravity body given a radius.
+  ATMOS_TOP: 900.0, // altitude above the surface where the air starts (drag begins)
+  MIN_ALTITUDE: 450.0, // the floor: drag reaches full strength here, ship settles above it
+  FLOOR_DRAG_POWER: 2.5, // how sharply drag ramps from ATMOS_TOP down to the floor
+  FLOOR_DRAG_MAX: 0.05, // speed bled per tick at the floor (air thickening)
 };
