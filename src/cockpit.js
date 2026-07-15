@@ -105,6 +105,10 @@ group.add(light);
 cockpitScene.add(group);
 cockpitScene.add(new THREE.AmbientLight(0x5a6480, 2.0));
 
+// Exposed so main.js can hide the 3D interior while the boost cockpit
+// image (cockpitFrame.js) is up.
+export const cockpitGroup = group;
+
 export function updateCockpit(ship) {
   group.position.copy(ship.position);
   group.quaternion.copy(ship.quaternion);

@@ -46,14 +46,19 @@ export function accelAt(point, out) {
 //     the ship settles smoothly and can't push lower — but climbing is never
 //     impeded (only inward motion is touched), so thrust always frees you.
 // Never a collision, never a hard stop (GDD 5.1, 8). Mutates velocity in place.
+// A body may carry groundAt(dirNormalized) -> height above its base radius
+// (terra's terrain, see planet.js); the floor and the drag band then follow
+// the local ground instead of the base sphere.
 export function applyAltitudeFloor(pos, vel) {
   for (let i = 0; i < bodies.length; i++) {
     const b = bodies[i];
     if (!b.radius) continue;
     _up.subVectors(pos, b.position);
-    const altitude = _up.length() - b.radius;
-    if (altitude >= C.ATMOS_TOP) continue;
+    const r = _up.length();
     _up.normalize(); // radial "up", surface → ship
+    const ground = b.groundAt ? b.groundAt(_up) : 0;
+    const altitude = r - b.radius - ground;
+    if (altitude >= C.ATMOS_TOP) continue;
     // t: 0 at the top of the atmosphere, ramping to 1 at the floor and below.
     const t = Math.min(
       Math.max((C.ATMOS_TOP - altitude) / (C.ATMOS_TOP - C.MIN_ALTITUDE), 0),
@@ -64,4 +69,22 @@ export function applyAltitudeFloor(pos, vel) {
     const vRadial = vel.dot(_up);
     if (vRadial < 0) vel.addScaledVector(_up, -vRadial * k);
   }
+}
+
+// Altitude above the local floor surface (ground-following on terra) for the
+// nearest body with a radius — used by the overheat system. Returns Infinity
+// away from everything.
+export function altitudeAboveFloor(pos) {
+  let best = Infinity;
+  for (let i = 0; i < bodies.length; i++) {
+    const b = bodies[i];
+    if (!b.radius) continue;
+    _up.subVectors(pos, b.position);
+    const r = _up.length();
+    _up.normalize();
+    const ground = b.groundAt ? b.groundAt(_up) : 0;
+    const altitude = r - b.radius - ground;
+    if (altitude < best) best = altitude;
+  }
+  return best;
 }

@@ -30,6 +30,7 @@ export const C = {
   FOV: 70,
   BOOST_PULLBACK: 0.08, // tiny sink-back on boost — you stay in the seat, not pulled out
   BOOST_FOV: 13.0, // extra FOV on boost: widens to reveal the cockpit while first-person
+  FRAME_FADE: 0.12, // per-frame ease of the boost cockpit image fading in/out
 
   // --- the planet (test mass, now with a procedural surface) ---
   // Bigger than a toy sphere so its atmosphere is a place you can fly into
@@ -40,6 +41,7 @@ export const C = {
   START_DISTANCE: 3500.0, // ship spawns this far from the planet (2500 up)
   SEA_LEVEL: 0.48, // surface noise threshold for water. lower = more land.
   PLANET_SPIN: 0.01, // radians/sec, slow rotation
+  TERRAIN_HEIGHT: 55.0, // peak displacement above sea level (Phase 5 slice)
   ATMO_SHELL: 1.25, // atmosphere radius, × planet radius (250 units thick)
   SKY_COLOR: 0x6ea0ff, // daytime sky the view washes to inside the atmosphere
   SKY_DENSITY: 0.6, // how thickly the atmosphere fogs the view
@@ -72,6 +74,16 @@ export const C = {
   HORIZON_CAPTURE: 400.0, // fly within this of the BH center and you fall in
   COLLAPSE_TIME: 0.9, // seconds of stretch before the reset
   RESPAWN_TIME: 0.7, // seconds to fade back in at the start
+
+  // --- hull overheat (user mechanic, overrides GDD 1.2 "no death") ---
+  // Pressing against the altitude floor heats the hull. Pull away to cool.
+  // At full heat the canopy cracks, the ship is lost, and you return to the
+  // menu.
+  HEAT_ALTITUDE: 90.0, // heat builds while lower than this above the local floor
+  HEAT_TIME: 10.0, // seconds at the wall from cold to destruction
+  HEAT_COOL: 4.0, // seconds to fully cool once clear
+  CRACK_AT: 0.85, // heat fraction where the canopy cracks
+  EXPLODE_TIME: 1.2, // seconds of flash/shake before the menu
 
   // --- altitude floor (GDD 5.1) ---
   // Strictly a Phase 5 mechanic, pulled forward on request so the test mass
