@@ -30,7 +30,7 @@ const testMass = new THREE.Mesh(
 );
 testMass.position.set(0, 0, -C.START_DISTANCE);
 scene.add(testMass);
-addBody({ position: testMass.position, mass: C.TEST_MASS });
+addBody({ position: testMass.position, mass: C.TEST_MASS, radius: C.TEST_MASS_RADIUS });
 addShiftable(testMass);
 
 initInput(renderer.domElement);

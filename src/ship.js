@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import { C } from './constants.js';
 import { input } from './input.js';
-import { accelAt } from './gravity.js';
+import { accelAt, applyAltitudeFloor } from './gravity.js';
 
 export const ship = {
   position: new THREE.Vector3(), // local (floating-origin) frame
@@ -96,6 +96,10 @@ export function stepShip(dt) {
   // Exactly 1.0 in vacuum — no drag (GDD 3.4). Kept as a multiply so the
   // panel can experiment; becomes altitude-dependent in Phase 5.
   ship.velocity.multiplyScalar(C.LINEAR_DAMPING);
+
+  // Altitude floor (GDD 5.1). Thickens drag near any body given a radius so
+  // the ship skims the surface instead of passing through it.
+  applyAltitudeFloor(ship.position, ship.velocity, dt);
 
   ship.position.addScaledVector(ship.velocity, dt);
 }
