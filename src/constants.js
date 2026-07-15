@@ -34,6 +34,25 @@ export const C = {
   TEST_MASS_RADIUS: 200.0,
   START_DISTANCE: 1500.0, // ship spawns this far from the test mass
 
+  // --- look (GDD 4) ---
+  // The one accent color, chosen once and committed to across the whole
+  // project (GDD 4.2): magenta. Nebula tint, accretion disk hot edge, any
+  // future emissive accents all derive from it.
+  ACCENT: 0xd4408f,
+  NEBULA_INTENSITY: 1.1, // overall nebula brightness. restraint reads as expensive.
+  BLOOM_THRESHOLD: 0.85, // high enough that the cockpit never blooms (GDD 4.4)
+  BLOOM_STRENGTH: 0.9,
+  BLOOM_RADIUS: 0.4,
+  CA_STRENGTH: 2.0, // chromatic aberration, pixels of RGB split at frame corners
+
+  // --- black hole (GDD 4.5) ---
+  BH_MASS: 4.0e6, // pull at 2000 u ≈ boost thrust: close passes build real speed
+  BH_HORIZON: 150.0, // event horizon radius. not a hazard — falling in does nothing.
+  BH_DISTANCE: 25000.0, // from the start point, off-axis, discoverable
+  LENS_STRENGTH: 1.0, // weak-field deflection scale, in units of horizon radii
+  DISK_INNER: 2.2, // accretion disk inner edge, × horizon radius
+  DISK_OUTER: 7.0, // outer edge, × horizon radius
+
   // --- altitude floor (GDD 5.1) ---
   // Strictly a Phase 5 mechanic, pulled forward on request so the test mass
   // reads as a planet you skim rather than one you fly through. Enforced by
