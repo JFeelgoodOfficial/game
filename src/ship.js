@@ -99,7 +99,7 @@ export function stepShip(dt) {
 
   // Altitude floor (GDD 5.1). Thickens drag near any body given a radius so
   // the ship skims the surface instead of passing through it.
-  applyAltitudeFloor(ship.position, ship.velocity, dt);
+  applyAltitudeFloor(ship.position, ship.velocity);
 
   ship.position.addScaledVector(ship.velocity, dt);
 }

@@ -28,19 +28,70 @@ export const C = {
 
   // --- camera ---
   FOV: 70,
+  BOOST_PULLBACK: 0.08, // tiny sink-back on boost — you stay in the seat, not pulled out
+  BOOST_FOV: 13.0, // extra FOV on boost: widens to reveal the cockpit while first-person
+  FRAME_FADE: 0.12, // per-frame ease of the boost cockpit image fading in/out
 
-  // --- phase 1 test scene ---
-  TEST_MASS: 5.0e5, // orbital speed at start distance ≈ 108 u/s, under the soft cap
-  TEST_MASS_RADIUS: 200.0,
-  START_DISTANCE: 1500.0, // ship spawns this far from the test mass
+  // --- the planet (test mass, now with a procedural surface) ---
+  // Bigger than a toy sphere so its atmosphere is a place you can fly into
+  // and still climb out of: surface gravity (28) sits under boost thrust (42),
+  // so thrust always frees you even from a low skim.
+  TEST_MASS: 8.0e5,
+  TEST_MASS_RADIUS: 1000.0,
+  START_DISTANCE: 3500.0, // ship spawns this far from the planet (2500 up)
+  SEA_LEVEL: 0.48, // surface noise threshold for water. lower = more land.
+  PLANET_SPIN: 0.01, // radians/sec, slow rotation
+  TERRAIN_HEIGHT: 55.0, // peak displacement above sea level (Phase 5 slice)
+  ATMO_SHELL: 1.25, // atmosphere radius, × planet radius (250 units thick)
+  SKY_COLOR: 0x6ea0ff, // daytime sky the view washes to inside the atmosphere
+  SKY_DENSITY: 0.6, // how thickly the atmosphere fogs the view
+  CLOUD_COVER: 0.5, // 0 clear .. 1 overcast
+
+  // --- look (GDD 4) ---
+  // The one accent color, chosen once and committed to across the whole
+  // project (GDD 4.2): magenta. Nebula tint, accretion disk hot edge, any
+  // future emissive accents all derive from it.
+  ACCENT: 0xd4408f,
+  NEBULA_INTENSITY: 1.1, // overall nebula brightness. restraint reads as expensive.
+  BLOOM_THRESHOLD: 0.85, // high enough that the cockpit never blooms (GDD 4.4)
+  BLOOM_STRENGTH: 0.9,
+  BLOOM_RADIUS: 0.4,
+  CA_STRENGTH: 2.0, // chromatic aberration, pixels of RGB split at frame corners
+
+  // --- black hole (GDD 4.5) ---
+  BH_MASS: 4.0e6, // pull at 2000 u ≈ boost thrust: close passes build real speed
+  BH_HORIZON: 150.0, // event horizon radius. not a hazard — falling in does nothing.
+  BH_DISTANCE: 25000.0, // from the start point, off-axis, discoverable
+  LENS_STRENGTH: 1.0, // weak-field deflection scale, in units of horizon radii
+  DISK_INNER: 2.2, // accretion disk inner edge, × horizon radius
+  DISK_OUTER: 7.0, // outer edge, × horizon radius
+
+  // --- horizon collapse / reset (beyond GDD 4.5) ---
+  // A deliberate override of "falling in does nothing": crossing into the
+  // hole stretches everything and returns you to the start (the GDD 7 loop).
+  // Capture is generous — a fast pass slingshots by, so you must commit to
+  // the dive, but "fly into it" shouldn't demand pixel-perfect aim.
+  HORIZON_CAPTURE: 400.0, // fly within this of the BH center and you fall in
+  COLLAPSE_TIME: 0.9, // seconds of stretch before the reset
+  RESPAWN_TIME: 0.7, // seconds to fade back in at the start
+
+  // --- hull overheat (user mechanic, overrides GDD 1.2 "no death") ---
+  // Pressing against the altitude floor heats the hull. Pull away to cool.
+  // At full heat the canopy cracks, the ship is lost, and you return to the
+  // menu.
+  HEAT_ALTITUDE: 90.0, // heat builds while lower than this above the local floor
+  HEAT_TIME: 10.0, // seconds at the wall from cold to destruction
+  HEAT_COOL: 4.0, // seconds to fully cool once clear
+  CRACK_AT: 0.85, // heat fraction where the canopy cracks
+  EXPLODE_TIME: 1.2, // seconds of flash/shake before the menu
 
   // --- altitude floor (GDD 5.1) ---
   // Strictly a Phase 5 mechanic, pulled forward on request so the test mass
-  // reads as a planet you skim rather than one you fly through. Enforced by
-  // thickening drag + an outward cushion near the surface — never a collision,
-  // never a hard stop (GDD 5.1, 8). Applies to any gravity body given a radius.
-  MIN_ALTITUDE: 500.0, // altitude above the surface where the floor begins to bite
-  FLOOR_DRAG_POWER: 3.0, // how sharply the floor ramps toward the surface. higher = harder.
-  FLOOR_DRAG_MAX: 0.08, // light isotropic speed bleed at the surface (air thickening)
-  FLOOR_PUSH: 260.0, // outward cushion accel at the surface — sets the skim height
+  // reads as a planet you skim rather than one you fly through. Thickening
+  // drag only — never a collision, never a hard stop, and no outward push
+  // (a spring bounces; GDD 3.2). Applies to any gravity body given a radius.
+  ATMOS_TOP: 250.0, // altitude above the surface where the air starts (drag begins)
+  MIN_ALTITUDE: 40.0, // the floor: you skim this low but can't land (drag holds you)
+  FLOOR_DRAG_POWER: 2.5, // how sharply drag ramps from ATMOS_TOP down to the floor
+  FLOOR_DRAG_MAX: 0.06, // speed bled per tick at the floor (air thickening)
 };

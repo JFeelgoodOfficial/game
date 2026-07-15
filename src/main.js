@@ -1,44 +1,178 @@
-// Loop, renderer, resize (GDD 2.2). Fixed-timestep physics decoupled from
+// Loop, composer, resize (GDD 2.2). Fixed-timestep physics decoupled from
 // render rate (GDD 2.1): the accumulator runs 60hz ticks regardless of
 // display refresh. Zero allocation inside the frame loop — everything the
 // loop touches is preallocated at module scope.
+//
+// Composer chain (GDD 4.4, 4.5):
+//   world render -> lensing -> cockpit overlay -> bloom -> aberration -> out
+// The cockpit is composited AFTER lensing so the interior never warps, and
+// BEFORE bloom with a threshold high enough that only stars, the accretion
+// disk, and the photon ring glow.
 
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
 import { C } from './constants.js';
 import { initInput, input } from './input.js';
 import { ship, stepShip } from './ship.js';
-import { addBody } from './gravity.js';
-import { addShiftable, updateOrigin, originOffset } from './origin.js';
+import { altitudeAboveFloor } from './gravity.js';
+import { updateOrigin, originOffset } from './origin.js';
 import { camera, updateCamera, resizeCamera } from './camera.js';
 import { initTuning } from './tuning.js';
+import { initStarfield, updateStarfield } from './starfield.js';
+import { initNebula, updateNebula } from './nebula.js';
+import { cockpitScene, updateCockpit, cockpitGroup, CockpitOverlayPass } from './cockpit.js';
+import { initCockpitFrame, updateCockpitFrame } from './cockpitFrame.js';
+import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
+import { initPlanets, updatePlanets, atmosphereAt, planets, SUN } from './planet.js';
+import { initSun, updateSun } from './sun.js';
+import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
+import lensingFrag from './shaders/lensing.frag?raw';
+import aberrationFrag from './shaders/aberration.frag?raw';
+import collapseFrag from './shaders/collapse.frag?raw';
+import skyfogFrag from './shaders/skyfog.frag?raw';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 
-// --- Phase 1 test scene: a single test mass (GDD 3.5) ---
-// A wireframe sphere: reads clearly against black with no lighting system,
-// and the moving wire grid is the only parallax reference Phase 1 needs.
-// Its mesh position vector is shared with its gravity body, so one origin
-// registration covers both.
-const testMass = new THREE.Mesh(
-  new THREE.SphereGeometry(C.TEST_MASS_RADIUS, 48, 32),
-  new THREE.MeshBasicMaterial({ color: 0x88aaff, wireframe: true })
-);
-testMass.position.set(0, 0, -C.START_DISTANCE);
-scene.add(testMass);
-addBody({ position: testMass.position, mass: C.TEST_MASS, radius: C.TEST_MASS_RADIUS });
-addShiftable(testMass);
+// --- the planetary system (terra + gas giants; gravity/floor registered
+// inside initPlanets) ---
+initPlanets(scene);
+
+// --- phase 2 environment ---
+initNebula(scene);
+initStarfield(scene);
+initSun(scene);
+initBlackHole(scene);
+
+// Initial layout, snapshotted so resets can restore it exactly.
+const START = {
+  planets: planets.map((p) => p.group.position.clone()),
+  blackhole: blackhole.group.position.clone(),
+};
 
 initInput(renderer.domElement);
 initTuning();
+initCockpitFrame();
+
+// --- composer (GDD 4.4) ---
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+
+const lensPass = new ShaderPass({
+  uniforms: {
+    tDiffuse: { value: null },
+    uBH: { value: new THREE.Vector2() },
+    uRh: { value: 0 },
+    uAspect: { value: window.innerWidth / window.innerHeight },
+    uStrength: { value: C.LENS_STRENGTH },
+    uEnabled: { value: 0 },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: lensingFrag,
+});
+composer.addPass(lensPass);
+
+composer.addPass(new CockpitOverlayPass(cockpitScene, camera));
+
+// Half-resolution internal targets: bloom is a blur, so this is visually
+// indistinguishable and ~4x cheaper — the fps budget (GDD 2.1) goes to the
+// scene, not the glow.
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
+  C.BLOOM_STRENGTH,
+  C.BLOOM_RADIUS,
+  C.BLOOM_THRESHOLD
+);
+// composer.addPass/setSize push the full size into every pass — keep bloom
+// at half by intercepting.
+const bloomSetSize = bloomPass.setSize.bind(bloomPass);
+bloomPass.setSize = (w, h) => bloomSetSize(w / 2, h / 2);
+composer.addPass(bloomPass);
+
+const aberrationPass = new ShaderPass({
+  uniforms: {
+    tDiffuse: { value: null },
+    uStrength: { value: 0 },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: aberrationFrag,
+});
+composer.addPass(aberrationPass);
+
+// Atmospheric entry: washes the frame toward sky colour as the ship descends
+// into the planet's air. Disabled above the atmosphere (zero cost).
+const skyfogPass = new ShaderPass({
+  uniforms: {
+    tDiffuse: { value: null },
+    uAtmo: { value: 0 },
+    uDay: { value: 0 },
+    uSkyDay: { value: new THREE.Color(C.SKY_COLOR) },
+    uDensity: { value: C.SKY_DENSITY },
+    uUpView: { value: new THREE.Vector3(0, 1, 0) },
+    uAspect: { value: window.innerWidth / window.innerHeight },
+    uTanHalf: { value: Math.tan((C.FOV * Math.PI) / 360) },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: skyfogFrag,
+});
+skyfogPass.enabled = false;
+composer.addPass(skyfogPass);
+
+// Horizon collapse: stretches the whole composited frame (cockpit included)
+// when the ship falls into the black hole. Disabled — zero cost — until it
+// fires (see the reset state machine below).
+const collapsePass = new ShaderPass({
+  uniforms: {
+    tDiffuse: { value: null },
+    uProgress: { value: 0 },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: collapseFrag,
+});
+collapsePass.enabled = false;
+composer.addPass(collapsePass);
+
+composer.addPass(new OutputPass());
 
 window.addEventListener('resize', () => {
   resizeCamera();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+  lensPass.uniforms.uAspect.value = window.innerWidth / window.innerHeight;
 });
 
 // --- dev-only debug handle, for headless verification and tuning ---
@@ -52,9 +186,17 @@ if (import.meta.env.DEV) {
     C,
     input,
     camera,
-    testMass,
+    planets,
+    blackhole,
     originOffset,
     paused: false,
+    warpInfo: () => ({ phase, warp, heat }),
+    launch: () => {
+      resetToStart();
+      accumulator = 0;
+      phase = 'fly';
+      hideMenu();
+    },
     // Run n physics ticks synchronously (origin maintenance included).
     step(n = 1) {
       for (let i = 0; i < n; i++) {
@@ -79,8 +221,49 @@ if (import.meta.env.DEV) {
 
 const DT = 1 / 60;
 const MAX_FRAME_DELTA = 0.1; // tab-switch guard: never spiral the accumulator
+const _up = new THREE.Vector3(); // scratch: planet→camera ("up"), for atmosphere
+const _invQuat = new THREE.Quaternion();
+const _atmo = { p: null, atmo: 0, altitude: 0, upX: 0, upY: 0, upZ: 0 };
 let last = performance.now();
 let accumulator = 0;
+
+// --- game state machine ---
+// 'menu' (start or ship-lost) -> 'fly'.
+// From fly: cross the black hole horizon -> 'collapse' (stretch) -> reset ->
+// 'respawn' (unwind) -> 'fly' (the loop, beyond GDD 4.5); or hull heat hits
+// 1 -> 'explode' (flash + shake) -> menu (death, overriding GDD 1.2 at the
+// user's request). Physics is frozen in every state but 'fly'.
+let phase = 'menu';
+let warpT = 0;
+let warp = 0; // collapse pass progress, 0..1
+let heat = 0; // hull heat, 0..1
+
+function resetToStart() {
+  ship.position.set(0, 0, 0);
+  ship.velocity.set(0, 0, 0);
+  ship.quaternion.identity();
+  ship.angularVelocity.set(0, 0, 0);
+  ship.properAccel.set(0, 0, 0);
+  originOffset.x = 0;
+  originOffset.y = 0;
+  originOffset.z = 0;
+  for (let i = 0; i < planets.length; i++) {
+    planets[i].group.position.copy(START.planets[i]);
+  }
+  blackhole.group.position.copy(START.blackhole);
+  heat = 0;
+  // snap the lagging camera to the ship so it doesn't slerp from the horizon
+  camera.position.copy(ship.position);
+  camera.quaternion.copy(ship.quaternion);
+}
+
+initMenu(() => {
+  resetToStart();
+  accumulator = 0;
+  phase = 'fly';
+  hideMenu();
+  renderer.domElement.requestPointerLock?.();
+});
 
 function frame(now) {
   requestAnimationFrame(frame);
@@ -91,13 +274,103 @@ function frame(now) {
     debug.recordFrame(delta);
     if (debug.paused) delta = 0;
   }
-  accumulator += delta;
-  while (accumulator >= DT) {
-    stepShip(DT);
-    accumulator -= DT;
+
+  let flashAmt = 0;
+  if (phase === 'fly') {
+    accumulator += delta;
+    while (accumulator >= DT) {
+      stepShip(DT);
+      accumulator -= DT;
+    }
+    if (ship.position.distanceTo(blackhole.group.position) < C.HORIZON_CAPTURE) {
+      phase = 'collapse';
+      warpT = 0;
+    }
+    // hull heat: builds while pressed against the altitude floor, cools clear
+    // of it (user mechanic — death overrides GDD 1.2 by request).
+    const overFloor = altitudeAboveFloor(ship.position);
+    if (overFloor < C.HEAT_ALTITUDE) heat += delta / C.HEAT_TIME;
+    else heat -= delta / C.HEAT_COOL;
+    heat = Math.min(Math.max(heat, 0), 1);
+    if (heat >= 1) {
+      phase = 'explode';
+      warpT = 0;
+    }
+  } else if (phase === 'collapse') {
+    warpT += delta;
+    warp = Math.min(warpT / C.COLLAPSE_TIME, 1);
+    if (warpT >= C.COLLAPSE_TIME) {
+      resetToStart();
+      phase = 'respawn';
+      warpT = 0;
+      accumulator = 0;
+    }
+  } else if (phase === 'respawn') {
+    // unwind the stretch to reveal the fresh start
+    warpT += delta;
+    warp = 1 - Math.min(warpT / C.RESPAWN_TIME, 1);
+    if (warpT >= C.RESPAWN_TIME) {
+      phase = 'fly';
+      warp = 0;
+    }
+  } else if (phase === 'explode') {
+    warpT += delta;
+    flashAmt = Math.min(warpT / (C.EXPLODE_TIME * 0.35), 1);
+    if (warpT >= C.EXPLODE_TIME) {
+      phase = 'menu';
+      showMenu('dead');
+    }
   }
+  // menu phase: nothing to advance; the scene idles as a backdrop.
+  collapsePass.enabled = warp > 0.001;
+  collapsePass.uniforms.uProgress.value = warp;
+  updateHeatUI(phase === 'menu' ? 0 : heat, C.CRACK_AT, flashAmt);
+
   updateOrigin(ship);
   updateCamera(ship);
-  renderer.render(scene, camera);
+  // hull-stress shake: time-hashed jitter, ramping in past half heat
+  const shake = Math.max(heat - 0.5, 0) * 2 + (phase === 'explode' ? 1.5 : 0);
+  if (shake > 0) {
+    const s = shake * 0.02;
+    camera.position.x += Math.sin(now * 0.093) * s;
+    camera.position.y += Math.sin(now * 0.127 + 2.1) * s;
+    camera.position.z += Math.sin(now * 0.071 + 4.4) * s;
+  }
+  updateCockpit(ship);
+  // boost swaps the minimal 3D cockpit for the full instrument-cockpit image
+  cockpitGroup.visible = updateCockpitFrame(ship, delta) < 0.3;
+  updateStarfield(camera, renderer.getPixelRatio());
+  updateNebula(camera);
+  updateSun(camera);
+  updatePlanets(now / 1000);
+  camera.updateMatrixWorld();
+  camera.matrixWorldInverse.copy(camera.matrixWorld).invert(); // fresh for projection
+  updateBlackHole(camera, lensPass.uniforms, now / 1000);
+
+  // atmospheric entry: fade the frame to the sky of whichever planet's air
+  // the ship is deepest inside
+  atmosphereAt(camera.position, _atmo);
+  skyfogPass.enabled = _atmo.atmo > 0.001;
+  if (skyfogPass.enabled) {
+    _up.set(_atmo.upX, _atmo.upY, _atmo.upZ).normalize();
+    const su = skyfogPass.uniforms;
+    su.uAtmo.value = _atmo.atmo;
+    su.uDay.value = Math.min(Math.max(_up.dot(SUN) * 0.5 + 0.5, 0), 1);
+    su.uSkyDay.value.set(_atmo.p.cfg.skyColor());
+    su.uDensity.value = C.SKY_DENSITY;
+    // planet-up expressed in view space, for horizon-weighted haze
+    _invQuat.copy(camera.quaternion).invert();
+    su.uUpView.value.copy(_up).applyQuaternion(_invQuat);
+    su.uAspect.value = camera.aspect;
+    su.uTanHalf.value = Math.tan((camera.fov * Math.PI) / 360);
+  }
+
+  // live panel bindings (GDD 2.3): cheap scalar copies each frame
+  bloomPass.threshold = C.BLOOM_THRESHOLD;
+  bloomPass.strength = C.BLOOM_STRENGTH;
+  bloomPass.radius = C.BLOOM_RADIUS;
+  aberrationPass.uniforms.uStrength.value = (C.CA_STRENGTH * 8.0) / window.innerHeight;
+
+  composer.render();
 }
 requestAnimationFrame(frame);

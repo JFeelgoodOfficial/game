@@ -6,6 +6,7 @@
 
 import * as THREE from 'three';
 import { C } from './constants.js';
+import { input } from './input.js';
 
 export const camera = new THREE.PerspectiveCamera(
   C.FOV,
@@ -18,9 +19,18 @@ const MAX_DRIFT = 3.0; // clamp so gravity slingshots can't fling the view
 
 const _driftTarget = new THREE.Vector3();
 const _drift = new THREE.Vector3();
+const _back = new THREE.Vector3();
+
+// Boost pulls the camera back and widens the FOV, so you sink into the seat
+// and see more of the cockpit as the ship surges forward. Smoothed so it
+// eases in and out rather than snapping.
+let boostBlend = 0;
 
 export function updateCamera(ship) {
-  camera.fov = C.FOV;
+  const target = input.boost && (input.forward || input.reverse) ? 1 : 0;
+  boostBlend += (target - boostBlend) * 0.06;
+
+  camera.fov = C.FOV + boostBlend * C.BOOST_FOV;
   camera.updateProjectionMatrix();
 
   // Rotation lag: slerp toward the ship, never snap.
@@ -32,7 +42,10 @@ export function updateCamera(ship) {
   if (m > MAX_DRIFT) _driftTarget.multiplyScalar(MAX_DRIFT / m);
   _drift.lerp(_driftTarget, C.CAMERA_LAG);
 
-  camera.position.copy(ship.position).add(_drift);
+  // Pull back along the ship's local +z (behind the pilot) on boost.
+  _back.set(0, 0, 1).applyQuaternion(ship.quaternion).multiplyScalar(boostBlend * C.BOOST_PULLBACK);
+
+  camera.position.copy(ship.position).add(_drift).add(_back);
 }
 
 export function resizeCamera() {
