@@ -111,7 +111,7 @@ export function initMenu(launchCallback) {
 
   menu = el('div', 'menu');
   title = el('h1', null, menu);
-  title.textContent = 'UNTITLED SPACE FLIGHT';
+  title.textContent = 'FEELGOOD SPACE FLIGHT';
   sub = el('div', null, menu);
   sub.className = 'sub';
   button = el('button', null, menu);
