@@ -43,6 +43,7 @@ export const C = {
   ATMO_SHELL: 1.25, // atmosphere radius, × planet radius (250 units thick)
   SKY_COLOR: 0x6ea0ff, // daytime sky the view washes to inside the atmosphere
   SKY_DENSITY: 0.6, // how thickly the atmosphere fogs the view
+  CLOUD_COVER: 0.5, // 0 clear .. 1 overcast
 
   // --- look (GDD 4) ---
   // The one accent color, chosen once and committed to across the whole

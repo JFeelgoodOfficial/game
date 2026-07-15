@@ -1,27 +1,41 @@
-// Atmospheric entry (Phase 5 preview). As the ship descends into the
-// planet's atmosphere the view washes toward a sky colour — brighter and
-// bluer on the day side, near-dark at night — so space fades to sky and the
-// stars drown out. Density grows the deeper you go. Screen-space, driven by
-// the ship's altitude (main.js). Never a hazard: the altitude floor holds
-// you above the surface, this just paints the air.
+// Atmospheric entry (Phase 5 preview). As the ship descends into the air the
+// view washes toward a sky colour, and the haze thickens toward the horizon
+// and below it — grazing sightlines look through more air — with a brighter
+// band right at the horizon line. Brighter and bluer on the day side,
+// near-dark at night. Screen-space; driven by the ship's altitude and the
+// planet-up direction (main.js). Never a hazard — the floor holds you above
+// the surface, this just paints the air.
 
 uniform sampler2D tDiffuse;
-uniform float uAtmo;    // 0 above the atmosphere, 1 at the surface
-uniform float uDay;     // 0 night .. 1 full day at the ship's position
+uniform float uAtmo;      // 0 above the atmosphere, 1 at the surface
+uniform float uDay;       // 0 night .. 1 full day at the ship's position
 uniform vec3 uSkyDay;
 uniform float uDensity;
+uniform vec3 uUpView;     // planet-away ("up") direction, in view space
+uniform float uAspect;
+uniform float uTanHalf;   // tan(fov/2)
 
 varying vec2 vUv;
 
 void main() {
   vec3 col = texture2D(tDiffuse, vUv).rgb;
 
-  float d = clamp(uAtmo * uAtmo * uDensity, 0.0, 1.0);
-  vec3 sky = mix(vec3(0.01, 0.02, 0.05), uSkyDay, uDay);
+  // reconstruct the view ray for this pixel
+  vec2 nd = vUv * 2.0 - 1.0;
+  vec3 ray = normalize(vec3(nd.x * uAspect * uTanHalf, nd.y * uTanHalf, -1.0));
+  float up = dot(ray, normalize(uUpView)); // +1 zenith, 0 horizon, -1 nadir
+  float horizon = 1.0 - abs(up);           // 1 at the horizon line
 
-  // day side washes strongly to blue; night side only hazes faintly
-  float amount = d * (0.25 + 0.75 * uDay);
-  col = mix(col, sky, clamp(amount, 0.0, 0.92));
+  // depth in the atmosphere, richer toward and below the horizon
+  float depth = uAtmo * uAtmo;
+  float dens = depth * uDensity * (0.5 + 0.7 * horizon + 0.3 * max(-up, 0.0));
+
+  vec3 sky = mix(vec3(0.01, 0.02, 0.05), uSkyDay, uDay);
+  // hot, pale band right at the horizon
+  vec3 hazeCol = mix(sky, uSkyDay * 1.35 + 0.08, pow(horizon, 4.0) * uDay);
+
+  float amount = clamp(dens, 0.0, 0.94) * (0.25 + 0.75 * uDay);
+  col = mix(col, hazeCol, clamp(amount, 0.0, 0.94));
 
   gl_FragColor = vec4(col, 1.0);
 }

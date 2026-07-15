@@ -28,6 +28,7 @@ import { initNebula, updateNebula } from './nebula.js';
 import { cockpitScene, updateCockpit, CockpitOverlayPass } from './cockpit.js';
 import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
 import { initPlanet, updatePlanet, planet, SUN } from './planet.js';
+import { initSun, updateSun } from './sun.js';
 import lensingFrag from './shaders/lensing.frag?raw';
 import aberrationFrag from './shaders/aberration.frag?raw';
 import collapseFrag from './shaders/collapse.frag?raw';
@@ -49,6 +50,7 @@ addShiftable(planetGroup);
 // --- phase 2 environment ---
 initNebula(scene);
 initStarfield(scene);
+initSun(scene);
 initBlackHole(scene);
 
 // Initial layout, snapshotted so the horizon collapse can restore it exactly.
@@ -126,6 +128,9 @@ const skyfogPass = new ShaderPass({
     uDay: { value: 0 },
     uSkyDay: { value: new THREE.Color(C.SKY_COLOR) },
     uDensity: { value: C.SKY_DENSITY },
+    uUpView: { value: new THREE.Vector3(0, 1, 0) },
+    uAspect: { value: window.innerWidth / window.innerHeight },
+    uTanHalf: { value: Math.tan((C.FOV * Math.PI) / 360) },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -208,7 +213,9 @@ if (import.meta.env.DEV) {
 
 const DT = 1 / 60;
 const MAX_FRAME_DELTA = 0.1; // tab-switch guard: never spiral the accumulator
-const _up = new THREE.Vector3(); // scratch: camera→planet radial, for atmosphere
+const _up = new THREE.Vector3(); // scratch: planet→camera ("up"), for atmosphere
+const _upView = new THREE.Vector3();
+const _invQuat = new THREE.Quaternion();
 let last = performance.now();
 let accumulator = 0;
 
@@ -282,6 +289,7 @@ function frame(now) {
   updateCockpit(ship);
   updateStarfield(camera, renderer.getPixelRatio());
   updateNebula(camera);
+  updateSun(camera);
   updatePlanet(now / 1000);
   camera.updateMatrixWorld();
   camera.matrixWorldInverse.copy(camera.matrixWorld).invert(); // fresh for projection
@@ -300,6 +308,11 @@ function frame(now) {
     su.uDay.value = Math.min(Math.max(_up.dot(SUN) * 0.5 + 0.5, 0), 1);
     su.uSkyDay.value.set(C.SKY_COLOR);
     su.uDensity.value = C.SKY_DENSITY;
+    // planet-up expressed in view space, for horizon-weighted haze
+    _invQuat.copy(camera.quaternion).invert();
+    su.uUpView.value.copy(_up).applyQuaternion(_invQuat);
+    su.uAspect.value = camera.aspect;
+    su.uTanHalf.value = Math.tan((camera.fov * Math.PI) / 360);
   }
 
   // live panel bindings (GDD 2.3): cheap scalar copies each frame
