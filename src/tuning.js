@@ -80,7 +80,10 @@ export async function initTuning() {
 
   const { default: GUI } = await import('lil-gui');
   injectHologramStyle();
-  const gui = new GUI({ title: '◈ SHIP SYSTEMS' });
+  // Not a game HUD — this is the developer tuning panel (every physics and
+  // visual constant, editable live; GDD 2.3). Starts collapsed so it's out
+  // of the way; click the title bar to open it.
+  const gui = new GUI({ title: '◈ DEV TUNING — click to open' });
 
   for (const key of Object.keys(C)) {
     gui.add(C, key);
@@ -101,4 +104,5 @@ export async function initTuning() {
 
   // Keep the panel usable while flying: don't let it steal pointer lock.
   gui.domElement.addEventListener('click', (e) => e.stopPropagation());
+  gui.close(); // start collapsed
 }

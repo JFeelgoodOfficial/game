@@ -26,8 +26,11 @@ const _grav = new THREE.Vector3();
 const _thrust = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
 const _brake = new THREE.Vector3();
+const _warpTarget = new THREE.Vector3();
 const _euler = new THREE.Euler();
 const _dq = new THREE.Quaternion();
+
+let wasWarping = false;
 
 export function stepShip(dt) {
   const av = ship.angularVelocity;
@@ -52,39 +55,56 @@ export function stepShip(dt) {
 
   ship.properAccel.set(0, 0, 0);
 
-  // --- thrust along local forward (GDD 3.1) ---
-  const throttle = (input.forward ? 1 : 0) - (input.reverse ? 1 : 0);
-  const thrustMag = C.THRUST * (input.boost ? C.BOOST_MULTIPLIER : 1);
-  if (throttle !== 0) {
+  if (input.warp) {
+    // --- warp (user mechanic): boost x100, stops dead on release ---
+    // Velocity slews toward WARP_SPEED along the nose, ignoring the soft cap
+    // and normal thrust. The altitude floor still arrests a warp dive.
     _fwd.set(0, 0, -1).applyQuaternion(ship.quaternion);
-    _thrust.copy(_fwd).multiplyScalar(throttle * thrustMag);
-    // Soft speed cap (GDD 3.2): above SOFT_CAP_SPEED, thrust that would
-    // increase speed fades smoothly to zero by 1.5× the cap. Decelerating
-    // thrust keeps full authority — the engine tops out, it doesn't wall.
-    const speed = ship.velocity.length();
-    if (speed > C.SOFT_CAP_SPEED && _thrust.dot(ship.velocity) > 0) {
-      const t = Math.min((speed - C.SOFT_CAP_SPEED) / (C.SOFT_CAP_SPEED * 0.5), 1);
-      _thrust.multiplyScalar(1 - t * t * (3 - 2 * t));
+    _warpTarget.copy(_fwd).multiplyScalar(C.WARP_SPEED);
+    ship.velocity.lerp(_warpTarget, C.WARP_RAMP);
+    ship.properAccel.copy(_fwd).multiplyScalar(C.THRUST * 24); // strong felt push
+    wasWarping = true;
+  } else {
+    // Dropping out of warp cuts all velocity — the sudden stop.
+    if (wasWarping) {
+      ship.velocity.set(0, 0, 0);
+      wasWarping = false;
     }
-    ship.properAccel.add(_thrust);
-    ship.velocity.addScaledVector(_thrust, dt);
-  }
 
-  // --- counter-thrust (GDD 3.3): kill velocity, held ---
-  // Same engine authority as thrust, aimed against the velocity vector,
-  // clamped so it never pushes through zero. No cap falloff — it only
-  // ever decreases speed.
-  if (input.brake) {
-    const speed = ship.velocity.length();
-    if (speed > 0) {
-      const dv = thrustMag * dt;
-      if (dv >= speed) {
-        ship.properAccel.addScaledVector(ship.velocity, -1 / dt);
-        ship.velocity.set(0, 0, 0);
-      } else {
-        _brake.copy(ship.velocity).multiplyScalar(-thrustMag / speed);
-        ship.properAccel.add(_brake);
-        ship.velocity.addScaledVector(_brake, dt);
+    // --- thrust along local forward (GDD 3.1) ---
+    const throttle = (input.forward ? 1 : 0) - (input.reverse ? 1 : 0);
+    const thrustMag = C.THRUST * (input.boost ? C.BOOST_MULTIPLIER : 1);
+    if (throttle !== 0) {
+      _fwd.set(0, 0, -1).applyQuaternion(ship.quaternion);
+      _thrust.copy(_fwd).multiplyScalar(throttle * thrustMag);
+      // Soft speed cap (GDD 3.2): above SOFT_CAP_SPEED, thrust that would
+      // increase speed fades smoothly to zero by 1.5× the cap. Decelerating
+      // thrust keeps full authority — the engine tops out, it doesn't wall.
+      const speed = ship.velocity.length();
+      if (speed > C.SOFT_CAP_SPEED && _thrust.dot(ship.velocity) > 0) {
+        const t = Math.min((speed - C.SOFT_CAP_SPEED) / (C.SOFT_CAP_SPEED * 0.5), 1);
+        _thrust.multiplyScalar(1 - t * t * (3 - 2 * t));
+      }
+      ship.properAccel.add(_thrust);
+      ship.velocity.addScaledVector(_thrust, dt);
+    }
+
+    // --- counter-thrust (GDD 3.3): kill velocity, held ---
+    // Same engine authority as thrust, aimed against the velocity vector,
+    // clamped so it never pushes through zero. No cap falloff — it only
+    // ever decreases speed.
+    if (input.brake) {
+      const speed = ship.velocity.length();
+      if (speed > 0) {
+        const dv = thrustMag * dt;
+        if (dv >= speed) {
+          ship.properAccel.addScaledVector(ship.velocity, -1 / dt);
+          ship.velocity.set(0, 0, 0);
+        } else {
+          _brake.copy(ship.velocity).multiplyScalar(-thrustMag / speed);
+          ship.properAccel.add(_brake);
+          ship.velocity.addScaledVector(_brake, dt);
+        }
       }
     }
   }
@@ -98,8 +118,9 @@ export function stepShip(dt) {
   ship.velocity.multiplyScalar(C.LINEAR_DAMPING);
 
   // Altitude floor (GDD 5.1). Thickens drag near any body given a radius so
-  // the ship skims the surface instead of passing through it.
-  applyAltitudeFloor(ship.position, ship.velocity);
+  // the ship skims the surface instead of passing through it. dt lets it
+  // add a hard anti-tunnel stop that only bites at warp speeds.
+  applyAltitudeFloor(ship.position, ship.velocity, dt);
 
   ship.position.addScaledVector(ship.velocity, dt);
 }

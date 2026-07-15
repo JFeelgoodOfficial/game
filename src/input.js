@@ -12,6 +12,7 @@ export const input = {
   rollRight: false, // E
   boost: false, // Shift
   brake: false, // Space — counter-thrust, held
+  warp: false, // F (or the on-screen WARP button) — boost x100, stops dead on release
   mouseX: 0, // accumulated pixels since last consume
   mouseY: 0,
 };
@@ -49,5 +50,7 @@ function setKey(e, down) {
     case 'ShiftLeft':
     case 'ShiftRight': input.boost = down; break;
     case 'Space': input.brake = down; e.preventDefault(); break;
+    case 'KeyF':
+    case 'KeyJ': input.warp = down; break;
   }
 }

@@ -31,6 +31,7 @@ import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
 import { initPlanets, updatePlanets, atmosphereAt, planets, SUN } from './planet.js';
 import { initSun, updateSun } from './sun.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
+import { startMusic } from './music.js';
 import lensingFrag from './shaders/lensing.frag?raw';
 import aberrationFrag from './shaders/aberration.frag?raw';
 import collapseFrag from './shaders/collapse.frag?raw';
@@ -196,6 +197,7 @@ if (import.meta.env.DEV) {
       accumulator = 0;
       phase = 'fly';
       hideMenu();
+      startMusic();
     },
     // Run n physics ticks synchronously (origin maintenance included).
     step(n = 1) {
@@ -262,6 +264,7 @@ initMenu(() => {
   accumulator = 0;
   phase = 'fly';
   hideMenu();
+  startMusic(); // user's track, from the LAUNCH click gesture
   renderer.domElement.requestPointerLock?.();
 });
 

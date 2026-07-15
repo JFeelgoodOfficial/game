@@ -32,6 +32,11 @@ export const C = {
   BOOST_FOV: 13.0, // extra FOV on boost: widens to reveal the cockpit while first-person
   FRAME_FADE: 0.12, // per-frame ease of the boost cockpit image fading in/out
 
+  // --- warp (user mechanic): hold F for boost x100, release to stop dead ---
+  WARP_SPEED: 10000.0, // units/sec at full warp (~Saturn in a few seconds)
+  WARP_RAMP: 0.08, // per-tick slew toward warp speed
+  WARP_FOV: 26.0, // extra FOV at warp — the speed rush / star streaks
+
   // --- the planet (test mass, now with a procedural surface) ---
   // Bigger than a toy sphere so its atmosphere is a place you can fly into
   // and still climb out of: surface gravity (28) sits under boost thrust (42),
