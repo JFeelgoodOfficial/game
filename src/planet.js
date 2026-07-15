@@ -1,13 +1,14 @@
-// The planetary system (Phases 3/4/6 pulled together). Three planets from a
+// The planetary system (Phases 3/4/6 pulled together). Six planets from a
 // config array — variation is a palette and a threshold, not separate
 // systems (GDD 5.7):
-//   - Terra: procedural continents with real vertex-displaced relief
-//     (Phase 5 slice), a water sphere at sea level, clouds, blue sky.
-//   - A Saturn-like gas giant: banded gold, ring system, amber sky.
-//   - A Neptune-like ice giant: deep blue bands, methane limb, indigo sky.
-// Every planet registers gravity + an altitude floor (you can dive into any
-// atmosphere; you can never land). Terra's floor follows the terrain via
-// terrain.js.
+//   - Terra: continents, liquid ocean, clouds, blue sky.
+//   - Oceana: ocean world — sea level high, scattered islands (GDD 5.7).
+//   - Glacia: ice world — white-blue palette, sea frozen flat/matte.
+//   - Rustia: dead rock — sea level below the terrain minimum, no water.
+//   - Saturnia: ringed gold gas giant.  - Neptunia: blue ice giant.
+// Every planet registers gravity + an altitude floor (dive into any
+// atmosphere; never land). Rocky planets' floors follow their terrain via
+// terrain.js with per-planet sea level and amplitude.
 
 import * as THREE from 'three';
 import { C } from './constants.js';
@@ -22,10 +23,10 @@ import gasgiantFrag from './shaders/gasgiant.frag?raw';
 import ringsFrag from './shaders/rings.frag?raw';
 import waterFrag from './shaders/water.frag?raw';
 
-// A fixed sun for the system, off to one side so terminators are visible.
+// The sun direction planets are lit from (the real sun sits along it at
+// C.SUN_DISTANCE — far enough that one direction serves every planet).
 export const SUN = new THREE.Vector3(1.0, 0.35, 0.5).normalize();
 
-// planets[i]: { cfg, group, surface, spinning: [meshes], body }
 export const planets = [];
 
 const CONFIGS = [
@@ -37,9 +38,77 @@ const CONFIGS = [
     radius: () => C.TEST_MASS_RADIUS,
     mass: () => C.TEST_MASS,
     skyColor: () => C.SKY_COLOR, // panel-tunable for terra
-
     spin: () => C.PLANET_SPIN,
     atmoColor: 0x5a8cff,
+    seaLevel: () => C.SEA_LEVEL,
+    terrainHeight: () => C.TERRAIN_HEIGHT,
+    iceLat: 0.72,
+    palette: {
+      deep: 0x040a24, shallow: 0x0d5285, sand: 0xc2b37a,
+      low: 0x296621, mid: 0x574733, high: 0xebedf7,
+    },
+    water: { color: 0x082941, gloss: 1.0 },
+    clouds: true,
+  },
+  {
+    name: 'oceana', // ocean world (GDD 5.7): sea level high, island chains
+    type: 'terra',
+    dir: new THREE.Vector3(0.85, -0.1, -0.52).normalize(),
+    distance: () => 30000,
+    radius: () => 1100,
+    mass: () => 1.04e6, // surface g ~= 30
+    skyColor: () => 0x4a7ce8,
+    spin: () => 0.014,
+    atmoColor: 0x4a80ff,
+    seaLevel: () => 0.62,
+    terrainHeight: () => 55,
+    iceLat: 0.8,
+    palette: {
+      deep: 0x03102e, shallow: 0x055980, sand: 0xb8ad80,
+      low: 0x337333, mid: 0x4d4d38, high: 0xd9dee6,
+    },
+    water: { color: 0x052e61, gloss: 1.0 },
+    clouds: true,
+  },
+  {
+    name: 'glacia', // ice world (GDD 5.7): white-blue, sea frozen (flat, matte)
+    type: 'terra',
+    dir: new THREE.Vector3(-0.45, -0.2, 0.87).normalize(),
+    distance: () => 55000,
+    radius: () => 900,
+    mass: () => 6.9e5, // surface g ~= 30
+    skyColor: () => 0xa8c8e8,
+    spin: () => 0.008,
+    atmoColor: 0x9cc2f0,
+    seaLevel: () => 0.55,
+    terrainHeight: () => 65,
+    iceLat: 0.5,
+    palette: {
+      deep: 0x59738f, shallow: 0x8caec8, sand: 0xbfccdd,
+      low: 0xccd9ea, mid: 0x9eb2cc, high: 0xf2f7ff,
+    },
+    water: { color: 0xb8c8d8, gloss: 0.12 }, // frozen: flat but not reflective
+    clouds: false,
+  },
+  {
+    name: 'rustia', // dead rock (GDD 5.7): sea level below terrain minimum
+    type: 'terra',
+    dir: new THREE.Vector3(0.62, -0.32, 0.72).normalize(),
+    distance: () => 90000,
+    radius: () => 800,
+    mass: () => 5.5e5, // surface g ~= 30
+    skyColor: () => 0xd89a70,
+    spin: () => 0.012,
+    atmoColor: 0xcc8866,
+    seaLevel: () => 0.02, // under everything — no water anywhere
+    terrainHeight: () => 60,
+    iceLat: 0.93,
+    palette: {
+      deep: 0x2e1a10, shallow: 0x4d2c18, sand: 0x8c5230,
+      low: 0xa86133, mid: 0x803f24, high: 0xc78d61,
+    },
+    water: null,
+    clouds: false,
   },
   {
     name: 'saturnia',
@@ -74,6 +143,23 @@ const CONFIGS = [
   },
 ];
 
+function makeSurfaceUniforms(cfg, radius) {
+  const p = cfg.palette;
+  return {
+    uSun: { value: SUN.clone() },
+    uSeaLevel: { value: cfg.seaLevel() },
+    uAmp: { value: cfg.terrainHeight() },
+    uRadius: { value: radius },
+    uIceLat: { value: cfg.iceLat },
+    uColDeep: { value: new THREE.Color(p.deep) },
+    uColShallow: { value: new THREE.Color(p.shallow) },
+    uColSand: { value: new THREE.Color(p.sand) },
+    uColLow: { value: new THREE.Color(p.low) },
+    uColMid: { value: new THREE.Color(p.mid) },
+    uColHigh: { value: new THREE.Color(p.high) },
+  };
+}
+
 export function initPlanets(scene) {
   for (const cfg of CONFIGS) {
     const radius = cfg.radius();
@@ -82,54 +168,58 @@ export function initPlanets(scene) {
 
     const spinning = [];
     let surface;
+    let clouds = null;
 
     if (cfg.type === 'terra') {
       const surfaceMat = new THREE.ShaderMaterial({
         vertexShader: surfaceVert,
         fragmentShader: surfaceFrag,
-        uniforms: {
-          uSun: { value: SUN.clone() },
-          uSeaLevel: { value: C.SEA_LEVEL },
-          uAmp: { value: C.TERRAIN_HEIGHT },
-          uRadius: { value: radius },
-        },
+        uniforms: makeSurfaceUniforms(cfg, radius),
       });
-      surface = new THREE.Mesh(new THREE.SphereGeometry(radius, 384, 192), surfaceMat);
+      // mesh density scales down for smaller worlds
+      const seg = radius >= 1000 ? 384 : 288;
+      surface = new THREE.Mesh(new THREE.SphereGeometry(radius, seg, seg / 2), surfaceMat);
       spinning.push(surface);
+      group.add(surface);
 
-      // sea surface: flat sphere just above the ocean floor
-      const water = new THREE.Mesh(
-        new THREE.SphereGeometry(radius + 1.5, 128, 64),
-        new THREE.ShaderMaterial({
+      if (cfg.water) {
+        const water = new THREE.Mesh(
+          new THREE.SphereGeometry(radius + 1.5, 128, 64),
+          new THREE.ShaderMaterial({
+            vertexShader: surfaceVert,
+            fragmentShader: waterFrag,
+            uniforms: {
+              uSun: { value: SUN.clone() },
+              uSeaLevel: { value: 0 },
+              uAmp: { value: 0 },
+              uWaterColor: { value: new THREE.Color(cfg.water.color) },
+              uGloss: { value: cfg.water.gloss },
+            },
+          })
+        );
+        spinning.push(water);
+        group.add(water);
+      }
+
+      if (cfg.clouds) {
+        const cloudMat = new THREE.ShaderMaterial({
           vertexShader: surfaceVert,
-          fragmentShader: waterFrag,
+          fragmentShader: cloudFrag,
           uniforms: {
             uSun: { value: SUN.clone() },
             uSeaLevel: { value: 0 },
             uAmp: { value: 0 },
+            uTime: { value: 0 },
+            uCover: { value: C.CLOUD_COVER },
           },
-        })
-      );
-      spinning.push(water);
-
-      const cloudMat = new THREE.ShaderMaterial({
-        vertexShader: surfaceVert,
-        fragmentShader: cloudFrag,
-        uniforms: {
-          uSun: { value: SUN.clone() },
-          uSeaLevel: { value: 0 },
-          uAmp: { value: 0 },
-          uTime: { value: 0 },
-          uCover: { value: C.CLOUD_COVER },
-        },
-        transparent: true,
-        depthWrite: false,
-      });
-      const clouds = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.1, 96, 48), cloudMat);
-      clouds.renderOrder = 1;
-      spinning.push(clouds);
-
-      group.add(surface, water, clouds);
+          transparent: true,
+          depthWrite: false,
+        });
+        clouds = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.1, 96, 48), cloudMat);
+        clouds.renderOrder = 1;
+        spinning.push(clouds);
+        group.add(clouds);
+      }
     } else {
       const gasMat = new THREE.ShaderMaterial({
         vertexShader: surfaceVert,
@@ -174,7 +264,6 @@ export function initPlanets(scene) {
         rings.rotation.x = -Math.PI / 2 + cfg.rings.tilt;
         rings.renderOrder = 1;
         group.add(rings);
-        // sun direction in ring-object space (rings only rotate about x once)
         rings.updateMatrix();
         const inv = new THREE.Matrix3().setFromMatrix4(rings.matrix).invert();
         ringMat.uniforms.uSunObj.value.copy(SUN).applyMatrix3(inv);
@@ -206,19 +295,19 @@ export function initPlanets(scene) {
     scene.add(group);
     addShiftable(group);
 
-    const p = { cfg, group, surface, spinning, radius, body: null };
+    const p = { cfg, group, surface, clouds, spinning, radius, body: null };
 
-    // gravity + altitude floor. Terra's floor follows the terrain: sample
-    // the same noise field in unrotated object space (undo the spin).
+    // gravity + altitude floor. Rocky floors follow the terrain: sample the
+    // shared noise field in unrotated object space (undo the spin) with this
+    // planet's sea level and amplitude.
     const body = { position: group.position, mass: cfg.mass(), radius };
     if (cfg.type === 'terra') {
       const _d = new THREE.Vector3();
       body.groundAt = (dir) => {
-        // dir: normalized planet→ship in world/local frame. Undo spin (about y).
         const rot = surface.rotation.y;
         const cos = Math.cos(-rot), sin = Math.sin(-rot);
         _d.set(dir.x * cos + dir.z * sin, dir.y, -dir.x * sin + dir.z * cos);
-        return groundHeight(_d.x, _d.y, _d.z);
+        return groundHeight(_d.x, _d.y, _d.z, cfg.seaLevel(), cfg.terrainHeight());
       };
     }
     addBody(body);
@@ -236,11 +325,13 @@ export function updatePlanets(t) {
     const spin = p.cfg.spin();
     for (const m of p.spinning) m.rotation.y = t * spin;
     if (p.cfg.type === 'terra') {
-      p.surface.material.uniforms.uSeaLevel.value = C.SEA_LEVEL;
-      p.surface.material.uniforms.uAmp.value = C.TERRAIN_HEIGHT;
-      const clouds = p.spinning[2];
-      clouds.material.uniforms.uTime.value = t;
-      clouds.material.uniforms.uCover.value = C.CLOUD_COVER;
+      // terra's thresholds stay live-tunable from the panel
+      p.surface.material.uniforms.uSeaLevel.value = p.cfg.seaLevel();
+      p.surface.material.uniforms.uAmp.value = p.cfg.terrainHeight();
+      if (p.clouds) {
+        p.clouds.material.uniforms.uTime.value = t;
+        p.clouds.material.uniforms.uCover.value = C.CLOUD_COVER;
+      }
     } else {
       p.surface.material.uniforms.uTime.value = t;
     }
@@ -248,8 +339,7 @@ export function updatePlanets(t) {
 }
 
 // The planet whose atmosphere the given position is deepest inside (or the
-// nearest one, for heat/floor bookkeeping). Returns {p, altitude, atmo, up}
-// via the out object to avoid allocation.
+// nearest one, for heat/floor bookkeeping). Fills `out` to avoid allocation.
 export function atmosphereAt(pos, out) {
   out.p = null;
   out.atmo = 0;

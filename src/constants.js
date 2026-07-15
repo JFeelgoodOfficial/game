@@ -44,13 +44,20 @@ export const C = {
   TEST_MASS: 8.0e5,
   TEST_MASS_RADIUS: 1000.0,
   START_DISTANCE: 3500.0, // ship spawns this far from the planet (2500 up)
-  SEA_LEVEL: 0.48, // surface noise threshold for water. lower = more land.
+  SEA_LEVEL: 0.48, // terra's water threshold. lower = more land.
   PLANET_SPIN: 0.01, // radians/sec, slow rotation
-  TERRAIN_HEIGHT: 55.0, // peak displacement above sea level (Phase 5 slice)
+  TERRAIN_HEIGHT: 70.0, // terra's peak displacement above sea level
   ATMO_SHELL: 1.25, // atmosphere radius, × planet radius (250 units thick)
   SKY_COLOR: 0x6ea0ff, // daytime sky the view washes to inside the atmosphere
   SKY_DENSITY: 0.6, // how thickly the atmosphere fogs the view
   CLOUD_COVER: 0.5, // 0 clear .. 1 overcast
+  TURBULENCE: 0.16, // camera buffet inside an atmosphere, scaled by speed
+
+  // --- the sun (now a real body you can fly into — and burn up at) ---
+  SUN_DISTANCE: 150000.0, // from the system origin, along the sun direction
+  SUN_RADIUS: 8000.0,
+  SUN_MASS: 8.0e7, // noticeable pull on approach, escapable at range
+  SUN_BURN_MULT: 2.0, // heat builds this much faster at the sun than at a planet
 
   // --- look (GDD 4) ---
   // The one accent color, chosen once and committed to across the whole
@@ -81,13 +88,15 @@ export const C = {
   RESPAWN_TIME: 0.7, // seconds to fade back in at the start
 
   // --- hull overheat (user mechanic, overrides GDD 1.2 "no death") ---
-  // Pressing against the altitude floor heats the hull. Pull away to cool.
-  // At full heat the canopy cracks, the ship is lost, and you return to the
-  // menu.
+  // Pressing against the altitude floor (or getting close to the sun) heats
+  // the hull: 3s of HULL TEMP CRITICAL warning, then a 3s flashing-red
+  // cockpit countdown, then the canopy cracks and the ship is destroyed.
+  // Pull away at any point to cool off and cancel.
   HEAT_ALTITUDE: 90.0, // heat builds while lower than this above the local floor
-  HEAT_TIME: 10.0, // seconds at the wall from cold to destruction
+  HEAT_WARN_TIME: 3.0, // seconds of warning before the countdown starts
+  HEAT_COUNTDOWN: 3.0, // seconds of flashing 3-2-1 before destruction
   HEAT_COOL: 4.0, // seconds to fully cool once clear
-  CRACK_AT: 0.85, // heat fraction where the canopy cracks
+  CRACK_AT: 0.75, // heat fraction where the canopy cracks (mid-countdown)
   EXPLODE_TIME: 1.2, // seconds of flash/shake before the menu
 
   // --- altitude floor (GDD 5.1) ---

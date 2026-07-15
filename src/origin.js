@@ -22,6 +22,25 @@ export function addShiftable(obj) {
   return obj;
 }
 
+// Snapshot/restore every registered position (plus the origin offset), so a
+// world reset puts sun, planets, and stations back exactly where they began
+// without each system hand-rolling its own START list.
+let _snapshot = null;
+
+export function snapshotShiftables() {
+  _snapshot = shiftables.map((s) => s.position.clone());
+}
+
+export function restoreShiftables() {
+  if (!_snapshot) return;
+  for (let i = 0; i < _snapshot.length; i++) {
+    shiftables[i].position.copy(_snapshot[i]);
+  }
+  originOffset.x = 0;
+  originOffset.y = 0;
+  originOffset.z = 0;
+}
+
 // Call once per frame after physics. Returns true if a rebase happened.
 export function updateOrigin(ship) {
   const p = ship.position;
