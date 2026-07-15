@@ -20,7 +20,7 @@ import { C } from './constants.js';
 import { initInput, input } from './input.js';
 import { ship, stepShip } from './ship.js';
 import { altitudeAboveFloor } from './gravity.js';
-import { updateOrigin, originOffset } from './origin.js';
+import { updateOrigin, originOffset, snapshotShiftables, restoreShiftables } from './origin.js';
 import { camera, updateCamera, resizeCamera } from './camera.js';
 import { initTuning } from './tuning.js';
 import { initStarfield, updateStarfield } from './starfield.js';
@@ -29,7 +29,8 @@ import { cockpitScene, updateCockpit, cockpitGroup, CockpitOverlayPass } from '.
 import { initCockpitFrame, updateCockpitFrame } from './cockpitFrame.js';
 import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
 import { initPlanets, updatePlanets, atmosphereAt, planets, SUN } from './planet.js';
-import { initSun, updateSun } from './sun.js';
+import { initSun, sunAltitude } from './sun.js';
+import { initStations, updateStations } from './stations.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
 import { startMusic } from './music.js';
 import lensingFrag from './shaders/lensing.frag?raw';
@@ -54,12 +55,11 @@ initNebula(scene);
 initStarfield(scene);
 initSun(scene);
 initBlackHole(scene);
+initStations(scene);
 
-// Initial layout, snapshotted so resets can restore it exactly.
-const START = {
-  planets: planets.map((p) => p.group.position.clone()),
-  blackhole: blackhole.group.position.clone(),
-};
+// Initial layout of everything origin-registered (planets, sun, stations,
+// black hole), snapshotted so resets restore it exactly.
+snapshotShiftables();
 
 initInput(renderer.domElement);
 initTuning();
@@ -239,6 +239,7 @@ let phase = 'menu';
 let warpT = 0;
 let warp = 0; // collapse pass progress, 0..1
 let heat = 0; // hull heat, 0..1
+let deathReason = ''; // set when the burn wins; shown on the menu
 
 function resetToStart() {
   ship.position.set(0, 0, 0);
@@ -246,13 +247,7 @@ function resetToStart() {
   ship.quaternion.identity();
   ship.angularVelocity.set(0, 0, 0);
   ship.properAccel.set(0, 0, 0);
-  originOffset.x = 0;
-  originOffset.y = 0;
-  originOffset.z = 0;
-  for (let i = 0; i < planets.length; i++) {
-    planets[i].group.position.copy(START.planets[i]);
-  }
-  blackhole.group.position.copy(START.blackhole);
+  restoreShiftables(); // planets, sun, stations, black hole + origin offset
   heat = 0;
   // snap the lagging camera to the ship so it doesn't slerp from the horizon
   camera.position.copy(ship.position);
@@ -289,11 +284,22 @@ function frame(now) {
       phase = 'collapse';
       warpT = 0;
     }
-    // hull heat: builds while pressed against the altitude floor, cools clear
-    // of it (user mechanic — death overrides GDD 1.2 by request).
+    // hull heat: builds while pressed against a planet's floor, and much
+    // faster near the sun; cools when clear (user mechanic — death overrides
+    // GDD 1.2 by request). Timeline: 3s warning, then a 3s cockpit countdown,
+    // then the hull fails.
     const overFloor = altitudeAboveFloor(ship.position);
-    if (overFloor < C.HEAT_ALTITUDE) heat += delta / C.HEAT_TIME;
-    else heat -= delta / C.HEAT_COOL;
+    const nearSun = sunAltitude(ship.position) < C.SUN_RADIUS * 0.5;
+    const heatTotal = C.HEAT_WARN_TIME + C.HEAT_COUNTDOWN;
+    if (nearSun) {
+      heat += (delta / heatTotal) * C.SUN_BURN_MULT;
+      deathReason = 'INCINERATED — FLEW INTO THE SUN';
+    } else if (overFloor < C.HEAT_ALTITUDE) {
+      heat += delta / heatTotal;
+      deathReason = 'RE-ENTRY FAILURE — HULL DESTROYED';
+    } else {
+      heat -= delta / C.HEAT_COOL;
+    }
     heat = Math.min(Math.max(heat, 0), 1);
     if (heat >= 1) {
       phase = 'explode';
@@ -321,13 +327,21 @@ function frame(now) {
     flashAmt = Math.min(warpT / (C.EXPLODE_TIME * 0.35), 1);
     if (warpT >= C.EXPLODE_TIME) {
       phase = 'menu';
-      showMenu('dead');
+      showMenu('dead', deathReason);
     }
   }
   // menu phase: nothing to advance; the scene idles as a backdrop.
   collapsePass.enabled = warp > 0.001;
   collapsePass.uniforms.uProgress.value = warp;
-  updateHeatUI(phase === 'menu' ? 0 : heat, C.CRACK_AT, flashAmt);
+  // heat 0..0.5 = warning banner; 0.5..1 = the flashing cockpit countdown
+  const heatShown = phase === 'menu' ? 0 : heat;
+  const countdownLeft =
+    phase === 'fly' && heat >= 0.5
+      ? (1 - heat) * (C.HEAT_WARN_TIME + C.HEAT_COUNTDOWN)
+      : phase === 'explode'
+        ? 0.4 // hold "1" through the flash
+        : null;
+  updateHeatUI(heatShown, C.CRACK_AT, flashAmt, countdownLeft);
 
   updateOrigin(ship);
   updateCamera(ship);
@@ -344,8 +358,8 @@ function frame(now) {
   cockpitGroup.visible = updateCockpitFrame(ship, delta) < 0.3;
   updateStarfield(camera, renderer.getPixelRatio());
   updateNebula(camera);
-  updateSun(camera);
   updatePlanets(now / 1000);
+  updateStations(now / 1000);
   camera.updateMatrixWorld();
   camera.matrixWorldInverse.copy(camera.matrixWorld).invert(); // fresh for projection
   updateBlackHole(camera, lensPass.uniforms, now / 1000);
@@ -353,6 +367,14 @@ function frame(now) {
   // atmospheric entry: fade the frame to the sky of whichever planet's air
   // the ship is deepest inside
   atmosphereAt(camera.position, _atmo);
+  // turbulence: the air buffets the ship, harder when deeper and faster
+  if (_atmo.atmo > 0.01 && phase === 'fly') {
+    const speedFrac = Math.min(ship.velocity.length() / 300, 1);
+    const b = _atmo.atmo * _atmo.atmo * speedFrac * C.TURBULENCE;
+    camera.position.x += Math.sin(now * 0.031) * Math.sin(now * 0.007) * b;
+    camera.position.y += Math.sin(now * 0.043 + 1.7) * Math.sin(now * 0.011) * b;
+    camera.position.z += Math.sin(now * 0.023 + 3.9) * b * 0.6;
+  }
   skyfogPass.enabled = _atmo.atmo > 0.001;
   if (skyfogPass.enabled) {
     _up.set(_atmo.upX, _atmo.upY, _atmo.upZ).normalize();

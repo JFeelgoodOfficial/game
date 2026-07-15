@@ -1,25 +1,30 @@
-// Sun disc (Phase 4 polish). A bright core with a warm additive halo, parked
-// far away in the sun direction and re-centered on the camera each frame so
-// it sits at effective infinity — it never gets closer, only the parallax of
-// nearer things reads against it. The core is un-tonemapped and above the
-// bloom threshold, so bloom gives it its glow.
+// The sun — now a real body in the world (user request: fly into it and
+// burn up). A fixed position along the system's sun direction, with mass
+// (it pulls), a radius (the altitude floor + anti-tunnel arrest a dive
+// above the photosphere), and a fierce heat zone handled in main.js.
+// The un-tonemapped core + additive halo feed the bloom pass for the glow,
+// and a DirectionalLight matching the sun direction lights anything with a
+// standard material (the space stations) — the planets' custom shaders
+// ignore it.
 
 import * as THREE from 'three';
+import { C } from './constants.js';
+import { addBody } from './gravity.js';
+import { addShiftable } from './origin.js';
 import { SUN } from './planet.js';
 
-const DIST = 320000; // well beyond the planet, inside the nebula shell
-
-export const sun = { core: null, halo: null };
+export const sun = { group: null, body: null };
 
 export function initSun(scene) {
+  const group = new THREE.Group();
+  group.position.copy(SUN).multiplyScalar(C.SUN_DISTANCE);
+
   const core = new THREE.Mesh(
-    new THREE.SphereGeometry(9000, 32, 16),
+    new THREE.SphereGeometry(C.SUN_RADIUS, 48, 24),
     new THREE.MeshBasicMaterial({ color: 0xfff3da, toneMapped: false })
   );
-  core.frustumCulled = false;
-
   const halo = new THREE.Mesh(
-    new THREE.SphereGeometry(20000, 32, 16),
+    new THREE.SphereGeometry(C.SUN_RADIUS * 2.2, 48, 24),
     new THREE.MeshBasicMaterial({
       color: 0xffa63c,
       transparent: true,
@@ -29,15 +34,29 @@ export function initSun(scene) {
       toneMapped: false,
     })
   );
-  halo.frustumCulled = false;
-  halo.renderOrder = -4; // behind nearer transparent things but over the sky
+  group.add(core, halo);
+  scene.add(group);
+  addShiftable(group);
 
-  scene.add(core, halo);
-  sun.core = core;
-  sun.halo = halo;
+  // Gravity + a floor: the radius opts the sun into the altitude-floor and
+  // anti-tunnel systems, so even a warp dive arrests above the surface —
+  // where the burn (main.js) finishes the job.
+  const body = addBody({ position: group.position, mass: C.SUN_MASS, radius: C.SUN_RADIUS });
+
+  // Physical lighting for standard-material objects (space stations).
+  const light = new THREE.DirectionalLight(0xfff2dd, 2.4);
+  light.position.copy(SUN); // direction: from position toward origin default target
+  scene.add(light);
+  scene.add(new THREE.AmbientLight(0x223044, 0.8));
+
+  sun.group = group;
+  sun.body = body;
+  return sun;
 }
 
-export function updateSun(camera) {
-  sun.core.position.copy(camera.position).addScaledVector(SUN, DIST);
-  sun.halo.position.copy(sun.core.position);
+const _d = new THREE.Vector3();
+
+// Altitude above the sun's surface for the given position (for the burn zone).
+export function sunAltitude(pos) {
+  return _d.subVectors(pos, sun.group.position).length() - C.SUN_RADIUS;
 }

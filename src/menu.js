@@ -65,9 +65,45 @@ const CSS = `
   box-shadow: 0 0 34px rgba(212,64,143,0.7), inset 0 0 22px rgba(212,64,143,0.25);
 }
 #warpBtn.hidden { opacity: 0; pointer-events: none; }
+#heatWarn {
+  position: fixed; top: 12%; left: 50%; transform: translateX(-50%);
+  z-index: 11; pointer-events: none; opacity: 0; transition: opacity 0.25s;
+  font-family: 'Courier New', ui-monospace, monospace; font-size: 17px;
+  letter-spacing: 0.4em; color: #ff6a50; padding: 8px 26px;
+  border: 1px solid rgba(255,90,60,0.7); border-radius: 3px;
+  background: rgba(60,8,4,0.45);
+  text-shadow: 0 0 12px rgba(255,80,50,0.9);
+}
+#heatWarn.on { animation: heat-blink 0.8s step-end infinite; }
+#countdown {
+  position: fixed; left: 50%; bottom: 15%; transform: translateX(-50%);
+  z-index: 11; pointer-events: none; opacity: 0;
+  font-family: 'Courier New', ui-monospace, monospace; text-align: center;
+  padding: 14px 40px 10px; border-radius: 6px;
+  border: 2px solid rgba(255,40,20,0.9);
+  background: rgba(40,2,0,0.72);
+  box-shadow: 0 0 40px rgba(255,50,20,0.55), inset 0 0 30px rgba(255,40,10,0.25);
+  animation: cd-flash 0.5s step-end infinite;
+}
+#countdown .cd-label {
+  font-size: 12px; letter-spacing: 0.42em; color: #ffb0a0;
+  text-shadow: 0 0 8px rgba(255,100,70,0.8);
+}
+#countdown .cd-digit {
+  font-size: 84px; line-height: 1; font-weight: 700; color: #ff3820;
+  text-shadow: 0 0 26px rgba(255,60,30,1), 0 0 60px rgba(255,40,10,0.7);
+}
+@keyframes heat-blink { 50% { opacity: 0.35; } }
+@keyframes cd-flash {
+  50% {
+    background: rgba(120,10,0,0.85);
+    box-shadow: 0 0 70px rgba(255,70,30,0.95), inset 0 0 44px rgba(255,60,20,0.5);
+  }
+}
 `;
 
 let menu, title, sub, button, vignette, cracks, flash, warpBtn;
+let heatWarn, countdown, countdownDigit;
 let onLaunch = null;
 
 function el(tag, id, parent) {
@@ -130,6 +166,17 @@ export function initMenu(launchCallback) {
   cracks.innerHTML = crackSVG();
   flash = el('div', 'flash');
 
+  // hull-stress warning banner + diegetic cockpit countdown screen
+  heatWarn = el('div', 'heatWarn');
+  heatWarn.textContent = '⚠ HULL TEMP CRITICAL — PULL UP ⚠';
+  countdown = el('div', 'countdown');
+  const cdLabel = el('div', null, countdown);
+  cdLabel.className = 'cd-label';
+  cdLabel.textContent = 'STRUCTURAL FAILURE IN';
+  countdownDigit = el('div', null, countdown);
+  countdownDigit.className = 'cd-digit';
+  countdownDigit.textContent = '3';
+
   menu = el('div', 'menu');
   title = el('h1', null, menu);
   title.textContent = 'FEELGOOD SPACE FLIGHT';
@@ -155,9 +202,9 @@ export function initMenu(launchCallback) {
   showMenu('start');
 }
 
-export function showMenu(mode) {
+export function showMenu(mode, reason) {
   if (mode === 'dead') {
-    sub.textContent = 'HULL BURNED THROUGH — SHIP LOST';
+    sub.textContent = reason || 'HULL BURNED THROUGH — SHIP LOST';
     sub.className = 'sub dead';
     button.textContent = 'FLY AGAIN';
   } else {
@@ -177,9 +224,22 @@ export function hideMenu() {
   warpBtn.classList.remove('hidden');
 }
 
-// heat: 0..1; crackAt: threshold; flashAmt: 0..1 explosion flash
-export function updateHeatUI(heat, crackAt, flashAmt) {
+// heat 0..1 (0..0.5 = warning phase, 0.5..1 = countdown), crackAt threshold,
+// flashAmt 0..1 explosion flash, secondsLeft = remaining time to destruction
+// while the countdown runs (null hides the countdown screen).
+export function updateHeatUI(heat, crackAt, flashAmt, secondsLeft) {
   vignette.style.opacity = Math.min(heat * 1.1, 1).toFixed(3);
   cracks.style.opacity = heat >= crackAt ? '1' : '0';
   flash.style.opacity = Math.min(Math.max(flashAmt, 0), 1).toFixed(3);
+
+  const warning = heat > 0.03 && secondsLeft === null;
+  heatWarn.style.opacity = warning ? '1' : '0';
+  heatWarn.classList.toggle('on', warning);
+  if (secondsLeft !== null) {
+    countdown.style.opacity = '1';
+    const digit = String(Math.max(1, Math.ceil(secondsLeft)));
+    if (countdownDigit.textContent !== digit) countdownDigit.textContent = digit;
+  } else {
+    countdown.style.opacity = '0';
+  }
 }

@@ -1,9 +1,8 @@
 // Planet surface (Phase 3 + Phase 5 slice). Procedural continents from the
-// same warped-fbm field the vertex shader displaces with, elevation-banded
-// colour, ice caps, day/night terminator, and relief shading from a
-// finite-difference perturbation of the normal so mountains cast light and
-// shade. Ocean fragments are covered by the separate water sphere; they keep
-// a deep floor colour underneath it.
+// same warped-fbm + ridged field the vertex shader displaces with,
+// elevation-banded colour from a per-planet palette (GDD 5.7: variation is
+// a palette and a threshold), ice caps, day/night terminator, and relief
+// shading from a finite-difference perturbation of the normal.
 
 varying vec3 vObjPos;
 varying vec3 vWorldNormal;
@@ -13,6 +12,13 @@ uniform vec3 uSun;
 uniform float uSeaLevel;
 uniform float uAmp;
 uniform float uRadius;
+uniform float uIceLat;    // latitude where polar ice begins (>1 disables)
+uniform vec3 uColDeep;    // deep water / lowest floor
+uniform vec3 uColShallow; // shallow water / low basin
+uniform vec3 uColSand;    // shoreline
+uniform vec3 uColLow;     // lowlands
+uniform vec3 uColMid;     // uplands / rock
+uniform vec3 uColHigh;    // peaks
 
 float hash(vec3 p) {
   p = fract(p * 0.3183099 + 0.1);
@@ -39,9 +45,21 @@ float fbm(vec3 p, int oct) {
   }
   return v;
 }
+float ridged(vec3 p, int oct) {
+  float v = 0.0, a = 0.5;
+  for (int i = 0; i < 5; i++) {
+    if (i >= oct) break;
+    v += a * (1.0 - abs(2.0 * vnoise(p) - 1.0));
+    p *= 2.11;
+    a *= 0.5;
+  }
+  return v;
+}
 float elevation(vec3 p, int oct) {
   vec3 warp = vec3(fbm(p * 1.3 + 4.1, 3), fbm(p * 1.3 + 8.7, 3), fbm(p * 1.3 + 1.9, 3));
-  return fbm(p * 1.8 + warp * 0.6, oct);
+  float base = fbm(p * 1.8 + warp * 0.6, oct);
+  float mask = smoothstep(0.5, 0.62, base);
+  return base * 0.72 + ridged(p * 3.5, 4) * 0.28 * mask;
 }
 
 void main() {
@@ -51,15 +69,20 @@ void main() {
 
   vec3 col;
   if (elev < uSeaLevel) {
-    float d = elev / uSeaLevel;
-    col = mix(vec3(0.015, 0.04, 0.14), vec3(0.05, 0.32, 0.52), d * d);
+    float d = elev / max(uSeaLevel, 1e-4);
+    col = mix(uColDeep, uColShallow, d * d);
   } else {
     float e = (elev - uSeaLevel) / (1.0 - uSeaLevel);
-    col = mix(vec3(0.76, 0.70, 0.48), vec3(0.16, 0.40, 0.13), smoothstep(0.02, 0.18, e));
-    col = mix(col, vec3(0.34, 0.28, 0.20), smoothstep(0.30, 0.62, e));
-    col = mix(col, vec3(0.92, 0.93, 0.97), smoothstep(0.66, 0.86, e));
+    col = mix(uColSand, uColLow, smoothstep(0.02, 0.18, e));
+    col = mix(col, uColMid, smoothstep(0.28, 0.58, e));
+    col = mix(col, uColHigh, smoothstep(0.62, 0.84, e));
+    // surface detail grain so slopes aren't airbrushed
+    float grain = fbm(p * 40.0, 3);
+    col *= 0.88 + 0.24 * grain;
   }
-  col = mix(col, vec3(0.90, 0.94, 1.0), smoothstep(0.72, 0.93, lat + (elev - 0.5) * 0.15));
+  // polar ice, ragged edge from the elevation noise
+  col = mix(col, vec3(0.90, 0.94, 1.0),
+            smoothstep(uIceLat, uIceLat + 0.21, lat + (elev - 0.5) * 0.15));
 
   vec3 N = normalize(vWorldNormal), S = normalize(uSun), V = normalize(vViewDir);
 
