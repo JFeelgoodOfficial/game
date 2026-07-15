@@ -161,7 +161,7 @@ export function showMenu(mode) {
     sub.className = 'sub dead';
     button.textContent = 'FLY AGAIN';
   } else {
-    sub.textContent = 'W/S THRUST · MOUSE STEER · SHIFT BOOST · F WARP · SPACE BRAKE';
+    sub.textContent = 'W/S THRUST · MOUSE STEER · SHIFT BOOST · F/J WARP · SPACE BRAKE';
     sub.className = 'sub';
     button.textContent = 'LAUNCH';
   }

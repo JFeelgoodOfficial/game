@@ -50,6 +50,7 @@ function setKey(e, down) {
     case 'ShiftLeft':
     case 'ShiftRight': input.boost = down; break;
     case 'Space': input.brake = down; e.preventDefault(); break;
-    case 'KeyF': input.warp = down; break;
+    case 'KeyF':
+    case 'KeyJ': input.warp = down; break;
   }
 }
