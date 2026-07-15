@@ -28,11 +28,15 @@ export const C = {
 
   // --- camera ---
   FOV: 70,
+  BOOST_PULLBACK: 0.3, // how far the camera dollies back on boost (reveals the cockpit)
+  BOOST_FOV: 9.0, // extra degrees of FOV on boost (speed rush)
 
-  // --- phase 1 test scene ---
+  // --- the planet (test mass, now with a procedural surface) ---
   TEST_MASS: 5.0e5, // orbital speed at start distance ≈ 108 u/s, under the soft cap
   TEST_MASS_RADIUS: 200.0,
-  START_DISTANCE: 1500.0, // ship spawns this far from the test mass
+  START_DISTANCE: 1500.0, // ship spawns this far from the planet
+  SEA_LEVEL: 0.48, // surface noise threshold for water. lower = more land.
+  PLANET_SPIN: 0.02, // radians/sec, slow rotation
 
   // --- look (GDD 4) ---
   // The one accent color, chosen once and committed to across the whole

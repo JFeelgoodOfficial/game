@@ -27,6 +27,7 @@ import { initStarfield, updateStarfield } from './starfield.js';
 import { initNebula, updateNebula } from './nebula.js';
 import { cockpitScene, updateCockpit, CockpitOverlayPass } from './cockpit.js';
 import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
+import { initPlanet, updatePlanet, planet } from './planet.js';
 import lensingFrag from './shaders/lensing.frag?raw';
 import aberrationFrag from './shaders/aberration.frag?raw';
 import collapseFrag from './shaders/collapse.frag?raw';
@@ -39,15 +40,10 @@ document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 
-// --- test mass (GDD 3.5) — kept from Phase 1 as the orbit/tuning target ---
-const testMass = new THREE.Mesh(
-  new THREE.SphereGeometry(C.TEST_MASS_RADIUS, 48, 32),
-  new THREE.MeshBasicMaterial({ color: 0x88aaff, wireframe: true })
-);
-testMass.position.set(0, 0, -C.START_DISTANCE);
-scene.add(testMass);
-addBody({ position: testMass.position, mass: C.TEST_MASS, radius: C.TEST_MASS_RADIUS });
-addShiftable(testMass);
+// --- the planet (GDD 3.5 target, now a procedural surface) ---
+const planetGroup = initPlanet(scene);
+addBody({ position: planetGroup.position, mass: C.TEST_MASS, radius: C.TEST_MASS_RADIUS });
+addShiftable(planetGroup);
 
 // --- phase 2 environment ---
 initNebula(scene);
@@ -56,7 +52,7 @@ initBlackHole(scene);
 
 // Initial layout, snapshotted so the horizon collapse can restore it exactly.
 const START = {
-  testMass: testMass.position.clone(),
+  planet: planetGroup.position.clone(),
   blackhole: blackhole.group.position.clone(),
 };
 
@@ -160,7 +156,7 @@ if (import.meta.env.DEV) {
     C,
     input,
     camera,
-    testMass,
+    planet,
     blackhole,
     originOffset,
     paused: false,
@@ -209,7 +205,7 @@ function resetToStart() {
   originOffset.x = 0;
   originOffset.y = 0;
   originOffset.z = 0;
-  testMass.position.copy(START.testMass);
+  planetGroup.position.copy(START.planet);
   blackhole.group.position.copy(START.blackhole);
   // snap the lagging camera to the ship so it doesn't slerp from the horizon
   camera.position.copy(ship.position);
@@ -262,6 +258,7 @@ function frame(now) {
   updateCockpit(ship);
   updateStarfield(camera, renderer.getPixelRatio());
   updateNebula(camera);
+  updatePlanet(now / 1000);
   camera.updateMatrixWorld();
   camera.matrixWorldInverse.copy(camera.matrixWorld).invert(); // fresh for projection
   updateBlackHole(camera, lensPass.uniforms, now / 1000);
