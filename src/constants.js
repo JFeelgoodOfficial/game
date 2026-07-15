@@ -53,6 +53,15 @@ export const C = {
   DISK_INNER: 2.2, // accretion disk inner edge, × horizon radius
   DISK_OUTER: 7.0, // outer edge, × horizon radius
 
+  // --- horizon collapse / reset (beyond GDD 4.5) ---
+  // A deliberate override of "falling in does nothing": crossing into the
+  // hole stretches everything and returns you to the start (the GDD 7 loop).
+  // Capture is generous — a fast pass slingshots by, so you must commit to
+  // the dive, but "fly into it" shouldn't demand pixel-perfect aim.
+  HORIZON_CAPTURE: 400.0, // fly within this of the BH center and you fall in
+  COLLAPSE_TIME: 0.9, // seconds of stretch before the reset
+  RESPAWN_TIME: 0.7, // seconds to fade back in at the start
+
   // --- altitude floor (GDD 5.1) ---
   // Strictly a Phase 5 mechanic, pulled forward on request so the test mass
   // reads as a planet you skim rather than one you fly through. Thickening

@@ -29,6 +29,7 @@ import { cockpitScene, updateCockpit, CockpitOverlayPass } from './cockpit.js';
 import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
 import lensingFrag from './shaders/lensing.frag?raw';
 import aberrationFrag from './shaders/aberration.frag?raw';
+import collapseFrag from './shaders/collapse.frag?raw';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -52,6 +53,12 @@ addShiftable(testMass);
 initNebula(scene);
 initStarfield(scene);
 initBlackHole(scene);
+
+// Initial layout, snapshotted so the horizon collapse can restore it exactly.
+const START = {
+  testMass: testMass.position.clone(),
+  blackhole: blackhole.group.position.clone(),
+};
 
 initInput(renderer.domElement);
 initTuning();
@@ -112,6 +119,27 @@ const aberrationPass = new ShaderPass({
   fragmentShader: aberrationFrag,
 });
 composer.addPass(aberrationPass);
+
+// Horizon collapse: stretches the whole composited frame (cockpit included)
+// when the ship falls into the black hole. Disabled — zero cost — until it
+// fires (see the reset state machine below).
+const collapsePass = new ShaderPass({
+  uniforms: {
+    tDiffuse: { value: null },
+    uProgress: { value: 0 },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: collapseFrag,
+});
+collapsePass.enabled = false;
+composer.addPass(collapsePass);
+
 composer.addPass(new OutputPass());
 
 window.addEventListener('resize', () => {
@@ -136,6 +164,7 @@ if (import.meta.env.DEV) {
     blackhole,
     originOffset,
     paused: false,
+    warpInfo: () => ({ phase, warp }),
     // Run n physics ticks synchronously (origin maintenance included).
     step(n = 1) {
       for (let i = 0; i < n; i++) {
@@ -163,6 +192,30 @@ const MAX_FRAME_DELTA = 0.1; // tab-switch guard: never spiral the accumulator
 let last = performance.now();
 let accumulator = 0;
 
+// --- horizon collapse / reset (beyond GDD 4.5) ---
+// 'fly' -> (cross the horizon) -> 'collapse' (stretch) -> reset -> 'respawn'
+// (fade in at the start) -> 'fly'. Physics is frozen while warping; the
+// stretch pass carries the motion.
+let phase = 'fly';
+let warpT = 0;
+let warp = 0; // collapse pass progress, 0..1
+
+function resetToStart() {
+  ship.position.set(0, 0, 0);
+  ship.velocity.set(0, 0, 0);
+  ship.quaternion.identity();
+  ship.angularVelocity.set(0, 0, 0);
+  ship.properAccel.set(0, 0, 0);
+  originOffset.x = 0;
+  originOffset.y = 0;
+  originOffset.z = 0;
+  testMass.position.copy(START.testMass);
+  blackhole.group.position.copy(START.blackhole);
+  // snap the lagging camera to the ship so it doesn't slerp from the horizon
+  camera.position.copy(ship.position);
+  camera.quaternion.copy(ship.quaternion);
+}
+
 function frame(now) {
   requestAnimationFrame(frame);
   let delta = (now - last) / 1000;
@@ -172,11 +225,38 @@ function frame(now) {
     debug.recordFrame(delta);
     if (debug.paused) delta = 0;
   }
-  accumulator += delta;
-  while (accumulator >= DT) {
-    stepShip(DT);
-    accumulator -= DT;
+
+  if (phase === 'fly') {
+    accumulator += delta;
+    while (accumulator >= DT) {
+      stepShip(DT);
+      accumulator -= DT;
+    }
+    if (ship.position.distanceTo(blackhole.group.position) < C.HORIZON_CAPTURE) {
+      phase = 'collapse';
+      warpT = 0;
+    }
+  } else if (phase === 'collapse') {
+    warpT += delta;
+    warp = Math.min(warpT / C.COLLAPSE_TIME, 1);
+    if (warpT >= C.COLLAPSE_TIME) {
+      resetToStart();
+      phase = 'respawn';
+      warpT = 0;
+      accumulator = 0;
+    }
+  } else {
+    // respawn: unwind the stretch to reveal the fresh start
+    warpT += delta;
+    warp = 1 - Math.min(warpT / C.RESPAWN_TIME, 1);
+    if (warpT >= C.RESPAWN_TIME) {
+      phase = 'fly';
+      warp = 0;
+    }
   }
+  collapsePass.enabled = warp > 0.001;
+  collapsePass.uniforms.uProgress.value = warp;
+
   updateOrigin(ship);
   updateCamera(ship);
   updateCockpit(ship);
