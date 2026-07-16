@@ -32,18 +32,26 @@ const _dq = new THREE.Quaternion();
 
 let wasWarping = false;
 
-export function stepShip(dt) {
+// piloted=false while the pilot is out of the seat (interior.js): controls
+// and mouse torque disengage — the walk controller owns the mouse — but the
+// ship still coasts, falls, and feels the altitude floor. Attitude hold
+// gently settles any residual spin so the porthole view calms down.
+export function stepShip(dt, piloted = true) {
   const av = ship.angularVelocity;
 
-  // --- torque, not rotation (GDD 3.1) ---
-  // Accumulated mouse travel becomes an angular-velocity impulse. Mouse
-  // right yaws right (-Y), mouse up pitches up (+X, FPS convention).
-  av.y -= input.mouseX * C.TORQUE_SCALE;
-  av.x -= input.mouseY * C.TORQUE_SCALE;
-  input.mouseX = 0;
-  input.mouseY = 0;
-  const roll = (input.rollLeft ? 1 : 0) - (input.rollRight ? 1 : 0);
-  av.z += roll * C.ROLL_TORQUE;
+  if (piloted) {
+    // --- torque, not rotation (GDD 3.1) ---
+    // Accumulated mouse travel becomes an angular-velocity impulse. Mouse
+    // right yaws right (-Y), mouse up pitches up (+X, FPS convention).
+    av.y -= input.mouseX * C.TORQUE_SCALE;
+    av.x -= input.mouseY * C.TORQUE_SCALE;
+    input.mouseX = 0;
+    input.mouseY = 0;
+    const roll = (input.rollLeft ? 1 : 0) - (input.rollRight ? 1 : 0);
+    av.z += roll * C.ROLL_TORQUE;
+  } else {
+    av.multiplyScalar(C.INTERIOR_SPIN_CALM); // attitude hold
+  }
 
   // Angular damping bleeds rotation off after input stops.
   av.multiplyScalar(C.ANGULAR_DAMPING);
@@ -55,7 +63,7 @@ export function stepShip(dt) {
 
   ship.properAccel.set(0, 0, 0);
 
-  if (input.warp) {
+  if (input.warp && piloted) {
     // --- warp (user mechanic): boost x100, stops dead on release ---
     // Velocity slews toward WARP_SPEED along the nose, ignoring the soft cap
     // and normal thrust. The altitude floor still arrests a warp dive.
@@ -72,7 +80,8 @@ export function stepShip(dt) {
     }
 
     // --- thrust along local forward (GDD 3.1) ---
-    const throttle = (input.forward ? 1 : 0) - (input.reverse ? 1 : 0);
+    // W/S belong to the walk controller while unpiloted.
+    const throttle = piloted ? (input.forward ? 1 : 0) - (input.reverse ? 1 : 0) : 0;
     const thrustMag = C.THRUST * (input.boost ? C.BOOST_MULTIPLIER : 1);
     if (throttle !== 0) {
       _fwd.set(0, 0, -1).applyQuaternion(ship.quaternion);
@@ -97,7 +106,7 @@ export function stepShip(dt) {
     // Same engine authority as thrust, aimed against the velocity vector,
     // clamped so it never pushes through zero. No cap falloff — it only
     // ever decreases speed.
-    if (input.brake) {
+    if (input.brake && piloted) {
       const speed = ship.velocity.length();
       if (speed > 0) {
         const dv = thrustMag * dt;

@@ -28,6 +28,8 @@ export const C = {
 
   // --- camera ---
   FOV: 70,
+  LOOK_UP_ANGLE: 1.15, // rad (~66°): head pitch at full hold-V overhead glance
+  LOOK_UP_EASE: 0.1, // per-frame ease toward/away from the look-up pose
   BOOST_PULLBACK: 0.08, // tiny sink-back on boost — you stay in the seat, not pulled out
   BOOST_FOV: 13.0, // extra FOV on boost: widens to reveal the cockpit while first-person
   FRAME_FADE: 0.12, // per-frame ease of the boost cockpit image fading in/out
@@ -99,7 +101,22 @@ export const C = {
   CRACK_AT: 0.75, // heat fraction where the canopy cracks (mid-countdown)
   EXPLODE_TIME: 1.2, // seconds of flash/shake before the menu
 
-  // --- on-foot walk mode (proof-of-concept) ---
+  // --- ship interior walk (C) — owner override of GDD 1.2 ---
+  // C stands you up out of the seat; the ship coasts on attitude hold while
+  // you walk the corridor. Movement is clamped to the interior's two rooms —
+  // simple range clamps, not a collision system. Named INTERIOR_* to stay
+  // distinct from the on-foot planet walk below (different feature, WALK_*).
+  INTERIOR_SPEED: 1.7, // u/s — interior scale is roughly metres
+  INTERIOR_MOUSE_SENS: 0.0022, // rad of head-turn per pixel, in the corridor
+  INTERIOR_PITCH_MAX: 1.35, // rad, look up/down clamp while walking the ship
+  INTERIOR_SPIN_CALM: 0.985, // extra per-tick angular damping while out of the seat
+  SEAT_RADIUS: 0.9, // sit back down within this distance of the seat
+  STAND_TIME: 0.6, // seconds, seat <-> stand camera blend
+
+  // --- mining station (Foundry Anchorage) ---
+  MINE_BEAM_CYCLE: 7.0, // seconds each mining beam dwells on an excavation point
+
+  // --- on-foot planet walk (G) — proof-of-concept ---
   // Disembark the ship (G) while flying low and slow over a rocky planet and
   // walk its terrain on foot; G again to board and fly off. Kinematic walker:
   // feet snap to the terrain height terrain.js reports (the same field the
