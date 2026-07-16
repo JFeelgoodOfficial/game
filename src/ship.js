@@ -77,12 +77,16 @@ export function stepShip(dt) {
     if (throttle !== 0) {
       _fwd.set(0, 0, -1).applyQuaternion(ship.quaternion);
       _thrust.copy(_fwd).multiplyScalar(throttle * thrustMag);
-      // Soft speed cap (GDD 3.2): above SOFT_CAP_SPEED, thrust that would
-      // increase speed fades smoothly to zero by 1.5× the cap. Decelerating
-      // thrust keeps full authority — the engine tops out, it doesn't wall.
+      // Soft speed cap (GDD 3.2): above the cap, thrust that would increase
+      // speed fades smoothly to zero by 1.5× the cap. Decelerating thrust
+      // keeps full authority — the engine tops out, it doesn't wall. Boost
+      // doubles the cap too, so "twice as fast" holds for top speed, not
+      // just acceleration; dropping boost doesn't brake you, the falloff
+      // just stops adding speed while you coast back down.
+      const cap = C.SOFT_CAP_SPEED * (input.boost ? 2 : 1);
       const speed = ship.velocity.length();
-      if (speed > C.SOFT_CAP_SPEED && _thrust.dot(ship.velocity) > 0) {
-        const t = Math.min((speed - C.SOFT_CAP_SPEED) / (C.SOFT_CAP_SPEED * 0.5), 1);
+      if (speed > cap && _thrust.dot(ship.velocity) > 0) {
+        const t = Math.min((speed - cap) / (cap * 0.5), 1);
         _thrust.multiplyScalar(1 - t * t * (3 - 2 * t));
       }
       ship.properAccel.add(_thrust);
