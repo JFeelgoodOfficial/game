@@ -32,7 +32,9 @@ import { initPlanets, updatePlanets, atmosphereAt, planets, SUN } from './planet
 import { initSun, sunAltitude } from './sun.js';
 import { initStations, updateStations } from './stations.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
-import { startMusic } from './music.js';
+import { startMusic, nextTrack, prevTrack, currentTitle } from './music.js';
+import { initRadio, updateRadio } from './radio.js';
+import { initNav, updateNav, navState } from './nav.js';
 import lensingFrag from './shaders/lensing.frag?raw';
 import aberrationFrag from './shaders/aberration.frag?raw';
 import collapseFrag from './shaders/collapse.frag?raw';
@@ -64,6 +66,8 @@ snapshotShiftables();
 initInput(renderer.domElement);
 initTuning();
 initCockpitFrame();
+initRadio();
+initNav();
 
 // --- composer (GDD 4.4) ---
 const composer = new EffectComposer(renderer);
@@ -192,6 +196,8 @@ if (import.meta.env.DEV) {
     originOffset,
     paused: false,
     warpInfo: () => ({ phase, warp, heat }),
+    radio: { nextTrack, prevTrack, currentTitle },
+    navState,
     launch: () => {
       resetToStart();
       accumulator = 0;
@@ -354,12 +360,20 @@ function frame(now) {
     camera.position.z += Math.sin(now * 0.071 + 4.4) * s;
   }
   updateCockpit(ship);
-  // boost swaps the minimal 3D cockpit for the full instrument-cockpit image
-  cockpitGroup.visible = updateCockpitFrame(ship, delta) < 0.3;
+  // The instrument cockpit is the resting view; boost/warp fades it out for
+  // the clear window (inverted at the user's request). The dashboard
+  // consoles (radio, NAV) ride the same fade — they live on the dash.
+  const frameBlend = updateCockpitFrame(ship, delta, phase !== 'menu');
+  cockpitGroup.visible = frameBlend < 0.3;
+  updateRadio(frameBlend, phase === 'fly');
   updateStarfield(camera, renderer.getPixelRatio());
   updateNebula(camera);
   updatePlanets(now / 1000);
   updateStations(now / 1000);
+  // nav AFTER the stations are placed: a reset snaps orbiting stations back
+  // to their snapshot spot for one frame, and a discovery check reading that
+  // stale position would log everything sitting at the spawn point
+  updateNav(ship, delta, phase === 'fly', frameBlend);
   camera.updateMatrixWorld();
   camera.matrixWorldInverse.copy(camera.matrixWorld).invert(); // fresh for projection
   updateBlackHole(camera, lensPass.uniforms, now / 1000);

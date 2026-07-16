@@ -1,7 +1,10 @@
-// Full cockpit view on boost — the user-provided instrument-cockpit image
-// (a deliberate exception to GDD 2's all-procedural rule, at the user's
-// request) with the window panes cut transparent so the live scene shows
-// through. Fades in while boosting; the minimal 3D cockpit hides while the
+// The instrument cockpit — the user-provided image (a deliberate exception
+// to GDD 2's all-procedural rule, at the user's request) with the window
+// panes cut transparent so the live scene shows through. This is the
+// DEFAULT view now: it's up at idle and normal flight so the dashboard
+// (radio, NAV, WARP) is visible and clickable, and it fades OUT under
+// boost/warp for the clear forward-window view — inverted from the original
+// behaviour at the user's request. The minimal 3D cockpit hides while the
 // frame is up so interiors don't double.
 //
 // A small translate parallax from the ship's angular velocity keeps the
@@ -46,9 +49,11 @@ export function initCockpitFrame() {
 }
 
 // Returns the current blend (0..1) so main.js can hide the 3D cockpit.
-export function updateCockpitFrame(ship, delta) {
-  const target =
-    input.warp || (input.boost && (input.forward || input.reverse)) ? 1 : 0;
+// `active` is false on the menu, where the scene idles as a clean backdrop.
+export function updateCockpitFrame(ship, delta, active) {
+  const speedView =
+    input.warp || (input.boost && (input.forward || input.reverse));
+  const target = active && !speedView ? 1 : 0;
   // time-based ease so the fade speed is framerate-independent
   blend += (target - blend) * Math.min(C.FRAME_FADE * delta * 60, 1);
   if (blend < 0.005 && target === 0) blend = 0;

@@ -10,7 +10,7 @@ export const C = {
   LINEAR_DAMPING: 1.0, // exactly 1.0. no drag in vacuum.
   TORQUE_SCALE: 0.0008, // rad/s of angular velocity per pixel of mouse travel
   THRUST: 12.0, // units/s^2 along local forward
-  BOOST_MULTIPLIER: 3.5,
+  BOOST_MULTIPLIER: 7.0, // doubled at the user's request — boost is twice as fast
   CAMERA_LAG: 0.12, // slerp factor, camera toward ship rotation
   CAMERA_DRIFT: 0.03, // positional offset under acceleration
   G: 35.0, // scaled, not real. tune for play. Lowered from an initial 400:
