@@ -10,13 +10,14 @@ export const input = {
   reverse: false, // S
   rollLeft: false, // Q
   rollRight: false, // E
+  left: false, // A — strafe left, walk modes only (planet on-foot + ship interior; unused in flight)
+  right: false, // D — strafe right, walk modes only (planet on-foot + ship interior; unused in flight)
   boost: false, // Shift
-  brake: false, // Space — counter-thrust, held
+  brake: false, // Space — counter-thrust in flight; jump on foot
   warp: false, // F (or the on-screen WARP button) — boost x100, stops dead on release
   lookUp: false, // V, held — glance up through the overhead window
-  left: false, // A — strafe, walk mode only (unbound in flight)
-  right: false, // D — strafe, walk mode only
-  interactPressed: false, // G, one-shot — stand up / sit down (main.js clears)
+  toggleWalk: false, // G edge-trigger: disembark onto a planet / board. main.js reads and zeroes it.
+  toggleInterior: false, // C edge-trigger: stand up in the ship / sit back down. main.js reads and zeroes it.
   mouseX: 0, // accumulated pixels since last consume
   mouseY: 0,
 };
@@ -51,14 +52,16 @@ function setKey(e, down) {
     case 'KeyS': input.reverse = down; break;
     case 'KeyQ': input.rollLeft = down; break;
     case 'KeyE': input.rollRight = down; break;
+    case 'KeyA': input.left = down; break;
+    case 'KeyD': input.right = down; break;
     case 'ShiftLeft':
     case 'ShiftRight': input.boost = down; break;
     case 'Space': input.brake = down; e.preventDefault(); break;
     case 'KeyF':
     case 'KeyJ': input.warp = down; break;
     case 'KeyV': input.lookUp = down; break;
-    case 'KeyA': input.left = down; break;
-    case 'KeyD': input.right = down; break;
-    case 'KeyG': if (down) input.interactPressed = true; break;
+    // G and C are edge-triggered on keydown only; main.js consumes and zeroes them.
+    case 'KeyG': if (down) input.toggleWalk = true; break; // disembark onto a planet
+    case 'KeyC': if (down) input.toggleInterior = true; break; // stand up in the ship
   }
 }

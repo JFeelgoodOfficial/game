@@ -50,7 +50,7 @@ export function stepShip(dt, piloted = true) {
     const roll = (input.rollLeft ? 1 : 0) - (input.rollRight ? 1 : 0);
     av.z += roll * C.ROLL_TORQUE;
   } else {
-    av.multiplyScalar(C.WALK_SPIN_CALM); // attitude hold
+    av.multiplyScalar(C.INTERIOR_SPIN_CALM); // attitude hold
   }
 
   // Angular damping bleeds rotation off after input stops.

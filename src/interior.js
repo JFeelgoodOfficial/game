@@ -1,7 +1,8 @@
 // The walkable ship interior (owner override of GDD 1.2 "no walking").
-// Press G to stand up out of the pilot seat, walk the corridor behind the
+// Press C to stand up out of the pilot seat, walk the corridor behind the
 // cockpit — framed pictures on the walls, portholes showing live space —
-// and walk back to the seat to sit down and fly again.
+// and walk back to the seat to sit down and fly again. (G is the separate
+// on-foot planet walk in walk.js — different feature, different key.)
 //
 // Architecture mirrors cockpit.js: the interior lives in its own scene,
 // composited over the lensed world by a second CockpitOverlayPass, so every
@@ -330,13 +331,13 @@ export function updateInterior(ship) {
 // Blend the camera from the seated pose (already written by updateCamera
 // this frame) toward the standing/walking pose. ownsMouse is true once the
 // ship's controls have disengaged — exactly one consumer of the mouse.
-export function updateWalkCamera(ship, delta, blend, ownsMouse) {
+export function updateInteriorCamera(ship, delta, blend, ownsMouse) {
   if (blend <= 0) return;
 
   if (ownsMouse) {
-    player.yaw -= input.mouseX * C.WALK_MOUSE_SENS;
-    player.pitch -= input.mouseY * C.WALK_MOUSE_SENS;
-    player.pitch = Math.max(-C.WALK_PITCH_MAX, Math.min(C.WALK_PITCH_MAX, player.pitch));
+    player.yaw -= input.mouseX * C.INTERIOR_MOUSE_SENS;
+    player.pitch -= input.mouseY * C.INTERIOR_MOUSE_SENS;
+    player.pitch = Math.max(-C.INTERIOR_PITCH_MAX, Math.min(C.INTERIOR_PITCH_MAX, player.pitch));
     input.mouseX = 0;
     input.mouseY = 0;
 
@@ -349,7 +350,7 @@ export function updateWalkCamera(ship, delta, blend, ownsMouse) {
       _fwd2.x = -sy * fwd + cy * strafe;
       _fwd2.z = -cy * fwd - sy * strafe;
       const len = Math.hypot(_fwd2.x, _fwd2.z);
-      const step = (C.WALK_SPEED * delta * blend) / len;
+      const step = (C.INTERIOR_SPEED * delta * blend) / len;
       player.pos.x += _fwd2.x * step;
       player.pos.z += _fwd2.z * step;
       clampToInterior(player.pos);

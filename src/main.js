@@ -31,7 +31,7 @@ import {
   interiorScene,
   initInterior,
   updateInterior,
-  updateWalkCamera,
+  updateInteriorCamera,
   nearSeat,
   resetPlayer,
   playerState,
@@ -39,6 +39,7 @@ import {
 } from './interior.js';
 import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
 import { initPlanets, updatePlanets, atmosphereAt, planets, SUN } from './planet.js';
+import { walk, nearestTerraFloor, enterWalk, exitWalk, stepWalk, updateWalkCamera } from './walk.js';
 import { initSun, sunAltitude } from './sun.js';
 import { initStations, updateStations } from './stations.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
@@ -214,7 +215,8 @@ if (import.meta.env.DEV) {
     originOffset,
     paused: false,
     warpInfo: () => ({ phase, warp, heat }),
-    walk: {
+    // ship-interior walk (C); the on-foot planet walk (G) is `walk` below
+    interior: {
       playerState,
       isStanding: () => standing,
       blend: () => standBlend,
@@ -236,6 +238,32 @@ if (import.meta.env.DEV) {
       for (let i = 0; i < n; i++) {
         stepShip(DT, standBlend < 0.2);
         updateOrigin(ship);
+      }
+    },
+    // On-foot walk mode, for headless verification.
+    walk,
+    walkHere() {
+      const floor = nearestTerraFloor(ship.position);
+      if (floor) {
+        enterWalk(floor.planet);
+        heat = 0;
+        phase = 'walk';
+        accumulator = 0;
+      }
+      return floor;
+    },
+    walkStep(n = 1) {
+      for (let i = 0; i < n; i++) {
+        stepWalk(DT);
+        updateOrigin(ship);
+      }
+    },
+    walkExit() {
+      if (phase === 'walk') {
+        exitWalk(camera);
+        snapCamera(ship);
+        phase = 'fly';
+        accumulator = 0;
       }
     },
     recordFrame(delta) {
@@ -277,7 +305,7 @@ let deathReason = ''; // set when the burn wins; shown on the menu
 // capture, nav, and the accumulator must all keep running.
 let standing = false;
 let standBlend = 0; // seat <-> stand camera blend, 0..1
-let promptTimer = 0; // shows "G — STAND" briefly after each launch
+let promptTimer = 0; // shows "C — STAND" briefly after each launch
 
 function resetToStart() {
   ship.position.set(0, 0, 0);
@@ -291,7 +319,7 @@ function resetToStart() {
   standBlend = 0;
   promptTimer = 6; // remind the pilot the corridor exists
   resetPlayer();
-  input.interactPressed = false;
+  input.toggleInterior = false;
   // snap the lagging camera to the ship so it doesn't slerp from the horizon
   snapCamera(ship);
 }
@@ -317,11 +345,10 @@ function frame(now) {
 
   let flashAmt = 0;
   if (phase === 'fly') {
-    // G: stand up out of the seat / sit back down at it. Standing is
+    // C: stand up out of the seat / sit back down at it. Standing is
     // blocked at warp (nobody walks at 10,000 u/s); sitting requires being
-    // back at the chair.
-    if (input.interactPressed) {
-      input.interactPressed = false;
+    // back at the chair. Consumed once per frame at the bottom of the loop.
+    if (input.toggleInterior) {
       if (!standing && !input.warp) standing = true;
       else if (standing && nearSeat()) standing = false;
     }
@@ -362,6 +389,35 @@ function frame(now) {
       phase = 'explode';
       warpT = 0;
     }
+    // Disembark onto a rocky planet (G) when flying low and slow enough.
+    // Only from the pilot seat — sit back down before stepping outside.
+    if (input.toggleWalk && !standing && standBlend < 0.05) {
+      const floor = nearestTerraFloor(ship.position);
+      if (
+        floor &&
+        floor.altitude < C.WALK_LAND_ALTITUDE &&
+        ship.velocity.length() < C.WALK_LAND_SPEED
+      ) {
+        enterWalk(floor.planet);
+        heat = 0;
+        phase = 'walk';
+        accumulator = 0;
+      }
+    }
+  } else if (phase === 'walk') {
+    // On foot: fixed-timestep walker, same 60hz loop shape as flight.
+    accumulator += delta;
+    while (accumulator >= DT) {
+      stepWalk(DT);
+      accumulator -= DT;
+    }
+    if (input.toggleWalk) {
+      // Board the ship and hand control back to flight.
+      exitWalk(camera);
+      snapCamera(ship); // resync the camera-lag state exitWalk set directly
+      phase = 'fly';
+      accumulator = 0;
+    }
   } else if (phase === 'collapse') {
     warpT += delta;
     warp = Math.min(warpT / C.COLLAPSE_TIME, 1);
@@ -388,6 +444,9 @@ function frame(now) {
     }
   }
   // menu phase: nothing to advance; the scene idles as a backdrop.
+  // Consume both walk toggles exactly once per frame, in any phase.
+  input.toggleWalk = false;
+  input.toggleInterior = false;
   collapsePass.enabled = warp > 0.001;
   collapsePass.uniforms.uProgress.value = warp;
   // heat 0..0.5 = warning banner; 0.5..1 = the flashing cockpit countdown
@@ -401,11 +460,16 @@ function frame(now) {
   updateHeatUI(heatShown, C.CRACK_AT, flashAmt, countdownLeft);
 
   updateOrigin(ship);
-  updateCamera(ship);
-  // interior rides the ship; the walk camera blends over the seated pose
-  // (shake and turbulence below still add on top — the corridor rattles too)
-  updateInterior(ship);
-  updateWalkCamera(ship, delta, standBlend, standBlend >= 0.2 && phase === 'fly');
+  if (phase === 'walk') {
+    // On foot on a planet — the walker owns the camera (walk.js).
+    updateWalkCamera(camera);
+  } else {
+    updateCamera(ship);
+    // interior rides the ship; the walk camera blends over the seated pose
+    // (shake and turbulence below still add on top — the corridor rattles too)
+    updateInterior(ship);
+    updateInteriorCamera(ship, delta, standBlend, standBlend >= 0.2 && phase === 'fly');
+  }
   // hull-stress shake: time-hashed jitter, ramping in past half heat
   const shake = Math.max(heat - 0.5, 0) * 2 + (phase === 'explode' ? 1.5 : 0);
   if (shake > 0) {
@@ -417,23 +481,34 @@ function frame(now) {
   updateCockpit(ship);
   // The instrument cockpit is the resting view; boost/warp fades it out for
   // the clear window (inverted at the user's request). The dashboard
-  // consoles (radio, NAV) ride the same fade — they live on the dash.
-  const frameBlend = updateCockpitFrame(ship, delta, phase !== 'menu', standBlend);
-  // standing swaps the seated canopy overlay for the interior overlay
-  interiorPass.enabled = standBlend > 0.001;
-  cockpitPass.enabled = !interiorPass.enabled;
-  cockpitGroup.visible = frameBlend < 0.3;
-  updateRadio(frameBlend, phase === 'fly');
-  // the G prompt: a launch reminder while seated, "SIT" back at the chair
-  if (phase === 'fly') {
-    if (standing) {
-      setPrompt(standBlend > 0.5 && nearSeat() ? 'G — SIT' : null);
-    } else {
-      setPrompt(promptTimer > 0 ? 'G — STAND UP' : null);
-      if (promptTimer > 0) promptTimer -= delta;
-    }
-  } else {
+  // consoles (radio, NAV) ride the same fade — they live on the dash. On
+  // foot on a planet the whole ship overlay hides; standing in the ship
+  // swaps the seated canopy for the interior overlay.
+  let frameBlend;
+  if (phase === 'walk') {
+    frameBlend = updateCockpitFrame(ship, delta, false); // fade the frame image out
+    cockpitGroup.visible = false;
+    cockpitPass.enabled = false;
+    interiorPass.enabled = false;
+    updateRadio(frameBlend, false);
     setPrompt(null);
+  } else {
+    frameBlend = updateCockpitFrame(ship, delta, phase !== 'menu', standBlend);
+    interiorPass.enabled = standBlend > 0.001;
+    cockpitPass.enabled = !interiorPass.enabled;
+    cockpitGroup.visible = frameBlend < 0.3;
+    updateRadio(frameBlend, phase === 'fly');
+    // the C prompt: a launch reminder while seated, "SIT" back at the chair
+    if (phase === 'fly') {
+      if (standing) {
+        setPrompt(standBlend > 0.5 && nearSeat() ? 'C — SIT' : null);
+      } else {
+        setPrompt(promptTimer > 0 ? 'C — STAND UP' : null);
+        if (promptTimer > 0) promptTimer -= delta;
+      }
+    } else {
+      setPrompt(null);
+    }
   }
   updateStarfield(camera, renderer.getPixelRatio());
   updateNebula(camera);

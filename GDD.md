@@ -25,18 +25,22 @@ If a player flies for two minutes and says "that felt like a real ship," the pro
 Permanent. These are what kill hobby space games, and several were considered and cut:
 
 - Combat, weapons, enemy ships
-- EVA — leaving the ship
-- Walking outside the ship, on planets or anywhere exterior.
+- EVA — leaving the ship in open space
+- Walking, on planets or anywhere.
   > **Owner override (2026-07):** the original cut here was "never leave the
-  > cockpit." The owner has since requested — and the project now has — a
-  > walkable *interior*: press G to stand up, walk the corridor behind the
-  > seat (pictures on the walls, portholes and an aft window showing live
-  > space), and sit back down to fly (`interior.js`). This is not EVA and
-  > not planet-walking, both of which stay cut. Movement is range-clamped
-  > to the two rooms — three axis clamps, no intersection tests — so the
-  > "no collision system" rule below still holds. While the pilot is out of
-  > the seat the ship coasts on attitude hold; gravity, heat, and the black
-  > hole stay live.
+  > cockpit." Two walk modes have since been added, on separate keys:
+  > - **C — ship interior** (`interior.js`): stand up from the seat, walk the
+  >   corridor behind the cockpit (pictures on the walls, portholes and an aft
+  >   window showing live space), sit back down to fly. Movement is
+  >   range-clamped to the two rooms — three axis clamps, no intersection
+  >   tests — so the "no collision system" rule below still holds. The ship
+  >   coasts on attitude hold while you're up; gravity, heat, and the black
+  >   hole stay live.
+  > - **G — on-foot planet walk** (`walk.js`): disembark over a rocky planet
+  >   when low and slow, walk its terrain (feet snap to the terrain height
+  >   field the surface shader already uses — a snap-to-ground, not a general
+  >   collider), G again to board. This is the one exception to "never leave
+  >   the ship"; EVA in open space stays cut.
 - **Landing.** The ship never touches down. See 1.3.
 - Collision of any kind. Nothing in this project can be crashed into.
 - Multiplayer
@@ -219,10 +223,12 @@ No instruments, no HUD. If a speed indicator proves necessary, it is diegetic �
 Since the player never leaves, the cockpit is the only part of the ship that is ever seen. There is no exterior and none needs to be built. This is a significant saving and a direct consequence of cutting EVA.
 
 > **Owner override (2026-07):** the interior grew beyond the canopy — see the
-> §1.2 note. The ship now has a walkable corridor (`interior.js`) rendered as
-> a second overlay scene, an overhead canopy window glanced at by holding V,
-> and there is still no ship exterior. A seventh station, Foundry Anchorage,
-> adds an asteroid being actively mined (`stations.js`).
+> §1.2 note. The ship now has a walkable corridor (`interior.js`, key C)
+> rendered as a second overlay scene, and an overhead canopy window glanced
+> at by holding V. There is still no modeled ship *exterior* — the on-foot
+> planet walk (`walk.js`, key G) reuses the pilot as a ground camera and
+> never shows the ship's hull. A seventh station, Foundry Anchorage, adds an
+> asteroid being actively mined (`stations.js`).
 
 ### 4.4 Post-processing
 
