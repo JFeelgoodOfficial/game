@@ -101,6 +101,9 @@ export const C = {
   CRACK_AT: 0.75, // heat fraction where the canopy cracks (mid-countdown)
   EXPLODE_TIME: 1.2, // seconds of flash/shake before the menu
 
+  // --- mining station (Foundry Anchorage) ---
+  MINE_BEAM_CYCLE: 7.0, // seconds each mining beam dwells on an excavation point
+
   // --- altitude floor (GDD 5.1) ---
   // Strictly a Phase 5 mechanic, pulled forward on request so the test mass
   // reads as a planet you skim rather than one you fly through. Thickening

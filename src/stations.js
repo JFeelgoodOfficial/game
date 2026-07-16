@@ -1,7 +1,7 @@
 // Space stations — procedural geometry, lit by the sun's directional light
 // (standard materials), with emissive accent strips that catch the bloom.
 // No gravity, no collision (GDD 1.2): scenery you can fly around and
-// through. Six of them:
+// through. Seven of them:
 //   - Port Feelgood: a 1.4km open-truss drydock between terra and oceana —
 //     the bore is a wide open tunnel you fly straight through, past lit
 //     docking bays and a handful of parked ships.
@@ -10,6 +10,9 @@
 //   - Relay KX-7: a small deep-space relay on the route to the black hole.
 //   - Frostwatch Relay: a listening post hanging off glacia.
 //   - Halcyon Platform: a survey platform in neptunia's shadow.
+//   - Foundry Anchorage: a mining rig built around an asteroid off rustia —
+//     beams carve at glowing excavation pits, a debris stream rises to the
+//     hopper, and two shuttles loop between the rock face and the dock.
 
 import * as THREE from 'three';
 import { C } from './constants.js';
@@ -227,6 +230,225 @@ function megaStation() {
   return g;
 }
 
+// --- Foundry Anchorage: the asteroid mine ---
+// A displaced icosahedron rock caged by two hexagonal gantry rings. Mining
+// beams from pods on the rings track excavation pits that rotate with the
+// rock, a debris stream climbs to the hopper under the habitat, and two ore
+// shuttles fly opposed loops between the rock face and the dock arm.
+
+const emberMat = new THREE.MeshBasicMaterial({ color: 0xffa050 });
+const beamMat = new THREE.MeshBasicMaterial({
+  color: 0xffa050,
+  transparent: true,
+  opacity: 0.7,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+
+// scratch for the per-frame beam/shuttle math — zero alloc in updateStations
+const _v1 = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _v3 = new THREE.Vector3();
+const _v4 = new THREE.Vector3();
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const NEG_Z = new THREE.Vector3(0, 0, -1);
+
+function miningStation() {
+  const g = new THREE.Group();
+
+  // the rock: icosahedron with radially hashed displacement (deterministic,
+  // so resets and reloads carve the same asteroid)
+  const rockGeo = new THREE.IcosahedronGeometry(90, 2);
+  const pos = rockGeo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    _v1.fromBufferAttribute(pos, i);
+    const h =
+      Math.sin(_v1.x * 12.9898 + _v1.y * 78.233 + _v1.z * 37.719) * 43758.5453;
+    const n = h - Math.floor(h); // 0..1
+    _v1.multiplyScalar(0.8 + n * 0.4); // ±20%
+    pos.setXYZ(i, _v1.x, _v1.y, _v1.z);
+  }
+  rockGeo.computeVertexNormals();
+  const rockMat = new THREE.MeshStandardMaterial({
+    color: 0x6e6259,
+    roughness: 0.95,
+    metalness: 0.1,
+  });
+  const rock = new THREE.Mesh(rockGeo, rockMat);
+  g.add(rock);
+
+  // excavation pits: ember spheres parented to the rock so they ride its
+  // rotation; the beams re-derive their world spot each frame
+  const pits = [
+    new THREE.Vector3(1, 0.25, 0.35).normalize().multiplyScalar(82),
+    new THREE.Vector3(-0.55, 0.6, -0.58).normalize().multiplyScalar(84),
+    new THREE.Vector3(0.15, -0.9, 0.4).normalize().multiplyScalar(80),
+  ];
+  const embers = pits.map((p) => {
+    const e = new THREE.Mesh(new THREE.SphereGeometry(6, 10, 8), emberMat);
+    e.position.copy(p);
+    rock.add(e);
+    return e;
+  });
+  // one warm light at the first pit for the glow-on-rock read
+  const pitLight = new THREE.PointLight(0xff8840, 3.0, 320, 1.8);
+  pitLight.position.copy(pits[0]).multiplyScalar(1.25);
+  g.add(pitLight);
+
+  // gantry: two hexagonal rings (6-segment torus) bracketing the rock,
+  // joined by four trusses at the corners
+  for (const zs of [-1, 1]) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(150, 8, 8, 6), hullMat);
+    ring.position.z = zs * 115;
+    g.add(ring);
+  }
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const truss = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 230, 6), darkMat);
+    truss.rotation.x = Math.PI / 2;
+    truss.position.set(Math.cos(a) * 150, Math.sin(a) * 150, 0);
+    g.add(truss);
+  }
+
+  // beam emitter pods on the rings, one per ring
+  const podPts = [new THREE.Vector3(0, 150, 115), new THREE.Vector3(-130, 75, -115)];
+  const beams = [];
+  for (const p of podPts) {
+    const pod = new THREE.Mesh(new THREE.SphereGeometry(9, 10, 8), darkMat);
+    pod.position.copy(p);
+    g.add(pod);
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(3.5, 8, 6), emberMat);
+    tip.position.copy(p).multiplyScalar(0.94);
+    g.add(tip);
+    // unit-length cylinder along Y, scaled/aimed at its pit every frame
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 1, 6, 1, true), beamMat);
+    g.add(beam);
+    beams.push(beam);
+  }
+
+  // habitat + hopper over the front ring, dock arm reaching +X
+  const habitat = new THREE.Mesh(new THREE.BoxGeometry(70, 30, 40), hullMat);
+  habitat.position.set(0, 185, 60);
+  g.add(habitat);
+  const habBand = new THREE.Mesh(new THREE.BoxGeometry(72, 5, 30), windowMat);
+  habBand.position.set(0, 180, 60);
+  g.add(habBand);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(4, 6, 60, 8), darkMat);
+  mast.position.set(0, 160, 92);
+  mast.rotation.x = 0.5;
+  g.add(mast);
+  const hopper = new THREE.Mesh(new THREE.ConeGeometry(16, 26, 8), darkMat);
+  hopper.position.set(0, 162, 45);
+  g.add(hopper);
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(130, 8, 10), darkMat);
+  arm.position.set(95, 185, 60);
+  g.add(arm);
+  const pads = [];
+  for (const xo of [120, 158]) {
+    const pad = new THREE.Mesh(new THREE.BoxGeometry(26, 3, 26), hullMat);
+    pad.position.set(xo, 190, 60);
+    g.add(pad);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(2.2, 8, 6), glowMat);
+    lamp.position.set(xo, 194, 48);
+    g.add(lamp);
+    pads.push(pad.position);
+  }
+
+  // debris stream: one Points draw, particles advected in the vertex shader
+  // from the top of the rock to the hopper mouth (starfield discipline —
+  // one uniform write per frame, zero CPU work)
+  const N = 240;
+  const debrisGeo = new THREE.BufferGeometry();
+  debrisGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3));
+  const offs = new Float32Array(N);
+  for (let i = 0; i < N; i++) offs[i] = i / N;
+  debrisGeo.setAttribute('aOffset', new THREE.BufferAttribute(offs, 1));
+  debrisGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 110, 20), 260);
+  const debrisMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    transparent: true,
+    depthWrite: false,
+    vertexShader: /* glsl */ `
+      uniform float uTime;
+      attribute float aOffset;
+      varying float vFade;
+      float hash(float n) { return fract(sin(n * 127.1) * 43758.5453); }
+      void main() {
+        float f = fract(aOffset + uTime * 0.045);
+        vec3 a = vec3(0.0, 78.0, 0.0);      // lifted off the rock
+        vec3 b = vec3(0.0, 158.0, 43.0);    // the hopper mouth
+        float h1 = hash(aOffset), h2 = hash(aOffset + 1.7), h3 = hash(aOffset + 3.1);
+        vec3 jitter = (vec3(h1, h2, h3) - 0.5) * vec3(46.0, 20.0, 46.0) * (1.0 - f);
+        vec3 p = mix(a, b, f) + jitter;
+        vFade = sin(f * 3.14159);
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_PointSize = clamp(140.0 / -mv.z, 0.5, 4.0);
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying float vFade;
+      void main() {
+        vec2 d = gl_PointCoord - 0.5;
+        if (dot(d, d) > 0.25) discard;
+        gl_FragColor = vec4(0.72, 0.62, 0.52, vFade * 0.8);
+      }
+    `,
+  });
+  const debris = new THREE.Points(debrisGeo, debrisMat);
+  g.add(debris);
+
+  // two ore shuttles on opposed elliptical loops, rock face <-> dock pads
+  const shuttles = [];
+  for (let i = 0; i < 2; i++) {
+    const s = dockedShip(0.5, 0x82f7ff);
+    g.add(s);
+    shuttles.push(s);
+  }
+  const pathA = pads[0]; // dock end of the loop
+  const pathB = new THREE.Vector3(74, 10, 8); // just off the rock face
+
+  // per-frame animation: beams track their (rotating) pits, embers pulse,
+  // debris advects, shuttles fly the loop
+  function anim(t) {
+    rock.rotation.y = t * 0.02;
+    const rc = Math.cos(rock.rotation.y);
+    const rs = Math.sin(rock.rotation.y);
+    for (let i = 0; i < beams.length; i++) {
+      const pit = pits[(Math.floor(t / C.MINE_BEAM_CYCLE) + i) % pits.length];
+      // the pit point, rotated with the rock (hand-rolled rotateY)
+      _v1.set(pit.x * rc + pit.z * rs, pit.y, -pit.x * rs + pit.z * rc);
+      _v2.copy(podPts[i]);
+      _v3.subVectors(_v1, _v2);
+      const len = _v3.length();
+      const beam = beams[i];
+      beam.scale.set(1, len, 1);
+      beam.quaternion.setFromUnitVectors(Y_AXIS, _v3.multiplyScalar(1 / len));
+      beam.position.addVectors(_v2, _v1).multiplyScalar(0.5);
+    }
+    for (let i = 0; i < embers.length; i++) {
+      embers[i].scale.setScalar(1 + 0.3 * Math.sin(t * 7 + i * 2.1));
+    }
+    debrisMat.uniforms.uTime.value = t;
+    for (let i = 0; i < shuttles.length; i++) {
+      const th = t * 0.22 + i * Math.PI; // opposed phases
+      const ct = Math.cos(th);
+      const st = Math.sin(th);
+      // ellipse through the dock pad (th=0) and the rock face (th=pi)
+      _v1.addVectors(pathA, pathB).multiplyScalar(0.5); // center
+      _v2.subVectors(pathA, pathB).multiplyScalar(0.5); // semi-major
+      _v3.set(-_v2.y * 0.3, _v2.x * 0.3, 55); // out-of-plane semi-minor
+      const sh = shuttles[i];
+      sh.position.copy(_v1).addScaledVector(_v2, ct).addScaledVector(_v3, st);
+      // nose along the path tangent
+      _v4.copy(_v2).multiplyScalar(-st).addScaledVector(_v3, ct).normalize();
+      sh.quaternion.setFromUnitVectors(NEG_Z, _v4);
+    }
+  }
+
+  return { group: g, anim };
+}
+
 export function initStations(scene) {
   // Port Feelgood: parked on the terra→oceana run, bore aimed down the
   // route so travellers fly straight through. No spin — the fixed
@@ -294,6 +516,20 @@ export function initStations(scene) {
     planetIndex: 5,
   });
 
+  // Foundry Anchorage: the asteroid mine, anchored off rustia — the iron
+  // world is where the ore is. spin: 0 like Port Feelgood: the beams are
+  // aimed geometry, so the frame stays put while the rock turns inside it.
+  const foundry = miningStation();
+  stations.push({
+    group: foundry.group,
+    name: 'Foundry Anchorage',
+    logDist: 1600,
+    spin: 0,
+    offset: new THREE.Vector3(-3000, 800, 2200),
+    planetIndex: 3,
+    anim: foundry.anim,
+  });
+
   for (const s of stations) {
     scene.add(s.group);
     addShiftable(s.group);
@@ -303,6 +539,7 @@ export function initStations(scene) {
 
 export function updateStations(t) {
   for (const s of stations) {
+    if (s.anim) s.anim(t);
     // spin 0 means a deliberately fixed orientation (Port Feelgood's bore
     // stays aimed down the route) — don't clobber its quaternion
     if (s.spin) s.group.rotation.y = t * s.spin;
