@@ -99,6 +99,18 @@ export const C = {
   CRACK_AT: 0.75, // heat fraction where the canopy cracks (mid-countdown)
   EXPLODE_TIME: 1.2, // seconds of flash/shake before the menu
 
+  // --- on-foot walk mode (proof-of-concept) ---
+  // Disembark the ship (G) while flying low and slow over a rocky planet and
+  // walk its terrain on foot; G again to board and fly off. Kinematic walker:
+  // feet snap to the terrain height terrain.js reports (the same field the
+  // surface shader displaces), so you stand on the relief you saw from orbit.
+  WALK_SPEED: 40.0, // on-foot ground speed, units/sec
+  WALK_EYE_HEIGHT: 2.0, // camera height above the walker's feet
+  WALK_LAND_ALTITUDE: 120.0, // max altitude above the local floor to allow disembark
+  WALK_LAND_SPEED: 60.0, // max ship speed (units/sec) to allow disembark
+  WALK_JUMP: 26.0, // upward speed of a jump (Space), units/sec
+  WALK_GRAVITY: 20.0, // felt on-foot downward accel toward planet center, units/sec^2
+
   // --- altitude floor (GDD 5.1) ---
   // Strictly a Phase 5 mechanic, pulled forward on request so the test mass
   // reads as a planet you skim rather than one you fly through. Thickening

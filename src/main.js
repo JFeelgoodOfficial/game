@@ -29,6 +29,7 @@ import { cockpitScene, updateCockpit, cockpitGroup, CockpitOverlayPass } from '.
 import { initCockpitFrame, updateCockpitFrame } from './cockpitFrame.js';
 import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
 import { initPlanets, updatePlanets, atmosphereAt, planets, SUN } from './planet.js';
+import { walk, nearestTerraFloor, enterWalk, exitWalk, stepWalk, updateWalkCamera } from './walk.js';
 import { initSun, sunAltitude } from './sun.js';
 import { initStations, updateStations } from './stations.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
@@ -212,6 +213,31 @@ if (import.meta.env.DEV) {
         updateOrigin(ship);
       }
     },
+    // On-foot walk mode, for headless verification.
+    walk,
+    walkHere() {
+      const floor = nearestTerraFloor(ship.position);
+      if (floor) {
+        enterWalk(floor.planet);
+        heat = 0;
+        phase = 'walk';
+        accumulator = 0;
+      }
+      return floor;
+    },
+    walkStep(n = 1) {
+      for (let i = 0; i < n; i++) {
+        stepWalk(DT);
+        updateOrigin(ship);
+      }
+    },
+    walkExit() {
+      if (phase === 'walk') {
+        exitWalk(camera);
+        phase = 'fly';
+        accumulator = 0;
+      }
+    },
     recordFrame(delta) {
       frameTimes[frameCount % frameTimes.length] = delta;
       frameCount++;
@@ -311,6 +337,33 @@ function frame(now) {
       phase = 'explode';
       warpT = 0;
     }
+    // Disembark onto a rocky planet (G) when flying low and slow enough.
+    if (input.toggleWalk) {
+      const floor = nearestTerraFloor(ship.position);
+      if (
+        floor &&
+        floor.altitude < C.WALK_LAND_ALTITUDE &&
+        ship.velocity.length() < C.WALK_LAND_SPEED
+      ) {
+        enterWalk(floor.planet);
+        heat = 0;
+        phase = 'walk';
+        accumulator = 0;
+      }
+    }
+  } else if (phase === 'walk') {
+    // On foot: fixed-timestep walker, same 60hz loop shape as flight.
+    accumulator += delta;
+    while (accumulator >= DT) {
+      stepWalk(DT);
+      accumulator -= DT;
+    }
+    if (input.toggleWalk) {
+      // Board the ship and hand control back to flight.
+      exitWalk(camera);
+      phase = 'fly';
+      accumulator = 0;
+    }
   } else if (phase === 'collapse') {
     warpT += delta;
     warp = Math.min(warpT / C.COLLAPSE_TIME, 1);
@@ -337,6 +390,8 @@ function frame(now) {
     }
   }
   // menu phase: nothing to advance; the scene idles as a backdrop.
+  // Consume the walk toggle exactly once per frame, in any phase.
+  input.toggleWalk = false;
   collapsePass.enabled = warp > 0.001;
   collapsePass.uniforms.uProgress.value = warp;
   // heat 0..0.5 = warning banner; 0.5..1 = the flashing cockpit countdown
@@ -350,7 +405,8 @@ function frame(now) {
   updateHeatUI(heatShown, C.CRACK_AT, flashAmt, countdownLeft);
 
   updateOrigin(ship);
-  updateCamera(ship);
+  if (phase === 'walk') updateWalkCamera(camera);
+  else updateCamera(ship);
   // hull-stress shake: time-hashed jitter, ramping in past half heat
   const shake = Math.max(heat - 0.5, 0) * 2 + (phase === 'explode' ? 1.5 : 0);
   if (shake > 0) {
@@ -362,10 +418,18 @@ function frame(now) {
   updateCockpit(ship);
   // The instrument cockpit is the resting view; boost/warp fades it out for
   // the clear window (inverted at the user's request). The dashboard
-  // consoles (radio, NAV) ride the same fade — they live on the dash.
-  const frameBlend = updateCockpitFrame(ship, delta, phase !== 'menu');
-  cockpitGroup.visible = frameBlend < 0.3;
-  updateRadio(frameBlend, phase === 'fly');
+  // consoles (radio, NAV) ride the same fade — they live on the dash. On
+  // foot the whole cockpit fades out and stays hidden.
+  let frameBlend;
+  if (phase === 'walk') {
+    frameBlend = updateCockpitFrame(ship, delta, false); // fade the frame image out
+    cockpitGroup.visible = false;
+    updateRadio(frameBlend, false);
+  } else {
+    frameBlend = updateCockpitFrame(ship, delta, phase !== 'menu');
+    cockpitGroup.visible = frameBlend < 0.3;
+    updateRadio(frameBlend, phase === 'fly');
+  }
   updateStarfield(camera, renderer.getPixelRatio());
   updateNebula(camera);
   updatePlanets(now / 1000);
