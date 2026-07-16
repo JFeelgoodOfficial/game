@@ -49,6 +49,13 @@ const CONFIGS = [
     },
     water: { color: 0x082941, gloss: 1.0 },
     clouds: true,
+    // On-foot surface dressing (dressing.js): the full golden valley.
+    dress: {
+      grass: { root: 0xa8842f, tip: 0xf7d06a, emissive: 0xc9a24a },
+      trees: true,
+      shrubs: true,
+      rocks: true,
+    },
   },
   {
     name: 'oceana', // ocean world (GDD 5.7): sea level high, island chains
@@ -69,6 +76,14 @@ const CONFIGS = [
     },
     water: { color: 0x052e61, gloss: 1.0 },
     clouds: true,
+    // Island greens: same dressing, foliage hue pulled toward green.
+    dress: {
+      grass: { root: 0x4f7a2e, tip: 0x9fce6a, emissive: 0x6fa04a },
+      trees: true,
+      treeHueShift: 0.14,
+      shrubs: true,
+      rocks: true,
+    },
   },
   {
     name: 'glacia', // ice world (GDD 5.7): white-blue, sea frozen (flat, matte)
@@ -89,6 +104,8 @@ const CONFIGS = [
     },
     water: { color: 0xb8c8d8, gloss: 0.12 }, // frozen: flat but not reflective
     clouds: false,
+    frozenSea: true, // the walker stands on the ice sheet, never swims
+    dress: { rocks: true, rockTint: 0x9eb8d4 }, // ice-scoured boulders only
   },
   {
     name: 'rustia', // dead rock (GDD 5.7): sea level below terrain minimum
@@ -109,6 +126,7 @@ const CONFIGS = [
     },
     water: null,
     clouds: false,
+    dress: { rocks: true, rockTint: 0x8c5230 }, // oxide rubble, nothing grows
   },
   {
     name: 'saturnia',
@@ -312,6 +330,9 @@ export function initPlanets(scene) {
     }
     addBody(body);
     p.body = body;
+    // On-foot water metadata: world-space sea-surface radius (the water mesh
+    // above sits at radius + 1.5) and whether it's walkable ice.
+    p.water = cfg.water ? { r: radius + C.WALK_WATER_LEVEL, frozen: !!cfg.frozenSea } : null;
 
     planets.push(p);
   }

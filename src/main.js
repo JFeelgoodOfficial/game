@@ -39,7 +39,17 @@ import {
 } from './interior.js';
 import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
 import { initPlanets, updatePlanets, atmosphereAt, planets, SUN } from './planet.js';
-import { walk, nearestTerraFloor, enterWalk, exitWalk, stepWalk, updateWalkCamera } from './walk.js';
+import {
+  walk,
+  initWalk,
+  nearestTerraFloor,
+  enterWalk,
+  exitWalk,
+  stepWalk,
+  updateWalkCamera,
+  updateWalkVisuals,
+  toggleWalkView,
+} from './walk.js';
 import { initSun, sunAltitude } from './sun.js';
 import { initStations, updateStations } from './stations.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
@@ -62,6 +72,9 @@ const scene = new THREE.Scene();
 // --- the planetary system (terra + gas giants; gravity/floor registered
 // inside initPlanets) ---
 initPlanets(scene);
+
+// The on-foot astronaut (hidden until a disembark) lives in the world scene.
+initWalk(scene);
 
 // --- phase 2 environment ---
 initNebula(scene);
@@ -411,6 +424,10 @@ function frame(now) {
       stepWalk(DT);
       accumulator -= DT;
     }
+    // T — switch first/third person (persists as the preference).
+    if (input.toggleView) toggleWalkView();
+    // Astronaut pose/animation + dressing sway ride the render rate.
+    updateWalkVisuals(delta, now / 1000);
     if (input.toggleWalk) {
       // Board the ship and hand control back to flight.
       exitWalk(camera);
@@ -444,9 +461,10 @@ function frame(now) {
     }
   }
   // menu phase: nothing to advance; the scene idles as a backdrop.
-  // Consume both walk toggles exactly once per frame, in any phase.
+  // Consume the edge-triggered toggles exactly once per frame, in any phase.
   input.toggleWalk = false;
   input.toggleInterior = false;
+  input.toggleView = false;
   collapsePass.enabled = warp > 0.001;
   collapsePass.uniforms.uProgress.value = warp;
   // heat 0..0.5 = warning banner; 0.5..1 = the flashing cockpit countdown
@@ -462,7 +480,7 @@ function frame(now) {
   updateOrigin(ship);
   if (phase === 'walk') {
     // On foot on a planet — the walker owns the camera (walk.js).
-    updateWalkCamera(camera);
+    updateWalkCamera(camera, delta);
   } else {
     updateCamera(ship);
     // interior rides the ship; the walk camera blends over the seated pose
