@@ -14,6 +14,9 @@ export const input = {
   brake: false, // Space — counter-thrust, held
   warp: false, // F (or the on-screen WARP button) — boost x100, stops dead on release
   lookUp: false, // V, held — glance up through the overhead window
+  left: false, // A — strafe, walk mode only (unbound in flight)
+  right: false, // D — strafe, walk mode only
+  interactPressed: false, // G, one-shot — stand up / sit down (main.js clears)
   mouseX: 0, // accumulated pixels since last consume
   mouseY: 0,
 };
@@ -54,5 +57,8 @@ function setKey(e, down) {
     case 'KeyF':
     case 'KeyJ': input.warp = down; break;
     case 'KeyV': input.lookUp = down; break;
+    case 'KeyA': input.left = down; break;
+    case 'KeyD': input.right = down; break;
+    case 'KeyG': if (down) input.interactPressed = true; break;
   }
 }

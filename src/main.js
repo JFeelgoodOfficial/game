@@ -27,6 +27,16 @@ import { initStarfield, updateStarfield } from './starfield.js';
 import { initNebula, updateNebula } from './nebula.js';
 import { cockpitScene, updateCockpit, cockpitGroup, CockpitOverlayPass } from './cockpit.js';
 import { initCockpitFrame, updateCockpitFrame } from './cockpitFrame.js';
+import {
+  interiorScene,
+  initInterior,
+  updateInterior,
+  updateWalkCamera,
+  nearSeat,
+  resetPlayer,
+  playerState,
+  setPrompt,
+} from './interior.js';
 import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
 import { initPlanets, updatePlanets, atmosphereAt, planets, SUN } from './planet.js';
 import { initSun, sunAltitude } from './sun.js';
@@ -66,6 +76,7 @@ snapshotShiftables();
 initInput(renderer.domElement);
 initTuning();
 initCockpitFrame();
+initInterior();
 initRadio();
 initNav();
 
@@ -93,7 +104,14 @@ const lensPass = new ShaderPass({
 });
 composer.addPass(lensPass);
 
-composer.addPass(new CockpitOverlayPass(cockpitScene, camera));
+const cockpitPass = new CockpitOverlayPass(cockpitScene, camera);
+composer.addPass(cockpitPass);
+
+// The walkable interior rides the same overlay trick, right after the
+// cockpit: disabled (zero cost) while seated, swapped in while standing.
+const interiorPass = new CockpitOverlayPass(interiorScene, camera);
+interiorPass.enabled = false;
+composer.addPass(interiorPass);
 
 // Half-resolution internal targets: bloom is a blur, so this is visually
 // indistinguishable and ~4x cheaper — the fps budget (GDD 2.1) goes to the
@@ -196,6 +214,13 @@ if (import.meta.env.DEV) {
     originOffset,
     paused: false,
     warpInfo: () => ({ phase, warp, heat }),
+    walk: {
+      playerState,
+      isStanding: () => standing,
+      blend: () => standBlend,
+      stand: () => { if (phase === 'fly' && !input.warp) standing = true; },
+      sit: () => { standing = false; },
+    },
     radio: { nextTrack, prevTrack, currentTitle },
     navState,
     launch: () => {
@@ -206,9 +231,10 @@ if (import.meta.env.DEV) {
       startMusic();
     },
     // Run n physics ticks synchronously (origin maintenance included).
+    // Honors the out-of-seat state like the real loop does.
     step(n = 1) {
       for (let i = 0; i < n; i++) {
-        stepShip(DT);
+        stepShip(DT, standBlend < 0.2);
         updateOrigin(ship);
       }
     },
@@ -246,6 +272,12 @@ let warpT = 0;
 let warp = 0; // collapse pass progress, 0..1
 let heat = 0; // hull heat, 0..1
 let deathReason = ''; // set when the burn wins; shown on the menu
+// Out-of-seat sub-mode within 'fly' (interior.js): the ship coasts on
+// attitude hold while the pilot walks the corridor. Not a phase — heat,
+// capture, nav, and the accumulator must all keep running.
+let standing = false;
+let standBlend = 0; // seat <-> stand camera blend, 0..1
+let promptTimer = 0; // shows "G — STAND" briefly after each launch
 
 function resetToStart() {
   ship.position.set(0, 0, 0);
@@ -255,6 +287,11 @@ function resetToStart() {
   ship.properAccel.set(0, 0, 0);
   restoreShiftables(); // planets, sun, stations, black hole + origin offset
   heat = 0;
+  standing = false;
+  standBlend = 0;
+  promptTimer = 6; // remind the pilot the corridor exists
+  resetPlayer();
+  input.interactPressed = false;
   // snap the lagging camera to the ship so it doesn't slerp from the horizon
   snapCamera(ship);
 }
@@ -280,9 +317,24 @@ function frame(now) {
 
   let flashAmt = 0;
   if (phase === 'fly') {
+    // G: stand up out of the seat / sit back down at it. Standing is
+    // blocked at warp (nobody walks at 10,000 u/s); sitting requires being
+    // back at the chair.
+    if (input.interactPressed) {
+      input.interactPressed = false;
+      if (!standing && !input.warp) standing = true;
+      else if (standing && nearSeat()) standing = false;
+    }
+    standBlend = Math.min(
+      Math.max(standBlend + ((standing ? 1 : -1) * delta) / C.STAND_TIME, 0),
+      1
+    );
+    // Controls disengage early in the rise; the walk controller owns the
+    // mouse from the same threshold, so it has exactly one consumer.
+    const piloted = standBlend < 0.2;
     accumulator += delta;
     while (accumulator >= DT) {
-      stepShip(DT);
+      stepShip(DT, piloted);
       accumulator -= DT;
     }
     if (ship.position.distanceTo(blackhole.group.position) < C.HORIZON_CAPTURE) {
@@ -350,6 +402,10 @@ function frame(now) {
 
   updateOrigin(ship);
   updateCamera(ship);
+  // interior rides the ship; the walk camera blends over the seated pose
+  // (shake and turbulence below still add on top — the corridor rattles too)
+  updateInterior(ship);
+  updateWalkCamera(ship, delta, standBlend, standBlend >= 0.2 && phase === 'fly');
   // hull-stress shake: time-hashed jitter, ramping in past half heat
   const shake = Math.max(heat - 0.5, 0) * 2 + (phase === 'explode' ? 1.5 : 0);
   if (shake > 0) {
@@ -362,9 +418,23 @@ function frame(now) {
   // The instrument cockpit is the resting view; boost/warp fades it out for
   // the clear window (inverted at the user's request). The dashboard
   // consoles (radio, NAV) ride the same fade — they live on the dash.
-  const frameBlend = updateCockpitFrame(ship, delta, phase !== 'menu');
+  const frameBlend = updateCockpitFrame(ship, delta, phase !== 'menu', standBlend);
+  // standing swaps the seated canopy overlay for the interior overlay
+  interiorPass.enabled = standBlend > 0.001;
+  cockpitPass.enabled = !interiorPass.enabled;
   cockpitGroup.visible = frameBlend < 0.3;
   updateRadio(frameBlend, phase === 'fly');
+  // the G prompt: a launch reminder while seated, "SIT" back at the chair
+  if (phase === 'fly') {
+    if (standing) {
+      setPrompt(standBlend > 0.5 && nearSeat() ? 'G — SIT' : null);
+    } else {
+      setPrompt(promptTimer > 0 ? 'G — STAND UP' : null);
+      if (promptTimer > 0) promptTimer -= delta;
+    }
+  } else {
+    setPrompt(null);
+  }
   updateStarfield(camera, renderer.getPixelRatio());
   updateNebula(camera);
   updatePlanets(now / 1000);

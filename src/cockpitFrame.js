@@ -50,12 +50,14 @@ export function initCockpitFrame() {
 
 // Returns the current blend (0..1) so main.js can hide the 3D cockpit.
 // `active` is false on the menu, where the scene idles as a clean backdrop.
-export function updateCockpitFrame(ship, delta, active) {
+// `standBlend` > 0 means the pilot is out of the seat (interior.js) — the
+// instrument PNG is a seated view and hides immediately.
+export function updateCockpitFrame(ship, delta, active, standBlend = 0) {
   // The frame also drops while glancing up (V): the PNG is a forward view
   // and would pin the eye while the camera pitches at the overhead window.
   const speedView =
     input.warp || (input.boost && (input.forward || input.reverse)) || input.lookUp;
-  const target = active && !speedView ? 1 : 0;
+  const target = active && !speedView && standBlend < 0.05 ? 1 : 0;
   // time-based ease so the fade speed is framerate-independent
   blend += (target - blend) * Math.min(C.FRAME_FADE * delta * 60, 1);
   if (blend < 0.005 && target === 0) blend = 0;
