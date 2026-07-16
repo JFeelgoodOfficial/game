@@ -28,6 +28,8 @@ export const C = {
 
   // --- camera ---
   FOV: 70,
+  LOOK_UP_ANGLE: 1.15, // rad (~66°): head pitch at full hold-V overhead glance
+  LOOK_UP_EASE: 0.1, // per-frame ease toward/away from the look-up pose
   BOOST_PULLBACK: 0.08, // tiny sink-back on boost — you stay in the seat, not pulled out
   BOOST_FOV: 13.0, // extra FOV on boost: widens to reveal the cockpit while first-person
   FRAME_FADE: 0.12, // per-frame ease of the boost cockpit image fading in/out

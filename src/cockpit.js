@@ -16,39 +16,71 @@ import { Pass } from 'three/addons/postprocessing/Pass.js';
 
 export const cockpitScene = new THREE.Scene();
 
-const group = new THREE.Group();
-
 const frameMat = new THREE.MeshStandardMaterial({
   color: 0x2b313b,
   roughness: 0.42,
   metalness: 0.6,
 });
 
-// Two A-pillar struts converging ahead, crossing the view's upper corners.
-const strutGeo = new THREE.BoxGeometry(0.022, 1.5, 0.035);
-const strutL = new THREE.Mesh(strutGeo, frameMat);
-strutL.position.set(-0.44, 0.2, -0.7);
-strutL.rotation.set(0.75, 0.12, 0.55);
-const strutR = new THREE.Mesh(strutGeo, frameMat);
-strutR.position.set(0.44, 0.2, -0.7);
-strutR.rotation.set(0.75, -0.12, -0.55);
+// The canopy skeleton, factored so the walkable interior (interior.js) can
+// build the identical frame around its pilot seat — the forward view must
+// match whether you're flying or standing behind the chair.
+export function buildCanopyFrame(mat) {
+  const g = new THREE.Group();
 
-// Top canopy brace across the upper frame.
-const brace = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.03, 0.03), frameMat);
-brace.position.set(0, 0.52, -0.82);
-brace.rotation.x = -0.25;
+  // Two A-pillar struts converging ahead, crossing the view's upper corners.
+  const strutGeo = new THREE.BoxGeometry(0.022, 1.5, 0.035);
+  const strutL = new THREE.Mesh(strutGeo, mat);
+  strutL.position.set(-0.44, 0.2, -0.7);
+  strutL.rotation.set(0.75, 0.12, 0.55);
+  const strutR = new THREE.Mesh(strutGeo, mat);
+  strutR.position.set(0.44, 0.2, -0.7);
+  strutR.rotation.set(0.75, -0.12, -0.55);
 
-// Canopy sills: rails along the lower left/right edges (kept low, out of the
-// forward view).
-const sillGeo = new THREE.BoxGeometry(0.04, 0.04, 0.9);
-const sillL = new THREE.Mesh(sillGeo, frameMat);
-sillL.position.set(-0.66, -0.44, -0.4);
-sillL.rotation.y = 0.25;
-const sillR = new THREE.Mesh(sillGeo, frameMat);
-sillR.position.set(0.66, -0.44, -0.4);
-sillR.rotation.y = -0.25;
+  // Top canopy brace across the upper frame.
+  const brace = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.03, 0.03), mat);
+  brace.position.set(0, 0.52, -0.82);
+  brace.rotation.x = -0.25;
 
-group.add(strutL, strutR, brace, sillL, sillR);
+  // Canopy sills: rails along the lower left/right edges (kept low, out of
+  // the forward view).
+  const sillGeo = new THREE.BoxGeometry(0.04, 0.04, 0.9);
+  const sillL = new THREE.Mesh(sillGeo, mat);
+  sillL.position.set(-0.66, -0.44, -0.4);
+  sillL.rotation.y = 0.25;
+  const sillR = new THREE.Mesh(sillGeo, mat);
+  sillR.position.set(0.66, -0.44, -0.4);
+  sillR.rotation.y = -0.25;
+
+  g.add(strutL, strutR, brace, sillL, sillR);
+
+  // Overhead window: a rectangular frame above and slightly behind the
+  // brace, tilted with the canopy line, seen by holding V. The opening is
+  // empty — the overlay pass clears depth only, so space shows through.
+  const oh = new THREE.Group();
+  const OW = 0.7; // opening width
+  const OD = 0.5; // opening depth (along the tilted canopy)
+  const railGeo = new THREE.BoxGeometry(OW + 0.06, 0.03, 0.03);
+  const railF = new THREE.Mesh(railGeo, mat);
+  railF.position.z = -OD / 2;
+  const railB = new THREE.Mesh(railGeo, mat);
+  railB.position.z = OD / 2;
+  const sideGeo = new THREE.BoxGeometry(0.03, 0.03, OD);
+  const sideL = new THREE.Mesh(sideGeo, mat);
+  sideL.position.x = -OW / 2;
+  const sideR = new THREE.Mesh(sideGeo, mat);
+  sideR.position.x = OW / 2;
+  // one center rib so the pane reads as glazed, not missing
+  const rib = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.024, OD), mat);
+  oh.add(railF, railB, sideL, sideR, rib);
+  oh.position.set(0, 0.62, -0.35);
+  oh.rotation.x = -0.35;
+  g.add(oh);
+
+  return g;
+}
+
+const group = buildCanopyFrame(frameMat);
 
 // One interior light, low and to the side, so glints travel along the
 // struts during rotation. The moving highlight sells the interior

@@ -21,7 +21,7 @@ import { initInput, input } from './input.js';
 import { ship, stepShip } from './ship.js';
 import { altitudeAboveFloor } from './gravity.js';
 import { updateOrigin, originOffset, snapshotShiftables, restoreShiftables } from './origin.js';
-import { camera, updateCamera, resizeCamera } from './camera.js';
+import { camera, updateCamera, snapCamera, resizeCamera } from './camera.js';
 import { initTuning } from './tuning.js';
 import { initStarfield, updateStarfield } from './starfield.js';
 import { initNebula, updateNebula } from './nebula.js';
@@ -256,8 +256,7 @@ function resetToStart() {
   restoreShiftables(); // planets, sun, stations, black hole + origin offset
   heat = 0;
   // snap the lagging camera to the ship so it doesn't slerp from the horizon
-  camera.position.copy(ship.position);
-  camera.quaternion.copy(ship.quaternion);
+  snapCamera(ship);
 }
 
 initMenu(() => {
