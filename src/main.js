@@ -49,6 +49,8 @@ import {
   updateWalkCamera,
   updateWalkVisuals,
   toggleWalkView,
+  nearParkedShip,
+  promptReturnToShip,
 } from './walk.js';
 import { initSun, sunAltitude } from './sun.js';
 import { initStations, updateStations } from './stations.js';
@@ -429,11 +431,16 @@ function frame(now) {
     // Astronaut pose/animation + dressing sway ride the render rate.
     updateWalkVisuals(delta, now / 1000);
     if (input.toggleWalk) {
-      // Board the ship and hand control back to flight.
-      exitWalk(camera);
-      snapCamera(ship); // resync the camera-lag state exitWalk set directly
-      phase = 'fly';
-      accumulator = 0;
+      if (nearParkedShip()) {
+        // Board the ship and hand control back to flight.
+        exitWalk(camera);
+        snapCamera(ship); // resync the camera-lag state exitWalk set directly
+        phase = 'fly';
+        accumulator = 0;
+      } else {
+        // You walked here — the ship didn't. Go back for it.
+        promptReturnToShip();
+      }
     }
   } else if (phase === 'collapse') {
     warpT += delta;

@@ -327,6 +327,10 @@ export function initPlanets(scene) {
         _d.set(dir.x * cos + dir.z * sin, dir.y, -dir.x * sin + dir.z * cos);
         return groundHeight(_d.x, _d.y, _d.z, cfg.seaLevel(), cfg.terrainHeight());
       };
+      // Same sample for a direction already in the UNROTATED object frame —
+      // the frame children of planet.surface live in. No un-rotation needed.
+      body.groundAtLocal = (dir) =>
+        groundHeight(dir.x, dir.y, dir.z, cfg.seaLevel(), cfg.terrainHeight());
     }
     addBody(body);
     p.body = body;

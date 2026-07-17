@@ -170,13 +170,29 @@ export function createCity(planet, worldUp, opts = {}) {
   const group = new THREE.Group();
   group.name = 'City';
 
-  // Orient +Y to worldUp, position at surface radial point.
-  const quat = new THREE.Quaternion().setFromUnitVectors(YAXIS, dirSeeded);
+  // The group lives as a child of planet.surface, whose local frame is the
+  // planet's UNROTATED object space — so undo the current spin to convert
+  // the world-space landing dir into the frame we actually place in.
+  // (dirSeeded stays world-space for deterministic seeding.)
+  const rotY = planet.surface?.rotation?.y ?? 0;
+  const dirLocal = dirSeeded.clone().applyAxisAngle(YAXIS, -rotY);
+
+  // Orient +Y to the landing dir, position at surface radial point.
+  const quat = new THREE.Quaternion().setFromUnitVectors(YAXIS, dirLocal);
   group.quaternion.copy(quat);
 
-  const groundBase = planet.body?.groundAt ? planet.body.groundAt(dirSeeded) : 0;
-  const baseRadius = (planet.radius ?? 900) + groundBase + C.BASE_HEIGHT_OFFSET;
-  group.position.copy(dirSeeded.clone().multiplyScalar(baseRadius));
+  const groundBase = planet.body?.groundAtLocal
+    ? planet.body.groundAtLocal(dirLocal)
+    : planet.body?.groundAt
+      ? planet.body.groundAt(dirSeeded)
+      : 0;
+  let baseRadius = (planet.radius ?? 900) + groundBase + C.BASE_HEIGHT_OFFSET;
+  // Never sink the deck below the sea surface (or ice sheet): a city landing
+  // in a wet/icy region rides just above it instead of flooding.
+  if (planet.water?.r && baseRadius < planet.water.r + 0.4) {
+    baseRadius = planet.water.r + 0.4;
+  }
+  group.position.copy(dirLocal.clone().multiplyScalar(baseRadius));
 
   // -------------------------------------------------------------------------
   // Terrain sampling in local (flat) space -> world dir -> planet.body height
@@ -185,9 +201,11 @@ export function createCity(planet, worldUp, opts = {}) {
   const tmpDir = new THREE.Vector3();
 
   function sampleGroundLocalY(localX, localZ) {
+    // tmpDir is in planet.surface's unrotated frame (group lives there),
+    // so sample via groundAtLocal — groundAt would un-spin it a second time.
     tmpWorldPos.set(localX, 0, localZ).applyQuaternion(quat).add(group.position);
     tmpDir.copy(tmpWorldPos).normalize();
-    const h = planet.body?.groundAt ? planet.body.groundAt(tmpDir) : 0;
+    const h = planet.body?.groundAtLocal ? planet.body.groundAtLocal(tmpDir) : 0;
     const planetR = planet.radius ?? 900;
     // Height of this local point above our own base-radius reference plane
     return (planetR + h) - baseRadius;
@@ -323,6 +341,7 @@ export function createCity(planet, worldUp, opts = {}) {
   signMesh.frustumCulled = false;
 
   const colliders = [];
+  const collidersLocal = []; // city-flat {x,z,radius,height} — aliens.js format
   const dummy = new THREE.Object3D();
   const signAccentColors = [palette.neonPrimary, palette.neonSecondaryA, palette.neonSecondaryB];
   let signIdx = 0;
@@ -382,6 +401,12 @@ export function createCity(planet, worldUp, opts = {}) {
     worldPosScratch.set(slot.x, 0, slot.z).applyQuaternion(quat).add(group.position);
     colliders.push({
       center: worldPosScratch.clone(),
+      radius: Math.max(footW, footD) * 0.5 + 0.4,
+      height: bodyHeight,
+    });
+    collidersLocal.push({
+      x: slot.x,
+      z: slot.z,
       radius: Math.max(footW, footD) * 0.5 + 0.4,
       height: bodyHeight,
     });
@@ -581,8 +606,11 @@ export function createCity(planet, worldUp, opts = {}) {
     group,
     update,
     dispose,
-    colliders,
+    colliders, // surface-local {center,radius,height}
+    collidersLocal, // city-flat {x,z,radius,height} — for aliens.js
     groundHeightAt,
+    groundLocalYAt: flattenedHeight, // (x,z) -> local Y — for aliens.js
+    plazaCenters, // city-flat {x,z,r} — aliens.js waypoints
     boardingPad: boardingPadWorld,
   };
 }
