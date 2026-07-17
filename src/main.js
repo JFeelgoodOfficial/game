@@ -4,10 +4,13 @@
 // loop touches is preallocated at module scope.
 //
 // Composer chain (GDD 4.4, 4.5):
-//   world render -> lensing -> cockpit overlay -> bloom -> aberration -> out
-// The cockpit is composited AFTER lensing so the interior never warps, and
-// BEFORE bloom with a threshold high enough that only stars, the accretion
-// disk, and the photon ring glow.
+//   world render -> skyfog (depth-aware) -> lensing -> cockpit overlay ->
+//   interior overlay -> bloom -> aberration -> collapse -> out
+// Skyfog runs FIRST so it can read the scene's fresh depth buffer (aerial
+// perspective — solid geometry only hazes with distance) and so the cockpit
+// overlays never get washed. The cockpit is composited AFTER lensing so the
+// interior never warps, and BEFORE bloom with a threshold high enough that
+// only stars, the accretion disk, and the photon ring glow.
 
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -111,7 +114,57 @@ initJournal();
 
 // --- composer (GDD 4.4) ---
 const composer = new EffectComposer(renderer);
+// Scene depth for the skyfog pass. Both ping-pong targets carry a depth
+// texture: the number of swap passes enabled varies per frame, so which
+// target the RenderPass draws into alternates. Attached post-construction —
+// passing a prebuilt target would share one texture between the clones.
+// Resize is automatic: the renderer re-syncs a target's depth texture to its
+// size when the target reallocates.
+{
+  const dbs = renderer.getDrawingBufferSize(new THREE.Vector2());
+  composer.renderTarget1.depthTexture = new THREE.DepthTexture(dbs.x, dbs.y);
+  composer.renderTarget2.depthTexture = new THREE.DepthTexture(dbs.x, dbs.y);
+}
 composer.addPass(new RenderPass(scene, camera));
+
+// Atmospheric entry: washes the WORLD toward sky colour as the ship descends
+// into a planet's air — depth-aware, so near geometry (buildings, the
+// astronaut) stays crisp while far terrain fades into the sky. Runs first
+// after the render so readBuffer is always the target the scene just drew
+// into, with its depth texture fresh; the cockpit/interior overlays land
+// later and stay un-hazed. Disabled above the atmosphere (zero cost).
+class SkyfogPass extends ShaderPass {
+  render(renderer, writeBuffer, readBuffer, deltaTime, maskActive) {
+    this.uniforms.tDepth.value = readBuffer.depthTexture;
+    super.render(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
+  }
+}
+const skyfogPass = new SkyfogPass({
+  uniforms: {
+    tDiffuse: { value: null },
+    tDepth: { value: null },
+    uAtmo: { value: 0 },
+    uDay: { value: 0 },
+    uSkyDay: { value: new THREE.Color(C.SKY_COLOR) },
+    uDensity: { value: C.SKY_DENSITY },
+    uUpView: { value: new THREE.Vector3(0, 1, 0) },
+    uAspect: { value: window.innerWidth / window.innerHeight },
+    uTanHalf: { value: Math.tan((C.FOV * Math.PI) / 360) },
+    uNear: { value: 0.1 },
+    uFar: { value: 1e6 },
+    uHazeDist: { value: C.SKY_HAZE_DIST },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: skyfogFrag,
+});
+skyfogPass.enabled = false;
+composer.addPass(skyfogPass);
 
 const lensPass = new ShaderPass({
   uniforms: {
@@ -172,31 +225,6 @@ const aberrationPass = new ShaderPass({
   fragmentShader: aberrationFrag,
 });
 composer.addPass(aberrationPass);
-
-// Atmospheric entry: washes the frame toward sky colour as the ship descends
-// into the planet's air. Disabled above the atmosphere (zero cost).
-const skyfogPass = new ShaderPass({
-  uniforms: {
-    tDiffuse: { value: null },
-    uAtmo: { value: 0 },
-    uDay: { value: 0 },
-    uSkyDay: { value: new THREE.Color(C.SKY_COLOR) },
-    uDensity: { value: C.SKY_DENSITY },
-    uUpView: { value: new THREE.Vector3(0, 1, 0) },
-    uAspect: { value: window.innerWidth / window.innerHeight },
-    uTanHalf: { value: Math.tan((C.FOV * Math.PI) / 360) },
-  },
-  vertexShader: /* glsl */ `
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
-  `,
-  fragmentShader: skyfogFrag,
-});
-skyfogPass.enabled = false;
-composer.addPass(skyfogPass);
 
 // Horizon collapse: stretches the whole composited frame (cockpit included)
 // when the ship falls into the black hole. Disabled — zero cost — until it
@@ -615,6 +643,9 @@ function frame(now) {
     su.uDay.value = Math.min(Math.max(_up.dot(SUN) * 0.5 + 0.5, 0), 1);
     su.uSkyDay.value.set(_atmo.p.cfg.skyColor());
     su.uDensity.value = C.SKY_DENSITY;
+    su.uNear.value = camera.near;
+    su.uFar.value = camera.far;
+    su.uHazeDist.value = C.SKY_HAZE_DIST; // live-tunable, like uDensity
     // planet-up expressed in view space, for horizon-weighted haze
     _invQuat.copy(camera.quaternion).invert();
     su.uUpView.value.copy(_up).applyQuaternion(_invQuat);
