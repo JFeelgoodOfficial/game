@@ -19,6 +19,7 @@ export const input = {
   toggleWalk: false, // G edge-trigger: disembark onto a planet / board. main.js reads and zeroes it.
   toggleInterior: false, // C edge-trigger: stand up in the ship / sit back down. main.js reads and zeroes it.
   toggleView: false, // T edge-trigger: first/third person while on foot. main.js reads and zeroes it.
+  interact: false, // E edge-trigger: talk / advance dialogue on foot. main.js reads and zeroes it.
   mouseX: 0, // accumulated pixels since last consume
   mouseY: 0,
   wheel: 0, // accumulated scroll since last consume (third-person zoom)
@@ -55,7 +56,7 @@ function setKey(e, down) {
     case 'KeyW': input.forward = down; break;
     case 'KeyS': input.reverse = down; break;
     case 'KeyQ': input.rollLeft = down; break;
-    case 'KeyE': input.rollRight = down; break;
+    case 'KeyE': input.rollRight = down; if (down) input.interact = true; break;
     case 'KeyA': input.left = down; break;
     case 'KeyD': input.right = down; break;
     case 'ShiftLeft':
