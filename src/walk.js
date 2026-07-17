@@ -73,6 +73,7 @@ let astronaut = null; // the visible third-person body (initWalk)
 let dressing = null; // active surface-dressing patch, spawned per disembark
 let camSnap = true; // snap (don't lerp) the TP camera on the next frame
 let fovKick = 0; // eased 0..1 sprint FOV widen
+let lastSpinAngle = 0; // surface.rotation.y at the previous walk tick (co-rotation)
 
 // Build the astronaut once and keep it hidden until a disembark. Called from
 // main.js after the scene exists.
@@ -135,6 +136,8 @@ export function enterWalk(planet) {
   walk.swimming = false;
   walk.camDist = C.WALK_CAM_DIST;
   camSnap = true;
+  // Seed the spin tracker so the first stepWalk delta is ~0 (no jump on entry).
+  lastSpinAngle = planet.surface.rotation.y;
 
   _up.subVectors(ship.position, planet.body.position).normalize();
 
@@ -225,6 +228,28 @@ export function toggleWalkView() {
 
 export function stepWalk(dt) {
   const planet = walk.planet;
+
+  // Co-rotate with the planet's spin so the ground doesn't slide underfoot —
+  // you turn with the planet's day, the way standing on a world works. The
+  // surface (and sea/clouds) spin about world +Y (planet.js: rotation.y =
+  // t * spin; the group has no axial tilt); without this the walker holds a
+  // fixed world direction and the terrain streams past. We rotate by the exact
+  // delta of surface.rotation.y — the same angle groundAt() un-rotates by — so
+  // the walker's total turn always equals the surface's, framerate-independent.
+  // The world-space position and every world-space heading/velocity ride along.
+  const spinAngle = planet.surface.rotation.y;
+  const dphi = spinAngle - lastSpinAngle;
+  lastSpinAngle = spinAngle;
+  if (dphi !== 0) {
+    const c = Math.cos(dphi), s = Math.sin(dphi);
+    const px = ship.position.x - planet.body.position.x;
+    const pz = ship.position.z - planet.body.position.z;
+    ship.position.x = planet.body.position.x + px * c + pz * s;
+    ship.position.z = planet.body.position.z - px * s + pz * c;
+    rotateXZ(walk.heading, c, s);
+    rotateXZ(walk.facing, c, s);
+    rotateXZ(walk.vel, c, s);
+  }
 
   // Current up (radial, planet center → walker).
   _up.subVectors(ship.position, planet.body.position).normalize();
@@ -442,4 +467,13 @@ export function updateWalkCamera(camera, delta = 0) {
 // plane. Does not renormalize.
 function projectTangent(v, up) {
   v.addScaledVector(up, -v.dot(up));
+}
+
+// Rotate v about world +Y by the angle whose cos/sin are (c, s) — matches
+// THREE's rotation.y (planet.js spins the surface about +Y), so co-rotating
+// the walker glues it to the ground rather than counter-rotating.
+function rotateXZ(v, c, s) {
+  const x = v.x, z = v.z;
+  v.x = x * c + z * s;
+  v.z = -x * s + z * c;
 }
