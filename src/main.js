@@ -33,6 +33,7 @@ import {
   updateInterior,
   updateInteriorCamera,
   nearSeat,
+  nearPlaque,
   resetPlayer,
   playerState,
   setPrompt,
@@ -53,14 +54,19 @@ import {
   promptReturnToShip,
   walkInteract,
   walkPromptText,
+  shipBearing,
+  walkSite,
 } from './walk.js';
 import { initJournal, journalState } from './journal.js';
 import { initSun, sunAltitude } from './sun.js';
 import { initStations, updateStations } from './stations.js';
-import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
+import { initMenu, showMenu, hideMenu, updateHeatUI, setWarpButtonVisible } from './menu.js';
 import { startMusic, nextTrack, prevTrack, currentTitle } from './music.js';
 import { initRadio, updateRadio } from './radio.js';
 import { initNav, updateNav, navState } from './nav.js';
+import { initCompass, updateCompass } from './compass.js';
+import { initControls, updateControls } from './controls.js';
+import { initCredits, openCredits, closeCredits, isCreditsOpen } from './credits.js';
 import lensingFrag from './shaders/lensing.frag?raw';
 import aberrationFrag from './shaders/aberration.frag?raw';
 import collapseFrag from './shaders/collapse.frag?raw';
@@ -98,6 +104,9 @@ initCockpitFrame();
 initInterior();
 initRadio();
 initNav();
+initCompass();
+initControls();
+initCredits();
 initJournal();
 
 // --- composer (GDD 4.4) ---
@@ -268,6 +277,7 @@ if (import.meta.env.DEV) {
         heat = 0;
         phase = 'walk';
         accumulator = 0;
+        setWarpButtonVisible(false);
       }
       return floor;
     },
@@ -283,8 +293,14 @@ if (import.meta.env.DEV) {
         snapCamera(ship);
         phase = 'fly';
         accumulator = 0;
+        setWarpButtonVisible(true);
       }
     },
+    // Landing-site entities, walker body + interior player — for headless
+    // verification (teleports, ground checks).
+    walkSite,
+    ship,
+    player: playerState,
     // Quest/codex record (interaction system), for headless verification.
     journal: journalState,
     recordFrame(delta) {
@@ -338,6 +354,7 @@ function resetToStart() {
   heat = 0;
   standing = false;
   standBlend = 0;
+  closeCredits();
   promptTimer = 6; // remind the pilot the corridor exists
   resetPlayer();
   input.toggleInterior = false;
@@ -371,7 +388,17 @@ function frame(now) {
     // back at the chair. Consumed once per frame at the bottom of the loop.
     if (input.toggleInterior) {
       if (!standing && !input.warp) standing = true;
-      else if (standing && nearSeat()) standing = false;
+      else if (standing && nearSeat()) {
+        standing = false;
+        closeCredits(); // never leave the plaque popup up in the pilot seat
+      }
+    }
+    // E while standing: read the corridor plaque / close its popup again.
+    // (Handled here because input.interact is consumed right after the
+    // phase blocks, before the UI section below runs.)
+    if (standing && input.interact) {
+      if (isCreditsOpen()) closeCredits();
+      else if (standBlend > 0.5 && nearPlaque()) openCredits();
     }
     standBlend = Math.min(
       Math.max(standBlend + ((standing ? 1 : -1) * delta) / C.STAND_TIME, 0),
@@ -423,6 +450,7 @@ function frame(now) {
         heat = 0;
         phase = 'walk';
         accumulator = 0;
+        setWarpButtonVisible(false); // no warping on foot
       }
     }
   } else if (phase === 'walk') {
@@ -445,6 +473,7 @@ function frame(now) {
         snapCamera(ship); // resync the camera-lag state exitWalk set directly
         phase = 'fly';
         accumulator = 0;
+        setWarpButtonVisible(true);
       } else {
         // You walked here — the ship didn't. Go back for it.
         promptReturnToShip();
@@ -534,10 +563,17 @@ function frame(now) {
     cockpitPass.enabled = !interiorPass.enabled;
     cockpitGroup.visible = frameBlend < 0.3;
     updateRadio(frameBlend, phase === 'fly');
-    // the C prompt: a launch reminder while seated, "SIT" back at the chair
+    // the C prompt: a launch reminder while seated, "SIT" back at the chair;
+    // standing, "E — READ" in front of the plaque (E handled in the fly block)
     if (phase === 'fly') {
       if (standing) {
-        setPrompt(standBlend > 0.5 && nearSeat() ? 'C — SIT' : null);
+        setPrompt(
+          standBlend > 0.5 && nearSeat()
+            ? 'C — SIT'
+            : standBlend > 0.5 && nearPlaque() && !isCreditsOpen()
+              ? 'E — READ'
+              : null
+        );
       } else {
         setPrompt(promptTimer > 0 ? 'C — STAND UP' : null);
         if (promptTimer > 0) promptTimer -= delta;
@@ -554,6 +590,8 @@ function frame(now) {
   // to their snapshot spot for one frame, and a discovery check reading that
   // stale position would log everything sitting at the spawn point
   updateNav(ship, delta, phase === 'fly', frameBlend);
+  updateCompass(phase === 'walk' ? shipBearing() : null);
+  updateControls(phase, frameBlend);
   camera.updateMatrixWorld();
   camera.matrixWorldInverse.copy(camera.matrixWorld).invert(); // fresh for projection
   updateBlackHole(camera, lensPass.uniforms, now / 1000);

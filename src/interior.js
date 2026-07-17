@@ -121,6 +121,77 @@ function makePicture(w, h) {
   return g;
 }
 
+// --- the music-credit plaque (Wave Collector) — a brass-toned panel at the
+// corridor entrance; E in front of it opens the About popup (credits.js) ---
+const PLAQUE_X = -0.67;
+const PLAQUE_Z = 1.6;
+
+function wrapText(ctx, text, x, y, maxW, lineH) {
+  let line = '';
+  for (const word of text.split(' ')) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxW && line) {
+      ctx.fillText(line, x, y);
+      y += lineH;
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, y);
+  return y;
+}
+
+function makePlaque() {
+  const cv = document.createElement('canvas');
+  cv.width = 512;
+  cv.height = 320;
+  const ctx = cv.getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 0, 320);
+  grad.addColorStop(0, '#20242e');
+  grad.addColorStop(1, '#12151d');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 320);
+  ctx.strokeStyle = '#c8a86a';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(12, 12, 488, 296);
+  ctx.strokeStyle = 'rgba(200,168,106,0.35)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(20, 20, 472, 280);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#c8a86a';
+  ctx.font = '600 17px monospace';
+  ctx.fillText("SHIP'S SOUNDTRACK", 256, 60);
+  ctx.fillStyle = '#e8d9b0';
+  ctx.font = '700 34px monospace';
+  ctx.fillText('WAVE COLLECTOR', 256, 106);
+  ctx.fillStyle = '#aab6c8';
+  ctx.font = '15px monospace';
+  wrapText(
+    ctx,
+    'All music featured in this game is composed by Wave Collector — an ' +
+      'electronic artist whose textured, sample-driven soundscapes bring ' +
+      'this world to life.',
+    256, 150, 440, 24
+  );
+  ctx.fillStyle = '#d4408f';
+  ctx.font = '600 16px monospace';
+  ctx.fillText('- PRESS E FOR MORE -', 256, 288);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+
+  const g = new THREE.Group();
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.41, 0.03), pictureFrameMat);
+  g.add(frame);
+  const face = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.55, 0.34),
+    new THREE.MeshBasicMaterial({ map: tex })
+  );
+  face.position.z = 0.017;
+  g.add(face);
+  return g;
+}
+
 // --- geometry ---
 
 function corridorWall() {
@@ -284,6 +355,13 @@ export function initInterior() {
   cockpitPic.rotation.y = Math.PI;
   group.add(cockpitPic);
 
+  // music-credit plaque at the corridor entrance, left wall (clear band
+  // before the first porthole at z 2.2)
+  const plaque = makePlaque();
+  plaque.position.set(PLAQUE_X, 0.32, PLAQUE_Z);
+  plaque.rotation.y = Math.PI / 2;
+  group.add(plaque);
+
   // ---- lights ----
   const cockpitLight = new THREE.PointLight(0xffe8d0, 4.5, 7.0, 1.6);
   cockpitLight.position.set(0.3, 0.4, 0.1);
@@ -375,6 +453,13 @@ export function updateInteriorCamera(ship, delta, blend, ownsMouse) {
 export function nearSeat() {
   return player.pos.x * player.pos.x + player.pos.z * player.pos.z <
     C.SEAT_RADIUS * C.SEAT_RADIUS;
+}
+
+// Standing close enough to the corridor plaque to read it (E prompt).
+export function nearPlaque() {
+  const dx = player.pos.x - PLAQUE_X;
+  const dz = player.pos.z - PLAQUE_Z;
+  return dx * dx + dz * dz < 1.1 * 1.1;
 }
 
 export function resetPlayer() {
