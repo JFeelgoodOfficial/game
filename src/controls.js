@@ -76,6 +76,7 @@ const SHIP_CONTROLS = [
   ['C', 'STAND UP / SIT BACK DOWN'],
   ['G', 'LAND & STEP OUT (LOW + SLOW OVER A ROCKY WORLD)'],
   ['N', 'NAV MAP'],
+  ['P / R', 'PHOTO / RECORD — REVIEW IN THE PICS GALLERY'],
   [', / .', 'CHANGE SONG — OR ⏮ ⏭ ON THE RADIO, BOTTOM LEFT'],
 ];
 
@@ -84,6 +85,7 @@ const WALK_LINES = [
   'SHIFT — RUN · SPACE — JUMP',
   'E — TALK · T — VIEW · SCROLL — ZOOM',
   'G — BOARD (AT YOUR SHIP) · , . — MUSIC',
+  'P — PHOTO · R — RECORD (PICS)',
 ];
 
 let walkHint, gravLine, ctrlBtn, popup;

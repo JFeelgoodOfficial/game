@@ -364,6 +364,8 @@ export function createCity(planet, worldUp, opts = {}) {
   const fillLight = new THREE.AmbientLight(0x6a7690, 0.6);
   group.add(fillLight);
   const structures = []; // enterable buildings: landmark tower + lobbies
+  const lobbies = [];    // per-lobby manifest for interior occupants (walk.js)
+  let balconySpot = null; // landmark balcony perch for a lone caretaker
 
   // The group lives as a child of planet.surface, whose local frame is the
   // planet's UNROTATED object space — so undo the current spin to convert
@@ -981,6 +983,8 @@ export function createCity(planet, worldUp, opts = {}) {
       },
     };
     structures.push(landmark);
+    // A lone caretaker stands on the balcony deck (walk.js spawns them).
+    balconySpot = { x: landmarkSpot.x + 2, z: landmarkSpot.z, y: lmBaseY + TOP + 0.3 };
   }
 
   // -------------------------------------------------------------------------
@@ -990,9 +994,13 @@ export function createCity(planet, worldUp, opts = {}) {
   // around the footprint (npcOnly collider) but only the player enters.
   // -------------------------------------------------------------------------
   if (lobbySlots.length) {
-    const lobbyHullGeos = [], lobbyGlowGeos = [];
+    const lobbyHullGeos = [], lobbyGlowGeos = [], lobbyPropGeos = [];
     const RH = 4.4, WT = 0.4, DH = 1.4, DOORH = 3.1;
+    let lobbyIdx = 0;
     for (const slot of lobbySlots) {
+      // Alternate the interior flavor: even = shop, odd = lounge. Occupants
+      // (walk.js) match — shopkeeper + browser vs. a couple of loungers.
+      const flavor = lobbyIdx % 2 === 0 ? 'shop' : 'lounge';
       const cx = slot.x, cz = slot.z;
       const hx = slot.footHalf, hz = slot.footHalf;
       const by = flattenedHeight(cx, cz);
@@ -1075,11 +1083,37 @@ export function createCity(planet, worldUp, opts = {}) {
       else box(hx * 1.5, RH - 0.8, 0.1, 0, RH / 2, backSign * (hz - WT - 0.1), lobbyGlowGeos);
       box(hx * 1.4, 0.08, hz * 1.4, 0, RH - 0.2, 0, lobbyGlowGeos);
 
+      // Interior furnishing, keyed off the flavor. Local axes: the "back" is
+      // toward backSign along the door axis; the "side" is the other axis.
+      // bx/bz map a (depth-from-door, sideways) offset into local x,z.
+      const place = (depth, side, w, h, d, geos) => {
+        if (axisX) box(w, h, d, backSign * depth, 0.3 + h / 2, side, geos);
+        else box(d, h, w, side, 0.3 + h / 2, backSign * depth, geos);
+      };
+      if (flavor === 'shop') {
+        // a service counter across the back, plus a shelf unit on one side
+        place(hx - 1.3, 0, 2.6, 1.0, 0.7, lobbyPropGeos);
+        place(hx - 1.3, 0, 2.4, 0.12, 0.5, lobbyGlowGeos); // counter light strip (sits at counter top-ish)
+        place(hx - 0.5, hz - 1.0, 0.7, 2.0, 1.6, lobbyPropGeos); // shelf stack
+        place(hx - 0.5, hz - 1.0, 0.5, 0.1, 1.4, lobbyGlowGeos);
+      } else {
+        // a lounge: two benches along the sides and a low glowing table
+        place(hx - 1.0, hz - 1.0, 0.7, 0.45, 2.2, lobbyPropGeos);
+        place(hx - 1.0, -(hz - 1.0), 0.7, 0.45, 2.2, lobbyPropGeos);
+        place(hx - 1.8, 0, 1.1, 0.5, 1.1, lobbyPropGeos); // table
+        place(hx - 1.8, 0, 0.35, 0.55, 0.35, lobbyGlowGeos); // table lamp
+      }
+
       collidersLocal.push({
         x: cx, z: cz, radius: Math.max(hx, hz) * Math.SQRT2 + 0.4,
         height, baseY: by, npcOnly: true,
       });
       structures.push(makeStructure(cx, cz, by, surfaces, walls, Math.max(hx, hz)));
+      lobbies.push({
+        x: cx, z: cz, floorY: by + 0.3, half: Math.max(hx - 1.2, 1.5),
+        flavor, seed: (seed ^ Math.imul(lobbyIdx + 7, 0x9e3779b1)) >>> 0,
+      });
+      lobbyIdx++;
     }
     const lobbyHullMat = new THREE.MeshStandardMaterial({
       color: palette.hullB, roughness: 0.72, metalness: 0.22,
@@ -1090,11 +1124,20 @@ export function createCity(planet, worldUp, opts = {}) {
       color: 0x120a04, emissive: new THREE.Color(palette.windowWarm),
       emissiveIntensity: C.NEON_BLOOM_INTENSITY * 0.6, roughness: 0.4,
     });
+    const lobbyPropMat = new THREE.MeshStandardMaterial({
+      color: palette.hullA, roughness: 0.6, metalness: 0.3,
+      emissive: new THREE.Color(palette.hullA), emissiveIntensity: 0.25,
+    });
     const lobbyHull = new THREE.Mesh(mergeGeometries(lobbyHullGeos), lobbyHullMat);
     const lobbyGlow = new THREE.Mesh(mergeGeometries(lobbyGlowGeos), lobbyGlowMat);
     lobbyHull.frustumCulled = false;
     lobbyGlow.frustumCulled = false;
     group.add(lobbyHull, lobbyGlow);
+    if (lobbyPropGeos.length) {
+      const props = new THREE.Mesh(mergeGeometries(lobbyPropGeos), lobbyPropMat);
+      props.frustumCulled = false;
+      group.add(props);
+    }
     adMats.push(lobbyGlowMat);
   }
 
@@ -1295,6 +1338,8 @@ export function createCity(planet, worldUp, opts = {}) {
     boardingPad: boardingPadWorld,
     landmark, // enterable observation tower (surfaceYAt/resolveWalls) or null
     structures, // all enterable buildings (landmark + lobbies), for walk.js
+    lobbies, // interior manifests {x,z,floorY,half,flavor,seed} for occupants
+    balconySpot, // {x,z,y} tower balcony perch, or null
   };
 }
 

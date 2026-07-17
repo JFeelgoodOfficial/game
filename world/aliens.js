@@ -147,6 +147,36 @@ const CULTURES = {
 };
 const CULTURE_KEYS = Object.keys(CULTURES);
 
+// Role banks for building interiors — occupants draw lines that fit the room
+// they're standing in (a shop, a lounge, the tower balcony) instead of the
+// generic city culture. Selected via opts.culture on the interior crowds.
+const ROLE_CULTURES = {
+  shopkeeper: {
+    pronoun: 'I',
+    greetings: ["Welcome in, traveler. Everything's for trade.", 'Ah — a customer with atmosphere still on their boots.', 'Step inside, step inside. Mind the low doorway.'],
+    observations: ['The good shelves restock when the second moon rises.', "Prices double during dust season. Today you're lucky.", 'Everything you see, I hauled up from the old market myself.'],
+    requests: ['Take a look around — no pressure, mostly.', "Tell me if anything catches your eye."],
+    farewells: ['Come back when your pockets are heavier.', 'Safe travels — and tell them who sent you.'],
+    questBias: 'codex',
+  },
+  lounge: {
+    pronoun: 'I',
+    greetings: ["Pull up a seat. The neon's free.", 'You look like you walked the whole rim to get here.', 'Evening. Or morning. Hard to tell in here.'],
+    observations: ['This booth has the best view of the avenue.', 'The band plays when the band feels like it.', "Half the city passes through that door eventually."],
+    requests: ['Stay a while, the next round is on the house.', 'Rest your legs — the streets can wait.'],
+    farewells: ["Mind the doorway — it's shorter than it looks.", 'Come back when the lights come up.'],
+    questBias: 'codex',
+  },
+  caretaker: {
+    pronoun: 'I',
+    greetings: ['You made it all the way up. Not many do.', 'I keep the lights on up here. Best view on the planet.'],
+    observations: ['On a clear night you can see your ship from here.', 'The wind sounds different this high off the street.'],
+    requests: ['Take your time. The view is worth it.'],
+    farewells: ['Watch the stairs on the way down.', 'Come back at sunset — it never disappoints.'],
+    questBias: 'codex',
+  },
+};
+
 function cultureForCity(cityId) {
   const rng = mulberry32(hashStr('culture:' + cityId));
   return CULTURES[pick(rng, CULTURE_KEYS)];
@@ -382,12 +412,12 @@ function poseRig(rig, dt, t, mode, speed01) {
 // ---------------------------------------------------------------------------
 // Citizen data (logical, always exists) + rig/impostor promotion
 // ---------------------------------------------------------------------------
-function buildCitizenData(index, citySeed, cityId, culture, waypoints, rng) {
+function buildCitizenData(index, citySeed, cityId, culture, waypoints, rng, questChance) {
   const seed = (citySeed ^ Math.imul(index + 1, 2654435761)) >>> 0;
   const localRng = mulberry32(seed);
   const name = generateName(localRng);
   const species = speciesForCity(cityId);
-  const hasQuest = localRng() < C.questChance;
+  const hasQuest = localRng() < questChance;
   const wp = waypoints.length ? waypoints[Math.floor(localRng() * waypoints.length)] : { x: 0, z: 0 };
 
   const greet = pick(localRng, culture.greetings);
@@ -447,12 +477,15 @@ export function createCrowd(host, opts = {}) {
   const cityId = opts.cityId ?? host.cityId ?? 'city0';
   const citySeed = hashStr('crowd:' + cityId + ':' + (opts.seed ?? 0));
   const rng = mulberry32(citySeed);
-  const culture = cultureForCity(cityId);
+  // Interior crowds pass opts.culture (shopkeeper/lounge/caretaker) to draw
+  // room-appropriate lines; street crowds use the per-city culture.
+  const culture = (opts.culture && ROLE_CULTURES[opts.culture]) || cultureForCity(cityId);
 
   const maxRigs = opts.maxRigs ?? C.maxRigs;
   const population = opts.population ?? C.population;
+  // Per-instance (was mutating the module-global C.questChance, which leaked
+  // between concurrent crowds — street + interiors all share this module).
   const questChance = opts.questChance ?? C.questChance;
-  C.questChance = questChance; // allow override to flow into citizen builder without extra plumbing
 
   const waypoints = (host.plazaCenters && host.plazaCenters.length)
     ? host.plazaCenters
@@ -465,7 +498,11 @@ export function createCrowd(host, opts = {}) {
   // Logical citizen roster (always exists, deterministic)
   const citizens = [];
   for (let i = 0; i < population; i++) {
-    citizens.push(buildCitizenData(i, citySeed, cityId, culture, waypoints, rng));
+    const c = buildCitizenData(i, citySeed, cityId, culture, waypoints, rng, questChance);
+    // A stationary occupant (e.g. a shopkeeper behind a counter) stays put and
+    // faces the room instead of wandering.
+    if (opts.stationaryFirst && i === 0) c.stationary = true;
+    citizens.push(c);
   }
 
   // Rig pool
@@ -528,6 +565,19 @@ export function createCrowd(host, opts = {}) {
       const want = Math.atan2(playerPos.x - c.pos.x, playerPos.z - c.pos.y);
       const d = Math.atan2(Math.sin(want - c.heading), Math.cos(want - c.heading));
       c.heading += THREE.MathUtils.clamp(d, -C.turnRate * dt, C.turnRate * dt);
+      return;
+    }
+
+    if (c.stationary) {
+      // Planted occupant: never wanders. Turns toward the player when they're
+      // close enough to talk, otherwise holds its heading.
+      c.mode = 'idle';
+      _diff.set(c.pos.x - playerPos.x, c.pos.y - playerPos.z);
+      if (_diff.lengthSq() < 16) {
+        const want = Math.atan2(playerPos.x - c.pos.x, playerPos.z - c.pos.y);
+        const d = Math.atan2(Math.sin(want - c.heading), Math.cos(want - c.heading));
+        c.heading += THREE.MathUtils.clamp(d, -C.turnRate * dt, C.turnRate * dt);
+      }
       return;
     }
 

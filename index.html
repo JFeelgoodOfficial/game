@@ -17,9 +17,42 @@
     canvas {
       display: block;
     }
+    /* Static title screen — painted immediately, before the game module loads.
+       menu.js adopts these same nodes and injects its fuller stylesheet. */
+    #menu {
+      position: fixed; inset: 0; z-index: 30;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 28px; background: radial-gradient(ellipse at center, rgba(8,2,14,0.25), rgba(4,0,10,0.78));
+      font-family: 'Courier New', ui-monospace, monospace; color: #a9f7ff;
+      transition: opacity 0.5s; user-select: none;
+    }
+    #menu.hidden { opacity: 0; pointer-events: none; }
+    #menu h1 {
+      margin: 0; font-size: clamp(20px, 3.4vw, 42px); letter-spacing: 0.34em;
+      font-weight: 400; text-align: center; max-width: 92vw;
+      color: #ffc9ec; text-shadow: 0 0 18px rgba(212,64,143,0.8), 0 0 40px rgba(212,64,143,0.4);
+    }
+    #menu .sub {
+      font-size: 13px; letter-spacing: 0.28em; color: #7ad7e0;
+      text-shadow: 0 0 8px rgba(130,247,255,0.5);
+    }
+    #menu button {
+      font: inherit; font-size: 15px; letter-spacing: 0.3em; padding: 13px 46px;
+      background: rgba(212,64,143,0.12); color: #ffc9ec; cursor: pointer;
+      border: 1px solid rgba(212,64,143,0.55); border-radius: 4px;
+      text-shadow: 0 0 8px rgba(255,120,200,0.6);
+      box-shadow: 0 0 22px rgba(212,64,143,0.25), inset 0 0 18px rgba(212,64,143,0.08);
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+    #menu button[disabled] { opacity: 0.5; cursor: default; }
   </style>
 </head>
 <body>
+  <div id="menu">
+    <h1>FEELGOOD SPACE FLIGHT</h1>
+    <div class="sub">LOADING…</div>
+    <button disabled>LOADING…</button>
+  </div>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
