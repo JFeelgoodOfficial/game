@@ -172,20 +172,21 @@ function makeCarpetTexture(baseHex, accentHex, size = 128) {
  * Placement helpers â€” unrotated object space on planet.surface
  * ------------------------------------------------------------------- */
 const _yAxis = new THREE.Vector3(0, 1, 0);
-function orientOnSurface(obj, planet, dirWorld, yawRad = 0) {
-  const dirLocal = dirWorld.clone();
-  if (planet.surface.getWorldQuaternion) {
-    const invQ = planet.surface.getWorldQuaternion(new THREE.Quaternion()).invert();
-    dirLocal.applyQuaternion(invQ).normalize();
-  }
+// dirLocal is already in planet.surface's UNROTATED local frame (the host
+// hands us a surface-local up), so no world-quaternion un-rotation here —
+// applying one would rotate everything by the accumulated spin angle.
+function orientOnSurface(obj, planet, dirLocal, yawRad = 0) {
   const q = new THREE.Quaternion().setFromUnitVectors(_yAxis, dirLocal);
   const yawQ = new THREE.Quaternion().setFromAxisAngle(_yAxis, yawRad);
   obj.quaternion.copy(q).multiply(yawQ);
 }
 
+// Full radial distance to the terrain along a surface-local direction.
+// groundAtLocal (not groundAt) because dirLocal is already un-rotated;
+// placeAtDir multiplies by this, so it must be a radius, not a height.
 function sampleGround(planet, dirLocal) {
-  if (planet.body && planet.body.groundAt) {
-    return planet.body.groundAt(dirLocal.x, dirLocal.y, dirLocal.z);
+  if (planet.body && planet.body.groundAtLocal) {
+    return (planet.radius ?? 900) + planet.body.groundAtLocal(dirLocal);
   }
   return planet.radius ?? 900;
 }
@@ -203,7 +204,9 @@ function buildDistrict(planet, worldUp, dept, index, rng, opts) {
   group.name = `district_${dept.name}`;
 
   const angle = (index / C.DISTRICT_COUNT) * Math.PI * 2;
-  const distFromCenter = C.DISTRICT_RADIUS + C.DISTRICT_RING_GAP;
+  // Ring the districts a full footprint out from the concourse so their
+  // C.DISTRICT_RADIUS floors don't pile on top of each other at center.
+  const distFromCenter = C.DISTRICT_RADIUS * 2 + C.DISTRICT_RING_GAP;
 
   // Local tangent frame around worldUp for district offset placement
   const arbitrary = Math.abs(worldUp.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
@@ -219,6 +222,7 @@ function buildDistrict(planet, worldUp, dept, index, rng, opts) {
   // Carpet-concourse floor patch
   const carpetTex = makeCarpetTexture(C.COLORS.concourseCarpet, dept.accent);
   const floorGeo = new THREE.CircleGeometry(C.DISTRICT_RADIUS, 24);
+  floorGeo.rotateX(-Math.PI / 2); // CircleGeometry faces +Z; lie it flat under +Y-up
   const floorMat = new THREE.MeshStandardMaterial({ map: carpetTex, roughness: 0.95 });
   const floor = new THREE.Mesh(floorGeo, floorMat);
   orientOnSurface(floor, planet, dirLocal);
@@ -339,10 +343,10 @@ export function createDepartmentDistrict(planet, worldUp, opts = {}) {
     });
   }
 
-  function groundHeightAt(worldPos) {
+  function groundHeightAt(surfaceLocalPos) {
     // Delegate to planet's own terrain sampling; districts sit flush with it.
-    if (planet.body && planet.body.groundAt) {
-      const dir = worldPos.clone().normalize();
+    if (planet.body && planet.body.groundAtLocal) {
+      const dir = surfaceLocalPos.clone().normalize();
       return sampleGround(planet, dir);
     }
     return planet.radius ?? 900;
@@ -673,6 +677,7 @@ export function createCrowd(host, opts = {}) {
   group.name = 'wavemall_crowd';
 
   const count = opts.count ?? 60;
+  let simT = 0; // accumulated sim time — drives leg swing (dt alone is ~constant)
   const citizens = [];
   const activePool = [];
   const impostorGeo = new THREE.SphereGeometry(0.4, 4, 4);
@@ -723,6 +728,10 @@ export function createCrowd(host, opts = {}) {
 
   function releaseRig(c) {
     if (!c.rig) return;
+    // buildHumanoidRig allocates fresh geometry/materials per citizen; free
+    // them here so cycling rigs through the pool doesn't leak (double-dispose
+    // from legR = legL.clone() sharing geometry is safe).
+    c.rig.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
     group.remove(c.rig);
     c.rig = null;
     const idx = activePool.indexOf(c);
@@ -730,23 +739,33 @@ export function createCrowd(host, opts = {}) {
   }
 
   function update(dt, playerPos, sunDot = 1) {
+    simT += dt;
     let idx = 0;
     citizens.forEach((c) => {
-      const toWaypoint = c.waypoint.clone().sub(c.pos);
-      const dist = toWaypoint.length();
-      if (dist < 1) pickWaypoint(c);
-      else {
-        toWaypoint.normalize().multiplyScalar(c.speed * dt);
-        c.pos.add(toWaypoint);
+      // A citizen in dialogue holds still so the speaker doesn't wander off.
+      if (!c.talking) {
+        const toWaypoint = c.waypoint.clone().sub(c.pos);
+        const dist = toWaypoint.length();
+        if (dist < 1) pickWaypoint(c);
+        else {
+          toWaypoint.normalize().multiplyScalar(c.speed * dt);
+          c.pos.add(toWaypoint);
+        }
       }
 
       const distToPlayer = playerPos ? c.pos.distanceTo(playerPos) : Infinity;
+
+      // Conform to terrain height (curvature + terrain), only near the player
+      // to bound cost — far citizens stay at their disc y and never draw.
+      if (host.groundHeightAt && distToPlayer < C.CULL_DIST) {
+        c.pos.y = host.groundHeightAt(c.pos.x, c.pos.z);
+      }
 
       if (distToPlayer < C.IMPOSTOR_DIST && distToPlayer < C.CULL_DIST) {
         ensureRig(c);
         if (c.rig) {
           c.rig.position.copy(c.pos);
-          const swing = Math.sin(dt * 6 + c.phase) * 0.3;
+          const swing = c.talking ? 0 : Math.sin(simT * 6 + c.phase) * 0.3;
           c.rig.userData.legL.rotation.x = swing;
           c.rig.userData.legR.rotation.x = -swing;
         }
@@ -775,17 +794,28 @@ export function createCrowd(host, opts = {}) {
   }
 
   function interact(citizen) {
+    citizen.talking = true;
     const bank = citizen.isEmployee ? DIALOGUE_BANK.employeeGreeting : DIALOGUE_BANK.callerFragment;
     const rngLocal = mulberry32(citizen.seed | 0);
     const line = bank[Math.floor(rngLocal() * bank.length)];
     const farewell = DIALOGUE_BANK.farewell[Math.floor(rngLocal() * DIALOGUE_BANK.farewell.length)];
+    // Host dialogue renderer (src/dialogue.js) reads speaker.name/.species/
+    // .cityId — speaker must be an object, not a bare string.
     return {
-      speaker: citizen.isEmployee ? 'Wave Mall Employee' : 'Caller',
-      species: 'human-adjacent',
-      cityId: 'wavemallprime',
+      speaker: {
+        name: citizen.isEmployee ? 'Wave Mall Employee' : 'Caller',
+        species: 'human-adjacent',
+        cityId: 'wavemall prime',
+      },
       lines: [line, farewell],
       offer: citizen.quest ?? undefined,
     };
+  }
+
+  // Contract-required release (idempotent, stale-safe): frees the talk pose so
+  // the citizen resumes wandering when the dialogue closes.
+  function endInteract(citizen) {
+    if (citizen) citizen.talking = false;
   }
 
   function dispose() {
@@ -794,7 +824,7 @@ export function createCrowd(host, opts = {}) {
     impostorMat.dispose();
   }
 
-  return { group, update, sunDot: 1, dispose, count, nearestInteractable, interact, citizens };
+  return { group, update, sunDot: 1, dispose, count, nearestInteractable, interact, endInteract, citizens };
 }
 
 /* ----------------------------------------------------------------------
@@ -845,6 +875,8 @@ export function createHoldMusicField(planet, worldUp, opts = {}) {
       gainNode.gain.value = 0.02;
       osc.connect(gainNode).connect(audioCtx.destination);
       osc.start();
+      // Contexts created outside a gesture handler can start suspended.
+      if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
     } catch (e) {
       audioCtx = null;
     }
@@ -888,8 +920,37 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
 
   const districts = createDepartmentDistrict(planet, worldUp, { ...opts, seedKey });
   const wonders = createWonderField(planet, worldUp, { ...opts, seedKey });
-  const crowd = createCrowd({ radius: C.DISTRICT_RADIUS * C.DISTRICT_COUNT }, { ...opts, seedKey, count: opts.crowdCount ?? 80 });
+
+  // Landing-point anchor. Districts and wonders place each feature along its
+  // own direction, but the crowd and hold-music motes are built around a local
+  // origin — their groups must be moved/oriented to the actual landing site.
+  const anchorDir = worldUp.clone().normalize();
+  const anchorPos = anchorDir.clone().multiplyScalar(sampleGround(planet, anchorDir));
+  const anchorQ = new THREE.Quaternion().setFromUnitVectors(_yAxis, anchorDir);
+  const _gp = new THREE.Vector3();
+
+  const crowd = createCrowd(
+    {
+      radius: C.DISTRICT_RADIUS + C.DISTRICT_RING_GAP, // wander the central concourse
+      // Terrain height (curvature drop + terrain) for a crowd-local (x, z),
+      // expressed back in the crowd's own local frame.
+      groundHeightAt: (x, z) => {
+        _gp.set(x, 0, z).applyQuaternion(anchorQ).add(anchorPos); // -> surface-local
+        const r = _gp.length();
+        if (r < 1e-6) return 0;
+        _gp.multiplyScalar(1 / r);
+        const gR = sampleGround(planet, _gp);
+        return gR * _gp.dot(anchorDir) - anchorPos.length();
+      },
+    },
+    { ...opts, seedKey, count: opts.crowdCount ?? 80 }
+  );
   const holdMusic = createHoldMusicField(planet, worldUp, { ...opts, seedKey });
+
+  crowd.group.position.copy(anchorPos);
+  crowd.group.quaternion.copy(anchorQ);
+  holdMusic.group.position.copy(anchorPos);
+  holdMusic.group.quaternion.copy(anchorQ);
 
   group.add(districts.group, wonders.group, crowd.group, holdMusic.group);
 
@@ -905,6 +966,49 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
   }
   function interact(citizen) {
     return crowd.interact(citizen);
+  }
+
+  // Storefront wall push-out. Each collider lives in its district's tangent
+  // frame (center is pre-transform local x/0/z); cache that frame per district
+  // so a surface-local player point can be moved into it, pushed, and moved
+  // back. Mutates surfaceLocalPos in place; returns true if it was pushed.
+  const _districtFrames = new Map();
+  function districtFrame(index, dir) {
+    let f = _districtFrames.get(index);
+    if (!f) {
+      const q = new THREE.Quaternion().setFromUnitVectors(_yAxis, dir);
+      const pos = dir.clone().multiplyScalar(sampleGround(planet, dir));
+      f = { q, qInv: q.clone().invert(), pos };
+      _districtFrames.set(index, f);
+    }
+    return f;
+  }
+  const _rcLocal = new THREE.Vector3();
+  function resolveCollisions(surfaceLocalPos, playerRadius) {
+    let pushed = false;
+    const cols = districts.colliders;
+    for (let i = 0; i < cols.length; i++) {
+      const c = cols[i];
+      const f = districtFrame(c.districtIndex, c.districtDir);
+      _rcLocal.copy(surfaceLocalPos).sub(f.pos).applyQuaternion(f.qInv);
+      if (_rcLocal.y > c.height - 0.3) continue; // feet above the roof: no wall
+      const dx = _rcLocal.x - c.center.x;
+      const dz = _rcLocal.z - c.center.z;
+      const rr = c.radius + playerRadius;
+      const dd = dx * dx + dz * dz;
+      if (dd < rr * rr && dd > 1e-6) {
+        const dist = Math.sqrt(dd);
+        const push = rr - dist;
+        _rcLocal.x += (dx / dist) * push;
+        _rcLocal.z += (dz / dist) * push;
+        surfaceLocalPos.copy(_rcLocal).applyQuaternion(f.q).add(f.pos);
+        pushed = true;
+      }
+    }
+    return pushed;
+  }
+  function endInteract(citizen) {
+    crowd.endInteract(citizen);
   }
 
   function dispose() {
@@ -924,6 +1028,8 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
     boardingPad: districts.boardingPad,
     nearestInteractable,
     interact,
+    endInteract,
+    resolveCollisions,
     districts,
     wonders,
     crowd,

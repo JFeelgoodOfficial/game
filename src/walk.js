@@ -31,6 +31,7 @@ import { createCity, CITY_STYLES } from '../world/city.js';
 import { createCrowd } from '../world/aliens.js';
 import { createWonderField } from '../world/wonders.js';
 import { createCreatures } from '../world/creatures.js';
+import { createWavemallPrime } from '../world/wavemallprime.js';
 import {
   getViewPref,
   showViewChooser,
@@ -103,6 +104,7 @@ let city = null; // procedural city (world/city.js)
 let crowd = null; // citizens inside the city (world/aliens.js)
 let wonders = null; // megastructure field (world/wonders.js)
 let creatures = null; // planet wildlife (world/creatures.js)
+let wavemall = null; // total-conversion content for 'wavemall prime' only
 
 // Interaction state (world/interaction.js contract, host side). The focus is
 // re-scanned every frame from the modules' nearestInteractable(); the talk
@@ -135,6 +137,7 @@ const _playerLocal = new THREE.Vector3();
 const _qTmp = new THREE.Quaternion();
 const _cityInvQuat = new THREE.Quaternion();
 const _creatInvQuat = new THREE.Quaternion();
+const _wavemallInvQuat = new THREE.Quaternion();
 
 // Convert a world-space (post-spin) direction into planet.surface's UNROTATED
 // local frame — the frame all surface children live in. Same math as
@@ -299,6 +302,20 @@ function spawnWorldEntities(planet) {
     .applyQuaternion(_qTmp.copy(parked.group.quaternion).invert());
   parked.group.rotateY(Math.atan2(_siteT1.x, _siteT1.z));
 
+  // Total conversion: the wavemall module replaces the stock city / crowd /
+  // wonders / creatures wholesale for this world. The parked ship above is
+  // still the boarding point as usual (the module's own boardingPad is unused).
+  // Early return leaves those four handles null — every `if (city)` / etc.
+  // guard downstream short-circuits.
+  if (planet.cfg.name === 'wavemall prime') {
+    toSurfaceLocal(planet, _up, _localUp);
+    wavemall = createWavemallPrime(planet, _localUp.clone(), {});
+    planet.surface.add(wavemall.group);
+    _wavemallInvQuat.copy(wavemall.crowd.group.quaternion).invert();
+    wavemall.holdMusic.initAudio(); // the G keypress that landed us is fresh user activation
+    return;
+  }
+
   // Tangent frame at the landing dir, for placing the city and wonders.
   const ref = Math.abs(_up.y) < 0.94 ? _yAxisV : _xAxisV;
   _siteT1.crossVectors(_up, ref).normalize();
@@ -440,6 +457,11 @@ export function exitWalk(camera) {
     creatures.dispose();
     planet.surface.remove(creatures.group);
     creatures = null;
+  }
+  if (wavemall) {
+    wavemall.dispose(); // stops the hold-music oscillator + closes its AudioContext
+    planet.surface.remove(wavemall.group); // dispose() clears children but doesn't detach
+    wavemall = null;
   }
   if (parked) {
     parked.dispose(); // removes its own group from planet.surface
@@ -609,6 +631,20 @@ export function stepWalk(dt) {
         cityGroundR = _cityPt.length(); // surface frame is planet-centered
       }
     }
+  } else if (wavemall) {
+    // Storefront walls: slide the walker out of building footprints. The
+    // module keeps its own per-district frame math; we just hand it the player
+    // in surface-local space and write back any push-out. Ground stays raw
+    // terrain (floorRadius below) — the near-flat config keeps floors flush.
+    _cityLocal
+      .subVectors(ship.position, planet.body.position)
+      .applyAxisAngle(_yAxisV, -planet.surface.rotation.y); // world -> surface-local
+    if (wavemall.resolveCollisions(_cityLocal, PLAYER_RADIUS)) {
+      _cityPt.copy(_cityLocal)
+        .applyAxisAngle(_yAxisV, planet.surface.rotation.y) // surface-local -> world
+        .add(planet.body.position);
+      ship.position.copy(_cityPt);
+    }
   }
 
   // Recompute up / radius after the horizontal step.
@@ -732,6 +768,14 @@ export function updateWalkVisuals(dt, t) {
     if (creatures.onCodexDiscovery && creatures.onCodexDiscovery())
       addCodex(`Sky ecology of ${walk.planet?.cfg?.name ?? 'a gas giant'}`);
   }
+  if (wavemall) {
+    // crowd.group carries the surface-local anchor transform (its parent
+    // wavemall.group is identity), so playerLocalInto lands the player in the
+    // crowd's local frame — exactly what the crowd's nearestInteractable wants.
+    playerLocalInto(wavemall.crowd.group, _wavemallInvQuat, _playerLocal);
+    wavemall.update(t, dt, _playerLocal, sunDot);
+    scanModule(wavemall, TALK_DIST_CROWD);
+  }
 }
 
 // Squared distance from _playerLocal (the module's frame) to an entity.
@@ -824,7 +868,10 @@ function applyOffer(offer, module) {
 function spawnBeacon(marker, module) {
   if (!marker || !marker.isVector3) return;
   removeBeacon();
-  beaconParent = module === crowd ? city.group : creatures.group;
+  beaconParent =
+    module === crowd ? city.group
+    : module === creatures ? creatures.group
+    : wavemall?.crowd.group; // wavemall quests are codex-only today, but stay safe
   if (!beaconGeo) beaconGeo = new THREE.CylinderGeometry(0.25, 0.6, 30, 6, 1, true);
   beacon = new THREE.Mesh(
     beaconGeo,
@@ -880,7 +927,7 @@ export function promptReturnToShip() {
 
 // dev/verification handle (main.js __debug): the landing-site entities.
 export function walkSite() {
-  return { city, parked, crowd, dressing };
+  return { city, parked, crowd, dressing, wavemall };
 }
 
 // Gravity scale of the world underfoot (1 = normal). For the walk-hint UI.

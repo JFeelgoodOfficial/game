@@ -132,6 +132,27 @@ const CONFIGS = [
     dress: { rocks: true, rockTint: 0x8c5230 }, // oxide rubble, nothing grows
   },
   {
+    name: 'wavemall prime', // retail-bureaucratic anomaly world (world/wavemallprime.js)
+    type: 'terra',
+    dir: new THREE.Vector3(0.55, 0.2, -0.1).normalize(),
+    distance: () => 20000,
+    radius: () => 950,
+    mass: () => 7.7e5, // surface g ~= 30
+    skyColor: () => 0xb6a3c9, // module's skyLavender
+    spin: () => 0.01,
+    atmoColor: 0xc9a0e0,
+    seaLevel: () => 0.02, // under everything — dry, like rustia
+    terrainHeight: () => 14, // near-flat: mall concourse floors sit flush
+    iceLat: 0.95,
+    palette: {
+      deep: 0x2a2430, shallow: 0x3a3342, sand: 0x8f8a92, // terrazzo
+      low: 0x6a4a52, mid: 0x555060, high: 0xd8d4de, // carpet → tile
+    },
+    water: null,
+    clouds: false,
+    dress: { rocks: true, rockTint: 0x8f8a92 }, // terrazzo rubble
+  },
+  {
     name: 'saturnia',
     type: 'gas',
     dir: new THREE.Vector3(-0.72, 0.1, -0.68).normalize(),
