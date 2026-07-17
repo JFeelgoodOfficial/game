@@ -105,6 +105,9 @@ let crowd = null; // citizens inside the city (world/aliens.js)
 let wonders = null; // megastructure field (world/wonders.js)
 let creatures = null; // planet wildlife (world/creatures.js)
 let wavemall = null; // total-conversion content for 'wavemall prime' only
+// Interior occupants: one small crowd per enterable lobby (+ tower balcony).
+// Each rides city.group's local frame, so it shares the crowd's player-local.
+let interiorCrowds = []; // [{ module, groupParent }]
 
 // Interaction state (world/interaction.js contract, host side). The focus is
 // re-scanned every frame from the modules' nearestInteractable(); the talk
@@ -374,6 +377,42 @@ function spawnWorldEntities(planet) {
   );
   city.group.add(crowd.group);
 
+  // Interior occupants: a tiny bounded crowd per enterable lobby — a shopkeeper
+  // (stationary) and a browser in shops, a couple of loungers otherwise — plus
+  // a lone caretaker on the tower balcony. Each shares the city's local frame.
+  interiorCrowds = [];
+  for (const l of city.lobbies ?? []) {
+    const isShop = l.flavor === 'shop';
+    const m = createCrowd(
+      {
+        cityId: planet.cfg.name,
+        plazaCenters: [{ x: l.x, z: l.z, r: 1 }],
+        colliders: [],
+        groundHeightAt: () => l.floorY,
+      },
+      {
+        population: isShop ? 2 : 3, maxRigs: 3, seed: l.seed, questChance: 0,
+        culture: isShop ? 'shopkeeper' : 'lounge', stationaryFirst: isShop,
+      }
+    );
+    city.group.add(m.group);
+    interiorCrowds.push(m);
+  }
+  if (city.balconySpot) {
+    const b = city.balconySpot;
+    const m = createCrowd(
+      {
+        cityId: planet.cfg.name,
+        plazaCenters: [{ x: b.x, z: b.z, r: 1 }],
+        colliders: [],
+        groundHeightAt: () => b.y,
+      },
+      { population: 1, maxRigs: 1, seed: (city.lobbies?.length ?? 0) + 101, questChance: 0, culture: 'caretaker', stationaryFirst: true }
+    );
+    city.group.add(m.group);
+    interiorCrowds.push(m);
+  }
+
   // --- wonders: mirrored to the far side of the landing site from the city ---
   _siteT1.subVectors(_bestUp, _up); // tangent offset toward the city
   _patchUp
@@ -444,6 +483,11 @@ export function exitWalk(camera) {
     crowd.dispose();
     crowd = null;
   }
+  for (const m of interiorCrowds) {
+    if (city) city.group.remove(m.group);
+    m.dispose();
+  }
+  interiorCrowds = [];
   if (city) {
     city.dispose();
     planet.surface.remove(city.group);
@@ -595,8 +639,12 @@ export function stepWalk(dt) {
           pushed = true;
         }
       }
-      if (city.landmark && city.landmark.resolveWalls(_cityLocal, PLAYER_RADIUS)) {
-        pushed = true;
+      // Enterable buildings (landmark tower + lobbies): real walls with a
+      // doorway gap, so only the player can walk in.
+      if (city.structures) {
+        for (let i = 0; i < city.structures.length; i++) {
+          if (city.structures[i].resolveWalls(_cityLocal, PLAYER_RADIUS)) pushed = true;
+        }
       }
       if (pushed) {
         // city-local -> surface-local -> world (inverse of playerLocalInto)
@@ -622,9 +670,13 @@ export function stepWalk(dt) {
             gy = roofY;
           }
         }
-        // Landmark tower: highest slab/stair beneath the feet wins.
-        const lmY = city.landmark?.surfaceYAt(_cityLocal.x, _cityLocal.z, _cityLocal.y);
-        if (lmY !== null && lmY !== undefined && lmY > gy) gy = lmY;
+        // Enterable buildings: highest slab/stair/floor beneath the feet wins.
+        if (city.structures) {
+          for (let i = 0; i < city.structures.length; i++) {
+            const sy = city.structures[i].surfaceYAt(_cityLocal.x, _cityLocal.z, _cityLocal.y);
+            if (sy !== null && sy !== undefined && sy > gy) gy = sy;
+          }
+        }
         _cityPt.set(_cityLocal.x, gy, _cityLocal.z)
           .applyQuaternion(city.group.quaternion)
           .add(city.group.position);
@@ -754,6 +806,11 @@ export function updateWalkVisuals(dt, t) {
       scanModule(crowd, TALK_DIST_CROWD);
       if (beacon && beaconParent === city.group) updateBeacon(t);
     }
+    // Interior occupants share the same city-local player position — reuse it.
+    for (const m of interiorCrowds) {
+      m.update(dt, _playerLocal, sunDot);
+      scanModule(m, TALK_DIST_CROWD);
+    }
   }
   if (creatures) {
     creatures.update(
@@ -868,10 +925,13 @@ function applyOffer(offer, module) {
 function spawnBeacon(marker, module) {
   if (!marker || !marker.isVector3) return;
   removeBeacon();
+  // Interior crowds (quest-free) never reach here; crowd and any interior
+  // module live under city.group, creatures under its own group, and the
+  // wavemall crowd under its own (its quests are codex-only today, but stay safe).
   beaconParent =
-    module === crowd ? city.group
-    : module === creatures ? creatures.group
-    : wavemall?.crowd.group; // wavemall quests are codex-only today, but stay safe
+    module === creatures ? creatures.group
+    : module === wavemall?.crowd ? wavemall.crowd.group
+    : city.group;
   if (!beaconGeo) beaconGeo = new THREE.CylinderGeometry(0.25, 0.6, 30, 6, 1, true);
   beacon = new THREE.Mesh(
     beaconGeo,
@@ -927,7 +987,7 @@ export function promptReturnToShip() {
 
 // dev/verification handle (main.js __debug): the landing-site entities.
 export function walkSite() {
-  return { city, parked, crowd, dressing, wavemall };
+  return { city, parked, crowd, dressing, wavemall, interiorCrowds };
 }
 
 // Gravity scale of the world underfoot (1 = normal). For the walk-hint UI.

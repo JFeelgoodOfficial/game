@@ -177,12 +177,23 @@ export function initMenu(launchCallback) {
   countdownDigit.className = 'cd-digit';
   countdownDigit.textContent = '3';
 
-  menu = el('div', 'menu');
-  title = el('h1', null, menu);
-  title.textContent = 'FEELGOOD SPACE FLIGHT';
-  sub = el('div', null, menu);
-  sub.className = 'sub';
-  button = el('button', null, menu);
+  // Adopt the static title screen from index.html if present (it painted
+  // before the game module loaded), otherwise build it. Either way the nodes
+  // below are the ones showMenu drives.
+  menu = document.getElementById('menu');
+  if (menu) {
+    title = menu.querySelector('h1');
+    sub = menu.querySelector('.sub');
+    button = menu.querySelector('button');
+  } else {
+    menu = el('div', 'menu');
+    title = el('h1', null, menu);
+    title.textContent = 'FEELGOOD SPACE FLIGHT';
+    sub = el('div', null, menu);
+    sub.className = 'sub';
+    button = el('button', null, menu);
+  }
+  button.disabled = false; // the game is loaded now — enable LAUNCH
   button.addEventListener('click', () => onLaunch && onLaunch());
 
   // hold-to-warp button (also bound to F on the keyboard, see input.js)
@@ -212,6 +223,7 @@ export function showMenu(mode, reason) {
     sub.className = 'sub';
     button.textContent = 'LAUNCH';
   }
+  button.disabled = false;
   menu.classList.remove('hidden');
   warpBtn.classList.add('hidden');
   input.warp = false;

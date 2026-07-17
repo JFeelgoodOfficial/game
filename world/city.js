@@ -286,6 +286,59 @@ export const CITY_STYLES = [
 ];
 
 // ---------------------------------------------------------------------------
+// Walkable-structure helper: given axis-aligned slab/ramp surfaces and wall
+// AABBs in an origin-local frame, returns the {surfaceYAt, resolveWalls}
+// contract walk.js consumes. Shared by the landmark tower and the enterable
+// building lobbies so both feel identical underfoot.
+// ---------------------------------------------------------------------------
+const STRUCT_STEP_UP = 0.7;
+function makeStructure(ox, oz, baseY, surfaces, walls, halfExtent) {
+  return {
+    x: ox, z: oz, baseY,
+    // Highest walkable slab/ramp under (x,z) reachable from feetY, or null.
+    surfaceYAt(x, z, feetY) {
+      const lx = x - ox, lz = z - oz;
+      if (lx < -halfExtent - 0.4 || lx > halfExtent + 0.4 ||
+          lz < -halfExtent - 0.4 || lz > halfExtent + 0.4) return null;
+      let best = null;
+      for (const s of surfaces) {
+        if (lx < s.x0 || lx > s.x1 || lz < s.z0 || lz > s.z1) continue;
+        let y;
+        if (s.ramp) {
+          const t = THREE.MathUtils.clamp((lz - s.zA) / (s.zB - s.zA), 0, 1);
+          y = s.yA + (s.yB - s.yA) * t;
+        } else {
+          y = s.y;
+        }
+        y += baseY;
+        if (y <= feetY + STRUCT_STEP_UP && (best === null || y > best)) best = y;
+      }
+      return best;
+    },
+    // 2D AABB push-out for walls whose height band overlaps the body. p is a
+    // city-local position (y = feet); returns true if it moved.
+    resolveWalls(p, r) {
+      let lx = p.x - ox, lz = p.z - oz;
+      if (Math.abs(lx) > halfExtent + 2 || Math.abs(lz) > halfExtent + 2) return false;
+      const feet = p.y - baseY;
+      let pushed = false;
+      for (const w of walls) {
+        if (feet >= w.y1 || feet + 1.7 <= w.y0) continue;
+        const ex0 = w.x0 - r, ex1 = w.x1 + r, ez0 = w.z0 - r, ez1 = w.z1 + r;
+        if (lx <= ex0 || lx >= ex1 || lz <= ez0 || lz >= ez1) continue;
+        const dx = Math.min(lx - ex0, ex1 - lx);
+        const dz = Math.min(lz - ez0, ez1 - lz);
+        if (dx < dz) lx = lx - ex0 < ex1 - lx ? ex0 : ex1;
+        else lz = lz - ez0 < ez1 - lz ? ez0 : ez1;
+        pushed = true;
+      }
+      if (pushed) { p.x = ox + lx; p.z = oz + lz; }
+      return pushed;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Main factory
 // ---------------------------------------------------------------------------
 export function createCity(planet, worldUp, opts = {}) {
@@ -302,6 +355,17 @@ export function createCity(planet, worldUp, opts = {}) {
 
   const group = new THREE.Group();
   group.name = 'City';
+
+  // Fill light: the global scene ambient is very dim (built for the vacuum of
+  // space), so backlit building facades otherwise fall to near-black. This
+  // omni fill lifts the shadowed sides to a readable level. It lives on the
+  // city group, so it only affects the landing site and is torn down with the
+  // city when the player boards (nothing else is in view on foot anyway).
+  const fillLight = new THREE.AmbientLight(0x6a7690, 0.6);
+  group.add(fillLight);
+  const structures = []; // enterable buildings: landmark tower + lobbies
+  const lobbies = [];    // per-lobby manifest for interior occupants (walk.js)
+  let balconySpot = null; // landmark balcony perch for a lone caretaker
 
   // The group lives as a child of planet.surface, whose local frame is the
   // planet's UNROTATED object space — so undo the current spin to convert
@@ -474,6 +538,19 @@ export function createCity(planet, worldUp, opts = {}) {
     }
   }
 
+  // Pick a few roomy buildings to be genuinely enterable — a lit ground-floor
+  // lobby you can walk into (the rest get a mock doorway). Spread them out so
+  // they aren't clustered, and keep them clear of the landmark tower.
+  const lobbySlots = [];
+  for (const slot of buildingSlots) {
+    if (lobbySlots.length >= 4) break;
+    if (slot.footHalf < C.BUILDING_MIN_FOOT - 0.1) continue;
+    if (landmarkSpot && Math.hypot(slot.x - landmarkSpot.x, slot.z - landmarkSpot.z) < 32) continue;
+    if (lobbySlots.some((s) => Math.hypot(s.x - slot.x, s.z - slot.z) < 40)) continue;
+    slot.isLobby = true;
+    lobbySlots.push(slot);
+  }
+
   // Build a merged street-surface mesh draped to terrain height. A plain
   // CircleGeometry is a triangle FAN (center + rim vertices only), so draping
   // its vertices produced a flat cone. Use a radially subdivided ring (real
@@ -507,9 +584,13 @@ export function createCity(planet, worldUp, opts = {}) {
   // rooftop neon sign instances
   // -------------------------------------------------------------------------
   const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  // A faint self-lit floor (the hull's own hue, dimmed) so even a fully
+  // backlit facade never crushes to black against a bright horizon.
+  const hullEmissive = new THREE.Color(palette.hullA).multiplyScalar(1.0);
   const hullMat = new THREE.MeshStandardMaterial({
     color: palette.hullA, roughness: 0.75, metalness: 0.2,
     map: makePanelNoiseTexture(rng),
+    emissive: hullEmissive, emissiveIntensity: 0.3,
   });
   const towerCount = Math.min(buildingSlots.length, C.MAX_TOWER_INSTANCES);
   const towerMesh = new THREE.InstancedMesh(boxGeo, hullMat, towerCount);
@@ -536,15 +617,18 @@ export function createCity(planet, worldUp, opts = {}) {
   const colliders = [];
   const collidersLocal = []; // city-flat {x,z,radius,height} — aliens.js format
   const billboardSpecs = []; // Tokyo-style wall ads (neonMetropolis only)
+  const doorSpecs = [];      // mock lit entrances, one per instanced tower
   const dummy = new THREE.Object3D();
   const signAccentColors = [palette.neonPrimary, palette.neonSecondaryA, palette.neonSecondaryB];
   let signIdx = 0;
   let windowIdx = 0;
+  let towerIdx = 0; // written-instance count (lobby slots are skipped)
 
   const worldPosScratch = new THREE.Vector3();
 
   for (let i = 0; i < towerCount; i++) {
     const slot = buildingSlots[i];
+    if (slot.isLobby) continue; // built as an enterable lobby below, not here
     const heightRange = slot.isCore
       ? [C.BUILDING_MIN_H_CORE, C.BUILDING_MAX_H_CORE]
       : slot.isOutskirt
@@ -561,13 +645,18 @@ export function createCity(planet, worldUp, opts = {}) {
     // Extend the box down into the ground (foundation) so sloped terrain
     // under a jittered footprint never shows a gap beneath the walls.
     const rotY = rng() * Math.PI * 2;
+    const inst = towerIdx++;
     dummy.position.set(slot.x, baseY - C.FOUNDATION_DEPTH + (bodyHeight + C.FOUNDATION_DEPTH) / 2, slot.z);
     dummy.scale.set(footW, bodyHeight + C.FOUNDATION_DEPTH, footD);
     dummy.rotation.set(0, rotY, 0);
     dummy.updateMatrix();
-    towerMesh.setMatrixAt(i, dummy.matrix);
+    towerMesh.setMatrixAt(inst, dummy.matrix);
     towerColor.set(rng() < 0.5 ? palette.hullA : palette.hullB);
-    towerMesh.setColorAt(i, towerColor);
+    towerMesh.setColorAt(inst, towerColor);
+
+    // mock lit entrance on one face at street level (real lobbies handled
+    // separately). Face the building's local +Z, whatever way it was rotated.
+    doorSpecs.push({ x: slot.x, z: slot.z, rotY, footD, baseY });
 
     if (doSetback && signIdx < signMesh.count) {
       // upper setback tier gets its own smaller box merged visually via a
@@ -620,7 +709,7 @@ export function createCity(planet, worldUp, opts = {}) {
       baseY, // city-local ground level at this tower (walk.js roof checks)
     });
   }
-  towerMesh.count = towerCount;
+  towerMesh.count = towerIdx;
   windowMesh.count = windowIdx;
   signMesh.count = signIdx;
   towerMesh.instanceMatrix.needsUpdate = true;
@@ -629,10 +718,61 @@ export function createCity(planet, worldUp, opts = {}) {
   if (towerMesh.instanceColor) towerMesh.instanceColor.needsUpdate = true;
   group.add(towerMesh, windowMesh, signMesh);
 
+  const adMats = []; // emissive materials that ride the day/night neon dimming
+
+  // -------------------------------------------------------------------------
+  // Mock entrances — a lit doorway panel + frame on each instanced tower, so
+  // the towers read as inhabited buildings instead of blank blocks. Merged
+  // into two meshes (recess + frame). Real, enterable lobbies are built later.
+  // -------------------------------------------------------------------------
+  if (doorSpecs.length) {
+    const DOOR_W = 2.4, DOOR_HT = 3.0;
+    const panelGeos = [], frameGeos = [];
+    const dm = new THREE.Matrix4(), dq = new THREE.Quaternion();
+    const dp = new THREE.Vector3(), ds = new THREE.Vector3(1, 1, 1);
+    for (const dsp of doorSpecs) {
+      const nx = Math.sin(dsp.rotY), nz = Math.cos(dsp.rotY); // local +Z, rotated
+      const out = dsp.footD * 0.5;
+      dq.setFromAxisAngle(YAXIS, dsp.rotY);
+      // the glowing recess, sunk 0.05 into the face
+      dp.set(dsp.x + nx * (out - 0.05), dsp.baseY + DOOR_HT / 2, dsp.z + nz * (out - 0.05));
+      const panel = new THREE.PlaneGeometry(DOOR_W, DOOR_HT);
+      panel.applyMatrix4(dm.compose(dp, dq, ds));
+      panelGeos.push(panel);
+      // a thin frame proud of the wall (two jambs + a lintel)
+      for (const off of [-DOOR_W / 2, DOOR_W / 2]) {
+        const jamb = new THREE.BoxGeometry(0.16, DOOR_HT + 0.3, 0.16);
+        dp.set(dsp.x + nx * (out + 0.05) - nz * off,
+               dsp.baseY + (DOOR_HT + 0.3) / 2,
+               dsp.z + nz * (out + 0.05) + nx * off);
+        jamb.applyMatrix4(dm.compose(dp, dq, ds));
+        frameGeos.push(jamb);
+      }
+      const lintel = new THREE.BoxGeometry(DOOR_W + 0.3, 0.16, 0.16);
+      dp.set(dsp.x + nx * (out + 0.05), dsp.baseY + DOOR_HT + 0.15, dsp.z + nz * (out + 0.05));
+      lintel.applyMatrix4(dm.compose(dp, dq, ds));
+      frameGeos.push(lintel);
+    }
+    const panelMat = new THREE.MeshStandardMaterial({
+      color: 0x120a04, emissive: new THREE.Color(palette.windowWarm),
+      emissiveIntensity: C.NEON_BLOOM_INTENSITY * 0.6, roughness: 0.5,
+      side: THREE.DoubleSide,
+    });
+    const frameMat = new THREE.MeshStandardMaterial({
+      color: 0x14121e, emissive: new THREE.Color(palette.neonSecondaryA),
+      emissiveIntensity: C.NEON_BLOOM_INTENSITY * 0.4, roughness: 0.4,
+    });
+    const panelMesh = new THREE.Mesh(mergeGeometries(panelGeos), panelMat);
+    const frameMesh = new THREE.Mesh(mergeGeometries(frameGeos), frameMat);
+    panelMesh.frustumCulled = false;
+    frameMesh.frustumCulled = false;
+    group.add(panelMesh, frameMesh);
+    adMats.push(panelMat, frameMat);
+  }
+
   // -------------------------------------------------------------------------
   // Ad billboards — merged planes per texture, glued to tower walls
   // -------------------------------------------------------------------------
-  const adMats = [];
   if (billboardSpecs.length) {
     const adTexes = Array.from({ length: 4 }, (_, i) => makeAdTexture(rng, palette, i % 2 === 1));
     const perTexGeos = adTexes.map(() => []);
@@ -773,6 +913,7 @@ export function createCity(planet, worldUp, opts = {}) {
     const lmHullMat = new THREE.MeshStandardMaterial({
       color: palette.hullA, roughness: 0.7, metalness: 0.25,
       map: makePanelNoiseTexture(rng),
+      emissive: new THREE.Color(palette.hullA), emissiveIntensity: 0.3,
     });
     const lmHull = new THREE.Mesh(mergeGeometries(hullGeos), lmHullMat);
     lmHull.frustumCulled = false;
@@ -841,6 +982,163 @@ export function createCity(planet, worldUp, opts = {}) {
         return pushed;
       },
     };
+    structures.push(landmark);
+    // A lone caretaker stands on the balcony deck (walk.js spawns them).
+    balconySpot = { x: landmarkSpot.x + 2, z: landmarkSpot.z, y: lmBaseY + TOP + 0.3 };
+  }
+
+  // -------------------------------------------------------------------------
+  // Enterable building lobbies — a lit ground-floor room with a doorway you
+  // can walk into; a solid tower rises above it. Axis-aligned so walls/floor
+  // stay simple AABBs (walk.js consumes them via city.structures). NPCs steer
+  // around the footprint (npcOnly collider) but only the player enters.
+  // -------------------------------------------------------------------------
+  if (lobbySlots.length) {
+    const lobbyHullGeos = [], lobbyGlowGeos = [], lobbyPropGeos = [];
+    const RH = 4.4, WT = 0.4, DH = 1.4, DOORH = 3.1;
+    let lobbyIdx = 0;
+    for (const slot of lobbySlots) {
+      // Alternate the interior flavor: even = shop, odd = lounge. Occupants
+      // (walk.js) match — shopkeeper + browser vs. a couple of loungers.
+      const flavor = lobbyIdx % 2 === 0 ? 'shop' : 'lounge';
+      const cx = slot.x, cz = slot.z;
+      const hx = slot.footHalf, hz = slot.footHalf;
+      const by = flattenedHeight(cx, cz);
+      const height = THREE.MathUtils.lerp(C.BUILDING_MIN_H_MID * 1.4, C.BUILDING_MAX_H_CORE, rng()) * heightScale;
+      const surfaces = [], walls = [];
+      const box = (w, h, d, x, y, z, geos) => {
+        const g = new THREE.BoxGeometry(w, h, d);
+        g.translate(cx + x, by + y, cz + z);
+        geos.push(g);
+      };
+      // door faces the city centre (reachable from a street)
+      const axisX = Math.abs(cx) >= Math.abs(cz);
+      const sign = axisX ? (cx > 0 ? -1 : 1) : (cz > 0 ? -1 : 1);
+
+      // ground slab (walkable floor)
+      box(hx * 2, 0.6, hz * 2, 0, 0, 0, lobbyHullGeos);
+      surfaces.push({ x0: -hx, x1: hx, z0: -hz, z1: hz, y: 0.3 });
+      // solid tower above the room (its underside is the lobby ceiling)
+      box(hx * 2, height - RH, hz * 2, 0, RH + (height - RH) / 2, 0, lobbyHullGeos);
+      // window bands on the solid upper box (a little life)
+      for (const wf of [0.45, 0.72]) {
+        box(hx * 2.02, 1.4, hz * 2.02, 0, RH + (height - RH) * wf, 0, lobbyGlowGeos);
+      }
+
+      // four sides: three solid full-height walls, the door side split into
+      // jambs + lintel at ground and a solid band above the room.
+      const wallFull = (ax, sg) => {
+        if (ax === 'x') {
+          box(WT, height, hz * 2, sg * (hx - WT / 2), height / 2, 0, lobbyHullGeos);
+          walls.push({ x0: sg > 0 ? hx - WT : -hx, x1: sg > 0 ? hx : -hx + WT, z0: -hz - 0.1, z1: hz + 0.1, y0: 0, y1: height });
+        } else {
+          box(hx * 2, height, WT, 0, height / 2, sg * (hz - WT / 2), lobbyHullGeos);
+          walls.push({ x0: -hx - 0.1, x1: hx + 0.1, z0: sg > 0 ? hz - WT : -hz, z1: sg > 0 ? hz : -hz + WT, y0: 0, y1: height });
+        }
+      };
+      const wallDoor = (ax, sg) => {
+        if (ax === 'x') {
+          const wx = sg * (hx - WT / 2), x0 = sg > 0 ? hx - WT : -hx, x1 = sg > 0 ? hx : -hx + WT;
+          const seg = hz - DH;
+          for (const s of [-1, 1]) {
+            box(WT, RH, seg, wx, RH / 2, s * (DH + seg / 2), lobbyHullGeos);
+            walls.push({ x0, x1, z0: s < 0 ? -hz - 0.1 : DH, z1: s < 0 ? -DH : hz + 0.1, y0: 0, y1: RH });
+          }
+          box(WT, RH - DOORH, DH * 2, wx, DOORH + (RH - DOORH) / 2, 0, lobbyHullGeos);
+          walls.push({ x0, x1, z0: -DH, z1: DH, y0: DOORH, y1: RH });
+          box(WT, height - RH, hz * 2, wx, RH + (height - RH) / 2, 0, lobbyHullGeos);
+          walls.push({ x0, x1, z0: -hz - 0.1, z1: hz + 0.1, y0: RH, y1: height });
+          // door frame glow
+          const fo = sg * (hx + 0.06);
+          box(0.16, DOORH, 0.16, fo, DOORH / 2, DH, lobbyGlowGeos);
+          box(0.16, DOORH, 0.16, fo, DOORH / 2, -DH, lobbyGlowGeos);
+          box(0.16, 0.16, DH * 2 + 0.5, fo, DOORH + 0.05, 0, lobbyGlowGeos);
+        } else {
+          const wz = sg * (hz - WT / 2), z0 = sg > 0 ? hz - WT : -hz, z1 = sg > 0 ? hz : -hz + WT;
+          const seg = hx - DH;
+          for (const s of [-1, 1]) {
+            box(seg, RH, WT, s * (DH + seg / 2), RH / 2, wz, lobbyHullGeos);
+            walls.push({ x0: s < 0 ? -hx - 0.1 : DH, x1: s < 0 ? -DH : hx + 0.1, z0, z1, y0: 0, y1: RH });
+          }
+          box(DH * 2, RH - DOORH, WT, 0, DOORH + (RH - DOORH) / 2, wz, lobbyHullGeos);
+          walls.push({ x0: -DH, x1: DH, z0, z1, y0: DOORH, y1: RH });
+          box(hx * 2, height - RH, WT, 0, RH + (height - RH) / 2, wz, lobbyHullGeos);
+          walls.push({ x0: -hx - 0.1, x1: hx + 0.1, z0, z1, y0: RH, y1: height });
+          const fo = sg * (hz + 0.06);
+          box(0.16, DOORH, 0.16, DH, DOORH / 2, fo, lobbyGlowGeos);
+          box(0.16, DOORH, 0.16, -DH, DOORH / 2, fo, lobbyGlowGeos);
+          box(DH * 2 + 0.5, 0.16, 0.16, 0, DOORH + 0.05, fo, lobbyGlowGeos);
+        }
+      };
+      const doorAx = axisX ? 'x' : 'z';
+      for (const ax of ['x', 'z']) {
+        for (const sg of [-1, 1]) {
+          if (ax === doorAx && sg === sign) wallDoor(ax, sg);
+          else wallFull(ax, sg);
+        }
+      }
+      // interior: a glowing back wall + ceiling strip so the doorway reads lit
+      const backSign = -sign;
+      if (axisX) box(0.1, RH - 0.8, hz * 1.5, backSign * (hx - WT - 0.1), RH / 2, 0, lobbyGlowGeos);
+      else box(hx * 1.5, RH - 0.8, 0.1, 0, RH / 2, backSign * (hz - WT - 0.1), lobbyGlowGeos);
+      box(hx * 1.4, 0.08, hz * 1.4, 0, RH - 0.2, 0, lobbyGlowGeos);
+
+      // Interior furnishing, keyed off the flavor. Local axes: the "back" is
+      // toward backSign along the door axis; the "side" is the other axis.
+      // bx/bz map a (depth-from-door, sideways) offset into local x,z.
+      const place = (depth, side, w, h, d, geos) => {
+        if (axisX) box(w, h, d, backSign * depth, 0.3 + h / 2, side, geos);
+        else box(d, h, w, side, 0.3 + h / 2, backSign * depth, geos);
+      };
+      if (flavor === 'shop') {
+        // a service counter across the back, plus a shelf unit on one side
+        place(hx - 1.3, 0, 2.6, 1.0, 0.7, lobbyPropGeos);
+        place(hx - 1.3, 0, 2.4, 0.12, 0.5, lobbyGlowGeos); // counter light strip (sits at counter top-ish)
+        place(hx - 0.5, hz - 1.0, 0.7, 2.0, 1.6, lobbyPropGeos); // shelf stack
+        place(hx - 0.5, hz - 1.0, 0.5, 0.1, 1.4, lobbyGlowGeos);
+      } else {
+        // a lounge: two benches along the sides and a low glowing table
+        place(hx - 1.0, hz - 1.0, 0.7, 0.45, 2.2, lobbyPropGeos);
+        place(hx - 1.0, -(hz - 1.0), 0.7, 0.45, 2.2, lobbyPropGeos);
+        place(hx - 1.8, 0, 1.1, 0.5, 1.1, lobbyPropGeos); // table
+        place(hx - 1.8, 0, 0.35, 0.55, 0.35, lobbyGlowGeos); // table lamp
+      }
+
+      collidersLocal.push({
+        x: cx, z: cz, radius: Math.max(hx, hz) * Math.SQRT2 + 0.4,
+        height, baseY: by, npcOnly: true,
+      });
+      structures.push(makeStructure(cx, cz, by, surfaces, walls, Math.max(hx, hz)));
+      lobbies.push({
+        x: cx, z: cz, floorY: by + 0.3, half: Math.max(hx - 1.2, 1.5),
+        flavor, seed: (seed ^ Math.imul(lobbyIdx + 7, 0x9e3779b1)) >>> 0,
+      });
+      lobbyIdx++;
+    }
+    const lobbyHullMat = new THREE.MeshStandardMaterial({
+      color: palette.hullB, roughness: 0.72, metalness: 0.22,
+      map: makePanelNoiseTexture(rng),
+      emissive: new THREE.Color(palette.hullB), emissiveIntensity: 0.3,
+    });
+    const lobbyGlowMat = new THREE.MeshStandardMaterial({
+      color: 0x120a04, emissive: new THREE.Color(palette.windowWarm),
+      emissiveIntensity: C.NEON_BLOOM_INTENSITY * 0.6, roughness: 0.4,
+    });
+    const lobbyPropMat = new THREE.MeshStandardMaterial({
+      color: palette.hullA, roughness: 0.6, metalness: 0.3,
+      emissive: new THREE.Color(palette.hullA), emissiveIntensity: 0.25,
+    });
+    const lobbyHull = new THREE.Mesh(mergeGeometries(lobbyHullGeos), lobbyHullMat);
+    const lobbyGlow = new THREE.Mesh(mergeGeometries(lobbyGlowGeos), lobbyGlowMat);
+    lobbyHull.frustumCulled = false;
+    lobbyGlow.frustumCulled = false;
+    group.add(lobbyHull, lobbyGlow);
+    if (lobbyPropGeos.length) {
+      const props = new THREE.Mesh(mergeGeometries(lobbyPropGeos), lobbyPropMat);
+      props.frustumCulled = false;
+      group.add(props);
+    }
+    adMats.push(lobbyGlowMat);
   }
 
   // -------------------------------------------------------------------------
@@ -1039,6 +1337,9 @@ export function createCity(planet, worldUp, opts = {}) {
     plazaCenters, // city-flat {x,z,r} — aliens.js waypoints
     boardingPad: boardingPadWorld,
     landmark, // enterable observation tower (surfaceYAt/resolveWalls) or null
+    structures, // all enterable buildings (landmark + lobbies), for walk.js
+    lobbies, // interior manifests {x,z,floorY,half,flavor,seed} for occupants
+    balconySpot, // {x,z,y} tower balcony perch, or null
   };
 }
 
