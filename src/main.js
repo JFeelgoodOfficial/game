@@ -51,7 +51,10 @@ import {
   toggleWalkView,
   nearParkedShip,
   promptReturnToShip,
+  walkInteract,
+  walkPromptText,
 } from './walk.js';
+import { initJournal, journalState } from './journal.js';
 import { initSun, sunAltitude } from './sun.js';
 import { initStations, updateStations } from './stations.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
@@ -95,6 +98,7 @@ initCockpitFrame();
 initInterior();
 initRadio();
 initNav();
+initJournal();
 
 // --- composer (GDD 4.4) ---
 const composer = new EffectComposer(renderer);
@@ -281,6 +285,8 @@ if (import.meta.env.DEV) {
         accumulator = 0;
       }
     },
+    // Quest/codex record (interaction system), for headless verification.
+    journal: journalState,
     recordFrame(delta) {
       frameTimes[frameCount % frameTimes.length] = delta;
       frameCount++;
@@ -430,6 +436,8 @@ function frame(now) {
     if (input.toggleView) toggleWalkView();
     // Astronaut pose/animation + dressing sway ride the render rate.
     updateWalkVisuals(delta, now / 1000);
+    // E — talk to the focused citizen/creature, or advance the open dialogue.
+    if (input.interact) walkInteract();
     if (input.toggleWalk) {
       if (nearParkedShip()) {
         // Board the ship and hand control back to flight.
@@ -472,6 +480,7 @@ function frame(now) {
   input.toggleWalk = false;
   input.toggleInterior = false;
   input.toggleView = false;
+  input.interact = false;
   collapsePass.enabled = warp > 0.001;
   collapsePass.uniforms.uProgress.value = warp;
   // heat 0..0.5 = warning banner; 0.5..1 = the flashing cockpit countdown
@@ -516,7 +525,9 @@ function frame(now) {
     cockpitPass.enabled = false;
     interiorPass.enabled = false;
     updateRadio(frameBlend, false);
-    setPrompt(null);
+    // "E — TALK" while an alien/creature is in range (dialogue hints are on
+    // the dialogue panel itself). Reuses the interior prompt element.
+    setPrompt(walkPromptText());
   } else {
     frameBlend = updateCockpitFrame(ship, delta, phase !== 'menu', standBlend);
     interiorPass.enabled = standBlend > 0.001;

@@ -38,6 +38,19 @@ import {
   hideViewUI,
   toggleViewPref,
 } from './walkview.js';
+import {
+  openDialogue,
+  advanceDialogue,
+  isDialogueOpen,
+  closeDialogue,
+} from './dialogue.js';
+import {
+  addCodex,
+  addOutcome,
+  setWaypoint,
+  completeWaypoint,
+  clearWaypoint,
+} from './journal.js';
 
 const LOOK_SENS = 0.0022; // radians of look per pixel of mouse travel
 const MAX_PITCH = 1.483; // ~85°, so you never flip past straight up/down
@@ -90,6 +103,21 @@ let city = null; // procedural city (world/city.js)
 let crowd = null; // citizens inside the city (world/aliens.js)
 let wonders = null; // megastructure field (world/wonders.js)
 let creatures = null; // planet wildlife (world/creatures.js)
+
+// Interaction state (world/interaction.js contract, host side). The focus is
+// re-scanned every frame from the modules' nearestInteractable(); the talk
+// refs live only while a dialogue is open and are released in its onClose.
+let focusEntity = null; // this-frame nearest interactable (null = none in range)
+let focusModule = null; // the handle (crowd | creatures) that owns focusEntity
+let focusD2 = Infinity; // its squared distance, to pick the closer module
+let talkEntity = null; // entity with the open dialogue
+let talkModule = null;
+let beacon = null; // waypoint marker mesh, parented in its source module's frame
+let beaconParent = null;
+let beaconGeo = null; // shared, built on first use, disposed on exitWalk
+const TALK_DIST_CROWD = 2.6; // ~ aliens talkTriggerDist
+const TALK_DIST_CREATURE = 6; // ~ creatures interactRadius
+const TALK_BREAK_DIST = 8; // walk-away hangup (inside demote/deactivate radii)
 
 // Scratch for the entity transforms (never allocated per frame).
 const _yAxisV = new THREE.Vector3(0, 1, 0);
@@ -362,6 +390,18 @@ export function exitWalk(camera) {
     dressing.dispose();
     dressing = null;
   }
+  // Close any open dialogue BEFORE disposing the modules: its onClose calls
+  // talkModule.endInteract(), which must run against a live handle. Then drop
+  // the beacon (its parent group is about to be torn down) and the waypoint.
+  closeDialogue();
+  removeBeacon();
+  clearWaypoint();
+  focusEntity = null;
+  focusModule = null;
+  if (beaconGeo) {
+    beaconGeo.dispose();
+    beaconGeo = null;
+  }
   // Tear down the landing-site entities. dispose() clears children but (except
   // ship/wonders) doesn't detach from planet.surface — remove explicitly so
   // empty groups don't accumulate across repeated landings.
@@ -572,18 +612,165 @@ export function updateWalkVisuals(dt, t) {
   if (dressing) dressing.update(t, sunDot);
   if (parked) parked.update(dt, t, sunDot);
   if (wonders) wonders.update(t, sunDot);
+
+  // Interaction focus: re-scanned below in each module's own player-local
+  // frame, while _playerLocal still holds it (the frames are rigid transforms
+  // of world space, so the two squared distances compare directly).
+  focusEntity = null;
+  focusModule = null;
+  focusD2 = Infinity;
+
   if (city) {
     city.update(t, sunDot);
     // Citizens want the player in the city's flat local x/z frame.
-    if (crowd)
+    if (crowd) {
       crowd.update(dt, playerLocalInto(city.group, _cityInvQuat, _playerLocal), sunDot);
+      scanModule(crowd, TALK_DIST_CROWD);
+      if (beacon && beaconParent === city.group) updateBeacon(t);
+    }
   }
-  if (creatures)
+  if (creatures) {
     creatures.update(
       dt,
       playerLocalInto(creatures.group, _creatInvQuat, _playerLocal),
       sunDot
     );
+    scanModule(creatures, TALK_DIST_CREATURE);
+    if (beacon && beaconParent === creatures.group) updateBeacon(t);
+    // Sky ecologies (gas giants) flag a passive codex discovery instead of
+    // talking. Unreachable until those become landable, but one cheap poll.
+    if (creatures.onCodexDiscovery && creatures.onCodexDiscovery())
+      addCodex(`Sky ecology of ${walk.planet?.cfg?.name ?? 'a gas giant'}`);
+  }
+}
+
+// Squared distance from _playerLocal (the module's frame) to an entity.
+// Citizens store (x, z) in a Vector2; creatures use a group-local Vector3.
+function entityDistSq(entity) {
+  if (entity.pos.isVector2) {
+    const dx = entity.pos.x - _playerLocal.x;
+    const dz = entity.pos.y - _playerLocal.z;
+    return dx * dx + dz * dz;
+  }
+  return entity.pos.distanceToSquared(_playerLocal);
+}
+
+// One module's slice of the per-frame interaction pass. With a dialogue open
+// it only watches the speaker's distance (the walk-away hangup); otherwise it
+// bids the module's nearest interactable for this frame's focus.
+function scanModule(module, maxDist) {
+  if (isDialogueOpen()) {
+    if (talkModule === module && talkEntity &&
+        entityDistSq(talkEntity) > TALK_BREAK_DIST * TALK_BREAK_DIST) {
+      closeDialogue(); // onClose fires endInteract and clears the talk refs
+    }
+    return;
+  }
+  const e = module.nearestInteractable(_playerLocal, maxDist);
+  if (!e) return;
+  const d2 = entityDistSq(e);
+  if (d2 < focusD2) {
+    focusEntity = e;
+    focusModule = module;
+    focusD2 = d2;
+  }
+}
+
+// E on foot (routed from main.js): advance the open dialogue, or start one
+// with this frame's focused entity. The module's interact() supplies the
+// payload and starts its own talk pose; endInteract() releases it on close.
+export function walkInteract() {
+  if (isDialogueOpen()) {
+    advanceDialogue();
+    return;
+  }
+  if (!focusEntity || !focusModule) return;
+  const entity = focusEntity;
+  const module = focusModule;
+  const payload = module.interact(entity);
+  if (!payload || !payload.lines || !payload.lines.length) {
+    // interact() already flagged the entity as talking — release it, since no
+    // dialogue will open (and so no onClose will ever fire).
+    module.endInteract?.(entity);
+    return;
+  }
+  openDialogue(payload, {
+    onOffer: (offer) => applyOffer(offer, module),
+    onClose: () => {
+      talkModule?.endInteract?.(talkEntity);
+      talkEntity = null;
+      talkModule = null;
+    },
+  });
+  talkEntity = entity;
+  talkModule = module;
+}
+
+// Bottom-center prompt line for main.js ("C — STAND UP" idiom). The dialogue
+// panel owns its own hints while open.
+export function walkPromptText() {
+  if (isDialogueOpen() || !focusEntity) return null;
+  return 'E — TALK';
+}
+
+// An accepted Quest offer (interaction.js): the module only described intent;
+// the journal records it, and waypoints also get a visible beacon.
+function applyOffer(offer, module) {
+  if (!offer) return;
+  if (offer.kind === 'codex') {
+    addCodex(offer.subject);
+  } else if (offer.kind === 'choice') {
+    addOutcome(offer.outcomeTag);
+  } else if (offer.kind === 'waypoint') {
+    setWaypoint(offer.targetHint);
+    spawnBeacon(offer.marker, module);
+  }
+}
+
+// Waypoint beacon: an emissive column at the quest marker. The marker is a
+// Vector3 in the SOURCE module's group-local frame (contract), so the beacon
+// is parented there — planet spin and origin rebases carry it for free, and
+// the reach check runs in the same frame _playerLocal is computed in.
+function spawnBeacon(marker, module) {
+  if (!marker || !marker.isVector3) return;
+  removeBeacon();
+  beaconParent = module === crowd ? city.group : creatures.group;
+  if (!beaconGeo) beaconGeo = new THREE.CylinderGeometry(0.25, 0.6, 30, 6, 1, true);
+  beacon = new THREE.Mesh(
+    beaconGeo,
+    new THREE.MeshStandardMaterial({
+      color: 0xd4408f,
+      emissive: 0xd4408f,
+      emissiveIntensity: 1.2,
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    })
+  );
+  beacon.position.copy(marker);
+  beacon.position.y += 15; // column centered on its base at the marker
+  beaconParent.add(beacon);
+}
+
+// Per-frame while its parent frame is current in _playerLocal: pulse, and
+// complete the waypoint when the player reaches the column's base.
+function updateBeacon(t) {
+  beacon.material.emissiveIntensity = 1.0 + Math.sin(t * 3) * 0.4;
+  const dx = beacon.position.x - _playerLocal.x;
+  const dz = beacon.position.z - _playerLocal.z;
+  if (dx * dx + dz * dz < 9) {
+    completeWaypoint();
+    removeBeacon();
+  }
+}
+
+function removeBeacon() {
+  if (!beacon) return;
+  beacon.material.dispose(); // geometry is shared; freed in exitWalk
+  beaconParent.remove(beacon);
+  beacon = null;
+  beaconParent = null;
 }
 
 // True when the walker is close enough to the parked ship to board (G).

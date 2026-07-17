@@ -15,6 +15,14 @@
  * group, itself a child of the planet's spinning `surface`). `playerPos`
  * passed to update()/nearestInteractable() is in that same local space.
  *
+ * Interaction contract (see interaction.js): nearestInteractable() scans the
+ * active rig pool ONLY (never impostors) with no per-call allocation;
+ * interact(entity) returns a DialoguePayload and starts the talk pose;
+ * endInteract(entity) releases it when the host closes the dialogue (safe to
+ * call twice / with a stale entity). Quest.marker is a THREE.Vector3 in this
+ * module's group-local space — the host parents marker visuals under the same
+ * space. Host owns quest/codex state; this module never mutates global state.
+ *
  * Performance: a small pool of fully articulated rigs (opts.maxRigs ?? 24)
  * is kept near the player; all other citizens in the population are cheap
  * capsule impostors drawn via a single InstancedMesh. Rigs are promoted/
@@ -496,7 +504,6 @@ export function createCrowd(host, opts = {}) {
   const _up = new THREE.Vector3(0, 1, 0);
 
   let elapsed = 0;
-  let talkingIndex = -1;
 
   function nearestBuildingPush(x, z, out) {
     out.set(0, 0);
@@ -514,12 +521,19 @@ export function createCrowd(host, opts = {}) {
   }
 
   function stepCitizen(c, idx, dt, playerPos) {
-    if (c.mode === 'talk') { c.talkT += dt; return; }
+    if (c.mode === 'talk') {
+      // Mid-dialogue: stand still and turn toward the player. The talk gesture
+      // itself plays via poseRig('talk') in the rig-drive pass.
+      c.talkT += dt;
+      const want = Math.atan2(playerPos.x - c.pos.x, playerPos.z - c.pos.y);
+      const d = Math.atan2(Math.sin(want - c.heading), Math.cos(want - c.heading));
+      c.heading += THREE.MathUtils.clamp(d, -C.turnRate * dt, C.turnRate * dt);
+      return;
+    }
 
     c.idleT -= dt;
-    _diff.set(c.target.x - c.pos.x, c.target.z - c.pos.y === undefined ? 0 : c.target.z - c.pos.y);
-    // recompute diff correctly (pos stores x,z in a Vector2 as x,y)
-    _diff.set(c.target.x - c.pos.x, c.target.z - c.pos.y);
+    // pos and target store (x, z) in Vector2s as (.x, .y)
+    _diff.set(c.target.x - c.pos.x, c.target.y - c.pos.y);
     const dist = _diff.length();
 
     if (dist < C.waypointReachDist) {
@@ -588,6 +602,7 @@ export function createCrowd(host, opts = {}) {
     }
     for (const [idx, slot] of rigAssignments) {
       const c = citizens[idx];
+      if (c.mode === 'talk') continue; // never demote under an open dialogue
       const dx = c.pos.x - playerPos.x, dz = c.pos.y - playerPos.z;
       const d2 = dx * dx + dz * dz;
       if (d2 > C.demoteDist * C.demoteDist) {
@@ -630,9 +645,10 @@ export function createCrowd(host, opts = {}) {
   }
 
   function nearestInteractable(playerPos, maxDist = C.talkTriggerDist) {
+    // Active rig pool only (contract): impostors are scenery, not speakers.
     let best = null, bestD = maxDist * maxDist;
-    for (let i = 0; i < citizens.length; i++) {
-      const c = citizens[i];
+    for (const idx of rigAssignments.keys()) {
+      const c = citizens[idx];
       const dx = c.pos.x - playerPos.x, dz = c.pos.y - playerPos.z;
       const d2 = dx * dx + dz * dz;
       if (d2 < bestD) { bestD = d2; best = c; }
@@ -644,11 +660,28 @@ export function createCrowd(host, opts = {}) {
     if (!citizen) return null;
     citizen.mode = 'talk';
     citizen.talkT = 0;
+    // Contract: waypoint markers are Vector3s in this group's local space.
+    // buildCitizenData stores a flat {x, z}; upgrade lazily here (interact may
+    // allocate) with the ground height sampled from the host, and cache it.
+    const offer = citizen.offer;
+    if (offer && offer.kind === 'waypoint' && !offer.marker.isVector3) {
+      const m = offer.marker;
+      const y = host.groundHeightAt ? host.groundHeightAt(m.x, m.z) : 0;
+      offer.marker = new THREE.Vector3(m.x, y, m.z);
+    }
     return {
       speaker: { name: citizen.name, species: citizen.species, cityId: citizen.cityId },
       lines: citizen.lines,
       offer: citizen.offer,
     };
+  }
+
+  function endInteract(citizen) {
+    // Safe to call twice or with a stale/foreign entity.
+    if (citizen && citizen.mode === 'talk') {
+      citizen.mode = 'walk';
+      citizen.talkT = 0;
+    }
   }
 
   function dispose() {
@@ -674,6 +707,7 @@ export function createCrowd(host, opts = {}) {
     count: citizens.length,
     nearestInteractable,
     interact,
+    endInteract,
   };
 }
 
@@ -689,5 +723,6 @@ export function createCrowd(host, opts = {}) {
 //   // each frame: crowd.update(dt, playerLocalPos, sunDot);
 //   // on talk key: const npc = crowd.nearestInteractable(playerLocalPos, 2.5);
 //   //              if (npc) ui.showDialogue(crowd.interact(npc));
+//   // when the dialogue closes (any reason): crowd.endInteract(npc);
 //   // on city teardown: crowd.dispose();
 // ---------------------------------------------------------------------------

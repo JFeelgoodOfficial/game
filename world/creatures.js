@@ -3,7 +3,16 @@
  *
  * Shares the exact interaction surface as aliens.js (createCrowd) so the host
  * treats talking to a citizen and encountering a lifeform through one code
- * path: nearestInteractable(playerPos, maxDist) / interact(creature).
+ * path: nearestInteractable(playerPos, maxDist) / interact(creature) /
+ * endInteract(creature).
+ *
+ * Interaction contract (see interaction.js): nearestInteractable() scans
+ * active individuals ONLY with no per-call allocation; interact(creature)
+ * returns a DialoguePayload and starts this recipe's talk/gesture reaction;
+ * endInteract(creature) releases it when the host closes the dialogue (safe
+ * to call twice / with a stale entity). Quest.marker is a THREE.Vector3 in
+ * this module's group-local space. Host owns quest/codex state; this module
+ * never mutates global state.
  *
  * Design north star: no faces, no single bodies, no single lifespans.
  * Recipes lean on radial symmetry, colonial bodies, light/EM communication,
@@ -172,6 +181,13 @@ function proceduralName(rand, syllables = 2 + Math.floor(rand() * 2)) {
 
 function pick(rand, arr) { return arr[Math.floor(rand() * arr.length)]; }
 
+// Shared endInteract (contract): every recipe marks its speaker with
+// `_talking = true` inside interact(); the host calls this when the dialogue
+// closes. Safe to call twice or with a stale/foreign entity.
+function endInteractShared(entity) {
+  if (entity) entity._talking = false;
+}
+
 // ---------------------------------------------------------------------------
 // Generic active-pool / impostor manager
 // Handles promotion/demotion between full rigs and instanced impostors for
@@ -200,7 +216,8 @@ function makePopulationPool(individuals, opts) {
         activated++;
       } else if (shouldActivate) {
         activated++;
-      } else if (!shouldActivate && ind.active) {
+      } else if (!shouldActivate && ind.active && !ind._talking) {
+        // Never deactivate a speaker mid-dialogue — the host hangs up first.
         ind.deactivate();
       }
     }
@@ -361,6 +378,13 @@ function buildTerra(planet, worldUp, opts, seed) {
     }
     motes.instanceMatrix.needsUpdate = true;
 
+    // Talk reaction: a tender in conversation sways gently toward attention.
+    for (const td of tenders) {
+      if (!td.active || !td.rig) continue;
+      const want = td._talking ? Math.sin(t * 1.3 + td._phase) * 0.25 : 0;
+      td.rig.rotation.y = THREE.MathUtils.damp(td.rig.rotation.y, want, 4, dt);
+    }
+
     pool.update(dt, playerPos);
   }
 
@@ -375,6 +399,7 @@ function buildTerra(planet, worldUp, opts, seed) {
   }
 
   function interact(creature) {
+    creature._talking = true;
     const rand2 = mulberry32(creature.seed);
     const name = 'the Mat';
     const lines = [
@@ -401,7 +426,7 @@ function buildTerra(planet, worldUp, opts, seed) {
     group.clear();
   }
 
-  return { group, update, dispose, nearestInteractable, interact };
+  return { group, update, dispose, nearestInteractable, interact, endInteract: endInteractShared };
 }
 
 // ---------------------------------------------------------------------------
@@ -468,7 +493,10 @@ function buildOceana(planet, worldUp, opts, seed) {
       if (!b.active) continue;
       const dist = _v0.copy(b.pos).sub(playerPos).length();
 
-      if (b.state === 'cohered' && dist < cfg.startleRadius) {
+      // Talk reaction: a shoal in conversation holds its humanoid form —
+      // approaching a speaker never startles it (startleRadius sits inside
+      // interactRadius, so without this the speaker would scatter mid-line).
+      if (b.state === 'cohered' && dist < cfg.startleRadius && !b._talking) {
         b.state = 'scattered';
         b.stateTimer = cfg.scatterDuration;
         b.scatterVec = _v1.set(b.pos.x - playerPos.x, 0, b.pos.z - playerPos.z).normalize().clone();
@@ -514,6 +542,7 @@ function buildOceana(planet, worldUp, opts, seed) {
   }
 
   function interact(creature) {
+    creature._talking = true;
     const rand2 = mulberry32(creature.seed);
     const lines = [
       'The one you spoke to a moment ago is already scattered through this water.',
@@ -535,7 +564,7 @@ function buildOceana(planet, worldUp, opts, seed) {
     group.clear();
   }
 
-  return { group, update, dispose, nearestInteractable, interact };
+  return { group, update, dispose, nearestInteractable, interact, endInteract: endInteractShared };
 }
 
 // ---------------------------------------------------------------------------
@@ -629,8 +658,10 @@ function buildGlacia(planet, worldUp, opts, seed) {
     for (const b of beings) {
       if (!b.active || !b.rig) continue;
       const mat = b.rig.userData.mat;
-      mat.emissiveIntensity = 0.1 + 0.3 * (0.5 + 0.5 * Math.sin(t * cfg.thoughtSpeed + b._thoughtPhase)) + (1 - dim) * 0.2;
-      const gesture = (t % cfg.gestureDuration) / cfg.gestureDuration;
+      mat.emissiveIntensity = 0.1 + 0.3 * (0.5 + 0.5 * Math.sin(t * cfg.thoughtSpeed + b._thoughtPhase)) + (1 - dim) * 0.2
+        + (b._talking ? 0.35 : 0); // talk reaction: internal light brightens
+      // Talk reaction: the glacier "hurries" — its geologic gesture runs 4x.
+      const gesture = ((t * (b._talking ? 4 : 1)) % cfg.gestureDuration) / cfg.gestureDuration;
       b.rig.children.forEach((child, idx) => {
         if (child.userData.baseAngle === undefined) return;
         child.rotation.y = child.userData.baseAngle + gesture * 0.3;
@@ -650,6 +681,7 @@ function buildGlacia(planet, worldUp, opts, seed) {
   }
 
   function interact(creature) {
+    creature._talking = true;
     const rand2 = mulberry32(creature.seed);
     const lines = [
       'A spark passed near us. We register it as a season, and a warning.',
@@ -674,7 +706,7 @@ function buildGlacia(planet, worldUp, opts, seed) {
     group.clear();
   }
 
-  return { group, update, dispose, nearestInteractable, interact };
+  return { group, update, dispose, nearestInteractable, interact, endInteract: endInteractShared };
 }
 
 // ---------------------------------------------------------------------------
@@ -756,8 +788,13 @@ function buildRustia(planet, worldUp, opts, seed) {
     for (const m of members) {
       if (!m.active || !m.rig) continue;
       const pulse = 0.5 + 0.5 * Math.sin(t * 1.3 + m._eyePhase);
-      const glow = THREE.MathUtils.lerp(cfg.eyeGlowMin, cfg.eyeGlowMax, pulse) + (1 - dim) * 0.3;
+      // Talk reaction: the eye pins bright and the frame bows slightly.
+      const glow = m._talking
+        ? cfg.eyeGlowMax + 0.6
+        : THREE.MathUtils.lerp(cfg.eyeGlowMin, cfg.eyeGlowMax, pulse) + (1 - dim) * 0.3;
       m.rig.userData.eyeMat.emissiveIntensity = glow;
+      const bow = m._talking ? Math.sin(t * 0.8) * 0.06 : 0;
+      m.rig.rotation.x = THREE.MathUtils.damp(m.rig.rotation.x, bow, 4, dt);
     }
     pool.update(dt, playerPos);
   }
@@ -773,6 +810,7 @@ function buildRustia(planet, worldUp, opts, seed) {
   }
 
   function interact(creature) {
+    creature._talking = true;
     const rand2 = mulberry32(creature.seed);
     const lines = [
       'The Choir burns and does not question the burning.',
@@ -807,7 +845,7 @@ function buildRustia(planet, worldUp, opts, seed) {
     group.clear();
   }
 
-  return { group, update, dispose, nearestInteractable, interact };
+  return { group, update, dispose, nearestInteractable, interact, endInteract: endInteractShared };
 }
 
 // ---------------------------------------------------------------------------
@@ -916,7 +954,7 @@ function buildSkyEcology(planet, worldUp, opts, seed) {
     group.clear();
   }
 
-  return { group, update, dispose, nearestInteractable, interact, onCodexDiscovery };
+  return { group, update, dispose, nearestInteractable, interact, endInteract: endInteractShared, onCodexDiscovery };
 }
 
 // ---------------------------------------------------------------------------
@@ -945,6 +983,7 @@ function buildGeneric(planet, worldUp, opts, seed) {
         if (!this.rig) {
           this.rig = buildRadialRig(mulberry32(this.seed), pal);
           this.rig.position.copy(this.pos);
+          this.rig.rotation.y = this._phase;
           group.add(this.rig);
         }
         this.rig.visible = true; this.active = true;
@@ -983,8 +1022,10 @@ function buildGeneric(planet, worldUp, opts, seed) {
     const t = performance.now() * 0.001;
     for (const b of beings) {
       if (!b.active || !b.rig) continue;
-      b.rig.userData.mat.emissiveIntensity = 0.15 + (1 - dim) * 0.3 + 0.1 * Math.sin(t * 2 + b._phase);
-      b.rig.rotation.y = t * 0.3 + b._phase;
+      b.rig.userData.mat.emissiveIntensity = 0.15 + (1 - dim) * 0.3 + 0.1 * Math.sin(t * 2 + b._phase)
+        + (b._talking ? 0.4 : 0); // talk reaction: attention glow
+      // Incremental spin (not t-based) so the talk slowdown never snaps.
+      b.rig.rotation.y += dt * (b._talking ? 0.05 : 0.3);
     }
     pool.update(dt, playerPos);
   }
@@ -1000,6 +1041,7 @@ function buildGeneric(planet, worldUp, opts, seed) {
   }
 
   function interact(creature) {
+    creature._talking = true;
     const rand2 = mulberry32(creature.seed);
     return {
       speaker: { name: proceduralName(rand2, 3), species: 'Unclassified Biology', cityId: null },
@@ -1016,7 +1058,7 @@ function buildGeneric(planet, worldUp, opts, seed) {
     group.clear();
   }
 
-  return { group, update, dispose, nearestInteractable, interact };
+  return { group, update, dispose, nearestInteractable, interact, endInteract: endInteractShared };
 }
 
 // ---------------------------------------------------------------------------
@@ -1047,5 +1089,6 @@ export function createCreatures(planet, worldUp, opts = {}) {
 //   creatures.update(dt, playerPos, sunDot);
 //   const target = creatures.nearestInteractable(playerPos, 6);
 //   if (target && talkPressed) openDialogue(creatures.interact(target));
+//   // when the dialogue closes (any reason): creatures.endInteract(target);
 //   // on departure: creatures.dispose();
 // ---------------------------------------------------------------------------
