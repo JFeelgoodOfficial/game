@@ -27,7 +27,7 @@ import { createDressing } from './dressing.js';
 // rebases carry them — the world never moves without them. Aliased import:
 // world/ship.js is the parked-ship MESH, unrelated to ./ship.js (flight model).
 import { createShip as createParkedShip } from '../world/ship.js';
-import { createCity } from '../world/city.js';
+import { createCity, CITY_STYLES } from '../world/city.js';
 import { createCrowd } from '../world/aliens.js';
 import { createWonderField } from '../world/wonders.js';
 import { createCreatures } from '../world/creatures.js';
@@ -118,10 +118,13 @@ let beaconGeo = null; // shared, built on first use, disposed on exitWalk
 const TALK_DIST_CROWD = 2.6; // ~ aliens talkTriggerDist
 const TALK_DIST_CREATURE = 6; // ~ creatures interactRadius
 const TALK_BREAK_DIST = 8; // walk-away hangup (inside demote/deactivate radii)
+const PLAYER_RADIUS = 0.7; // body radius for building push-out
 
 // Scratch for the entity transforms (never allocated per frame).
 const _yAxisV = new THREE.Vector3(0, 1, 0);
 const _xAxisV = new THREE.Vector3(1, 0, 0);
+const _cityLocal = new THREE.Vector3();
+const _cityPt = new THREE.Vector3();
 const _localUp = new THREE.Vector3();
 const _siteT1 = new THREE.Vector3();
 const _siteT2 = new THREE.Vector3();
@@ -324,7 +327,21 @@ function spawnWorldEntities(planet) {
       if (dry) break outer;
     }
   }
-  city = createCity(planet, _bestUp, { radius: C.CITY_RADIUS });
+  // Each world gets its own city character — stable across landings. Known
+  // worlds map to a fitting preset (terra is the neon-ad metropolis); any
+  // future terra world falls back to cycling the presets by index.
+  const CITY_STYLE_BY_WORLD = {
+    terra: 'neonMetropolis',
+    oceana: 'verdantTerrace',
+    glacia: 'frostHaven',
+    rustia: 'dustOutpost',
+  };
+  const terraWorlds = planets.filter((p) => p.cfg.type === 'terra');
+  const styleIdx = Math.max(0, terraWorlds.indexOf(planet));
+  const style =
+    CITY_STYLES.find((s) => s.name === CITY_STYLE_BY_WORLD[planet.cfg.name]) ??
+    CITY_STYLES[styleIdx % CITY_STYLES.length];
+  city = createCity(planet, _bestUp, { radius: C.CITY_RADIUS, style });
   planet.surface.add(city.group);
   _cityInvQuat.copy(city.group.quaternion).invert();
 
@@ -527,11 +544,83 @@ export function stepWalk(dt) {
   else walk.vel.copy(_wish);
   ship.position.addScaledVector(walk.vel, dt);
 
+  // --- city: building push-out + unified ground, in the city's flat frame ---
+  // The walker can't pass through tower walls (slide along them instead), and
+  // inside the footprint it walks the same flattened deck the buildings and
+  // citizens use — plus rooftops and the landmark tower's stairs/floors.
+  let cityGroundR = -1;
+  let cityD = Infinity;
+  if (city) {
+    playerLocalInto(city.group, _cityInvQuat, _cityLocal);
+    cityD = Math.hypot(_cityLocal.x, _cityLocal.z);
+    if (cityD < C.CITY_RADIUS + 8) {
+      let pushed = false;
+      const cols = city.collidersLocal;
+      for (let i = 0; i < cols.length; i++) {
+        const c = cols[i];
+        if (c.npcOnly) continue; // landmark: real walls handled below
+        // Feet above the roof: no wall push (rooftop landings resolve below).
+        if (c.baseY !== undefined && _cityLocal.y > c.baseY + c.height - 0.3) continue;
+        const dx = _cityLocal.x - c.x;
+        const dz = _cityLocal.z - c.z;
+        const rr = c.radius + PLAYER_RADIUS;
+        const dd = dx * dx + dz * dz;
+        if (dd < rr * rr && dd > 1e-6) {
+          const dist = Math.sqrt(dd);
+          const push = rr - dist;
+          _cityLocal.x += (dx / dist) * push;
+          _cityLocal.z += (dz / dist) * push;
+          pushed = true;
+        }
+      }
+      if (city.landmark && city.landmark.resolveWalls(_cityLocal, PLAYER_RADIUS)) {
+        pushed = true;
+      }
+      if (pushed) {
+        // city-local -> surface-local -> world (inverse of playerLocalInto)
+        _cityPt.copy(_cityLocal)
+          .applyQuaternion(city.group.quaternion)
+          .add(city.group.position)
+          .applyAxisAngle(_yAxisV, planet.surface.rotation.y)
+          .add(planet.body.position);
+        ship.position.copy(_cityPt);
+        cityD = Math.hypot(_cityLocal.x, _cityLocal.z);
+      }
+      if (cityD < C.CITY_RADIUS) {
+        let gy = city.groundLocalYAt(_cityLocal.x, _cityLocal.z);
+        // Rooftop standing: inside a tower footprint with feet at roof level.
+        for (let i = 0; i < cols.length; i++) {
+          const c = cols[i];
+          if (c.npcOnly || c.baseY === undefined) continue;
+          const dx = _cityLocal.x - c.x;
+          const dz = _cityLocal.z - c.z;
+          const roofY = c.baseY + c.height;
+          if (dx * dx + dz * dz < c.radius * c.radius &&
+              _cityLocal.y > roofY - 0.4 && roofY > gy) {
+            gy = roofY;
+          }
+        }
+        // Landmark tower: highest slab/stair beneath the feet wins.
+        const lmY = city.landmark?.surfaceYAt(_cityLocal.x, _cityLocal.z, _cityLocal.y);
+        if (lmY !== null && lmY !== undefined && lmY > gy) gy = lmY;
+        _cityPt.set(_cityLocal.x, gy, _cityLocal.z)
+          .applyQuaternion(city.group.quaternion)
+          .add(city.group.position);
+        cityGroundR = _cityPt.length(); // surface frame is planet-centered
+      }
+    }
+  }
+
   // Recompute up / radius after the horizontal step.
   _up.subVectors(ship.position, planet.body.position);
   r = _up.length();
   _up.normalize();
-  const surfaceR = floorRadius(planet, _up);
+  let surfaceR = floorRadius(planet, _up);
+  if (cityGroundR > 0) {
+    // City deck inside, blending back to raw terrain across the outer rim.
+    const t = THREE.MathUtils.smoothstep(cityD, C.CITY_RADIUS * 0.92, C.CITY_RADIUS);
+    surfaceR = THREE.MathUtils.lerp(cityGroundR, surfaceR, t);
+  }
   depth = waterDepth(planet, _up);
   walk.swimming =
     depth > C.WALK_SWIM_DEPTH && planet.water && r <= planet.water.r + 0.05;
@@ -556,7 +645,8 @@ export function stepWalk(dt) {
     if (input.brake && !walk.jumpHeld) walk.vUp = C.WALK_JUMP; // edge-triggered jump
   } else {
     walk.grounded = false;
-    walk.vUp -= C.WALK_GRAVITY * dt;
+    // Per-world gravity: a low-gravity world jumps higher and falls softly.
+    walk.vUp -= C.WALK_GRAVITY * (planet.cfg?.walkGravityScale ?? 1) * dt;
     r += walk.vUp * dt;
     if (r <= surfaceR) {
       r = surfaceR;
@@ -786,6 +876,40 @@ export function nearParkedShip() {
 
 export function promptReturnToShip() {
   showViewToast('RETURN TO YOUR SHIP TO TAKE OFF');
+}
+
+// dev/verification handle (main.js __debug): the landing-site entities.
+export function walkSite() {
+  return { city, parked, crowd, dressing };
+}
+
+// Gravity scale of the world underfoot (1 = normal). For the walk-hint UI.
+export function currentGravityScale() {
+  return walk.active ? (walk.planet?.cfg?.walkGravityScale ?? 1) : 1;
+}
+
+// Bearing from the walker to the parked ship, for the on-foot compass.
+// angle: radians relative to the look heading (0 = dead ahead, + = right);
+// dist: world units. Null when there's nothing to point at.
+const _bearingOut = { angle: 0, dist: 0 };
+export function shipBearing() {
+  if (!walk.active || !parked || !walk.planet) return null;
+  _parkPos
+    .copy(parked.group.position)
+    .applyAxisAngle(_yAxisV, walk.planet.surface.rotation.y) // surface -> world
+    .add(walk.planet.body.position);
+  _up.subVectors(ship.position, walk.planet.body.position).normalize();
+  _target.subVectors(_parkPos, ship.position);
+  _bearingOut.dist = _target.length();
+  projectTangent(_target, _up);
+  if (_target.lengthSq() < 1e-6) {
+    _bearingOut.angle = 0;
+    return _bearingOut;
+  }
+  _target.normalize();
+  _right.crossVectors(walk.heading, _up).normalize();
+  _bearingOut.angle = Math.atan2(_target.dot(_right), _target.dot(walk.heading));
+  return _bearingOut;
 }
 
 // The on-foot camera. First person: eye-level, rolled so the planet's up is

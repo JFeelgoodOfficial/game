@@ -224,6 +224,16 @@ export function hideMenu() {
   warpBtn.classList.remove('hidden');
 }
 
+// On foot the warp drive is out of reach — hide the button (and release a
+// held warp) until the player is back in the pilot seat.
+export function setWarpButtonVisible(v) {
+  warpBtn.classList.toggle('hidden', !v);
+  if (!v) {
+    input.warp = false;
+    warpBtn.classList.remove('active');
+  }
+}
+
 // heat 0..1 (0..0.5 = warning phase, 0.5..1 = countdown), crackAt threshold,
 // flashAmt 0..1 explosion flash, secondsLeft = remaining time to destruction
 // while the countdown runs (null hides the countdown screen).

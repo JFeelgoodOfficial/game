@@ -120,6 +120,9 @@ const CONFIGS = [
     seaLevel: () => 0.02, // under everything — no water anywhere
     terrainHeight: () => 60,
     iceLat: 0.93,
+    // Airless-moon feel on foot: jumps fly ~3x higher, falls drift down.
+    // Flight model untouched — this only scales the walker's gravity.
+    walkGravityScale: 0.35,
     palette: {
       deep: 0x2e1a10, shallow: 0x4d2c18, sand: 0x8c5230,
       low: 0xa86133, mid: 0x803f24, high: 0xc78d61,
