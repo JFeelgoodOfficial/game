@@ -18,8 +18,10 @@ export const input = {
   lookUp: false, // V, held — glance up through the overhead window
   toggleWalk: false, // G edge-trigger: disembark onto a planet / board. main.js reads and zeroes it.
   toggleInterior: false, // C edge-trigger: stand up in the ship / sit back down. main.js reads and zeroes it.
+  toggleView: false, // T edge-trigger: first/third person while on foot. main.js reads and zeroes it.
   mouseX: 0, // accumulated pixels since last consume
   mouseY: 0,
+  wheel: 0, // accumulated scroll since last consume (third-person zoom)
 };
 
 export function initInput(element) {
@@ -38,6 +40,8 @@ export function initInput(element) {
     input.mouseX += e.movementX;
     input.mouseY += e.movementY;
   });
+
+  element.addEventListener('wheel', (e) => { input.wheel += e.deltaY; }, { passive: true });
 
   document.addEventListener('keydown', (e) => {
     if (e.repeat) return;
@@ -63,5 +67,6 @@ function setKey(e, down) {
     // G and C are edge-triggered on keydown only; main.js consumes and zeroes them.
     case 'KeyG': if (down) input.toggleWalk = true; break; // disembark onto a planet
     case 'KeyC': if (down) input.toggleInterior = true; break; // stand up in the ship
+    case 'KeyT': if (down) input.toggleView = true; break; // first/third person on foot
   }
 }
