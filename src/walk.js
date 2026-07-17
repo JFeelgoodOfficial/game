@@ -595,8 +595,12 @@ export function stepWalk(dt) {
           pushed = true;
         }
       }
-      if (city.landmark && city.landmark.resolveWalls(_cityLocal, PLAYER_RADIUS)) {
-        pushed = true;
+      // Enterable buildings (landmark tower + lobbies): real walls with a
+      // doorway gap, so only the player can walk in.
+      if (city.structures) {
+        for (let i = 0; i < city.structures.length; i++) {
+          if (city.structures[i].resolveWalls(_cityLocal, PLAYER_RADIUS)) pushed = true;
+        }
       }
       if (pushed) {
         // city-local -> surface-local -> world (inverse of playerLocalInto)
@@ -622,9 +626,13 @@ export function stepWalk(dt) {
             gy = roofY;
           }
         }
-        // Landmark tower: highest slab/stair beneath the feet wins.
-        const lmY = city.landmark?.surfaceYAt(_cityLocal.x, _cityLocal.z, _cityLocal.y);
-        if (lmY !== null && lmY !== undefined && lmY > gy) gy = lmY;
+        // Enterable buildings: highest slab/stair/floor beneath the feet wins.
+        if (city.structures) {
+          for (let i = 0; i < city.structures.length; i++) {
+            const sy = city.structures[i].surfaceYAt(_cityLocal.x, _cityLocal.z, _cityLocal.y);
+            if (sy !== null && sy !== undefined && sy > gy) gy = sy;
+          }
+        }
         _cityPt.set(_cityLocal.x, gy, _cityLocal.z)
           .applyQuaternion(city.group.quaternion)
           .add(city.group.position);
