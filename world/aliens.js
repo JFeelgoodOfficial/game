@@ -663,6 +663,7 @@ export function createCrowd(host, opts = {}) {
     }
     impostorGeo.dispose();
     impostorMat.dispose();
+    impostorMesh.dispose(); // frees the InstancedMesh instance buffers
     group.clear();
   }
 

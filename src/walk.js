@@ -22,6 +22,15 @@ import { ship } from './ship.js';
 import { planets, SUN } from './planet.js';
 import { Astronaut } from './astronaut.js';
 import { createDressing } from './dressing.js';
+// World entities spawned around the landing site. All parented (directly or
+// via the city group) to planet.surface, so planet spin and floating-origin
+// rebases carry them — the world never moves without them. Aliased import:
+// world/ship.js is the parked-ship MESH, unrelated to ./ship.js (flight model).
+import { createShip as createParkedShip } from '../world/ship.js';
+import { createCity } from '../world/city.js';
+import { createCrowd } from '../world/aliens.js';
+import { createWonderField } from '../world/wonders.js';
+import { createCreatures } from '../world/creatures.js';
 import {
   getViewPref,
   showViewChooser,
@@ -74,6 +83,47 @@ let dressing = null; // active surface-dressing patch, spawned per disembark
 let camSnap = true; // snap (don't lerp) the TP camera on the next frame
 let fovKick = 0; // eased 0..1 sprint FOV widen
 let lastSpinAngle = 0; // surface.rotation.y at the previous walk tick (co-rotation)
+
+// Landing-site world entities, spawned per disembark like dressing.
+let parked = null; // parked ship mesh (world/ship.js) — takeoff anchor
+let city = null; // procedural city (world/city.js)
+let crowd = null; // citizens inside the city (world/aliens.js)
+let wonders = null; // megastructure field (world/wonders.js)
+let creatures = null; // planet wildlife (world/creatures.js)
+
+// Scratch for the entity transforms (never allocated per frame).
+const _yAxisV = new THREE.Vector3(0, 1, 0);
+const _xAxisV = new THREE.Vector3(1, 0, 0);
+const _localUp = new THREE.Vector3();
+const _siteT1 = new THREE.Vector3();
+const _siteT2 = new THREE.Vector3();
+const _patchUp = new THREE.Vector3();
+const _bestUp = new THREE.Vector3();
+const _parkPos = new THREE.Vector3();
+const _playerLocal = new THREE.Vector3();
+const _qTmp = new THREE.Quaternion();
+const _cityInvQuat = new THREE.Quaternion();
+const _creatInvQuat = new THREE.Quaternion();
+
+// Convert a world-space (post-spin) direction into planet.surface's UNROTATED
+// local frame — the frame all surface children live in. Same math as
+// body.groundAt's internal un-rotation (planet.js).
+function toSurfaceLocal(planet, worldDir, out) {
+  return out.copy(worldDir).applyAxisAngle(_yAxisV, -planet.surface.rotation.y);
+}
+
+// ship.position (world) -> a surface-child patch group's local frame.
+// Manual transform (not worldToLocal) so it never reads a one-frame-stale
+// matrixWorld, and stays allocation-free via the out vector.
+function playerLocalInto(group, invQuat, out) {
+  const planet = walk.planet;
+  out
+    .subVectors(ship.position, planet.body.position)
+    .applyAxisAngle(_yAxisV, -planet.surface.rotation.y) // world -> surface-local
+    .sub(group.position)
+    .applyQuaternion(invQuat); // surface-local -> patch-local
+  return out;
+}
 
 // Build the astronaut once and keep it hidden until a disembark. Called from
 // main.js after the scene exists.
@@ -181,6 +231,107 @@ export function enterWalk(planet) {
   // Dress the landing site (terra/oceana get the full valley; ice and rock
   // worlds get boulders; gasless of course never reach here).
   dressing = createDressing(planet, _up);
+
+  // Populate the site: parked ship, city + citizens, wonders, wildlife.
+  // _up still holds the world-space landing dir here.
+  spawnWorldEntities(planet);
+}
+
+// Wonder types that suit each world's character (fallback for any new planet).
+const WONDER_TYPES = {
+  terra: ['arch', 'grove', 'monoliths', 'elevator'],
+  oceana: ['crystals', 'titan', 'arch'],
+  glacia: ['crystals', 'monoliths'],
+  rustia: ['titan', 'arch', 'monoliths', 'ringworld'],
+};
+
+// Spawn the landing-site world entities, all riding planet.surface so they
+// spin (and origin-shift) with the planet. Placement happens in the surface's
+// unrotated local frame; sampling helpers take world-space dirs (groundAt) —
+// the two frames differ by surface.rotation.y (see toSurfaceLocal).
+// Spawn-time allocations are fine — this is the dressing precedent. Note the
+// creatures dispatcher also covers gas giants (sky ecology), but only terra
+// planets are landable, so that branch stays unreachable this pass.
+function spawnWorldEntities(planet) {
+  // --- parked ship: PARK_OFFSET behind the disembark point, on the floor ---
+  parked = createParkedShip(planet.surface, {});
+  _target.copy(ship.position).addScaledVector(walk.heading, -C.PARK_OFFSET);
+  _patchUp.subVectors(_target, planet.body.position).normalize();
+  const depth = waterDepth(planet, _patchUp);
+  const parkR =
+    depth > C.WALK_SWIM_DEPTH ? planet.water.r : floorRadius(planet, _patchUp);
+  toSurfaceLocal(planet, _patchUp, _localUp);
+  parked.group.position.copy(_localUp).multiplyScalar(parkR + C.PARK_LIFT);
+  parked.group.quaternion.setFromUnitVectors(_yAxisV, _localUp);
+  // Nose (+Z) along the direction the ship was flying when it set down.
+  toSurfaceLocal(planet, walk.heading, _siteT1)
+    .applyQuaternion(_qTmp.copy(parked.group.quaternion).invert());
+  parked.group.rotateY(Math.atan2(_siteT1.x, _siteT1.z));
+
+  // Tangent frame at the landing dir, for placing the city and wonders.
+  const ref = Math.abs(_up.y) < 0.94 ? _yAxisV : _xAxisV;
+  _siteT1.crossVectors(_up, ref).normalize();
+  _siteT2.crossVectors(_up, _siteT1).normalize();
+
+  // --- city: probe two rings of directions around the site, stop at the
+  // first dry spot; in a fully wet region (open ocean) keep the driest probe
+  // — the city itself clamps its deck to the sea surface, so it still works.
+  let bestGround = -Infinity;
+  outer: for (let ring = 1; ring <= 2; ring++) {
+    const span = (C.CITY_DISTANCE * ring) / planet.radius;
+    for (let k = 0; k < 8; k++) {
+      const a = (k * Math.PI) / 4 + (ring - 1) * (Math.PI / 8);
+      _patchUp
+        .copy(_up)
+        .addScaledVector(_siteT1, Math.cos(a) * span)
+        .addScaledVector(_siteT2, Math.sin(a) * span)
+        .normalize();
+      const g = planet.body.groundAt(_patchUp);
+      if (g > bestGround) {
+        bestGround = g;
+        _bestUp.copy(_patchUp);
+      }
+      const dry =
+        !planet.water || planet.water.frozen || g > C.WALK_WATER_LEVEL + 2;
+      if (dry) break outer;
+    }
+  }
+  city = createCity(planet, _bestUp, { radius: C.CITY_RADIUS });
+  planet.surface.add(city.group);
+  _cityInvQuat.copy(city.group.quaternion).invert();
+
+  // Citizens live inside the city group, in its flat local x/z space.
+  crowd = createCrowd(
+    {
+      groundHeightAt: city.groundLocalYAt,
+      plazaCenters: city.plazaCenters,
+      colliders: city.collidersLocal,
+      cityId: planet.cfg.name,
+    },
+    {}
+  );
+  city.group.add(crowd.group);
+
+  // --- wonders: mirrored to the far side of the landing site from the city ---
+  _siteT1.subVectors(_bestUp, _up); // tangent offset toward the city
+  _patchUp
+    .copy(_up)
+    .addScaledVector(_siteT1, -C.WONDER_DISTANCE / C.CITY_DISTANCE)
+    .normalize();
+  wonders = createWonderField(planet, _patchUp, {
+    count: C.WONDER_COUNT,
+    types: WONDER_TYPES[planet.cfg.name] ?? ['arch', 'crystals', 'monoliths'],
+  }); // adds its group to planet.surface itself
+
+  // --- creatures: scattered around the landing site itself ---
+  creatures = createCreatures(planet, _up, { radius: C.DRESS_RADIUS });
+  toSurfaceLocal(planet, _up, _localUp);
+  creatures.group.quaternion.setFromUnitVectors(_yAxisV, _localUp);
+  let creatR = planet.radius + planet.body.groundAt(_up);
+  if (planet.water && creatR < planet.water.r) creatR = planet.water.r; // never sunk
+  creatures.group.position.copy(_localUp).multiplyScalar(creatR);
+  planet.surface.add(creatures.group);
+  _creatInvQuat.copy(creatures.group.quaternion).invert();
 }
 
 // Board the ship: lift back to disembark altitude, nose pointed away from the
@@ -210,6 +361,32 @@ export function exitWalk(camera) {
   if (dressing) {
     dressing.dispose();
     dressing = null;
+  }
+  // Tear down the landing-site entities. dispose() clears children but (except
+  // ship/wonders) doesn't detach from planet.surface — remove explicitly so
+  // empty groups don't accumulate across repeated landings.
+  if (crowd) {
+    city.group.remove(crowd.group);
+    crowd.dispose();
+    crowd = null;
+  }
+  if (city) {
+    city.dispose();
+    planet.surface.remove(city.group);
+    city = null;
+  }
+  if (wonders) {
+    wonders.dispose(); // removes its own group from planet.surface
+    wonders = null;
+  }
+  if (creatures) {
+    creatures.dispose();
+    planet.surface.remove(creatures.group);
+    creatures = null;
+  }
+  if (parked) {
+    parked.dispose(); // removes its own group from planet.surface
+    parked = null;
   }
   if (astronaut) astronaut.group.visible = false;
   hideViewUI();
@@ -391,7 +568,37 @@ export function updateWalkVisuals(dt, t) {
   // helmet and the rig has no first-person-safe arms.
   astronaut.group.visible = walk.view === 'tp';
 
-  if (dressing) dressing.update(t, Math.max(_up.dot(SUN), 0));
+  const sunDot = Math.max(_up.dot(SUN), 0);
+  if (dressing) dressing.update(t, sunDot);
+  if (parked) parked.update(dt, t, sunDot);
+  if (wonders) wonders.update(t, sunDot);
+  if (city) {
+    city.update(t, sunDot);
+    // Citizens want the player in the city's flat local x/z frame.
+    if (crowd)
+      crowd.update(dt, playerLocalInto(city.group, _cityInvQuat, _playerLocal), sunDot);
+  }
+  if (creatures)
+    creatures.update(
+      dt,
+      playerLocalInto(creatures.group, _creatInvQuat, _playerLocal),
+      sunDot
+    );
+}
+
+// True when the walker is close enough to the parked ship to board (G).
+// Fails open when there's no parked ship, so the player is never trapped.
+export function nearParkedShip() {
+  if (!parked || !walk.planet) return true;
+  _parkPos
+    .copy(parked.group.position)
+    .applyAxisAngle(_yAxisV, walk.planet.surface.rotation.y) // surface-local -> world
+    .add(walk.planet.body.position);
+  return _parkPos.distanceTo(ship.position) <= C.WALK_BOARD_RADIUS;
+}
+
+export function promptReturnToShip() {
+  showViewToast('RETURN TO YOUR SHIP TO TAKE OFF');
 }
 
 // The on-foot camera. First person: eye-level, rolled so the planet's up is

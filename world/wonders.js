@@ -149,10 +149,17 @@ function toLocalUp(planet, worldUp) {
   return dir.applyAxisAngle(_yAxis, -rotY);
 }
 
-/** Sample ground height above the base sphere at a local-up direction. */
+/** Sample ground height above the base sphere at a local-up direction
+ *  (unrotated object space — the frame toLocalUp produces). */
 function sampleGround(planet, localDir) {
+  if (typeof planet.body?.groundAtLocal === 'function') {
+    return planet.body.groundAtLocal(localDir);
+  }
   if (typeof planet.body?.groundAt === 'function') {
-    return planet.body.groundAt(localDir);
+    // groundAt expects a WORLD (post-spin) dir and un-rotates internally:
+    // re-apply the current spin so the two rotations cancel.
+    const rotY = planet.surface?.rotation?.y ?? 0;
+    return planet.body.groundAt(_v.copy(localDir).applyAxisAngle(_yAxis, rotY));
   }
   return 0;
 }

@@ -156,6 +156,15 @@ export const C = {
   DRESS_SHRUBS: 260,
   DRESS_ROCKS: 80, // per rock variant (x3)
 
+  // --- on-foot world entities (parked ship, city, wonders, creatures) ---
+  WALK_BOARD_RADIUS: 18.0, // must be this close to the parked ship to take off (G)
+  PARK_OFFSET: 14.0, // parked ship sits this far behind the disembark point
+  PARK_LIFT: 2.8, // ship-origin height above ground so the gear pads touch
+  CITY_DISTANCE: 320.0, // city center this far from the landing site
+  CITY_RADIUS: 150.0, // city footprint radius (createCity opts.radius)
+  WONDER_DISTANCE: 350.0, // wonder-field center, opposite side from the city
+  WONDER_COUNT: 3, // wonders scattered per landing site
+
   // --- altitude floor (GDD 5.1) ---
   // Strictly a Phase 5 mechanic, pulled forward on request so the test mass
   // reads as a planet you skim rather than one you fly through. Thickening
