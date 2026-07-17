@@ -1,0 +1,1051 @@
+/**
+ * creatures.js — Native, non-human lifeforms per planet.
+ *
+ * Shares the exact interaction surface as aliens.js (createCrowd) so the host
+ * treats talking to a citizen and encountering a lifeform through one code
+ * path: nearestInteractable(playerPos, maxDist) / interact(creature).
+ *
+ * Design north star: no faces, no single bodies, no single lifespans.
+ * Recipes lean on radial symmetry, colonial bodies, light/EM communication,
+ * distributed minds, and death-as-birth cosmologies.
+ *
+ * Coordinate frame: identical to city.js/aliens.js — everything is parented
+ * to planet.surface and built in UNROTATED object space around worldUp.
+ * Local +Y aligns to the radial "up" direction; groundHeight/groundAt from
+ * the host resolves terrain height. Sea level and amplitude are read from
+ * planet.cfg when present, with safe fallbacks.
+ *
+ * Performance: a small pool of fully-rigged "active" creatures animates near
+ * the player (opts.maxRigs); everything else beyond C.activeRadius is drawn
+ * as cheap InstancedMesh impostors (billboards / capsules / motes) that
+ * promote/demote as the player moves. No per-frame allocation — all scratch
+ * vectors/quaternions/matrices are module- or closure-scoped and reused.
+ *
+ * Gas giants (saturnia/neptunia) have no walkable surface: their recipe is
+ * backdrop-only atmospheric life. nearestInteractable always returns null;
+ * sustained proximity instead flips a passive onCodexDiscovery flag.
+ */
+
+import * as THREE from 'three';
+
+// ---------------------------------------------------------------------------
+// Tunables
+// ---------------------------------------------------------------------------
+const C = {
+  // Pooling / LOD
+  maxRigs: 14,              // active fully-rigged creatures near the player
+  activeRadius: 70,         // switch rig <-> impostor at this distance
+  impostorFadeBand: 15,     // hysteresis band to avoid pop-in flicker
+  poolRebalanceInterval: 0.35, // seconds between pool re-sort passes
+
+  // Interaction
+  interactRadius: 6,        // default max distance for nearestInteractable
+  questChance: 0.28,        // fraction of individuals that carry a Quest
+
+  // Palette defaults (overridable via opts.palette)
+  paletteDefault: {
+    magenta: 0xd4408f,
+    cyan: 0x40d4c8,
+    amber: 0xffb347,
+    indigo: 0x2a1f4d,
+  },
+
+  // --- Terra: Tended Mat ---
+  terra: {
+    density: 1.0,            // stalk-node count multiplier
+    stalkCount: 90,
+    stalkHeight: [1.2, 3.2],
+    moteCount: 140,
+    moteSpeed: 0.6,
+    noticeRadius: 22,        // ripple travel radius toward player
+    rippleSpeed: 9,          // units/sec the "notice" pulse travels
+    tenderCount: 4,          // near-humanoid tenders (subset of active pool)
+    tenderHeight: 1.85,
+  },
+
+  // --- Oceana: Shoal-People ---
+  oceana: {
+    density: 1.0,
+    bodyCount: 10,           // cohered humanoid-shaped shoals
+    fishPerBody: 260,        // instanced fish forming one cohered body
+    cohereHeight: 1.85,      // person-scale when cohered
+    startleRadius: 4.5,
+    scatterDuration: 1.4,
+    reformDelay: 1.8,
+    reformOffset: 3.5,
+  },
+
+  // --- Glacia: Slow Crystalline ---
+  glacia: {
+    density: 1.0,
+    beingCount: 8,
+    height: [2.4, 4.2],
+    gestureDuration: 90,     // seconds for one "gesture" — geologic pace
+    thoughtSpeed: 0.35,      // visible internal light crawl speed
+    accretionCount: 26,      // crystal-city accretions from frozen breath
+  },
+
+  // --- Rustia: Rust Choir ---
+  rustia: {
+    density: 1.0,
+    choirCount: 12,
+    height: [1.7, 2.6],
+    eyeGlowMin: 0.9,         // stays above bloom threshold even by day
+    eyeGlowMax: 2.4,
+    lithovoreFraction: 0.25,
+    memoryTradeChance: 0.4,  // fraction of interactions offering a choice quest
+  },
+
+  // --- Sky Ecologies: Saturnia / Neptunia (backdrop only) ---
+  sky: {
+    density: 1.0,
+    whaleCount: 9,
+    lightningCount: 18,
+    mindPatternCount: 5,
+    bandRadiusRange: [420, 900], // distance band around the viewpoint
+    codexProximity: 140,         // sustained-look distance for discovery
+    codexDwellTime: 6,           // seconds within band to flag discovery
+  },
+
+  // --- Generic fallback weird biology ---
+  generic: {
+    density: 1.0,
+    count: 10,
+    height: [1.0, 2.4],
+    armMin: 3,
+    armMax: 7,
+  },
+
+  bloomThreshold: 0.85,
+};
+
+// ---------------------------------------------------------------------------
+// Deterministic PRNG
+// ---------------------------------------------------------------------------
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function rand() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function hashSeedFromDir(dir, salt) {
+  const x = Math.floor((dir.x * 0.5 + 0.5) * 65535);
+  const y = Math.floor((dir.y * 0.5 + 0.5) * 65535);
+  const z = Math.floor((dir.z * 0.5 + 0.5) * 65535);
+  return ((x * 73856093) ^ (y * 19349663) ^ (z * 83492791) ^ (salt * 2654435761)) >>> 0;
+}
+
+// ---------------------------------------------------------------------------
+// Shared scratch objects (never allocated per frame)
+// ---------------------------------------------------------------------------
+const _v0 = new THREE.Vector3();
+const _v1 = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _q0 = new THREE.Quaternion();
+const _m0 = new THREE.Matrix4();
+const _yAxis = new THREE.Vector3(0, 1, 0);
+const _color0 = new THREE.Color();
+
+function alignToRadial(obj3d, dirLocal) {
+  _q0.setFromUnitVectors(_yAxis, dirLocal);
+  obj3d.quaternion.copy(_q0);
+}
+
+// ---------------------------------------------------------------------------
+// Shared dialogue / Quest scaffolding (matches aliens.js payload exactly)
+// ---------------------------------------------------------------------------
+// Quest: { kind: 'codex', subject }
+//      | { kind: 'waypoint', targetHint, marker }
+//      | { kind: 'choice', prompt, options: [{ label, outcomeTag }] }
+// Dialogue: { speaker: { name, species, cityId }, lines: string[], offer?: Quest }
+
+const NAME_SYLLABLES = ['sha', 'lom', 'vre', 'un', 'ka', 'thi', 'oor', 'zen', 'mel', 'iss', 'tuk', 'rell'];
+function proceduralName(rand, syllables = 2 + Math.floor(rand() * 2)) {
+  let s = '';
+  for (let i = 0; i < syllables; i++) s += NAME_SYLLABLES[Math.floor(rand() * NAME_SYLLABLES.length)];
+  return s[0].toUpperCase() + s.slice(1);
+}
+
+function pick(rand, arr) { return arr[Math.floor(rand() * arr.length)]; }
+
+// ---------------------------------------------------------------------------
+// Generic active-pool / impostor manager
+// Handles promotion/demotion between full rigs and instanced impostors for
+// any recipe that needs person-scaled individuals near the player.
+// ---------------------------------------------------------------------------
+function makePopulationPool(individuals, opts) {
+  // individuals: [{ id, pos: Vector3, seed, buildRig(), rigGroup|null, active:false, ... }]
+  const maxRigs = opts.maxRigs ?? C.maxRigs;
+  const activeRadius = opts.activeRadius ?? C.activeRadius;
+  const band = C.impostorFadeBand;
+  let rebalanceTimer = 0;
+
+  function rebalance(playerPos) {
+    // Sort by distance, activate nearest maxRigs within radius+band.
+    for (const ind of individuals) {
+      ind._distSq = _v0.copy(ind.pos).sub(playerPos).lengthSq();
+    }
+    individuals.sort((a, b) => a._distSq - b._distSq);
+    let activated = 0;
+    for (const ind of individuals) {
+      const shouldActivate =
+        activated < maxRigs &&
+        ind._distSq < (activeRadius + band) * (activeRadius + band);
+      if (shouldActivate && !ind.active) {
+        ind.activate();
+        activated++;
+      } else if (shouldActivate) {
+        activated++;
+      } else if (!shouldActivate && ind.active) {
+        ind.deactivate();
+      }
+    }
+  }
+
+  return {
+    update(dt, playerPos) {
+      rebalanceTimer -= dt;
+      if (rebalanceTimer <= 0) {
+        rebalanceTimer = C.poolRebalanceInterval;
+        rebalance(playerPos);
+      }
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Recipe: TERRA — the Tended Mat
+// ---------------------------------------------------------------------------
+function buildTerra(planet, worldUp, opts, seed) {
+  const rand = mulberry32(seed);
+  const cfg = C.terra;
+  const pal = opts.palette ?? C.paletteDefault;
+  const group = new THREE.Group();
+  group.name = 'terra-creatures';
+
+  const stalkCount = Math.round(cfg.stalkCount * (opts.density ?? cfg.density));
+  const moteCount = Math.round(cfg.moteCount * (opts.density ?? cfg.density));
+  const radius = opts.radius ?? 260;
+
+  // Stalk-nodes: sensory "trees" of the neural mat, instanced.
+  const stalkGeo = new THREE.ConeGeometry(0.28, 1, 6, 1);
+  const stalkMat = new THREE.MeshStandardMaterial({
+    color: 0x3d6b4a, roughness: 0.7,
+    emissive: new THREE.Color(pal.cyan), emissiveIntensity: 0.05,
+  });
+  const stalks = new THREE.InstancedMesh(stalkGeo, stalkMat, stalkCount);
+  stalks.frustumCulled = false;
+  const stalkData = [];
+  for (let i = 0; i < stalkCount; i++) {
+    const a = rand() * Math.PI * 2;
+    const r = Math.sqrt(rand()) * radius;
+    const px = Math.cos(a) * r, pz = Math.sin(a) * r;
+    const h = THREE.MathUtils.lerp(cfg.stalkHeight[0], cfg.stalkHeight[1], rand());
+    _v1.set(px, 0, pz);
+    _m0.compose(_v1, _q0.identity(), _v2.set(0.8 + rand() * 0.6, h, 0.8 + rand() * 0.6));
+    stalks.setMatrixAt(i, _m0);
+    stalkData.push({ x: px, z: pz, h, phase: rand() * Math.PI * 2 });
+  }
+  stalks.instanceMatrix.needsUpdate = true;
+  group.add(stalks);
+
+  // Spore-motes: drifting points that pulse toward the player.
+  const moteGeo = new THREE.IcosahedronGeometry(0.06, 0);
+  const moteMat = new THREE.MeshStandardMaterial({
+    color: pal.amber, emissive: new THREE.Color(pal.amber), emissiveIntensity: 0.3,
+  });
+  const motes = new THREE.InstancedMesh(moteGeo, moteMat, moteCount);
+  motes.frustumCulled = false;
+  const moteData = [];
+  for (let i = 0; i < moteCount; i++) {
+    const a = rand() * Math.PI * 2, r = Math.sqrt(rand()) * radius;
+    moteData.push({
+      x: Math.cos(a) * r, z: Math.sin(a) * r, y: 0.3 + rand() * 1.5,
+      driftPhase: rand() * Math.PI * 2, driftR: 0.5 + rand() * 1.5,
+    });
+  }
+  group.add(motes);
+
+  // Tenders: near-humanoid figures with nerve-threads into the soil.
+  const tenderCount = cfg.tenderCount;
+  const tenders = [];
+  for (let i = 0; i < tenderCount; i++) {
+    const a = rand() * Math.PI * 2, r = 8 + rand() * (radius * 0.6);
+    const tSeed = seed ^ (0x9e3779b9 * (i + 1));
+    tenders.push({
+      id: `tender-${i}`,
+      pos: new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r),
+      seed: tSeed,
+      species: 'Tended Mat (tender)',
+      active: false,
+      rig: null,
+      _phase: rand() * Math.PI * 2,
+      activate() {
+        if (this.rig) { this.active = true; this.rig.visible = true; return; }
+        this.rig = buildTenderRig(mulberry32(this.seed), pal);
+        this.rig.position.copy(this.pos);
+        group.add(this.rig);
+        this.active = true;
+      },
+      deactivate() {
+        if (this.rig) this.rig.visible = false;
+        this.active = false;
+      },
+    });
+  }
+
+  function buildTenderRig(rand2, pal2) {
+    const g = new THREE.Group();
+    const torso = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.22, 0.9, 4, 6),
+      new THREE.MeshStandardMaterial({ color: 0x8a9b7a, roughness: 0.6 })
+    );
+    torso.position.y = cfg.tenderHeight * 0.55;
+    g.add(torso);
+    const head = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.16, 1),
+      new THREE.MeshStandardMaterial({ color: 0x9db08a, roughness: 0.5 })
+    );
+    head.position.y = cfg.tenderHeight * 0.92;
+    g.add(head);
+    // Nerve-threads: thin emissive lines from spine to ground.
+    const threadMat = new THREE.LineBasicMaterial({ color: pal2.cyan, transparent: true, opacity: 0.6 });
+    for (let t = 0; t < 3; t++) {
+      const pts = [
+        new THREE.Vector3(0, cfg.tenderHeight * 0.3, 0),
+        new THREE.Vector3((rand2() - 0.5) * 0.6, -0.1, (rand2() - 0.5) * 0.6),
+        new THREE.Vector3((rand2() - 0.5) * 1.2, -0.05, (rand2() - 0.5) * 1.2),
+      ];
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), threadMat);
+      g.add(line);
+    }
+    return g;
+  }
+
+  const pool = makePopulationPool(tenders, opts);
+
+  function update(dt, playerPos, sunDot) {
+    const dim = Math.max(sunDot, 0);
+    stalkMat.emissiveIntensity = 0.05 + (1 - dim) * 0.25;
+    moteMat.emissiveIntensity = 0.3 + (1 - dim) * 0.5;
+
+    _v0.copy(playerPos);
+    const t = performance.now() * 0.001;
+    for (let i = 0; i < stalkData.length; i++) {
+      const d = stalkData[i];
+      const dist = Math.hypot(d.x - _v0.x, d.z - _v0.z);
+      const ripple = Math.max(0, 1 - Math.abs(dist - (t * cfg.rippleSpeed) % cfg.noticeRadius) / 3);
+      const sway = Math.sin(t * 0.6 + d.phase) * 0.05;
+      _v1.set(d.x, sway * d.h, d.z);
+      const scale = (1 + ripple * 0.3);
+      _m0.compose(_v1, _q0.identity(), _v2.set(scale, d.h, scale));
+      stalks.setMatrixAt(i, _m0);
+    }
+    stalks.instanceMatrix.needsUpdate = true;
+
+    for (let i = 0; i < moteData.length; i++) {
+      const d = moteData[i];
+      const ang = t * 0.4 + d.driftPhase;
+      const mx = d.x + Math.cos(ang) * 0.3;
+      const mz = d.z + Math.sin(ang) * 0.3;
+      const distToPlayer = Math.hypot(mx - _v0.x, mz - _v0.z);
+      const pulled = Math.max(0, 1 - distToPlayer / cfg.noticeRadius);
+      _v1.set(mx + (_v0.x - mx) * pulled * 0.02, d.y, mz + (_v0.z - mz) * pulled * 0.02);
+      const s = 1 + pulled * 1.5;
+      _m0.compose(_v1, _q0.identity(), _v2.set(s, s, s));
+      motes.setMatrixAt(i, _m0);
+    }
+    motes.instanceMatrix.needsUpdate = true;
+
+    pool.update(dt, playerPos);
+  }
+
+  function nearestInteractable(playerPos, maxDist = C.interactRadius) {
+    let best = null, bestD = maxDist * maxDist;
+    for (const t of tenders) {
+      if (!t.active) continue;
+      const d = _v0.copy(t.pos).sub(playerPos).lengthSq();
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    return best;
+  }
+
+  function interact(creature) {
+    const rand2 = mulberry32(creature.seed);
+    const name = 'the Mat';
+    const lines = [
+      'We feel the weight of your steps before we hear them.',
+      'We are not one voice speaking — we are one nerve, many mouths.',
+      pick(rand2, [
+        'We tend. We have always tended. There was no first tender.',
+        'The stalks watched you arrive from three valleys away.',
+        'When a tender falls, we do not mourn — we root them.',
+      ]),
+    ];
+    const offer = rand2() < C.terra.tenderCount / 40 || rand2() < 0.3
+      ? { kind: 'codex', subject: 'The Tended Mat: a planet-spanning neural organism' }
+      : undefined;
+    return { speaker: { name, species: 'Tended Mat (tender)', cityId: null }, lines, offer };
+  }
+
+  function dispose() {
+    stalkGeo.dispose(); stalkMat.dispose();
+    moteGeo.dispose(); moteMat.dispose();
+    for (const t of tenders) if (t.rig) {
+      t.rig.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose?.(); });
+    }
+    group.clear();
+  }
+
+  return { group, update, dispose, nearestInteractable, interact };
+}
+
+// ---------------------------------------------------------------------------
+// Recipe: OCEANA — the Shoal-People
+// ---------------------------------------------------------------------------
+function buildOceana(planet, worldUp, opts, seed) {
+  const rand = mulberry32(seed);
+  const cfg = C.oceana;
+  const pal = opts.palette ?? C.paletteDefault;
+  const group = new THREE.Group();
+  group.name = 'oceana-creatures';
+
+  const bodyCount = Math.round(cfg.bodyCount * (opts.density ?? cfg.density));
+  const radius = opts.radius ?? 200;
+
+  const fishGeo = new THREE.ConeGeometry(0.03, 0.14, 4);
+  const fishMat = new THREE.MeshStandardMaterial({
+    color: pal.cyan, emissive: new THREE.Color(pal.cyan), emissiveIntensity: 0.15, metalness: 0.3, roughness: 0.4,
+  });
+
+  const bodies = [];
+  for (let i = 0; i < bodyCount; i++) {
+    const a = rand() * Math.PI * 2, r = Math.sqrt(rand()) * radius;
+    const bSeed = seed ^ (0x85ebca6b * (i + 1));
+    const brand = mulberry32(bSeed);
+    const fish = new THREE.InstancedMesh(fishGeo, fishMat, cfg.fishPerBody);
+    fish.frustumCulled = false;
+    group.add(fish);
+    const fishOffsets = [];
+    for (let f = 0; f < cfg.fishPerBody; f++) {
+      // Distribute within a humanoid silhouette: taller near center, tapering.
+      const h = brand();
+      const band = h < 0.15 ? 'head' : h < 0.75 ? 'torso' : 'limb';
+      const yOff = h * cfg.cohereHeight;
+      const rr = band === 'head' ? 0.14 : band === 'torso' ? 0.28 * (1 - (h - 0.15) / 0.6) + 0.1 : 0.15;
+      const fa = brand() * Math.PI * 2;
+      fishOffsets.push({
+        baseX: Math.cos(fa) * rr, baseZ: Math.sin(fa) * rr, y: yOff,
+        phase: brand() * Math.PI * 2, speed: 1.5 + brand() * 1.5,
+      });
+    }
+    bodies.push({
+      id: `shoal-${i}`,
+      pos: new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r),
+      seed: bSeed,
+      species: 'Shoal-Person',
+      active: true,
+      state: 'cohered', // cohered | scattered | reforming
+      stateTimer: 0,
+      fish, fishOffsets,
+      activate() { this.active = true; },
+      deactivate() { this.active = false; fish.visible = false; },
+    });
+  }
+
+  const pool = makePopulationPool(bodies, { ...opts, maxRigs: bodyCount });
+
+  function update(dt, playerPos, sunDot) {
+    const dim = Math.max(sunDot, 0);
+    fishMat.emissiveIntensity = 0.15 + (1 - dim) * 0.35;
+    const t = performance.now() * 0.001;
+
+    for (const b of bodies) {
+      if (!b.active) continue;
+      const dist = _v0.copy(b.pos).sub(playerPos).length();
+
+      if (b.state === 'cohered' && dist < cfg.startleRadius) {
+        b.state = 'scattered';
+        b.stateTimer = cfg.scatterDuration;
+        b.scatterVec = _v1.set(b.pos.x - playerPos.x, 0, b.pos.z - playerPos.z).normalize().clone();
+      } else if (b.state === 'scattered') {
+        b.stateTimer -= dt;
+        if (b.stateTimer <= 0) { b.state = 'reforming'; b.stateTimer = cfg.reformDelay; }
+      } else if (b.state === 'reforming') {
+        b.stateTimer -= dt;
+        if (b.stateTimer <= 0) {
+          b.state = 'cohered';
+          b.pos.addScaledVector(b.scatterVec, cfg.reformOffset);
+        }
+      }
+
+      const scatterAmt = b.state === 'cohered' ? 0 : b.state === 'scattered' ? 1 : 0.5;
+      for (let f = 0; f < b.fishOffsets.length; f++) {
+        const o = b.fishOffsets[f];
+        const wob = Math.sin(t * o.speed + o.phase) * 0.02;
+        const scatterX = scatterAmt * Math.sin(o.phase * 3 + t * 2) * 1.5;
+        const scatterZ = scatterAmt * Math.cos(o.phase * 3 + t * 2) * 1.5;
+        _v1.set(
+          b.pos.x + o.baseX + wob + scatterX,
+          o.y * (1 - scatterAmt * 0.5) + Math.sin(t + o.phase) * 0.02,
+          b.pos.z + o.baseZ + wob + scatterZ
+        );
+        _q0.setFromAxisAngle(_yAxis, o.phase + t * o.speed);
+        _m0.compose(_v1, _q0, _v2.set(1, 1, 1));
+        b.fish.setMatrixAt(f, _m0);
+      }
+      b.fish.instanceMatrix.needsUpdate = true;
+    }
+    pool.update(dt, playerPos);
+  }
+
+  function nearestInteractable(playerPos, maxDist = C.interactRadius) {
+    let best = null, bestD = maxDist * maxDist;
+    for (const b of bodies) {
+      if (!b.active || b.state !== 'cohered') continue;
+      const d = _v0.copy(b.pos).sub(playerPos).lengthSq();
+      if (d < bestD) { bestD = d; best = b; }
+    }
+    return best;
+  }
+
+  function interact(creature) {
+    const rand2 = mulberry32(creature.seed);
+    const lines = [
+      'The one you spoke to a moment ago is already scattered through this water.',
+      pick(rand2, [
+        'We are shaped like you only to be understood by you.',
+        'A thousand small deaths make one shape. Ask us later and we will be a thousand different ones.',
+        'Identity is a shoreline, not a stone. It moves.',
+      ]),
+      'Come closer and we are gone; give us room and we cohere again.',
+    ];
+    const offer = rand2() < C.oceana.startleRadius / 20
+      ? { kind: 'waypoint', targetHint: 'A deeper shoal remembers something lost', marker: creature.pos.clone() }
+      : undefined;
+    return { speaker: { name: proceduralName(rand2), species: 'Shoal-Person', cityId: null }, lines, offer };
+  }
+
+  function dispose() {
+    fishGeo.dispose(); fishMat.dispose();
+    group.clear();
+  }
+
+  return { group, update, dispose, nearestInteractable, interact };
+}
+
+// ---------------------------------------------------------------------------
+// Recipe: GLACIA — the Slow Crystalline
+// ---------------------------------------------------------------------------
+function buildGlacia(planet, worldUp, opts, seed) {
+  const rand = mulberry32(seed);
+  const cfg = C.glacia;
+  const pal = opts.palette ?? C.paletteDefault;
+  const group = new THREE.Group();
+  group.name = 'glacia-creatures';
+
+  const beingCount = Math.round(cfg.beingCount * (opts.density ?? cfg.density));
+  const radius = opts.radius ?? 220;
+
+  const beings = [];
+  for (let i = 0; i < beingCount; i++) {
+    const a = rand() * Math.PI * 2, r = Math.sqrt(rand()) * radius;
+    const bSeed = seed ^ (0xc2b2ae35 * (i + 1));
+    const brand = mulberry32(bSeed);
+    const h = THREE.MathUtils.lerp(cfg.height[0], cfg.height[1], brand());
+    beings.push({
+      id: `crystal-${i}`,
+      pos: new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r),
+      seed: bSeed, height: h,
+      species: 'Slow Crystalline',
+      active: false, rig: null,
+      _thoughtPhase: brand() * Math.PI * 2,
+      _gesturePhase: brand() * cfg.gestureDuration,
+      activate() {
+        if (!this.rig) {
+          this.rig = buildCrystalRig(mulberry32(this.seed), h, pal);
+          this.rig.position.copy(this.pos);
+          group.add(this.rig);
+        }
+        this.rig.visible = true; this.active = true;
+      },
+      deactivate() { if (this.rig) this.rig.visible = false; this.active = false; },
+    });
+  }
+
+  function buildCrystalRig(rand2, height, pal2) {
+    const g = new THREE.Group();
+    const facets = 5 + Math.floor(rand2() * 3);
+    const geo = new THREE.IcosahedronGeometry(height * 0.4, 0);
+    const mat = new THREE.MeshPhysicalMaterial({
+      color: 0xbfe6ff, transparent: true, opacity: 0.55, transmission: 0.6,
+      roughness: 0.1, emissive: new THREE.Color(pal2.cyan), emissiveIntensity: 0.1,
+    });
+    const body = new THREE.Mesh(geo, mat);
+    body.position.y = height * 0.5;
+    body.scale.set(0.7, 1.3, 0.7);
+    g.add(body);
+    // Slow-moving "gesture" limbs — faceted shards, animated at geologic pace.
+    for (let i = 0; i < facets; i++) {
+      const shard = new THREE.Mesh(
+        new THREE.ConeGeometry(height * 0.06, height * 0.35, 4),
+        mat
+      );
+      const a = (i / facets) * Math.PI * 2;
+      shard.position.set(Math.cos(a) * height * 0.25, height * 0.55, Math.sin(a) * height * 0.25);
+      shard.userData.baseAngle = a;
+      g.add(shard);
+    }
+    g.userData.mat = mat;
+    return g;
+  }
+
+  const pool = makePopulationPool(beings, opts);
+
+  // Crystal-city accretions grown from frozen breath — static merged decoration.
+  const accretionGeo = new THREE.ConeGeometry(0.5, 2, 5);
+  const accretionMat = new THREE.MeshPhysicalMaterial({
+    color: 0xdff2ff, transparent: true, opacity: 0.4, transmission: 0.5, roughness: 0.15,
+  });
+  const accretions = new THREE.InstancedMesh(accretionGeo, accretionMat, cfg.accretionCount);
+  accretions.frustumCulled = false;
+  for (let i = 0; i < cfg.accretionCount; i++) {
+    const a = rand() * Math.PI * 2, r = Math.sqrt(rand()) * radius * 0.9;
+    const s = 0.5 + rand() * 2;
+    _v1.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+    _m0.compose(_v1, _q0.identity(), _v2.set(s, s * (1 + rand()), s));
+    accretions.setMatrixAt(i, _m0);
+  }
+  group.add(accretions);
+
+  function update(dt, playerPos, sunDot) {
+    const dim = Math.max(sunDot, 0);
+    accretionMat.opacity = 0.3 + (1 - dim) * 0.2;
+    const t = performance.now() * 0.001;
+    for (const b of beings) {
+      if (!b.active || !b.rig) continue;
+      const mat = b.rig.userData.mat;
+      mat.emissiveIntensity = 0.1 + 0.3 * (0.5 + 0.5 * Math.sin(t * cfg.thoughtSpeed + b._thoughtPhase)) + (1 - dim) * 0.2;
+      const gesture = (t % cfg.gestureDuration) / cfg.gestureDuration;
+      b.rig.children.forEach((child, idx) => {
+        if (child.userData.baseAngle === undefined) return;
+        child.rotation.y = child.userData.baseAngle + gesture * 0.3;
+      });
+    }
+    pool.update(dt, playerPos);
+  }
+
+  function nearestInteractable(playerPos, maxDist = C.interactRadius) {
+    let best = null, bestD = maxDist * maxDist;
+    for (const b of beings) {
+      if (!b.active) continue;
+      const d = _v0.copy(b.pos).sub(playerPos).lengthSq();
+      if (d < bestD) { bestD = d; best = b; }
+    }
+    return best;
+  }
+
+  function interact(creature) {
+    const rand2 = mulberry32(creature.seed);
+    const lines = [
+      'A spark passed near us. We register it as a season, and a warning.',
+      pick(rand2, [
+        'You are fire wearing a shape. It is beautiful. It will not last the hour.',
+        'We watched your star form its metals. We are patient with your kind of loud, short light.',
+        'Speak again in a decade. We may have finished the thought you interrupted.',
+      ]),
+    ];
+    const offer = rand2() < 0.5
+      ? { kind: 'codex', subject: 'The Slow Crystalline: cognition on geologic time' }
+      : undefined;
+    return { speaker: { name: proceduralName(rand2, 3), species: 'Slow Crystalline', cityId: null }, lines, offer };
+  }
+
+  function dispose() {
+    accretionGeo.dispose(); accretionMat.dispose();
+    for (const b of beings) if (b.rig) {
+      b.rig.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+      b.rig.userData.mat?.dispose();
+    }
+    group.clear();
+  }
+
+  return { group, update, dispose, nearestInteractable, interact };
+}
+
+// ---------------------------------------------------------------------------
+// Recipe: RUSTIA — the Rust Choir
+// ---------------------------------------------------------------------------
+function buildRustia(planet, worldUp, opts, seed) {
+  const rand = mulberry32(seed);
+  const cfg = C.rustia;
+  const pal = opts.palette ?? C.paletteDefault;
+  const group = new THREE.Group();
+  group.name = 'rustia-creatures';
+
+  const choirCount = Math.round(cfg.choirCount * (opts.density ?? cfg.density));
+  const radius = opts.radius ?? 240;
+
+  const members = [];
+  for (let i = 0; i < choirCount; i++) {
+    const a = rand() * Math.PI * 2, r = Math.sqrt(rand()) * radius;
+    const mSeed = seed ^ (0x27d4eb2f * (i + 1));
+    const mrand = mulberry32(mSeed);
+    members.push({
+      id: `rust-${i}`,
+      pos: new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r),
+      seed: mSeed,
+      species: 'Rust Choir',
+      isLithovore: mrand() < cfg.lithovoreFraction,
+      active: false, rig: null,
+      _eyePhase: mrand() * Math.PI * 2,
+      activate() {
+        if (!this.rig) {
+          this.rig = buildChoirRig(mulberry32(this.seed), pal);
+          this.rig.position.copy(this.pos);
+          group.add(this.rig);
+        }
+        this.rig.visible = true; this.active = true;
+      },
+      deactivate() { if (this.rig) this.rig.visible = false; this.active = false; },
+    });
+  }
+
+  function buildChoirRig(rand2, pal2) {
+    const g = new THREE.Group();
+    const h = THREE.MathUtils.lerp(cfg.height[0], cfg.height[1], rand2());
+    const hullMat = new THREE.MeshStandardMaterial({
+      color: 0x5a3d2e, roughness: 0.95, metalness: 0.4,
+    });
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.5, h * 0.6, 0.35), hullMat);
+    torso.position.y = h * 0.5;
+    torso.rotation.z = (rand2() - 0.5) * 0.15;
+    g.add(torso);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.24, 0.24), hullMat);
+    head.position.y = h * 0.88;
+    g.add(head);
+    const eye = new THREE.Mesh(
+      new THREE.SphereGeometry(0.06, 8, 8),
+      new THREE.MeshStandardMaterial({
+        color: pal2.amber, emissive: new THREE.Color(pal2.amber),
+        emissiveIntensity: cfg.eyeGlowMax,
+      })
+    );
+    eye.position.set(0, h * 0.88, 0.14);
+    g.add(eye);
+    g.userData.eyeMat = eye.material;
+    // Corroded half-derelict limbs.
+    for (let s = 0; s < 2; s++) {
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.1, h * 0.4, 0.1), hullMat);
+      arm.position.set((s === 0 ? -0.3 : 0.3), h * 0.4, 0);
+      arm.rotation.z = (rand2() - 0.5) * 0.4;
+      g.add(arm);
+    }
+    return g;
+  }
+
+  const pool = makePopulationPool(members, opts);
+
+  function update(dt, playerPos, sunDot) {
+    const dim = Math.max(sunDot, 0);
+    const t = performance.now() * 0.001;
+    for (const m of members) {
+      if (!m.active || !m.rig) continue;
+      const pulse = 0.5 + 0.5 * Math.sin(t * 1.3 + m._eyePhase);
+      const glow = THREE.MathUtils.lerp(cfg.eyeGlowMin, cfg.eyeGlowMax, pulse) + (1 - dim) * 0.3;
+      m.rig.userData.eyeMat.emissiveIntensity = glow;
+    }
+    pool.update(dt, playerPos);
+  }
+
+  function nearestInteractable(playerPos, maxDist = C.interactRadius) {
+    let best = null, bestD = maxDist * maxDist;
+    for (const m of members) {
+      if (!m.active) continue;
+      const d = _v0.copy(m.pos).sub(playerPos).lengthSq();
+      if (d < bestD) { bestD = d; best = m; }
+    }
+    return best;
+  }
+
+  function interact(creature) {
+    const rand2 = mulberry32(creature.seed);
+    const lines = [
+      'The Choir burns and does not question the burning.',
+      creature.isLithovore
+        ? 'I have been eating this ridge for four hundred years. It tastes like the maker-species did, at the end.'
+        : 'Our makers left before we finished becoming ourselves. We finished anyway.',
+    ];
+    let offer;
+    if (rand2() < cfg.memoryTradeChance) {
+      offer = {
+        kind: 'choice',
+        prompt: 'The eye dims toward you, offering trade: a fragment of their maker-species memory for one of yours.',
+        options: [
+          { label: 'Trade a memory of home', outcomeTag: 'rustia_memory_traded' },
+          { label: 'Refuse — some things are not for burning', outcomeTag: 'rustia_memory_refused' },
+        ],
+      };
+    } else {
+      offer = { kind: 'codex', subject: 'The Rust Choir: post-biological sun cult' };
+    }
+    return { speaker: { name: proceduralName(rand2), species: 'Rust Choir', cityId: null }, lines, offer };
+  }
+
+  function dispose() {
+    for (const m of members) if (m.rig) {
+      m.rig.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material && o.material !== m.rig.userData.eyeMat) o.material.dispose?.();
+      });
+      m.rig.userData.eyeMat?.dispose();
+    }
+    group.clear();
+  }
+
+  return { group, update, dispose, nearestInteractable, interact };
+}
+
+// ---------------------------------------------------------------------------
+// Recipe: Sky Ecologies (Saturnia / Neptunia) — backdrop-only gas giant life
+// ---------------------------------------------------------------------------
+function buildSkyEcology(planet, worldUp, opts, seed) {
+  const rand = mulberry32(seed);
+  const cfg = C.sky;
+  const pal = opts.palette ?? C.paletteDefault;
+  const group = new THREE.Group();
+  group.name = 'sky-ecology';
+
+  const whaleCount = Math.round(cfg.whaleCount * (opts.density ?? cfg.density));
+  const lightningCount = Math.round(cfg.lightningCount * (opts.density ?? cfg.density));
+  const mindCount = Math.round(cfg.mindPatternCount * (opts.density ?? cfg.density));
+
+  // Balloon-whales: soft translucent ellipsoids drifting in cloud bands.
+  const whaleGeo = new THREE.SphereGeometry(1, 10, 8);
+  const whaleMat = new THREE.MeshStandardMaterial({
+    color: pal.amber, transparent: true, opacity: 0.35,
+    emissive: new THREE.Color(pal.amber), emissiveIntensity: 0.1,
+  });
+  const whales = new THREE.InstancedMesh(whaleGeo, whaleMat, whaleCount);
+  whales.frustumCulled = false;
+  const whaleData = [];
+  for (let i = 0; i < whaleCount; i++) {
+    const a = rand() * Math.PI * 2;
+    const dist = THREE.MathUtils.lerp(cfg.bandRadiusRange[0], cfg.bandRadiusRange[1], rand());
+    const band = -60 + rand() * 120;
+    whaleData.push({ a, dist, band, phase: rand() * Math.PI * 2, s: 8 + rand() * 20 });
+  }
+  group.add(whales);
+
+  // Living lightning: bright emissive line segments that flash.
+  const lightningMat = new THREE.LineBasicMaterial({ color: pal.cyan, transparent: true, opacity: 0 });
+  const lightningLines = [];
+  for (let i = 0; i < lightningCount; i++) {
+    const pts = [];
+    for (let s = 0; s < 4; s++) pts.push(new THREE.Vector3((rand() - 0.5) * 20, (rand() - 0.5) * 20, (rand() - 0.5) * 20));
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), lightningMat.clone());
+    const a = rand() * Math.PI * 2;
+    const dist = THREE.MathUtils.lerp(cfg.bandRadiusRange[0], cfg.bandRadiusRange[1], rand());
+    line.position.set(Math.cos(a) * dist, -40 + rand() * 80, Math.sin(a) * dist);
+    line.userData.flashPhase = rand() * Math.PI * 2;
+    group.add(line);
+    lightningLines.push(line);
+  }
+
+  // Pressure-pattern minds: vast soft rotating rings, never solid.
+  const mindGeo = new THREE.TorusGeometry(30, 4, 6, 24);
+  const mindMat = new THREE.MeshStandardMaterial({
+    color: pal.magenta, transparent: true, opacity: 0.15, emissive: new THREE.Color(pal.magenta), emissiveIntensity: 0.2,
+  });
+  const minds = [];
+  for (let i = 0; i < mindCount; i++) {
+    const mesh = new THREE.Mesh(mindGeo, mindMat.clone());
+    const a = rand() * Math.PI * 2;
+    const dist = THREE.MathUtils.lerp(cfg.bandRadiusRange[0], cfg.bandRadiusRange[1], rand());
+    mesh.position.set(Math.cos(a) * dist, -20 + rand() * 40, Math.sin(a) * dist);
+    mesh.rotation.x = rand() * Math.PI;
+    group.add(mesh);
+    minds.push(mesh);
+  }
+
+  let codexFlagged = false;
+  let dwell = 0;
+
+  function update(dt, playerPos, sunDot) {
+    const dim = Math.max(sunDot, 0);
+    whaleMat.emissiveIntensity = 0.1 + (1 - dim) * 0.2;
+    const t = performance.now() * 0.001;
+    for (let i = 0; i < whaleData.length; i++) {
+      const d = whaleData[i];
+      const a = d.a + t * 0.02;
+      _v1.set(Math.cos(a) * d.dist, d.band + Math.sin(t * 0.3 + d.phase) * 5, Math.sin(a) * d.dist);
+      _m0.compose(_v1, _q0.identity(), _v2.set(d.s, d.s * 0.5, d.s));
+      whales.setMatrixAt(i, _m0);
+    }
+    whales.instanceMatrix.needsUpdate = true;
+
+    for (const line of lightningLines) {
+      const flash = Math.max(0, Math.sin(t * 3 + line.userData.flashPhase) - 0.85) * 6;
+      line.material.opacity = flash;
+    }
+    for (const m of minds) m.rotation.y += dt * 0.02;
+
+    // Passive codex-discovery: sustained proximity to the whole ecology.
+    const distToCenter = playerPos.length();
+    if (Math.abs(distToCenter) < cfg.codexProximity * 4) {
+      dwell += dt;
+      if (dwell > cfg.codexDwellTime) codexFlagged = true;
+    } else {
+      dwell = Math.max(0, dwell - dt * 2);
+    }
+  }
+
+  function nearestInteractable() { return null; }
+  function interact() { return null; }
+  function onCodexDiscovery() { return codexFlagged; }
+
+  function dispose() {
+    whaleGeo.dispose(); whaleMat.dispose();
+    for (const line of lightningLines) { line.geometry.dispose(); line.material.dispose(); }
+    mindGeo.dispose();
+    for (const m of minds) m.material.dispose();
+    group.clear();
+  }
+
+  return { group, update, dispose, nearestInteractable, interact, onCodexDiscovery };
+}
+
+// ---------------------------------------------------------------------------
+// Recipe: Generic fallback — weird biology for unknown worlds
+// ---------------------------------------------------------------------------
+function buildGeneric(planet, worldUp, opts, seed) {
+  const rand = mulberry32(seed);
+  const cfg = C.generic;
+  const pal = opts.palette ?? C.paletteDefault;
+  const group = new THREE.Group();
+  group.name = 'generic-creatures';
+
+  const count = Math.round(cfg.count * (opts.density ?? cfg.density));
+  const radius = opts.radius ?? 200;
+
+  const beings = [];
+  for (let i = 0; i < count; i++) {
+    const a = rand() * Math.PI * 2, r = Math.sqrt(rand()) * radius;
+    const bSeed = seed ^ (0x165667b1 * (i + 1));
+    beings.push({
+      id: `weird-${i}`,
+      pos: new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r),
+      seed: bSeed, species: 'Unclassified Biology',
+      active: false, rig: null, _phase: rand() * Math.PI * 2,
+      activate() {
+        if (!this.rig) {
+          this.rig = buildRadialRig(mulberry32(this.seed), pal);
+          this.rig.position.copy(this.pos);
+          group.add(this.rig);
+        }
+        this.rig.visible = true; this.active = true;
+      },
+      deactivate() { if (this.rig) this.rig.visible = false; this.active = false; },
+    });
+  }
+
+  function buildRadialRig(rand2, pal2) {
+    const g = new THREE.Group();
+    const h = THREE.MathUtils.lerp(cfg.height[0], cfg.height[1], rand2());
+    const armCount = cfg.armMin + Math.floor(rand2() * (cfg.armMax - cfg.armMin));
+    const mat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color().setHSL(rand2(), 0.5, 0.4), roughness: 0.6,
+      emissive: new THREE.Color(pal2.cyan), emissiveIntensity: 0.15,
+    });
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(h * 0.25, 1), mat);
+    core.position.y = h * 0.4;
+    g.add(core);
+    for (let a = 0; a < armCount; a++) {
+      const arm = new THREE.Mesh(new THREE.ConeGeometry(h * 0.05, h * 0.5, 4), mat);
+      const ang = (a / armCount) * Math.PI * 2;
+      arm.position.set(Math.cos(ang) * h * 0.3, h * 0.4, Math.sin(ang) * h * 0.3);
+      arm.rotation.z = Math.PI / 2;
+      arm.rotation.y = -ang;
+      g.add(arm);
+    }
+    g.userData.mat = mat;
+    return g;
+  }
+
+  const pool = makePopulationPool(beings, opts);
+
+  function update(dt, playerPos, sunDot) {
+    const dim = Math.max(sunDot, 0);
+    const t = performance.now() * 0.001;
+    for (const b of beings) {
+      if (!b.active || !b.rig) continue;
+      b.rig.userData.mat.emissiveIntensity = 0.15 + (1 - dim) * 0.3 + 0.1 * Math.sin(t * 2 + b._phase);
+      b.rig.rotation.y = t * 0.3 + b._phase;
+    }
+    pool.update(dt, playerPos);
+  }
+
+  function nearestInteractable(playerPos, maxDist = C.interactRadius) {
+    let best = null, bestD = maxDist * maxDist;
+    for (const b of beings) {
+      if (!b.active) continue;
+      const d = _v0.copy(b.pos).sub(playerPos).lengthSq();
+      if (d < bestD) { bestD = d; best = b; }
+    }
+    return best;
+  }
+
+  function interact(creature) {
+    const rand2 = mulberry32(creature.seed);
+    return {
+      speaker: { name: proceduralName(rand2, 3), species: 'Unclassified Biology', cityId: null },
+      lines: ['It has no mouth, and yet the color across its skin resolves into something like meaning.'],
+      offer: rand2() < 0.4 ? { kind: 'codex', subject: 'Unclassified radial biology' } : undefined,
+    };
+  }
+
+  function dispose() {
+    for (const b of beings) if (b.rig) {
+      b.rig.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+      b.rig.userData.mat?.dispose();
+    }
+    group.clear();
+  }
+
+  return { group, update, dispose, nearestInteractable, interact };
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher
+// ---------------------------------------------------------------------------
+export function createCreatures(planet, worldUp, opts = {}) {
+  const name = (planet?.cfg?.name ?? '').toLowerCase();
+  const seed = hashSeedFromDir(worldUp, 0xC12EA7);
+
+  switch (name) {
+    case 'terra': return buildTerra(planet, worldUp, opts, seed);
+    case 'oceana': return buildOceana(planet, worldUp, opts, seed);
+    case 'glacia': return buildGlacia(planet, worldUp, opts, seed);
+    case 'rustia': return buildRustia(planet, worldUp, opts, seed);
+    case 'saturnia':
+    case 'neptunia':
+      return buildSkyEcology(planet, worldUp, opts, seed);
+    default:
+      return buildGeneric(planet, worldUp, opts, seed);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wiring:
+//   const creatures = createCreatures(planet, worldUp, { palette, density: 1.2 });
+//   planet.surface.add(creatures.group);
+//   // each frame:
+//   creatures.update(dt, playerPos, sunDot);
+//   const target = creatures.nearestInteractable(playerPos, 6);
+//   if (target && talkPressed) openDialogue(creatures.interact(target));
+//   // on departure: creatures.dispose();
+// ---------------------------------------------------------------------------
