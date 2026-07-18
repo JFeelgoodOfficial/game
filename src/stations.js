@@ -14,13 +14,16 @@
 //     beams carve at glowing excavation pits, a debris stream rises to the
 //     hopper, and two shuttles loop between the rock face and the dock.
 //   - Orbital Art Gallery: a cultural hub in a wide terra orbit — a ringed
-//     docking spine leads to a glass Grand Hall tower whose balcony levels
-//     hang the owner's art collection (images from /artgallery).
+//     docking spine leads to a glass Grand Hall tower whose gallery decks
+//     hang the owner's art collection (images from /artgallery). The one
+//     dockable station: G at the berth parks the ship and the interior is
+//     walked on foot in low gravity (galleryLayout.js + stationWalk.js).
 
 import * as THREE from 'three';
 import { C } from './constants.js';
 import { addShiftable } from './origin.js';
 import { planets } from './planet.js';
+import * as GL from './galleryLayout.js';
 
 const hullMat = new THREE.MeshStandardMaterial({
   color: 0x9aa2ad,
@@ -523,6 +526,67 @@ function galleryPlaceholder(seed) {
 // brass-gold accent — the gallery's signage color, nothing else uses it
 const brassMat = new THREE.MeshBasicMaterial({ color: 0xd4af6a });
 
+// interior surfaces are seen from both sides (decks from below, ramps from
+// everywhere), so they get their own double-sided variants of the house look
+const deckMat = new THREE.MeshStandardMaterial({
+  color: 0x767e8a,
+  roughness: 0.6,
+  metalness: 0.6,
+  side: THREE.DoubleSide,
+});
+const floorMat = new THREE.MeshStandardMaterial({
+  color: 0x3a4048,
+  roughness: 0.7,
+  metalness: 0.5,
+  side: THREE.DoubleSide,
+});
+
+// Annular deck sector (flat ring slab with the ramp notch already cut).
+// Shape-space XY maps to world XZ under rotation.x = PI/2, with the extrude
+// depth going downward — so the mesh's y position IS the walking surface.
+function ringSector(rIn, rOut, deg0, deg1) {
+  const a0 = (deg0 * Math.PI) / 180;
+  const a1 = (deg1 * Math.PI) / 180;
+  const s = new THREE.Shape();
+  s.absarc(0, 0, rOut, a0, a1, false);
+  s.absarc(0, 0, rIn, a1, a0, true);
+  return new THREE.ExtrudeGeometry(s, {
+    depth: GL.DECK_THICKNESS,
+    bevelEnabled: false,
+    curveSegments: 28,
+  });
+}
+
+// Spiral ramp ribbon between two heights, swept over a polar sector around
+// the tower axis. Coordinates are tower-centered (add TOWER at placement).
+function spiralRibbon(rIn, rOut, th0, th1, yA, yB, segs) {
+  const pos = [];
+  const index = [];
+  for (let i = 0; i <= segs; i++) {
+    const t = i / segs;
+    const th = ((th0 + (th1 - th0) * t) * Math.PI) / 180;
+    const y = yA + (yB - yA) * t;
+    pos.push(Math.cos(th) * rIn, y, Math.sin(th) * rIn);
+    pos.push(Math.cos(th) * rOut, y, Math.sin(th) * rOut);
+  }
+  for (let i = 0; i < segs; i++) {
+    const b = i * 2;
+    index.push(b, b + 1, b + 2, b + 1, b + 3, b + 2);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(index);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function addBox(parent, w, h, d, x, y, z, mat) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y, z);
+  parent.add(m);
+  return m;
+}
+
 function orbitalArtGalleryStation() {
   const g = new THREE.Group();
 
@@ -624,48 +688,210 @@ function orbitalArtGalleryStation() {
   hallSign.position.set(0, -26, -58);
   tower.add(hallSign);
 
-  // four balcony levels, each hanging eight art panels angled at the atrium
-  // axis. Fixed angular steps — deterministic, resets rebuild the same hang.
-  let slot = 0;
-  for (const y of [-70, -35, 0, 35]) {
-    const balcony = new THREE.Mesh(new THREE.TorusGeometry(50, 4, 6, 20), panelMat);
-    balcony.rotation.x = Math.PI / 2;
-    balcony.position.y = y;
-    tower.add(balcony);
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2;
-      const k = slot++;
-      const tex = galleryArtUrls.length
-        ? galleryTexture(galleryArtUrls[k % galleryArtUrls.length])
-        : galleryPlaceholder(k + 1);
-      const art = new THREE.Mesh(
-        new THREE.PlaneGeometry(10, 7),
-        new THREE.MeshBasicMaterial({ map: tex })
+  // ---- walkable interior (foot scale; layout numbers in galleryLayout.js,
+  // which stationWalk.js mirrors for collision + NPC placement) ----
+  // All interior pieces are added to the station group directly, in
+  // group-local coordinates — the frame the walker moves in.
+
+  const TX = GL.TOWER.x;
+  const TZ = GL.TOWER.z;
+
+  // Grand Atrium floor (deck A): a full disc at y 0.
+  const atriumFloor = new THREE.Mesh(
+    new THREE.CylinderGeometry(GL.ATRIUM_FLOOR_R, GL.ATRIUM_FLOOR_R, GL.DECK_THICKNESS, 32),
+    floorMat
+  );
+  atriumFloor.position.set(TX, -GL.DECK_THICKNESS / 2, TZ);
+  g.add(atriumFloor);
+
+  // Gallery decks B/C/D: annuli hugging the shell, each with its arrival
+  // ramp's notch cut out, plus curb + brass rail at the atrium-void edge.
+  for (let d = 1; d < GL.DECKS.length; d++) {
+    const y = GL.DECKS[d];
+    const notch = GL.DECK_NOTCH[d];
+    const outer = GL.towerR(y) - 0.7;
+    const deck = new THREE.Mesh(
+      ringSector(GL.DECK_INNER_R, outer, notch[1], notch[0] + 360),
+      deckMat
+    );
+    deck.rotation.x = Math.PI / 2;
+    deck.position.set(TX, y, TZ);
+    g.add(deck);
+    const curb = new THREE.Mesh(new THREE.TorusGeometry(GL.DECK_INNER_R, 0.35, 6, 40), darkMat);
+    curb.rotation.x = Math.PI / 2;
+    curb.position.set(TX, y + 0.15, TZ);
+    g.add(curb);
+    const rail = new THREE.Mesh(new THREE.TorusGeometry(GL.DECK_INNER_R, 0.16, 6, 40), brassMat);
+    rail.rotation.x = Math.PI / 2;
+    rail.position.set(TX, y + GL.RAIL_HEIGHT - 0.05, TZ);
+    g.add(rail);
+  }
+
+  // Spiral ramps between the decks, with brass handrail ribbons.
+  for (const r of GL.RAMPS) {
+    const ramp = new THREE.Mesh(
+      spiralRibbon(GL.RAMP_R_IN, GL.RAMP_R_OUT, r.th0, r.th1, r.yA, r.yB, 32),
+      deckMat
+    );
+    ramp.position.set(TX, 0, TZ);
+    g.add(ramp);
+    for (const edge of [GL.RAMP_R_IN + 0.1, GL.RAMP_R_OUT - 0.35]) {
+      const hand = new THREE.Mesh(
+        spiralRibbon(edge, edge + 0.25, r.th0, r.th1, r.yA + 1.0, r.yB + 1.0, 32),
+        brassMat
       );
-      art.position.set(Math.cos(a) * 44, y + 9, Math.sin(a) * 44);
-      art.rotation.y = -a - Math.PI / 2; // face the atrium axis
-      tower.add(art);
-      // lit frame just behind the art so each piece reads as an exhibit
-      const frame = new THREE.Mesh(new THREE.PlaneGeometry(10.8, 7.8), glowMat);
-      frame.position.set(Math.cos(a) * 44.4, y + 9, Math.sin(a) * 44.4);
-      frame.rotation.y = art.rotation.y;
-      tower.add(frame);
+      hand.position.set(TX, 0, TZ);
+      g.add(hand);
     }
   }
 
-  // interior work lights — the sun can't reach past the glazing, so without
-  // these the balconies read as silhouettes (Port Feelgood convention)
-  for (const y of [-30, 60]) {
-    const lamp = new THREE.PointLight(0xfff2d8, 2.4, 300, 1.6);
+  // Atrium furniture: central dais, the curator's desk, two easel pedestals
+  // (their art panels come from the exhibit loop below).
+  const dais = new THREE.Mesh(
+    new THREE.CylinderGeometry(GL.DAIS.r - 0.4, GL.DAIS.r - 0.2, GL.DAIS.h, 20),
+    darkMat
+  );
+  dais.position.set(GL.DAIS.x, GL.DAIS.h / 2, GL.DAIS.z);
+  g.add(dais);
+  addBox(g, 3, 1.1, 1.4, GL.DESK.x, 0.55, GL.DESK.z, darkMat);
+  addBox(g, 3.2, 0.1, 1.6, GL.DESK.x, 1.15, GL.DESK.z, brassMat);
+  for (const e of GL.EASELS) addBox(g, 0.6, 0.5, 0.6, e.x, 0.25, e.z, darkMat);
+
+  // The 32 exhibits at eye height. Slot order preserved bottom-up so the
+  // /artgallery images keep their alphabetical hang order.
+  const spots = GL.artSpots();
+  for (let k = 0; k < spots.length; k++) {
+    const s = spots[k];
+    const tex = galleryArtUrls.length
+      ? galleryTexture(galleryArtUrls[k % galleryArtUrls.length])
+      : galleryPlaceholder(k + 1);
+    // color scales the unlit texture to 0.82 so even a pure-white artwork
+    // stays under BLOOM_THRESHOLD (0.85) — bright pieces read as paintings,
+    // not bloom flares, and the glow frame keeps the lit-exhibit accent
+    const art = new THREE.Mesh(
+      new THREE.PlaneGeometry(GL.ART_W, GL.ART_H),
+      new THREE.MeshBasicMaterial({ map: tex, color: 0xd2d2d2 })
+    );
+    art.position.set(s.x, s.y, s.z);
+    art.rotation.y = s.rotY;
+    g.add(art);
+    // lit frame just behind the art (against the panel's facing normal)
+    const frame = new THREE.Mesh(
+      new THREE.PlaneGeometry(GL.ART_W + 0.6, GL.ART_H + 0.6),
+      glowMat
+    );
+    const nx = Math.sin(s.rotY);
+    const nz = Math.cos(s.rotY);
+    frame.position.set(s.x - nx * 0.06, s.y, s.z - nz * 0.06);
+    frame.rotation.y = s.rotY;
+    g.add(frame);
+  }
+
+  // ---- spine complex: berth pad, airlock, viewing promenade, crew bay ----
+  const R = GL.ROOMS;
+  const wallH = R.ceilY - R.floorY; // 4.5
+  const wallY = (R.floorY + R.ceilY) / 2; // 9.25
+
+  // Berth pad: an open EVA slab off the airlock's west door, edge-lit.
+  const bp = R.berthPad;
+  addBox(g, bp.x1 - bp.x0, 1, bp.z1 - bp.z0, (bp.x0 + bp.x1) / 2, bp.topY - 0.5, (bp.z0 + bp.z1) / 2, hullMat);
+  addBox(g, 0.4, 0.2, bp.z1 - bp.z0, bp.x0 + 0.2, bp.topY + 0.1, (bp.z0 + bp.z1) / 2, windowMat);
+  addBox(g, 0.4, 0.2, bp.z1 - bp.z0, bp.x1 - 0.2, bp.topY + 0.1, (bp.z0 + bp.z1) / 2, windowMat);
+
+  // Airlock room: floor, ceiling, walls with the pad door (west) and the
+  // promenade doorway (aft), glow strips over both doors.
+  const al = R.airlock;
+  addBox(g, 10, 0.6, 14, 0, R.floorY - 0.3, 57, floorMat);
+  addBox(g, 10.6, 0.6, 15.2, 0, R.ceilY + 0.3, 57, hullMat);
+  addBox(g, 10.6, wallH, 0.6, 0, wallY, al.z0 - 0.3, hullMat); // north
+  addBox(g, 0.6, wallH, R.padDoor.z0 - al.z0, al.x0 - 0.3, wallY, (al.z0 + R.padDoor.z0) / 2, hullMat);
+  addBox(g, 0.6, wallH, al.z1 - R.padDoor.z1, al.x0 - 0.3, wallY, (R.padDoor.z1 + al.z1) / 2, hullMat);
+  addBox(g, 0.6, wallH, 14, al.x1 + 0.3, wallY, 57, hullMat); // east
+  addBox(g, R.aftDoor.x0 - al.x0, wallH, 0.6, (al.x0 + R.aftDoor.x0) / 2, wallY, al.z1 + 0.3, hullMat);
+  addBox(g, al.x1 - R.aftDoor.x1, wallH, 0.6, (R.aftDoor.x1 + al.x1) / 2, wallY, al.z1 + 0.3, hullMat);
+  addBox(g, 3.6, 0.25, 0.7, 0, R.ceilY - 0.35, al.z1 + 0.3, glowMat); // aft door strip
+  addBox(g, 0.7, 0.25, 6.2, al.x0 - 0.3, R.ceilY - 0.35, 57, glowMat); // pad door strip
+
+  // Viewing promenade: open window bays on the west (sill + header + posts,
+  // the 8.1..10.2 band is clear glass at eye height), solid hull east wall
+  // with the crew-bay door, widened observation bay framing terra.
+  const pr = R.promenade;
+  const bay = R.bay;
+  addBox(g, 6, 0.6, pr.z1 - pr.z0, 0, R.floorY - 0.3, (pr.z0 + pr.z1) / 2, floorMat);
+  addBox(g, 6.6, 0.6, pr.z1 - pr.z0, 0, R.ceilY + 0.3, (pr.z0 + pr.z1) / 2, hullMat);
+  addBox(g, 4, 0.6, bay.z1 - bay.z0, -5, R.floorY - 0.3, 77, floorMat);
+  addBox(g, 4, 0.6, bay.z1 - bay.z0, -5, R.ceilY + 0.3, 77, hullMat);
+  // west window sections (promenade wall outside the bay span)
+  for (const seg of [
+    { z0: pr.z0, z1: bay.z0, x: pr.x0 - 0.3 },
+    { z0: bay.z1, z1: pr.z1, x: pr.x0 - 0.3 },
+    { z0: bay.z0, z1: bay.z1, x: bay.x0 - 0.3 }, // the observation bay glass
+  ]) {
+    const len = seg.z1 - seg.z0;
+    const zc = (seg.z0 + seg.z1) / 2;
+    addBox(g, 0.6, R.sillTop - R.floorY, len, seg.x, (R.floorY + R.sillTop) / 2, zc, hullMat);
+    addBox(g, 0.6, R.ceilY - R.headerY, len, seg.x, (R.headerY + R.ceilY) / 2, zc, hullMat);
+    addBox(g, 0.5, wallH, 0.5, seg.x, wallY, zc, darkMat); // center mullion post
+  }
+  // bay return walls joining the promenade wall to the bay glass
+  addBox(g, 4.6, wallH, 0.6, -5.15, wallY, bay.z0 - 0.3, hullMat);
+  addBox(g, 4.6, wallH, 0.6, -5.15, wallY, bay.z1 + 0.3, hullMat);
+  // east wall segments around the crew-bay door, with a lit band
+  const cd = R.crewDoor;
+  addBox(g, 0.6, wallH, cd.z0 - pr.z0, pr.x1 + 0.3, wallY, (pr.z0 + cd.z0) / 2, hullMat);
+  addBox(g, 0.6, wallH, pr.z1 - cd.z1, pr.x1 + 0.3, wallY, (cd.z1 + pr.z1) / 2, hullMat);
+  addBox(g, 0.15, 1.0, 14, pr.x1 - 0.05, 9, 83, windowMat);
+  addBox(g, 0.7, 0.25, cd.z1 - cd.z0 + 0.4, pr.x1 + 0.3, R.ceilY - 0.35, (cd.z0 + cd.z1) / 2, glowMat);
+
+  // Crew & maintenance bay: the workers' room — crates, a lit console.
+  const cw = R.crew;
+  addBox(g, 12, 0.6, 14, 9, R.floorY - 0.3, 75, floorMat);
+  addBox(g, 12.6, 0.6, 15.2, 9, R.ceilY + 0.3, 75, hullMat);
+  addBox(g, 12, wallH, 0.6, 9, wallY, cw.z0 - 0.3, hullMat);
+  addBox(g, 12, wallH, 0.6, 9, wallY, cw.z1 + 0.3, hullMat);
+  addBox(g, 0.6, wallH, 14, cw.x1 + 0.3, wallY, 75, hullMat);
+  addBox(g, 0.8, 2.4, 6, cw.x1 - 0.4, R.floorY + 1.4, 77, darkMat); // console
+  addBox(g, 0.2, 0.5, 5.4, cw.x1 - 0.9, R.floorY + 2.2, 77, windowMat);
+  addBox(g, 1.4, 1.4, 1.4, 11.5, R.floorY + 0.7, 70.5, darkMat); // crates
+  addBox(g, 1.1, 1.1, 1.1, 13.2, R.floorY + 0.55, 72.2, darkMat);
+  addBox(g, 1.2, 1.2, 1.2, 11.5, R.floorY + 2.0, 70.5, darkMat);
+
+  // Vestibule: the ramp from the promenade down into the atrium, framed by
+  // the entrance arch outside, with glow guide strips along its edges.
+  const vs = R.vestibule;
+  const rampLen = Math.hypot(vs.z1 - vs.z0, R.floorY);
+  const rampTilt = Math.atan2(R.floorY, vs.z1 - vs.z0);
+  const rampFloor = addBox(g, 6, 0.6, rampLen + 0.4, 0, R.floorY / 2 - 0.3, (vs.z0 + vs.z1) / 2, floorMat);
+  rampFloor.rotation.x = rampTilt;
+  for (const sx of [-2.6, 2.6]) {
+    const strip = addBox(g, 0.25, 0.15, rampLen, sx, R.floorY / 2 + 0.35, (vs.z0 + vs.z1) / 2, glowMat);
+    strip.rotation.x = rampTilt;
+  }
+  addBox(g, 0.6, 11.5, vs.z1 - vs.z0, vs.x0 - 0.3, 5.75, (vs.z0 + vs.z1) / 2, darkMat);
+  addBox(g, 0.6, 11.5, vs.z1 - vs.z0, vs.x1 + 0.3, 5.75, (vs.z0 + vs.z1) / 2, darkMat);
+
+  // interior lights — the sun can't reach past the glazing, so without
+  // these the decks read as silhouettes (Port Feelgood convention). Gentle
+  // decay 1.0: physical falloff dies long before the 55u shell at walking
+  // scale, and a gallery wants its walls readable.
+  for (const y of [-38, 38]) {
+    const lamp = new THREE.PointLight(0xfff2d8, 18, 300, 1.0);
     lamp.position.y = y;
     tower.add(lamp);
   }
+  const promLamp = new THREE.PointLight(0xfff2d8, 6, 60, 1.0);
+  promLamp.position.set(0, 10.4, 78);
+  g.add(promLamp);
+  const crewLamp = new THREE.PointLight(0xffc890, 5, 40, 1.0);
+  crewLamp.position.set(9, 10.4, 75);
+  g.add(crewLamp);
 
-  // dressing: a shuttle at the forward berth, two patrol craft off the crown
-  const berth = dockedShip(1.1, 0xd4af6a);
-  berth.position.set(16, 5, 60);
-  berth.rotation.y = 0.15;
-  g.add(berth);
+  // dressing: a visiting shuttle berthed under the spine (clear of the room
+  // complex on top), two patrol craft off the crown
+  const shuttle = dockedShip(1.1, 0xd4af6a);
+  shuttle.position.set(14, -12, 30);
+  shuttle.rotation.y = 0.15;
+  g.add(shuttle);
   const patrolA = dockedShip(0.7, 0xbfe8ff);
   patrolA.position.set(95, 125, 150);
   patrolA.rotation.set(0.1, 1.9, 0.05);
@@ -773,7 +999,8 @@ export function initStations(scene) {
   });
 
   // Orbital Art Gallery: the cultural hub in a wide, stately terra orbit —
-  // outside Meridian Ring's lane (radius 2600) so the two never crowd.
+  // outside Meridian Ring's lane (radius 2600) so the two never crowd. The
+  // dock entry marks it G-dockable (game.js gate -> stationWalk.js).
   const gallery = orbitalArtGalleryStation();
   stations.push({
     group: gallery.group,
@@ -782,6 +1009,7 @@ export function initStations(scene) {
     spin: 0.015,
     orbit: { planetIndex: idx('terra'), radius: 3400, rate: 0.007, phase: 4.2 },
     anim: gallery.anim,
+    dock: { berthLocal: GL.BERTH_LOCAL },
   });
 
   for (const s of stations) {
@@ -789,6 +1017,29 @@ export function initStations(scene) {
     addShiftable(s.group);
   }
   return stations;
+}
+
+// The dockable-station lookup for game.js's G gate and stationWalk.js's
+// undock math: world-space berth point of the nearest station with a dock
+// entry. The returned berth vector is module scratch — copy, don't keep.
+const _berthW = new THREE.Vector3();
+const _yUpV = new THREE.Vector3(0, 1, 0);
+export function nearestDockableStation(shipPos) {
+  let bestS = null;
+  let bestD = Infinity;
+  for (const s of stations) {
+    if (!s.dock) continue;
+    _berthW
+      .set(s.dock.berthLocal.x, s.dock.berthLocal.y, s.dock.berthLocal.z)
+      .applyAxisAngle(_yUpV, s.group.rotation.y)
+      .add(s.group.position);
+    const d = _berthW.distanceTo(shipPos);
+    if (d < bestD) {
+      bestD = d;
+      bestS = s;
+    }
+  }
+  return bestS ? { station: bestS, dist: bestD, berth: _berthW } : null;
 }
 
 // Animation is invisible well before a station shrinks to a few pixels —

@@ -292,6 +292,8 @@ export const CITY_STYLES = [
 // building lobbies so both feel identical underfoot.
 // ---------------------------------------------------------------------------
 const STRUCT_STEP_UP = 0.7;
+// Exported for stationWalk.js: the gallery's spine rooms reuse this exact
+// contract so the station walker feels identical underfoot to the lobbies.
 export function makeStructure(ox, oz, baseY, surfaces, walls, halfExtent) {
   return {
     x: ox, z: oz, baseY,

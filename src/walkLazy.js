@@ -43,6 +43,11 @@ export const walkInteract = () => mod && mod.walkInteract();
 export const walkPromptText = () => (mod ? mod.walkPromptText() : null);
 export const shipBearing = () => (mod ? mod.shipBearing() : null);
 export const currentGravityScale = () => (mod ? mod.currentGravityScale() : 1);
+// Station docking (Orbital Art Gallery): false until the walk chunk lands,
+// which reads as "can't dock yet" at the game.js gate — same fail-safe idea
+// as nearestTerraFloor above.
+export const enterStationWalk = (station) =>
+  mod ? mod.enterStationWalk(station) : false;
 
 // Live objects for the dev-only debug handle; null until the chunk lands.
 export const walkDebug = () => (mod ? { walk: mod.walk, walkSite: mod.walkSite } : null);
