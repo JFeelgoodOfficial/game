@@ -11,7 +11,7 @@ import { C } from './constants.js';
 import { planets } from './planet.js';
 import { sun } from './sun.js';
 import { blackhole } from './blackhole.js';
-import { deepNebula } from './deepnebula.js';
+import { deepNebulae } from './deepnebula.js';
 import { stations } from './stations.js';
 
 const CSS = `
@@ -103,10 +103,12 @@ function buildBodies() {
     id: 'blackhole', label: 'BLACK HOLE', pos: blackhole.group.position, dot: 6,
     logDist: 5000, color: '#d4408f',
   });
-  bodies.push({
-    id: 'deepnebula', label: 'THE SISTERS NEBULA', pos: deepNebula.group.position, dot: 9,
-    logDist: C.NEBULA_LOG_DIST, color: '#3fd0c8',
-  });
+  for (const n of deepNebulae) {
+    bodies.push({
+      id: `neb:${n.id}`, label: n.name.toUpperCase(), pos: n.group.position,
+      dot: 9, logDist: n.logDist, color: n.navColor,
+    });
+  }
   for (const s of stations) {
     bodies.push({
       id: s.name, label: s.name.toUpperCase(), pos: s.group.position,
