@@ -1108,6 +1108,12 @@ export function walkSite() {
   };
 }
 
+// Pre-composer render hook (game.js, before composer.render()). Lets a world
+// module draw to its own render targets — only the actuality mirror room does.
+export function walkPreRender(renderer) {
+  if (walk.active && actuality) actuality.preRender(renderer);
+}
+
 // Gravity scale of the world underfoot (1 = normal). For the walk-hint UI.
 export function currentGravityScale() {
   if (stationWalk.stationActive()) return C.STATION_GRAVITY_SCALE;

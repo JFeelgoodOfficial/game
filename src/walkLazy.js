@@ -41,6 +41,7 @@ export const nearParkedShip = () => (mod ? mod.nearParkedShip() : false);
 export const promptReturnToShip = () => mod && mod.promptReturnToShip();
 export const walkInteract = () => mod && mod.walkInteract();
 export const walkPromptText = () => (mod ? mod.walkPromptText() : null);
+export const walkPreRender = (renderer) => mod && mod.walkPreRender(renderer);
 export const shipBearing = () => (mod ? mod.shipBearing() : null);
 export const currentGravityScale = () => (mod ? mod.currentGravityScale() : 1);
 // Station docking (Orbital Art Gallery): false until the walk chunk lands,

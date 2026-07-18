@@ -37,6 +37,7 @@
 import * as THREE from 'three';
 import { makeStructure } from './city.js';
 import * as DLG from './actuality-dialogue.js';
+import { createMirrorRoom } from './actuality-mirrorroom.js';
 
 /* ----------------------------------------------------------------------
  * Tunables — every magic number lives here.
@@ -88,6 +89,7 @@ function hashSeed(str) {
 const _yAxis = new THREE.Vector3(0, 1, 0);
 const _burstMat4 = new THREE.Matrix4(); // scratch for the dragon burst instances
 const _z6Local = new THREE.Vector3();   // scratch: player in zone-6 local frame
+const _dbgMirror = new THREE.Vector3(); // last computed mirror-local player pos
 
 // Full radial distance to terrain along a surface-local direction (a radius,
 // not a height) — same as wavemallprime.sampleGround.
@@ -604,8 +606,12 @@ export function createActuality(planet, worldUp, opts = {}) {
   let z7Caption = null;     // { i, t } running caption sequence
   let z7CaptionEl = null;   // DOM caption element
   let z8Burn = 0;           // seconds since entering zone 8 (fire burn-down)
+  let mirror = null;        // createMirrorRoom handle (hyper-holo-grid)
+  let mirrorRec = null;     // its zone record
+  let mirrorDoor = null;    // { mesh, mat, opened } sealed hub door
   buildDialogueZones();
   buildAmbientZones();
+  buildMirrorRoom();
 
   // --- Hub portal arches: nine, in a front arc on the terrace, one per zone.
   const hubPortals = [];
@@ -624,6 +630,9 @@ export function createActuality(planet, worldUp, opts = {}) {
       center: new THREE.Vector3(ax, 0, az).applyQuaternion(anchorQ).add(anchorPos),
     });
   }
+
+  // Sealed mirror-room door behind the café (registers a gated hub portal).
+  buildMirrorDoor();
 
   // Zone→hub destination (arrive on the terrace facing the café / She).
   const hubReturnDest = new THREE.Vector3(0, 0, -6).applyQuaternion(anchorQ).add(anchorPos);
@@ -867,6 +876,12 @@ export function createActuality(planet, worldUp, opts = {}) {
     // Per-zone animation (only the active zone runs; the rest hold still).
     for (let i = 0; i < zoneUpdaters.length; i++) zoneUpdaters[i](t, dt, playerPos);
 
+    // Open the mirror door once every zone has been seen.
+    if (mirrorDoor && !mirrorDoor.opened && allZonesVisited()) {
+      mirrorDoor.opened = true;
+      mirrorDoor.mesh.visible = false; // the doorway is now a passage
+    }
+
     // Portal triggers — checked in surface-local space (frame-agnostic). Only
     // while idle; the current activeZone decides which portals are live.
     if (fade.phase === 'idle') {
@@ -874,15 +889,17 @@ export function createActuality(planet, worldUp, opts = {}) {
       if (activeZone === 'hub') {
         const r2 = AC.PORTAL_R * AC.PORTAL_R;
         for (let i = 0; i < hubPortals.length; i++) {
-          if (_surf.distanceToSquared(hubPortals[i].center) < r2) {
-            startTransition(hubPortals[i].targetZone);
+          const hp = hubPortals[i];
+          if (hp.gated && !allZonesVisited()) continue; // mirror door stays sealed
+          if (_surf.distanceToSquared(hp.center) < r2) {
+            startTransition(hp.targetZone);
             break;
           }
         }
       } else {
         const z = zoneById[activeZone];
         if (z) {
-          let ret = _surf.distanceToSquared(z.retCenter) < z.retR * z.retR;
+          let ret = z.retR > 0 && _surf.distanceToSquared(z.retCenter) < z.retR * z.retR;
           if (!ret && z.extraReturns) {
             for (const er of z.extraReturns) {
               if (_surf.distanceToSquared(er.center) < er.r * er.r) { ret = true; break; }
@@ -1591,8 +1608,73 @@ export function createActuality(planet, worldUp, opts = {}) {
     });
   }
 
-  // Pre-composer render hook (mirror room RTT lands in M6). No-op for now.
-  function preRender(renderer) { /* mirror room only */ }
+  // Hyper-holo-grid chamber, on a bearing behind the café (its own frame). The
+  // door in the hub is built separately (buildMirrorDoor), after the portals.
+  function buildMirrorRoom() {
+    const dir = ringDir(planet, anchorDir, 0.4, 200);
+    const frame = surfaceFrame(planet, anchorDir, dir);
+    const zg = new THREE.Group();
+    zg.name = 'actuality.mirror';
+    zg.position.copy(frame.pos);
+    zg.quaternion.copy(frame.q);
+    group.add(zg);
+
+    mirror = createMirrorRoom({ half: 4 });
+    zg.add(mirror.group);
+    const H = mirror.half;
+
+    mirrorRec = {
+      id: 'mirror', frame, group: zg,
+      structure: makeStructure(0, 0, 0,
+        [{ x0: -H, x1: H, z0: -H, z1: H, y: 0 }], [], H + 1),
+      r2: (H + 12) ** 2,
+      center: frame.pos.clone(),
+      retCenter: frame.pos.clone(), // unused — the mirror exits by wall-touch only
+      retR: 0, // disables the center-return trigger (guarded by retR > 0)
+      entryDest: new THREE.Vector3(0, 0.2, 0).applyQuaternion(frame.q).add(frame.pos),
+      entryHeading: new THREE.Vector3(0, 0, 1).applyQuaternion(frame.q).normalize(),
+    };
+    zoneList.push(mirrorRec);
+    zoneById['mirror'] = mirrorRec;
+
+    zoneEnterCallbacks['mirror'] = () => {
+      if (!flags.hyperHoloGridSeen) { flags.hyperHoloGridSeen = true; saveFlags(flags); }
+    };
+
+    // Updater: drive the clone + billboard the lattice; wall-touch exits home.
+    zoneUpdaters.push((t, dt, playerPos) => {
+      if (activeZone !== 'mirror') return;
+      _surf.copy(playerPos).applyQuaternion(anchorQ).add(anchorPos);
+      _z6Local.copy(_surf).sub(frame.pos).applyQuaternion(frame.qInv); // player in mirror-local
+      _dbgMirror.copy(_z6Local);
+      mirror.update(t, dt, _z6Local, 0);
+      if (fade.phase === 'idle' && (Math.abs(_z6Local.x) > H - 0.5 || Math.abs(_z6Local.z) > H - 0.5)) {
+        startTransition('hub');
+      }
+    });
+  }
+
+  // Sealed door behind the café; opens (and its portal arms) once every zone is
+  // visited. Built after the hub portals so it can register with them.
+  function buildMirrorDoor() {
+    const doorGeo = new THREE.BoxGeometry(2.4, 3.2, 0.3);
+    const doorMat = new THREE.MeshStandardMaterial({ color: 0x14110c, roughness: 0.9 });
+    const mesh = new THREE.Mesh(doorGeo, doorMat);
+    mesh.position.set(0, 1.6, AC.CAFE_BACK_Z + 0.4); // behind the café back wall
+    anchor.add(mesh);
+    zoneGeos.push(doorGeo); zoneMats.push(doorMat);
+    mirrorDoor = { mesh, mat: doorMat, opened: false };
+    hubPortals.push({
+      targetZone: 'mirror', gated: true,
+      center: new THREE.Vector3(0, 0, AC.CAFE_BACK_Z + 1.2).applyQuaternion(anchorQ).add(anchorPos),
+    });
+  }
+
+  // Pre-composer render hook: only the mirror room draws to a render target,
+  // and only while the player is inside it.
+  function preRender(renderer) {
+    if (mirror && activeZone === 'mirror') mirror.preRender(renderer);
+  }
 
   function debug() {
     return {
@@ -1611,7 +1693,11 @@ export function createActuality(planet, worldUp, opts = {}) {
         id: it.id, zone: it.zone, pos: [it.pos.x, it.pos.y, it.pos.z],
       })),
       joshuaVisible: joshuaFig ? joshuaFig.group.visible : null,
-      runtime: { z6Submerged, z7Sit, z8Burn, z7Caption: !!z7Caption, z6Vision: !!z6Vision },
+      runtime: {
+        z6Submerged, z7Sit, z8Burn, z7Caption: !!z7Caption, z6Vision: !!z6Vision,
+        mirrorDoorOpen: mirrorDoor ? mirrorDoor.opened : null,
+        mirrorLocal: [_dbgMirror.x, _dbgMirror.y, _dbgMirror.z],
+      },
     };
   }
 
@@ -1635,6 +1721,7 @@ export function createActuality(planet, worldUp, opts = {}) {
 
   function dispose() {
     hub.dispose();
+    if (mirror) mirror.dispose();
     for (const f of figures) f.dispose();
     for (const g of zoneGeos) g.dispose();
     for (const m of zoneMats) m.dispose();
