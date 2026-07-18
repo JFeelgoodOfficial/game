@@ -226,7 +226,7 @@ function speciesForCity(cityId) {
 // ---------------------------------------------------------------------------
 // Procedural rig — Astronaut-style nested joint hierarchy
 // ---------------------------------------------------------------------------
-function buildRig(seed, cityId) {
+export function buildRig(seed, cityId) {
   const rng = mulberry32(seed);
 
   const height = THREE.MathUtils.lerp(C.heightMin, C.heightMax, rng());
@@ -389,7 +389,7 @@ function buildRig(seed, cityId) {
 }
 
 // Procedural pose driver: mode = 'idle' | 'walk' | 'talk', speed01 in [0,1]
-function poseRig(rig, dt, t, mode, speed01) {
+export function poseRig(rig, dt, t, mode, speed01) {
   const { joints, params } = rig;
   const phase = t * params.gaitSpeed * 6 + params.gaitPhase;
   const lerp = (g, tx, ty, tz, rx, ry, rz, k) => {
