@@ -28,6 +28,7 @@ import { camera, updateCamera, snapCamera, resizeCamera } from './camera.js';
 import { initTuning } from './tuning.js';
 import { initStarfield, updateStarfield } from './starfield.js';
 import { initNebula, updateNebula } from './nebula.js';
+import { initDeepNebula, updateDeepNebula, deepNebula } from './deepnebula.js';
 import { cockpitScene, updateCockpit, cockpitGroup, CockpitOverlayPass } from './cockpit.js';
 import { initCockpitFrame, updateCockpitFrame } from './cockpitFrame.js';
 import {
@@ -108,6 +109,7 @@ initNebula(scene, renderer); // renderer: one-time cubemap bake of the sky
 initStarfield(scene);
 initSun(scene);
 initBlackHole(scene);
+initDeepNebula(scene); // second nebula — a flyable field out past the black hole
 initStations(scene);
 
 // Initial layout of everything origin-registered (planets, sun, stations,
@@ -300,6 +302,7 @@ if (import.meta.env.DEV) {
     camera,
     planets,
     blackhole,
+    deepNebula,
     originOffset,
     paused: false,
     warpInfo: () => ({ phase, warp, heat }),
@@ -716,6 +719,7 @@ function frame(now) {
   }
   updateStarfield(camera, renderer.getPixelRatio());
   updateNebula(camera);
+  updateDeepNebula(renderer, camera);
   updatePlanets(now / 1000, camera.position);
   updateStations(now / 1000, ship.position);
   // nav AFTER the stations are placed: a reset snaps orbiting stations back

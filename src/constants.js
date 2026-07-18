@@ -81,6 +81,31 @@ export const C = {
   DISK_INNER: 2.2, // accretion disk inner edge, × horizon radius
   DISK_OUTER: 7.0, // outer edge, × horizon radius
 
+  // --- deep nebula (flyable volumetric cloud — "The Sisters Nebula" painting) ---
+  // A placed field of additive point clouds you fly THROUGH, distinct from the
+  // camera-following skybox nebula (nebula.js). Teal gas billows around a dark
+  // hollow spine, warm gold-leaf emission clumps offset to one side, embedded
+  // stars. Sits out past the black hole, its own corner of the map. Deliberately
+  // teal/gold, not the project's magenta ACCENT — an owner request for this one
+  // body only. A tiny mass (no radius) gives a gentle, always-escapable pull;
+  // like the black hole, it is not a hazard.
+  NEBULA_FIELD_DISTANCE: 46000.0, // from the system origin, past the black hole
+  NEBULA_FIELD_RADIUS: 3500.0, // ~7000 units across — a region you cruise into and through
+  NEBULA_FIELD_INTENSITY: 1.0, // overall brightness (tuning-panel live)
+  NEBULA_FIELD_MASS: 8.0e4, // gentle pull (~0.3 u/s² at the edge, ~3 near core; boost is 84). No radius: no floor/heat.
+  NEBULA_GAS_COUNT: 9000, // teal billow sprites
+  NEBULA_WARM_COUNT: 2200, // gold-leaf emission sprites (clumped to one side)
+  NEBULA_STAR_COUNT: 650, // embedded high-contrast stars
+  NEBULA_DUST_COUNT: 2600, // dark absorption sprites along the spine (0 disables the layer)
+  NEBULA_DUST_OPACITY: 0.25, // per-sprite darkness of the central mass
+  NEBULA_GAS_BRIGHTNESS: 0.06, // low: additive overlap must accumulate into gas, not blow to white
+  NEBULA_TEAL: 0x2f9d92, // billow crest
+  NEBULA_TEAL_DEEP: 0x123f4a, // outer / dim teal
+  NEBULA_GOLD: 0xffb347, // gold-leaf gas
+  NEBULA_GOLD_HOT: 0xffe4a3, // clump cores (pushed >1.0 so the bloom pass catches them)
+  NEBULA_DUST_COLOR: 0x0a1518, // near-black, faintly desaturated teal
+  NEBULA_LOG_DIST: 5000.0, // NAV: contact logs when you get this close
+
   // --- horizon collapse / reset (beyond GDD 4.5) ---
   // A deliberate override of "falling in does nothing": crossing into the
   // hole stretches everything and returns you to the start (the GDD 7 loop).
