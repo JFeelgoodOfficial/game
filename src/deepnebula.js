@@ -59,6 +59,28 @@ const NEBULAE = [
     stars: { count: 650, sizeMin: 20, sizeAdd: 45 },
     dust: { count: 2600, color: 0x0a1518, opacity: 0.25, coreR: 0.18 },
   },
+  {
+    id: 'father',
+    name: 'The Father Nebula',
+    dir: [-0.62, 0.34, 0.71], // opposite corner from The Sisters, up and forward
+    distance: 58000,
+    radius: 7000, // twice The Sisters Nebula (3500) — a large region to cross
+    mass: 9.0e4, // gentle, always-escapable pull; 0 = none. Never a radius (no hazard).
+    intensity: 1.0,
+    navColor: '#e8a63c',
+    axis: [1.0, 0.5, 0.3], // the diagonal flow of the bloom (coral upper-left → blue lower-right)
+    warmSide: [0.2, -0.3, 0.1], // the gold-leaf heart gathers near-centre, a touch low-right
+    gas: {
+      count: 17000, brightness: 0.05, crest: 0xe8b98a, deep: 0x5a2a20,
+      coreR: 0.1, shellR: 0.26, shellW: 0.24, sizeMin: 300, sizeAdd: 560,
+    },
+    warm: {
+      count: 4600, clumps: 10, base: 0xd8a848, hot: 0xf5e2a0,
+      clumpR: 0.14, offset: 0.1, sizeMin: 190, sizeAdd: 400,
+    },
+    stars: { count: 1300, sizeMin: 28, sizeAdd: 64 },
+    dust: { count: 0, color: 0x241410, opacity: 0.18, coreR: 0.14 }, // count 0: radiant bloom, no dark spine
+  },
 ];
 
 // --- stateless helpers (shared across all nebulae) ---
