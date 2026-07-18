@@ -64,6 +64,7 @@ import {
   promptReturnToShip,
   walkInteract,
   walkPromptText,
+  walkPreRender,
   shipBearing,
   walkDebug,
   enterStationWalk,
@@ -809,6 +810,7 @@ function frame(now) {
   bloomPass.radius = C.BLOOM_RADIUS;
   aberrationPass.uniforms.uStrength.value = (C.CA_STRENGTH * 8.0) / window.innerHeight;
 
+  if (phase === 'walk') walkPreRender(renderer); // world modules draw to their RTs
   composer.render();
   // Photo grab must be in this task — the canvas has no preserveDrawingBuffer.
   capturePendingPhoto();

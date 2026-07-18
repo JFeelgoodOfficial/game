@@ -32,6 +32,7 @@ import { createCrowd } from '../world/aliens.js';
 import { createWonderField } from '../world/wonders.js';
 import { createCreatures } from '../world/creatures.js';
 import { createWavemallPrime } from '../world/wavemallprime.js';
+import { createActuality } from '../world/actuality.js';
 import { createShadowreach } from '../world/shadowreach.js';
 import {
   getViewPref,
@@ -112,6 +113,7 @@ let crowd = null; // citizens inside the city (world/aliens.js)
 let wonders = null; // megastructure field (world/wonders.js)
 let creatures = null; // planet wildlife (world/creatures.js)
 let wavemall = null; // total-conversion content for 'wavemall prime' only
+let actuality = null; // total-conversion content for 'actuality' only
 let shadowreach = null; // total-conversion narrative world for 'shadowreach' only
 // Interior occupants: one small crowd per enterable lobby (+ tower balcony).
 // Each rides city.group's local frame, so it shares the crowd's player-local.
@@ -130,6 +132,7 @@ let beaconParent = null;
 let beaconGeo = null; // shared, built on first use, disposed on exitWalk
 const TALK_DIST_CROWD = 2.6; // ~ aliens talkTriggerDist
 const TALK_DIST_CREATURE = 6; // ~ creatures interactRadius
+const TALK_DIST_ACTUALITY = 3.2; // seated NPCs behind tables / the dragon box
 const TALK_BREAK_DIST = 8; // walk-away hangup (inside demote/deactivate radii)
 const PLAYER_RADIUS = 0.7; // body radius for building push-out
 
@@ -149,6 +152,7 @@ const _qTmp = new THREE.Quaternion();
 const _cityInvQuat = new THREE.Quaternion();
 const _creatInvQuat = new THREE.Quaternion();
 const _wavemallInvQuat = new THREE.Quaternion();
+const _actualityInvQuat = new THREE.Quaternion();
 const _identityQuat = new THREE.Quaternion(); // shadowreach group sits at identity
 
 // Convert a world-space (post-spin) direction into planet.surface's UNROTATED
@@ -351,6 +355,18 @@ function spawnWorldEntities(planet) {
     return;
   }
 
+  // Total conversion: the actuality module (hub-and-spoke narrative world)
+  // replaces the stock city/crowd/wonders/creatures. Same early-return shape as
+  // wavemall above — the parked ship is still the boarding point.
+  if (planet.cfg.name === 'actuality') {
+    toSurfaceLocal(planet, _up, _localUp);
+    actuality = createActuality(planet, _localUp.clone(), {});
+    planet.surface.add(actuality.group);
+    _actualityInvQuat.copy(actuality.anchor.quaternion).invert();
+    actuality.initAudio(); // the landing G keypress is fresh user activation
+    return; // city/crowd/wonders/creatures stay null (guards short-circuit)
+  }
+
   // Total conversion: 'shadowreach' is a linear narrative world (its module owns
   // all geometry, NPCs, collision and audio). Early return leaves city/crowd/
   // wonders/creatures null so every downstream guard short-circuits.
@@ -551,6 +567,11 @@ export function exitWalk(camera) {
     planet.surface.remove(wavemall.group); // dispose() clears children but doesn't detach
     wavemall = null;
   }
+  if (actuality) {
+    actuality.dispose(); // closes its AudioContext, frees geometries/render targets
+    planet.surface.remove(actuality.group);
+    actuality = null;
+  }
   if (shadowreach) {
     shadowreach.dispose(); // frees geometry/materials, stops the drone, closes its AudioContext
     planet.surface.remove(shadowreach.group);
@@ -667,6 +688,7 @@ export function stepWalk(dt) {
   // citizens use — plus rooftops and the landmark tower's stairs/floors.
   let cityGroundR = -1;
   let wavemallGroundR = -1;
+  let actualityGroundR = -1;
   let cityD = Infinity;
   if (city) {
     playerLocalInto(city.group, _cityInvQuat, _cityLocal);
@@ -751,6 +773,36 @@ export function stepWalk(dt) {
       ship.position.copy(_cityPt);
     }
     wavemallGroundR = tc.groundRadiusAt(_cityLocal);
+  } else if (actuality) {
+    // Same surface-local push-out as wavemall, but the actuality floors OWN the
+    // ground (replace, not max) so Zone 9's shaft can descend below terrain.
+    _cityLocal
+      .subVectors(ship.position, planet.body.position)
+      .applyAxisAngle(_yAxisV, -planet.surface.rotation.y); // world -> surface-local
+    if (actuality.resolveCollisions(_cityLocal, PLAYER_RADIUS)) {
+      _cityPt.copy(_cityLocal)
+        .applyAxisAngle(_yAxisV, planet.surface.rotation.y) // surface-local -> world
+        .add(planet.body.position);
+      ship.position.copy(_cityPt);
+    }
+    actualityGroundR = actuality.groundRadiusAt(_cityLocal);
+    // Portal teleport: the module queues a surface-local destination; the host
+    // moves the player (the module never touches ship.position itself).
+    const tp = actuality.consumeTeleport();
+    if (tp) {
+      ship.position.copy(tp.pos)
+        .applyAxisAngle(_yAxisV, planet.surface.rotation.y)
+        .add(planet.body.position);
+      if (tp.heading) {
+        walk.heading.copy(tp.heading).applyAxisAngle(_yAxisV, planet.surface.rotation.y);
+        projectTangent(walk.heading, _up.subVectors(ship.position, planet.body.position).normalize());
+        walk.heading.normalize();
+        walk.facing.copy(walk.heading);
+      }
+      walk.vel.set(0, 0, 0);
+      walk.vUp = 0;
+      camSnap = true; // don't slerp the camera across the teleport
+    }
   }
 
   // Recompute up / radius after the horizontal step.
@@ -762,6 +814,11 @@ export function stepWalk(dt) {
     // City deck inside, blending back to raw terrain across the outer rim.
     const t = THREE.MathUtils.smoothstep(cityD, C.CITY_RADIUS * 0.92, C.CITY_RADIUS);
     surfaceR = THREE.MathUtils.lerp(cityGroundR, surfaceR, t);
+  } else if (actualityGroundR > 0) {
+    // Interiors own the floor outright (incl. below-grade shafts): replace,
+    // don't max. Footprints stay strictly inside their walls so stepping off
+    // returns -1 and falls back to raw terrain.
+    surfaceR = actualityGroundR;
   } else if (wavemallGroundR > 0) {
     // Store floors/steps sit at most a step-height above terrain: max() lets
     // the walker climb onto them and drop back to raw ground past the edge.
@@ -897,6 +954,14 @@ export function updateWalkVisuals(dt, t) {
       scanModule(m, TALK_DIST_CROWD);
     }
   }
+  if (actuality) {
+    // anchor carries the surface-local landing transform (its parent group is
+    // identity), so playerLocalInto lands the player in the anchor frame — the
+    // one frame every hub/zone interactable position lives in.
+    playerLocalInto(actuality.anchor, _actualityInvQuat, _playerLocal);
+    actuality.update(t, dt, _playerLocal, sunDot);
+    scanModule(actuality, TALK_DIST_ACTUALITY);
+  }
   if (shadowreach) {
     // The module group sits at identity under planet.surface, so playerLocalInto
     // with an identity quaternion yields the raw surface-local player point —
@@ -988,6 +1053,7 @@ function applyOffer(offer, module) {
     addCodex(offer.subject);
   } else if (offer.kind === 'choice') {
     addOutcome(offer.outcomeTag);
+    module.onOutcome?.(offer.outcomeTag); // module learns which option resolved
   } else if (offer.kind === 'waypoint') {
     setWaypoint(offer.targetHint);
     spawnBeacon(offer.marker, module);
@@ -1077,9 +1143,15 @@ export function promptReturnToShip() {
 // dev/verification handle (main.js __debug): the landing-site entities.
 export function walkSite() {
   return {
-    city, parked, crowd, dressing, wavemall, shadowreach, interiorCrowds,
+    city, parked, crowd, dressing, wavemall, actuality, shadowreach, interiorCrowds,
     station: stationWalk.stationSite(),
   };
+}
+
+// Pre-composer render hook (game.js, before composer.render()). Lets a world
+// module draw to its own render targets — only the actuality mirror room does.
+export function walkPreRender(renderer) {
+  if (walk.active && actuality) actuality.preRender(renderer);
 }
 
 // Gravity scale of the world underfoot (1 = normal). For the walk-hint UI.

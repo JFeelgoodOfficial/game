@@ -155,6 +155,27 @@ const CONFIGS = [
     dress: { rocks: true, rockTint: 0x8f8a92 }, // terrazzo rubble
   },
   {
+    name: 'actuality', // bespoke narrative total-conversion world (world/actuality.js)
+    type: 'terra',
+    dir: new THREE.Vector3(-0.35, 0.18, -0.62).normalize(),
+    distance: () => 26000,
+    radius: () => 900,
+    mass: () => 7.0e5, // surface g ~= 30
+    skyColor: () => 0xf0d9b0, // warm café-dawn gold (feeds the skyfog pass)
+    spin: () => 0.008,
+    atmoColor: 0xe8c9a0,
+    seaLevel: () => 0.02, // under everything — dry, hub-and-spoke floors sit flush
+    terrainHeight: () => 10, // near-flat plain
+    iceLat: 0.95,
+    palette: {
+      deep: 0x3a3028, shallow: 0x5a4a3a, sand: 0xcbb28a, // cream/gold plain
+      low: 0xb89a6a, mid: 0x8a6f52, high: 0xe8dcc8,
+    },
+    water: null,
+    clouds: false,
+    dress: { rocks: true, rockTint: 0xcbb28a },
+  },
+  {
     name: 'shadowreach', // bespoke linear narrative world (world/shadowreach.js)
     type: 'terra',
     // Sun-facing so the whole narrative path (field → garden) reads in daylight
