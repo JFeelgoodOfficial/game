@@ -649,17 +649,74 @@ export function createActuality(planet, worldUp, opts = {}) {
   // --- Teleport intent queue (consumed by walk.js host) ---
   let pendingTeleport = null;
 
-  // --- Audio (real graph lands in M7) ---
+  // --- Audio bed: one AudioContext, a shared looped-noise buffer + oscillators
+  // routed per zone through gains that crossfade to the active zone. Fail-open
+  // (no audio if the context can't start or stays suspended without a gesture).
   let audio = null;
   function initAudio() {
-    // Lazy AudioContext bed — populated in a later milestone. Fail-open.
     if (audio) return;
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) return;
-      audio = { ctx: new Ctx() };
-      if (audio.ctx.state === 'suspended') audio.ctx.resume().catch(() => {});
+      const ctx = new Ctx();
+      const master = ctx.createGain();
+      master.gain.value = 0.5;
+      master.connect(ctx.destination);
+      // Deterministic 2 s noise buffer (shared by every filtered source).
+      const nb = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 2), ctx.sampleRate);
+      const dch = nb.getChannelData(0);
+      let s = 0x1234567;
+      for (let i = 0; i < dch.length; i++) { s = (s * 1103515245 + 12345) & 0x7fffffff; dch[i] = s / 0x3fffffff - 1; }
+      const zoneGains = {};
+      const gainFor = (id) => {
+        if (!zoneGains[id]) { const g = ctx.createGain(); g.gain.value = 0; g.connect(master); zoneGains[id] = g; }
+        return zoneGains[id];
+      };
+      const started = [];
+      const noise = (type, freq, q, id, vol) => {
+        const src = ctx.createBufferSource(); src.buffer = nb; src.loop = true;
+        const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; if (q) f.Q.value = q;
+        const v = ctx.createGain(); v.gain.value = vol;
+        src.connect(f).connect(v).connect(gainFor(id)); src.start(); started.push(src);
+      };
+      const osc = (freq, id, vol, type = 'sine') => {
+        const o = ctx.createOscillator(); o.type = type; o.frequency.value = freq;
+        const v = ctx.createGain(); v.gain.value = vol;
+        o.connect(v).connect(gainFor(id)); o.start(); started.push(o);
+      };
+      noise('lowpass', 520, 1, 'hub', 0.22);   // café murmur
+      noise('lowpass', 760, 1, 'z3', 0.22);    // daylight café
+      noise('lowpass', 300, 0.8, 'z6', 0.28);  // lake water
+      noise('highpass', 2400, 0.7, 'z7', 0.22); // TV static
+      noise('bandpass', 820, 1.4, 'z8', 0.28); // campfire crackle
+      noise('bandpass', 1400, 2.5, 'z1', 0.12); // wind through leaves
+      osc(58, 'z2', 0.05);                     // body room tone
+      osc(72, 'z4', 0.05);                     // self room tone
+      osc(864, 'z5', 0.018); osc(869, 'z5', 0.018); // order shimmer (beating)
+      osc(55, 'z9', 0.05); osc(55.6, 'z9', 0.05);   // death low resonance
+      osc(110, 'mirror', 0.035); osc(110.4, 'mirror', 0.035); osc(165.2, 'mirror', 0.02); // holo-grid drone
+      // Bird chirp for zone 1 (gain pulsed in audioUpdate).
+      const chirp = ctx.createOscillator(); chirp.type = 'triangle'; chirp.frequency.value = 1900;
+      const chirpGain = ctx.createGain(); chirpGain.gain.value = 0;
+      chirp.connect(chirpGain).connect(gainFor('z1')); chirp.start(); started.push(chirp);
+      audio = { ctx, master, zoneGains, started, chirp, chirpGain };
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
     } catch { audio = null; }
+  }
+
+  // Crossfade zone gains toward the active zone; pulse the zone-1 bird chirp.
+  function audioUpdate(t, dt) {
+    if (!audio) return;
+    const k = Math.min(1, dt * 2);
+    for (const id in audio.zoneGains) {
+      const target = id === activeZone ? 1 : 0;
+      const g = audio.zoneGains[id].gain;
+      g.value += (target - g.value) * k;
+    }
+    if (audio.chirpGain) {
+      const on = activeZone === 'z1' && Math.sin(t * 7.0) > 0.7;
+      audio.chirpGain.gain.value += ((on ? 0.03 : 0) - audio.chirpGain.gain.value) * Math.min(1, dt * 8);
+    }
   }
 
   /* --- Host contract --- */
@@ -857,7 +914,7 @@ export function createActuality(planet, worldUp, opts = {}) {
         // Blackout: queue the teleport + switch the active zone.
         pendingTeleport = { pos: fade.dest.clone(), heading: fade.heading.clone() };
         activeZone = fade.target;
-        if (fade.target !== 'hub') {
+        if (fade.target !== 'hub' && fade.target !== 'mirror') {
           flags.visited[fade.target] = true;
           saveFlags(flags);
         }
@@ -875,6 +932,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     for (let i = 0; i < figures.length; i++) figures[i].update(t);
     // Per-zone animation (only the active zone runs; the rest hold still).
     for (let i = 0; i < zoneUpdaters.length; i++) zoneUpdaters[i](t, dt, playerPos);
+    audioUpdate(t, dt);
 
     // Open the mirror door once every zone has been seen.
     if (mirrorDoor && !mirrorDoor.opened && allZonesVisited()) {
@@ -1747,7 +1805,10 @@ export function createActuality(planet, worldUp, opts = {}) {
     z6Tint = null;
     if (z7CaptionEl && z7CaptionEl.parentNode) z7CaptionEl.parentNode.removeChild(z7CaptionEl);
     z7CaptionEl = null;
-    if (audio && audio.ctx) { try { audio.ctx.close(); } catch { /* ignore */ } }
+    if (audio) {
+      try { for (const n of audio.started) { try { n.stop(); } catch { /* already stopped */ } } } catch { /* ignore */ }
+      try { audio.ctx.close(); } catch { /* ignore */ }
+    }
     audio = null;
   }
 
