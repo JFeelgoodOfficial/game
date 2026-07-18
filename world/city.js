@@ -292,7 +292,7 @@ export const CITY_STYLES = [
 // building lobbies so both feel identical underfoot.
 // ---------------------------------------------------------------------------
 const STRUCT_STEP_UP = 0.7;
-function makeStructure(ox, oz, baseY, surfaces, walls, halfExtent) {
+export function makeStructure(ox, oz, baseY, surfaces, walls, halfExtent) {
   return {
     x: ox, z: oz, baseY,
     // Highest walkable slab/ramp under (x,z) reachable from feetY, or null.
