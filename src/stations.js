@@ -675,7 +675,16 @@ function orbitalArtGalleryStation() {
     metalness: 0.75,
     side: THREE.DoubleSide,
   });
-  const shell = new THREE.Mesh(new THREE.CylinderGeometry(70, 55, 180, 16, 1, true), shellMat);
+  // The opaque shell is a PARTIAL cylinder: one sector (facing +Z, opposite
+  // the entrance) is left open for a floor-to-ceiling window. THREE cylinder
+  // theta T relates to our polar angle P by P = 90° - T, so the window
+  // (P = 90 ± halfDeg) is T ∈ [-halfDeg, +halfDeg]; the shell covers the rest.
+  const winHalf = GL.WINDOW.halfDeg * (Math.PI / 180);
+  const winArc = 2 * winHalf;
+  const shell = new THREE.Mesh(
+    new THREE.CylinderGeometry(70, 55, 180, 15, 1, true, winHalf, Math.PI * 2 - winArc),
+    shellMat
+  );
   tower.add(shell);
   const glassMat = new THREE.MeshBasicMaterial({
     color: 0xbfe8ff,
@@ -686,6 +695,19 @@ function orbitalArtGalleryStation() {
   });
   const glazing = new THREE.Mesh(new THREE.CylinderGeometry(72, 57, 176, 16, 1, true), glassMat);
   tower.add(glazing);
+  // the full-height window: a clear glass pane filling the open sector
+  const clearGlassMat = new THREE.MeshBasicMaterial({
+    color: 0xcfeeff,
+    transparent: true,
+    opacity: 0.12,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const windowPane = new THREE.Mesh(
+    new THREE.CylinderGeometry(69.5, 54.5, 179, 8, 1, true, -winHalf, winArc),
+    clearGlassMat
+  );
+  tower.add(windowPane);
 
   // exterior glass-grid read: vertical mullions leaning with the taper, a
   // lit window band at each balcony level, and a glowing crown ring — from
@@ -799,17 +821,63 @@ function orbitalArtGalleryStation() {
     }
   }
 
-  // Atrium furniture: central dais, the curator's desk, two easel pedestals
-  // (their art panels come from the exhibit loop below).
-  const dais = new THREE.Mesh(
-    new THREE.CylinderGeometry(GL.DAIS.r - 0.4, GL.DAIS.r - 0.2, GL.DAIS.h, 20),
-    darkMat
+  // Central antigravity pad: a glowing purple disc at the middle of the
+  // atrium floor. Standing on it floats you straight up the shaft (physics in
+  // stationWalk.js); a faint light column marks the lift, and catwalks below
+  // reach out to each balcony. Purple pushes past the bloom threshold on
+  // purpose — the pad should glow.
+  const padMat = new THREE.MeshBasicMaterial({ color: 0x9a5cff });
+  const pad = new THREE.Mesh(
+    new THREE.CylinderGeometry(GL.LIFT.r, GL.LIFT.r, 0.3, 24),
+    padMat
   );
-  dais.position.set(GL.DAIS.x, GL.DAIS.h / 2, GL.DAIS.z);
-  g.add(dais);
+  pad.position.set(GL.LIFT.x, 0.16, GL.LIFT.z);
+  g.add(pad);
+  const beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(GL.LIFT.r * 0.9, GL.LIFT.r * 0.9, GL.LIFT.ceiling, 20, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0x9a5cff,
+      transparent: true,
+      opacity: 0.1,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+  );
+  beam.position.set(GL.LIFT.x, GL.LIFT.ceiling / 2, GL.LIFT.z);
+  g.add(beam);
+
+  // Catwalk bridges from the lift shaft out to each balcony deck's inner
+  // edge (a boarding-gantry stack at one azimuth). rotation.y = -angle aims
+  // the box's length radially outward.
+  const cwAng = (GL.CATWALK_DEG * Math.PI) / 180;
+  const cwMidR = (GL.CATWALK_R_IN + GL.CATWALK_R_OUT) / 2;
+  const cwLen = GL.CATWALK_R_OUT - GL.CATWALK_R_IN;
+  const cwCX = TX + Math.cos(cwAng) * cwMidR;
+  const cwCZ = TZ + Math.sin(cwAng) * cwMidR;
+  for (const cw of GL.CATWALKS) {
+    const deckPath = new THREE.Mesh(new THREE.BoxGeometry(cwLen, 0.4, 5), deckMat);
+    deckPath.position.set(cwCX, cw.y - 0.2, cwCZ);
+    deckPath.rotation.y = -cwAng;
+    g.add(deckPath);
+    for (const s of [-1, 1]) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(cwLen, 0.14, 0.22), glowMat);
+      strip.position.set(cwCX, cw.y + 0.06, cwCZ);
+      strip.rotation.y = -cwAng;
+      strip.translateZ(s * 2.4);
+      g.add(strip);
+    }
+  }
+
+  // Atrium furniture: the curator's desk and two easel pedestals (their art
+  // panels come from the exhibit loop below; the easels are now big canvases,
+  // so the pedestals get a wider base + a support post).
   addBox(g, 3, 1.1, 1.4, GL.DESK.x, 0.55, GL.DESK.z, darkMat);
   addBox(g, 3.2, 0.1, 1.6, GL.DESK.x, 1.15, GL.DESK.z, brassMat);
-  for (const e of GL.EASELS) addBox(g, 0.6, 0.5, 0.6, e.x, 0.25, e.z, darkMat);
+  for (const e of GL.EASELS) {
+    addBox(g, 3, 0.6, 1.4, e.x, 0.3, e.z, darkMat);
+    addBox(g, 0.5, 1.4, 0.5, e.x, 1.0, e.z, darkMat);
+  }
 
   // The 32 exhibits at eye height. Slot order preserved bottom-up so the
   // /artgallery images keep their alphabetical hang order.
@@ -831,7 +899,7 @@ function orbitalArtGalleryStation() {
     g.add(art);
     // lit frame just behind the art (against the panel's facing normal)
     const frame = new THREE.Mesh(
-      new THREE.PlaneGeometry(GL.ART_W + 0.6, GL.ART_H + 0.6),
+      new THREE.PlaneGeometry(GL.ART_W + 1.4, GL.ART_H + 1.4),
       glowMat
     );
     const nx = Math.sin(s.rotY);
@@ -1115,13 +1183,40 @@ export function nearestDockableStation(shipPos) {
 // rig's beam/shuttle trig used to run every frame from 90k units away.)
 const ANIM_DISTANCE_SQ = 6000 * 6000;
 
+// While the player is walking a docked station's interior, its orbit + spin
+// are frozen so the ground doesn't drift underfoot. On resume we re-phase the
+// stateless orbit/spin so they continue smoothly from the frozen pose instead
+// of leaping to where absolute-t "would" have carried them.
+let frozenStation = null;
+let resumeStation = null;
+export function setStationFrozen(s) {
+  if (s) {
+    frozenStation = s;
+  } else if (frozenStation) {
+    resumeStation = frozenStation; // re-phased on the next updateStations tick
+    frozenStation = null;
+  }
+}
+
 export function updateStations(t, shipPos) {
   for (const s of stations) {
+    if (s === frozenStation) continue; // held still while docked
+    if (s === resumeStation) {
+      // Re-phase so this frame's transform equals the frozen one, then let
+      // absolute-t advance normally from here (no position/orientation jump).
+      if (s.orbit) {
+        const p = planets[s.orbit.planetIndex].group.position;
+        const ang = Math.atan2(s.group.position.z - p.z, s.group.position.x - p.x);
+        s.orbit.phase = ang - t * s.orbit.rate;
+      }
+      if (s.spin) s.spinBase = s.group.rotation.y - t * s.spin;
+      resumeStation = null;
+    }
     const animate = s.group.position.distanceToSquared(shipPos) < ANIM_DISTANCE_SQ;
     if (s.anim && animate) s.anim(t);
     // spin 0 means a deliberately fixed orientation (Port Feelgood's bore
     // stays aimed down the route) — don't clobber its quaternion
-    if (s.spin && animate) s.group.rotation.y = t * s.spin;
+    if (s.spin && animate) s.group.rotation.y = (s.spinBase || 0) + t * s.spin;
     if (s.orbit) {
       const p = planets[s.orbit.planetIndex].group.position;
       const a = s.orbit.phase + t * s.orbit.rate;

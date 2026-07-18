@@ -77,39 +77,71 @@ export const SPAWN = { x: 0, y: 7, z: 57 }; // disembark point, facing +Z
 export const AIRLOCK_POINT = { x: 0, y: 7, z: 57 }; // G — UNDOCK zone center
 
 // Atrium furniture (deck A): circle colliders for player and NPCs alike.
-export const DAIS = { x: 0, z: 150, r: 3.5, h: 0.5 };
 export const DESK = { x: 4, z: 122, r: 1.6, h: 1.1 }; // curator's desk
 export const EASELS = [
-  { x: -12, z: 158, r: 1.2 },
-  { x: 12, z: 158, r: 1.2 },
+  { x: -14, z: 160, r: 1.6 },
+  { x: 14, z: 160, r: 1.6 },
 ];
 
-// Art panel size at foot scale (was 10x7 at flying scale).
-export const ART_W = 4.6;
-export const ART_H = 3.2;
-export const ART_EYE = 2.1; // panel center height above its deck
+// Central antigravity pad: stand on it (within r) and float straight up the
+// atrium shaft (gravity off) to the ceiling; step out onto a catwalk at any
+// deck level. Purple glowing disc at the middle of the atrium floor.
+export const LIFT = { x: 0, z: 150, r: 4.5, baseY: 0, ceiling: 108 };
+
+// Catwalk bridges from the lift shaft out to each balcony deck's inner edge,
+// stacked at one azimuth (a boarding-gantry look). Cleared of the window,
+// ramps/notches, and the shell door.
+export const CATWALK_DEG = 210;
+export const CATWALK_HALF_DEG = 4;
+export const CATWALK_R_IN = 5;
+export const CATWALK_R_OUT = 41;
+export const CATWALKS = [
+  { deck: 1, y: 35 },
+  { deck: 2, y: 70 },
+  { deck: 3, y: 105 },
+];
+
+// Full-height window: one tower-wall sector is floor-to-ceiling clear glass
+// (opposite the entrance, facing +Z). Art is kept out of it; collision still
+// treats it as a solid wall (see-through, not walk-through).
+export const WINDOW = { thDeg: 90, halfDeg: 33 };
+
+// Art panel size at foot scale — 3x the first pass (was 4.6x3.2), so the
+// pieces read as real paintings you walk up to.
+export const ART_W = 13.8;
+export const ART_H = 9.6;
+export const ART_EYE = 5.6; // panel center height above its deck (bottom ~0.8 up)
 
 const DEG = Math.PI / 180;
 
-// The 32 exhibit slots, ordered bottom-up so /artgallery images keep their
-// alphabetical hang order. Deck A: 6 wall panels + 2 easel pieces; B/C/D:
-// 8 shell panels each, angles staggered per deck and clear of the ramp
-// notches and the entrance sector.
+// True if a wall angle (deg) falls in the full-height window sector — art
+// there would block the view, so those slots are dropped (a wider margin
+// than the window itself, since the panels are large now).
+function inWindow(deg) {
+  let d = Math.abs(((deg - WINDOW.thDeg + 540) % 360) - 180);
+  return d < WINDOW.halfDeg + 14;
+}
+
+// The exhibit slots, ordered bottom-up so /artgallery images keep their
+// alphabetical hang order. Deck A: wall panels + 2 easel pieces; B/C/D:
+// 8 shell panels each, staggered per deck and clear of the ramp notches,
+// the entrance sector, and the window wall. Cycling fills any gaps.
 export function artSpots() {
   const spots = [];
-  // Deck A wall panels at r 56 (shell there is 58.3), skipping the entrance
-  // sector (270 +/- ~25) and the R1 ramp foot (~10deg).
+  // Deck A wall panels at r 52 (shell there is 58.3), skipping the entrance
+  // sector, the R1 ramp foot, and the window wall.
   for (const deg of [67.5, 112.5, 157.5, 202.5, 292.5, 337.5]) {
+    if (inWindow(deg)) continue;
     const a = deg * DEG;
     spots.push({
-      x: TOWER.x + Math.cos(a) * 56,
+      x: TOWER.x + Math.cos(a) * 52,
       y: DECKS[0] + ART_EYE,
-      z: TOWER.z + Math.sin(a) * 56,
+      z: TOWER.z + Math.sin(a) * 52,
       rotY: -a - Math.PI / 2, // face the atrium axis
       deck: 0,
     });
   }
-  // Two easel pieces flanking the dais, facing the entrance (-Z).
+  // Two easel pieces flanking the lift, facing the entrance (-Z).
   for (const e of EASELS) {
     spots.push({
       x: e.x,
@@ -119,13 +151,15 @@ export function artSpots() {
       deck: 0,
     });
   }
-  // Decks B/C/D: 8 panels on the shell, radius towerR(deck) - 1.8, angle
+  // Decks B/C/D: 8 panels on the shell, radius towerR(deck) - 2.6, angle
   // stagger chosen per deck to clear that deck's notch sector.
   const stagger = [null, 11.25, 7.5, 11.25];
   for (let d = 1; d < DECKS.length; d++) {
-    const r = towerR(DECKS[d]) - 1.8;
+    const r = towerR(DECKS[d]) - 2.6;
     for (let i = 0; i < 8; i++) {
-      const a = (i * 45 + stagger[d]) * DEG;
+      const deg = i * 45 + stagger[d];
+      if (inWindow(deg)) continue;
+      const a = deg * DEG;
       spots.push({
         x: TOWER.x + Math.cos(a) * r,
         y: DECKS[d] + ART_EYE,
