@@ -46,6 +46,13 @@ const AC = {
   HUB_WALL_H: 3.0,           // café nook wall height
   CAFE_BACK_Z: 14.0,         // back wall plane (anchor-local +Z)
   DOME_RADIUS: 140,          // hub sky dome
+  ZONE_DIST: 420,            // zones sit this far from the hub along ring bearings
+  ZONE_FLOOR_HALF: 30,       // zone landing-pad half-extent
+  ARCH_RING: 15,             // hub portal arches this far from the anchor
+  ARCH_ARC: 2.6,             // arc (radians) the nine arches span, front of terrace
+  PORTAL_R: 2.0,             // portal trigger radius
+  FADE_OUT: 0.6,             // seconds to black
+  FADE_IN: 1.4,              // seconds back from black (~2 s total transition)
   BLOOM_THRESHOLD: 0.85,     // emissive above this blooms
   STRING_LIGHT_EMISSIVE: 1.1,
   TRIM_EMISSIVE: 0.4,        // stays under threshold (no bloom)
@@ -130,6 +137,63 @@ function gradientTexture(top, bottom) {
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
+}
+
+// Portal sign: the digit glyph + its word, glowing warm on dark. Used on the
+// hub arches (a quiet reward for players tracking the cipher).
+function signTexture(digit, word) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#120c08'; g.fillRect(0, 0, 256, 128);
+  g.fillStyle = '#ffdca0';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = 'bold 76px Georgia, serif';
+  g.fillText(String(digit), 52, 66);
+  g.font = '22px Georgia, serif';
+  g.fillText(word, 156, 66);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Per-zone metadata: digit word (for the arch sign) and a tint used for the
+// pad's ambient light so each zone reads as a distinct place at a glance.
+const ZONE_META = [
+  { id: 'z1', word: 'MIND', tint: 0xe8b878 },
+  { id: 'z2', word: 'BODY', tint: 0xd8926a },
+  { id: 'z3', word: 'SOUL', tint: 0xd8d0b0 },
+  { id: 'z4', word: 'SELF', tint: 0xe0c090 },
+  { id: 'z5', word: 'ORDER', tint: 0x8890b0 },
+  { id: 'z6', word: 'LIFE', tint: 0x6a86a0 },
+  { id: 'z7', word: 'TIME', tint: 0x7088a8 },
+  { id: 'z8', word: 'ETERNITY', tint: 0xc88a5a },
+  { id: 'z9', word: 'DEATH / REBIRTH', tint: 0x707078 },
+];
+
+// One portal arch (two posts + a lintel + a glowing sign), built facing +Z in
+// its own local frame; caller positions/yaws it.
+function buildPortalArch(digit, word, geos, mats) {
+  const grp = new THREE.Group();
+  const postMat = new THREE.MeshStandardMaterial({ color: 0x3a2c20, roughness: 0.85 });
+  mats.push(postMat);
+  const box = (w, h, d, x, y, z, mat) => {
+    const g = new THREE.BoxGeometry(w, h, d);
+    geos.push(g);
+    const m = new THREE.Mesh(g, mat); m.position.set(x, y, z); grp.add(m); return m;
+  };
+  box(0.4, 3.4, 0.4, -1.3, 1.7, 0, postMat);
+  box(0.4, 3.4, 0.4, 1.3, 1.7, 0, postMat);
+  box(3.4, 0.5, 0.4, 0, 3.55, 0, postMat);
+  const signTex = signTexture(digit, word);
+  const signGeo = new THREE.PlaneGeometry(2.6, 0.9);
+  const signMat = new THREE.MeshBasicMaterial({ map: signTex, transparent: true });
+  const sign = new THREE.Mesh(signGeo, signMat);
+  sign.position.set(0, 3.55, 0.25);
+  grp.add(sign);
+  geos.push(signGeo); mats.push(signMat);
+  grp.userData.signTex = signTex;
+  return grp;
 }
 
 /* ----------------------------------------------------------------------
@@ -384,9 +448,87 @@ export function createActuality(planet, worldUp, opts = {}) {
   anchor.add(sheFig.group);
   const figures = [sheFig];
 
-  // --- Zone / crossfade state (portals + zones land in later milestones) ---
+  // --- Geometry/material bins for zones + portals (disposed at teardown) ---
+  const zoneGeos = [];
+  const zoneMats = [];
+
+  // --- Zones: nine landing pads on ring bearings, each with a return portal.
+  // Zone content (VFX/NPCs) is added to each zone.group by later milestones.
+  const zoneList = [];
+  const zoneById = {};
+  for (let i = 0; i < AC.ZONE_COUNT; i++) {
+    const meta = ZONE_META[i];
+    const dir = ringDir(planet, anchorDir, (i / AC.ZONE_COUNT) * Math.PI * 2, AC.ZONE_DIST);
+    const frame = surfaceFrame(planet, anchorDir, dir);
+    const zg = new THREE.Group();
+    zg.name = `actuality.${meta.id}`;
+    zg.position.copy(frame.pos);
+    zg.quaternion.copy(frame.q);
+    group.add(zg);
+
+    // Landing-pad floor slab (top at y=0, extends below grade). Replace-ground
+    // semantics own the floor inside this footprint.
+    const ZH = AC.ZONE_FLOOR_HALF;
+    const slabGeo = new THREE.BoxGeometry(ZH * 2, 1.2, ZH * 2);
+    const slabMat = new THREE.MeshStandardMaterial({ color: 0x2a2620, roughness: 0.95 });
+    const slab = new THREE.Mesh(slabGeo, slabMat);
+    slab.position.set(0, -0.6, 0);
+    zg.add(slab);
+    zoneGeos.push(slabGeo); zoneMats.push(slabMat);
+
+    // A tinted ambient light so the pad reads as its own place (a stand-in
+    // until M5 builds the real per-zone environment).
+    const zlight = new THREE.PointLight(meta.tint, 1.1, 90, 2.0);
+    zlight.position.set(0, 6, 0);
+    zg.add(zlight);
+
+    // Return portal at zone-local (0,0,14), facing back toward the pad center.
+    const retArch = buildPortalArch('0', 'CAFÉ', zoneGeos, zoneMats);
+    retArch.position.set(0, 0, 14);
+    retArch.rotation.y = Math.PI; // face -Z (toward where the player arrives)
+    zg.add(retArch);
+
+    const rec = {
+      id: meta.id, frame, group: zg,
+      structure: makeStructure(0, 0, 0,
+        [{ x0: -ZH, x1: ZH, z0: -ZH, z1: ZH, y: 0 }], [], ZH + 1),
+      center: frame.pos.clone(),
+      // return trigger (surface-local) + hub destination
+      retCenter: new THREE.Vector3(0, 0, 14).applyQuaternion(frame.q).add(frame.pos),
+      // entry destination: player arrives at zone-local (0,0,10) facing -Z
+      entryDest: new THREE.Vector3(0, 0, 10).applyQuaternion(frame.q).add(frame.pos),
+      entryHeading: new THREE.Vector3(0, 0, -1).applyQuaternion(frame.q).normalize(),
+    };
+    zoneList.push(rec);
+    zoneById[meta.id] = rec;
+  }
+
+  // --- Hub portal arches: nine, in a front arc on the terrace, one per zone.
+  const hubPortals = [];
+  for (let i = 0; i < AC.ZONE_COUNT; i++) {
+    const meta = ZONE_META[i];
+    const t = AC.ZONE_COUNT > 1 ? i / (AC.ZONE_COUNT - 1) : 0.5;
+    const ang = -AC.ARCH_ARC / 2 + t * AC.ARCH_ARC;
+    const ax = Math.sin(ang) * AC.ARCH_RING;
+    const az = -Math.cos(ang) * AC.ARCH_RING; // front (-Z) arc, clear of the café
+    const arch = buildPortalArch(String(i + 1), meta.word, zoneGeos, zoneMats);
+    arch.position.set(ax, 0, az);
+    arch.rotation.y = Math.atan2(-ax, -az); // face the terrace center
+    anchor.add(arch);
+    hubPortals.push({
+      targetZone: meta.id,
+      center: new THREE.Vector3(ax, 0, az).applyQuaternion(anchorQ).add(anchorPos),
+    });
+  }
+
+  // Zone→hub destination (arrive on the terrace facing the café / She).
+  const hubReturnDest = new THREE.Vector3(0, 0, -6).applyQuaternion(anchorQ).add(anchorPos);
+  const hubReturnHeading = new THREE.Vector3(0, 0, 1).applyQuaternion(anchorQ).normalize();
+
+  // --- Zone / crossfade state ---
   let activeZone = 'hub';
-  const zoneRecords = []; // {id, frame, structure, ...} filled by M3+
+  const fade = { phase: 'idle', t: 0, target: 'hub', dest: null, heading: null };
+  const _surf = new THREE.Vector3(); // scratch: player position in surface-local
 
   // --- Cipher menu state ---
   let pendingDigit = null; // set via onOutcome after She's choice menu
@@ -409,13 +551,17 @@ export function createActuality(planet, worldUp, opts = {}) {
 
   /* --- Host contract --- */
 
-  // Collision zones: the hub structure in the anchor frame, plus any zone
-  // structures (added by later milestones). Same pattern as wavemallprime.
+  // Collision zones: the hub structure in the anchor frame, plus each zone's
+  // floor/walls in its own tangent frame. Same pattern as wavemallprime — far
+  // zones are skipped by the per-zone distance cull.
   const zones = [{
     frame: { pos: anchorPos, q: anchorQ, qInv: anchorQInv },
     structures: [hub.structure],
     r2: (AC.HUB_FLOOR_HALF + 12) ** 2,
   }];
+  for (const z of zoneList) {
+    zones.push({ frame: z.frame, structures: [z.structure], r2: (AC.ZONE_FLOOR_HALF + 12) ** 2 });
+  }
   const _rc = new THREE.Vector3();
 
   function resolveCollisions(surfaceLocalPos, playerRadius) {
@@ -536,8 +682,79 @@ export function createActuality(planet, worldUp, opts = {}) {
     return t;
   }
 
+  // --- Transition overlay (module-owned full-screen DOM fade) ---
+  let overlayEl = null;
+  function setOverlay(o) {
+    if (!overlayEl) {
+      if (o <= 0) return;
+      overlayEl = document.createElement('div');
+      overlayEl.id = 'actyFade';
+      overlayEl.style.cssText =
+        'position:fixed;inset:0;z-index:20;pointer-events:none;' +
+        'background:#0a0704;opacity:0;';
+      document.body.appendChild(overlayEl);
+    }
+    overlayEl.style.opacity = String(o);
+  }
+
+  // Begin a soft transition to `target` ('hub' or 'z1'..'z9').
+  function startTransition(target) {
+    fade.phase = 'out';
+    fade.t = 0;
+    fade.target = target;
+    if (target === 'hub') {
+      fade.dest = hubReturnDest;
+      fade.heading = hubReturnHeading;
+    } else {
+      const z = zoneById[target];
+      fade.dest = z.entryDest;
+      fade.heading = z.entryHeading;
+    }
+  }
+
+  function advanceFade(dt) {
+    if (fade.phase === 'idle') return;
+    fade.t += dt;
+    if (fade.phase === 'out') {
+      setOverlay(Math.min(1, fade.t / AC.FADE_OUT));
+      if (fade.t >= AC.FADE_OUT) {
+        // Blackout: queue the teleport + switch the active zone.
+        pendingTeleport = { pos: fade.dest.clone(), heading: fade.heading.clone() };
+        activeZone = fade.target;
+        if (fade.target !== 'hub') {
+          flags.visited[fade.target] = true;
+          saveFlags(flags);
+        }
+        fade.phase = 'in';
+        fade.t = 0;
+      }
+    } else if (fade.phase === 'in') {
+      setOverlay(Math.max(0, 1 - fade.t / AC.FADE_IN));
+      if (fade.t >= AC.FADE_IN) { fade.phase = 'idle'; setOverlay(0); }
+    }
+  }
+
   function update(t, dt, playerPos, sunDot = 1) {
     for (let i = 0; i < figures.length; i++) figures[i].update(t);
+
+    // Portal triggers — checked in surface-local space (frame-agnostic). Only
+    // while idle; the current activeZone decides which portals are live.
+    if (fade.phase === 'idle') {
+      _surf.copy(playerPos).applyQuaternion(anchorQ).add(anchorPos);
+      const r2 = AC.PORTAL_R * AC.PORTAL_R;
+      if (activeZone === 'hub') {
+        for (let i = 0; i < hubPortals.length; i++) {
+          if (_surf.distanceToSquared(hubPortals[i].center) < r2) {
+            startTransition(hubPortals[i].targetZone);
+            break;
+          }
+        }
+      } else {
+        const z = zoneById[activeZone];
+        if (z && _surf.distanceToSquared(z.retCenter) < r2) startTransition('hub');
+      }
+    }
+    advanceFade(dt);
   }
 
   // Pre-composer render hook (mirror room RTT lands in M6). No-op for now.
@@ -547,17 +764,34 @@ export function createActuality(planet, worldUp, opts = {}) {
     return {
       flags: JSON.parse(JSON.stringify(flags)),
       activeZone, pendingDigit,
+      fadePhase: fade.phase,
       allZonesVisited: allZonesVisited(),
+      // surface-local portal centers, for headless tests to drive the trigger
+      portals: hubPortals.map((p) => ({
+        targetZone: p.targetZone, center: [p.center.x, p.center.y, p.center.z],
+      })),
+      returns: zoneList.map((z) => ({
+        id: z.id, retCenter: [z.retCenter.x, z.retCenter.y, z.retCenter.z],
+      })),
     };
   }
 
   function dispose() {
     hub.dispose();
     for (const f of figures) f.dispose();
+    for (const g of zoneGeos) g.dispose();
+    for (const m of zoneMats) m.dispose();
+    // Sign textures live on arch groups' userData.
+    group.traverse((o) => {
+      if (o.userData && o.userData.signTex) o.userData.signTex.dispose();
+    });
+    anchor.traverse((o) => {
+      if (o.userData && o.userData.signTex) o.userData.signTex.dispose();
+    });
+    if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
+    overlayEl = null;
     if (audio && audio.ctx) { try { audio.ctx.close(); } catch { /* ignore */ } }
     audio = null;
-    // Detach everything; walk.js also removes group from planet.surface.
-    group.traverse((o) => { /* geometries/materials disposed by owners above */ });
   }
 
   return {
