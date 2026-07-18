@@ -45,6 +45,18 @@
       transition: background 0.2s, box-shadow 0.2s;
     }
     #menu button[disabled] { opacity: 0.5; cursor: default; }
+    /* Pointer-lock hint: input.js toggles .hidden on lock changes, game.js
+       toggles .off outside flight/walk (menu, pause). */
+    #hint {
+      position: fixed; left: 50%; bottom: 72px; transform: translateX(-50%);
+      z-index: 12; pointer-events: none; user-select: none;
+      font-family: 'Courier New', ui-monospace, monospace; font-size: 12px;
+      letter-spacing: 0.3em; color: #7ad7e0; padding: 8px 20px;
+      background: rgba(4,12,20,0.55); border: 1px solid rgba(130,247,255,0.35);
+      border-radius: 4px; text-shadow: 0 0 8px rgba(130,247,255,0.5);
+      transition: opacity 0.3s;
+    }
+    #hint.hidden, #hint.off { opacity: 0; }
   </style>
 </head>
 <body>
@@ -53,6 +65,7 @@
     <div class="sub">LOADING…</div>
     <button disabled>LOADING…</button>
   </div>
+  <div id="hint" class="hidden off">MOUSE FREE — CLICK VIEW TO STEER · BACKSPACE — PAUSE</div>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

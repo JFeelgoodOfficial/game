@@ -5,6 +5,7 @@
 // hold-to-warp button.
 
 import { input } from './input.js';
+import { openSettings } from './settingsPanel.js';
 
 const CSS = `
 #menu {
@@ -93,6 +94,14 @@ const CSS = `
   font-size: 84px; line-height: 1; font-weight: 700; color: #ff3820;
   text-shadow: 0 0 26px rgba(255,60,30,1), 0 0 60px rgba(255,40,10,0.7);
 }
+#menu button.minor {
+  font-size: 12px; padding: 8px 28px; letter-spacing: 0.26em;
+  background: rgba(130,247,255,0.05); color: #a9f7ff;
+  border-color: rgba(130,247,255,0.4);
+  box-shadow: 0 0 14px rgba(130,247,255,0.15), inset 0 0 12px rgba(130,247,255,0.05);
+  text-shadow: 0 0 8px rgba(130,247,255,0.5);
+}
+#menu button.minor:hover { background: rgba(130,247,255,0.14); }
 @keyframes heat-blink { 50% { opacity: 0.35; } }
 @keyframes cd-flash {
   50% {
@@ -100,9 +109,14 @@ const CSS = `
     box-shadow: 0 0 70px rgba(255,70,30,0.95), inset 0 0 44px rgba(255,60,20,0.5);
   }
 }
+/* photosensitivity: the sub-second red flashing becomes a steady state */
+@media (prefers-reduced-motion: reduce) {
+  #heatWarn.on { animation: none; }
+  #countdown { animation: none; }
+}
 `;
 
-let menu, title, sub, button, vignette, cracks, flash, warpBtn;
+let menu, title, sub, sub2, button, settingsBtn, vignette, cracks, flash, warpBtn;
 let heatWarn, countdown, countdownDigit;
 let onLaunch = null;
 
@@ -196,6 +210,17 @@ export function initMenu(launchCallback) {
   button.disabled = false; // the game is loaded now — enable LAUNCH
   button.addEventListener('click', () => onLaunch && onLaunch());
 
+  // onboarding line for the owner-added walk modes + pause, and a SETTINGS
+  // button — inserted around the adopted static nodes (audit additions)
+  sub2 = document.createElement('div');
+  sub2.className = 'sub';
+  sub.insertAdjacentElement('afterend', sub2);
+  settingsBtn = document.createElement('button');
+  settingsBtn.className = 'minor';
+  settingsBtn.textContent = 'SETTINGS';
+  settingsBtn.addEventListener('click', () => openSettings());
+  button.insertAdjacentElement('afterend', settingsBtn);
+
   // hold-to-warp button (also bound to F on the keyboard, see input.js)
   warpBtn = el('div', 'warpBtn');
   warpBtn.textContent = 'WARP';
@@ -217,10 +242,12 @@ export function showMenu(mode, reason) {
   if (mode === 'dead') {
     sub.textContent = reason || 'HULL BURNED THROUGH — SHIP LOST';
     sub.className = 'sub dead';
+    if (sub2) sub2.textContent = '';
     button.textContent = 'FLY AGAIN';
   } else {
     sub.textContent = 'W/S THRUST · MOUSE STEER · SHIFT BOOST · F/J WARP · SPACE BRAKE · N NAV MAP · , . RADIO';
     sub.className = 'sub';
+    if (sub2) sub2.textContent = 'C — WALK SHIP · G — LAND & WALK · BACKSPACE — PAUSE';
     button.textContent = 'LAUNCH';
   }
   button.disabled = false;

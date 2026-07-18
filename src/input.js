@@ -4,6 +4,8 @@
 // (reads and zeroes) them, so the accumulated travel acts as one torque
 // impulse regardless of how many ticks a render frame spans.
 
+import { settings } from './settings.js';
+
 export const input = {
   locked: false,
   forward: false, // W
@@ -22,6 +24,7 @@ export const input = {
   interact: false, // E edge-trigger: talk / advance dialogue on foot. main.js reads and zeroes it.
   photo: false, // P edge-trigger: take a photo (capture.js). main.js reads and zeroes it.
   record: false, // R edge-trigger: start/stop screen recording. main.js reads and zeroes it.
+  togglePause: false, // Backspace edge-trigger: pause/resume. game.js reads and zeroes it.
   mouseX: 0, // accumulated pixels since last consume
   mouseY: 0,
   wheel: 0, // accumulated scroll since last consume (third-person zoom)
@@ -40,8 +43,10 @@ export function initInput(element) {
 
   document.addEventListener('mousemove', (e) => {
     if (!input.locked) return;
-    input.mouseX += e.movementX;
-    input.mouseY += e.movementY;
+    // sensitivity/invert applied at the source so every consumer (flight
+    // torque, interior look, on-foot look) inherits them uniformly
+    input.mouseX += e.movementX * settings.sensitivity;
+    input.mouseY += e.movementY * settings.sensitivity * (settings.invertY ? -1 : 1);
   });
 
   element.addEventListener('wheel', (e) => { input.wheel += e.deltaY; }, { passive: true });
@@ -73,5 +78,6 @@ function setKey(e, down) {
     case 'KeyT': if (down) input.toggleView = true; break; // first/third person on foot
     case 'KeyP': if (down) input.photo = true; break; // take a photo
     case 'KeyR': if (down) input.record = true; break; // toggle screen recording
+    case 'Backspace': if (down) input.togglePause = true; e.preventDefault(); break; // pause/resume
   }
 }

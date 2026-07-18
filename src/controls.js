@@ -5,7 +5,7 @@
 // that would drop pointer lock), on click, or automatically when the phase
 // changes. Driven per frame from main.js via updateControls().
 
-import { currentGravityScale } from './walk.js';
+import { currentGravityScale } from './walkLazy.js';
 
 const CSS = `
 #walkHint {
@@ -77,6 +77,7 @@ const SHIP_CONTROLS = [
   ['G', 'LAND & STEP OUT (LOW + SLOW OVER A ROCKY WORLD)'],
   ['N', 'NAV MAP'],
   ['P / R', 'PHOTO / RECORD — REVIEW IN THE PICS GALLERY'],
+  ['BACKSPACE', 'PAUSE — RESUME / SETTINGS'],
   [', / .', 'CHANGE SONG — OR ⏮ ⏭ ON THE RADIO, BOTTOM LEFT'],
 ];
 

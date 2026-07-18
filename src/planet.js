@@ -14,8 +14,10 @@ import * as THREE from 'three';
 import { C } from './constants.js';
 import { addBody } from './gravity.js';
 import { addShiftable } from './origin.js';
-import { groundHeight } from './terrain.js';
+import { groundHeight, elevationAt } from './terrain.js';
+import { settings } from './settings.js';
 import surfaceVert from './shaders/surface.vert?raw';
+import surfaceBakedVert from './shaders/surfaceBaked.vert?raw';
 import surfaceFrag from './shaders/surface.frag?raw';
 import atmosphereFrag from './shaders/atmosphere.frag?raw';
 import cloudFrag from './shaders/cloud.frag?raw';
@@ -193,6 +195,7 @@ function makeSurfaceUniforms(cfg, radius) {
     uAmp: { value: cfg.terrainHeight() },
     uRadius: { value: radius },
     uIceLat: { value: cfg.iceLat },
+    uOct: { value: 6 },
     uColDeep: { value: new THREE.Color(p.deep) },
     uColShallow: { value: new THREE.Color(p.shallow) },
     uColSand: { value: new THREE.Color(p.sand) },
@@ -367,9 +370,61 @@ export function initPlanets(scene) {
   return planets;
 }
 
+// --- incremental displacement bake (audit fix) ---
+// surface.vert re-evaluated the heavy warped-fbm + ridged field for every
+// vertex of every terra sphere (up to ~74k verts each) every single frame,
+// though the mesh never changes shape. Baking it all at init would stall
+// boot ~0.7s+, so the same field (terrain.js, an exact CPU port) is baked in
+// ~10ms time slices after the loop starts; each finished planet swaps to the
+// pass-through surfaceBaked.vert. Same field on both paths — the swap is
+// invisible. (Dev note: after the swap, tuning SEA_LEVEL / TERRAIN_HEIGHT
+// recolours via the fragment shader but no longer moves the baked geometry;
+// reload to re-bake.)
+export function startPlanetBake() {
+  const queue = planets.filter((p) => p.cfg.type === 'terra');
+  let qi = 0;
+  let vi = 0;
+  const BUDGET_MS = 10;
+
+  function slice() {
+    const t0 = performance.now();
+    while (qi < queue.length) {
+      const p = queue[qi];
+      const pos = p.surface.geometry.attributes.position;
+      const seaLevel = p.cfg.seaLevel();
+      const amp = p.cfg.terrainHeight();
+      const inv = 1 / p.radius;
+      for (; vi < pos.count; vi++) {
+        const x = pos.getX(vi), y = pos.getY(vi), z = pos.getZ(vi);
+        // sphere verts sit exactly at radius, so dir = pos / radius
+        const dx = x * inv, dy = y * inv, dz = z * inv;
+        const disp = Math.max(elevationAt(dx, dy, dz) - seaLevel, 0) * amp;
+        if (disp > 0) pos.setXYZ(vi, x + dx * disp, y + dy * disp, z + dz * disp);
+        if ((vi & 1023) === 1023 && performance.now() - t0 > BUDGET_MS) {
+          vi++; // this vertex is done — resume at the next one
+          setTimeout(slice, 0);
+          return;
+        }
+      }
+      pos.needsUpdate = true;
+      p.surface.geometry.computeBoundingSphere();
+      const old = p.surface.material;
+      p.surface.material = new THREE.ShaderMaterial({
+        vertexShader: surfaceBakedVert,
+        fragmentShader: surfaceFrag,
+        uniforms: old.uniforms, // shared — updatePlanets keeps writing them
+      });
+      old.dispose();
+      qi++;
+      vi = 0;
+    }
+  }
+  setTimeout(slice, 0);
+}
+
 const _tmp = new THREE.Vector3();
 
-export function updatePlanets(t) {
+export function updatePlanets(t, camPos) {
   for (const p of planets) {
     const spin = p.cfg.spin();
     for (const m of p.spinning) m.rotation.y = t * spin;
@@ -377,6 +432,12 @@ export function updatePlanets(t) {
       // terra's thresholds stay live-tunable from the panel
       p.surface.material.uniforms.uSeaLevel.value = p.cfg.seaLevel();
       p.surface.material.uniforms.uAmp.value = p.cfg.terrainHeight();
+      // audit fix: full 6-octave noise (plus grain) only up close; a planet
+      // a few pixels wide gets 3. LOW quality caps at 4 everywhere.
+      const distR = _tmp.subVectors(camPos, p.group.position).length() / p.radius;
+      let oct = distR < 8 ? 6 : distR < 40 ? 4 : 3;
+      if (settings.quality === 'low' && oct > 4) oct = 4;
+      p.surface.material.uniforms.uOct.value = oct;
       if (p.clouds) {
         p.clouds.material.uniforms.uTime.value = t;
         p.clouds.material.uniforms.uCover.value = C.CLOUD_COVER;

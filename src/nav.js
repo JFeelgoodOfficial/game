@@ -111,15 +111,28 @@ function buildBodies() {
 }
 
 function showToast(label) {
-  toast.textContent = `NEW CONTACT LOGGED — ${label}`;
+  showNavToast(`NEW CONTACT LOGGED — ${label}`, 3.2);
+}
+
+// Also used by main.js for the one-time first-launch nudge.
+export function showNavToast(text, seconds = 3.2) {
+  toast.textContent = text;
   toast.style.opacity = '1';
-  toastTimer = 3.2;
+  toastTimer = seconds;
 }
 
 function toggleMap(force) {
   open = force !== undefined ? force : !open;
   if (open && !flyActive) open = false;
   panel.classList.toggle('open', open);
+}
+
+function sizeCanvas() {
+  const size = Math.min(Math.round(window.innerHeight * 0.62), 560);
+  canvas.width = size * 2; // crisp on hidpi
+  canvas.height = size * 2;
+  canvas.style.width = `${size}px`;
+  canvas.style.height = `${size}px`;
 }
 
 export function initNav() {
@@ -141,13 +154,12 @@ export function initNav() {
   title.textContent = 'NAV — SYSTEM CHART';
   panel.appendChild(title);
   canvas = document.createElement('canvas');
-  const size = Math.min(Math.round(window.innerHeight * 0.62), 560);
-  canvas.width = size * 2; // crisp on hidpi
-  canvas.height = size * 2;
-  canvas.style.width = `${size}px`;
-  canvas.style.height = `${size}px`;
+  sizeCanvas();
   panel.appendChild(canvas);
   ctx = canvas.getContext('2d');
+  // audit fix: the chart was sized once at init and drew mis-scaled after
+  // any window resize
+  window.addEventListener('resize', sizeCanvas);
   foot = document.createElement('div');
   foot.className = 'n-foot';
   panel.appendChild(foot);

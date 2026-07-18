@@ -12,6 +12,7 @@ uniform vec3 uSun;
 uniform float uSeaLevel;
 uniform float uAmp;
 uniform float uRadius;
+uniform int uOct; // planet.js lowers octaves with distance (audit fix)
 uniform float uIceLat;    // latitude where polar ice begins (>1 disables)
 uniform vec3 uColDeep;    // deep water / lowest floor
 uniform vec3 uColShallow; // shallow water / low basin
@@ -64,7 +65,7 @@ float elevation(vec3 p, int oct) {
 
 void main() {
   vec3 p = normalize(vObjPos);
-  float elev = elevation(p, 6);
+  float elev = elevation(p, uOct);
   float lat = abs(p.y);
 
   vec3 col;
@@ -76,9 +77,12 @@ void main() {
     col = mix(uColSand, uColLow, smoothstep(0.02, 0.18, e));
     col = mix(col, uColMid, smoothstep(0.28, 0.58, e));
     col = mix(col, uColHigh, smoothstep(0.62, 0.84, e));
-    // surface detail grain so slopes aren't airbrushed
-    float grain = fbm(p * 40.0, 3);
-    col *= 0.88 + 0.24 * grain;
+    // surface detail grain so slopes aren't airbrushed — sub-pixel at
+    // distance, so it only runs at full detail level
+    if (uOct >= 6) {
+      float grain = fbm(p * 40.0, 3);
+      col *= 0.88 + 0.24 * grain;
+    }
   }
   // polar ice, ragged edge from the elevation noise
   col = mix(col, vec3(0.90, 0.94, 1.0),
@@ -86,16 +90,24 @@ void main() {
 
   vec3 N = normalize(vWorldNormal), S = normalize(uSun), V = normalize(vViewDir);
 
-  // relief shading: perturb the sphere normal by the terrain gradient
+  // relief shading: perturb the sphere normal by the terrain gradient.
+  // Audit fix: reconstructed from screen-space derivatives of the elevation
+  // already computed above (surface-gradient bump mapping) instead of three
+  // extra elevation() evaluations per pixel — ~4x fewer noise lookups on
+  // every lit land fragment for the same visual relief.
   if (uAmp > 0.0 && elev > uSeaLevel) {
-    vec3 t1 = normalize(cross(p, vec3(0.0, 1.0, 0.0)) + vec3(0.0, 0.0, 1e-4));
-    vec3 t2 = normalize(cross(p, t1));
-    float eps = 0.012;
-    float e1 = elevation(normalize(p + t1 * eps), 4);
-    float e2 = elevation(normalize(p + t2 * eps), 4);
-    float e0 = elevation(p, 4);
-    float k = uAmp / (uRadius * eps) * 1.4;
-    N = normalize(N - (t1 * (e1 - e0) + t2 * (e2 - e0)) * k);
+    vec3 dpx = dFdx(vObjPos);
+    vec3 dpy = dFdy(vObjPos);
+    vec3 r1 = cross(dpy, N);
+    vec3 r2 = cross(N, dpx);
+    float det = dot(dpx, r1);
+    if (abs(det) > 1e-10) {
+      vec3 grad = (r1 * dFdx(elev) + r2 * dFdy(elev)) / det;
+      vec3 pert = grad * uAmp * 1.4;
+      // soft-limit the slope so grazing angles don't sparkle
+      pert *= 3.0 / max(3.0, length(pert));
+      N = normalize(N - pert);
+    }
   }
 
   float ndl = dot(N, S);
