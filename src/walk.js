@@ -32,6 +32,7 @@ import { createCrowd } from '../world/aliens.js';
 import { createWonderField } from '../world/wonders.js';
 import { createCreatures } from '../world/creatures.js';
 import { createWavemallPrime } from '../world/wavemallprime.js';
+import { createShadowreach } from '../world/shadowreach.js';
 import {
   getViewPref,
   showViewChooser,
@@ -111,6 +112,7 @@ let crowd = null; // citizens inside the city (world/aliens.js)
 let wonders = null; // megastructure field (world/wonders.js)
 let creatures = null; // planet wildlife (world/creatures.js)
 let wavemall = null; // total-conversion content for 'wavemall prime' only
+let shadowreach = null; // total-conversion narrative world for 'shadowreach' only
 // Interior occupants: one small crowd per enterable lobby (+ tower balcony).
 // Each rides city.group's local frame, so it shares the crowd's player-local.
 let interiorCrowds = []; // [{ module, groupParent }]
@@ -147,6 +149,7 @@ const _qTmp = new THREE.Quaternion();
 const _cityInvQuat = new THREE.Quaternion();
 const _creatInvQuat = new THREE.Quaternion();
 const _wavemallInvQuat = new THREE.Quaternion();
+const _identityQuat = new THREE.Quaternion(); // shadowreach group sits at identity
 
 // Convert a world-space (post-spin) direction into planet.surface's UNROTATED
 // local frame — the frame all surface children live in. Same math as
@@ -348,6 +351,17 @@ function spawnWorldEntities(planet) {
     return;
   }
 
+  // Total conversion: 'shadowreach' is a linear narrative world (its module owns
+  // all geometry, NPCs, collision and audio). Early return leaves city/crowd/
+  // wonders/creatures null so every downstream guard short-circuits.
+  if (planet.cfg.name === 'shadowreach') {
+    toSurfaceLocal(planet, _up, _localUp);
+    shadowreach = createShadowreach(planet, _localUp.clone(), {});
+    planet.surface.add(shadowreach.group);
+    shadowreach.initAudio(); // the G keypress that landed us is fresh user activation
+    return;
+  }
+
   // Tangent frame at the landing dir, for placing the city and wonders.
   const ref = Math.abs(_up.y) < 0.94 ? _yAxisV : _xAxisV;
   _siteT1.crossVectors(_up, ref).normalize();
@@ -537,6 +551,11 @@ export function exitWalk(camera) {
     planet.surface.remove(wavemall.group); // dispose() clears children but doesn't detach
     wavemall = null;
   }
+  if (shadowreach) {
+    shadowreach.dispose(); // frees geometry/materials, stops the drone, closes its AudioContext
+    planet.surface.remove(shadowreach.group);
+    shadowreach = null;
+  }
   if (parked) {
     parked.dispose(); // removes its own group from planet.surface
     parked = null;
@@ -716,22 +735,22 @@ export function stepWalk(dt) {
         cityGroundR = _cityPt.length(); // surface frame is planet-centered
       }
     }
-  } else if (wavemall) {
-    // Storefront walls: slide the walker out of store footprints (AABB walls
-    // with doorway gaps — enterable lobbies admit the player). The module
-    // keeps its own per-district frame math; we just hand it the player in
-    // surface-local space and write back any push-out. Store floors, entry
-    // steps, and daises then override the terrain floor via groundRadiusAt.
+  } else if (wavemall || shadowreach) {
+    // Total-conversion collision: hand the module the player in surface-local
+    // space and write back any wall push-out; its walkable floors/steps then
+    // override the terrain floor via groundRadiusAt. wavemall = storefront
+    // footprints; shadowreach = story gates + the round-room shell.
+    const tc = wavemall ?? shadowreach;
     _cityLocal
       .subVectors(ship.position, planet.body.position)
       .applyAxisAngle(_yAxisV, -planet.surface.rotation.y); // world -> surface-local
-    if (wavemall.resolveCollisions(_cityLocal, PLAYER_RADIUS)) {
+    if (tc.resolveCollisions(_cityLocal, PLAYER_RADIUS)) {
       _cityPt.copy(_cityLocal)
         .applyAxisAngle(_yAxisV, planet.surface.rotation.y) // surface-local -> world
         .add(planet.body.position);
       ship.position.copy(_cityPt);
     }
-    wavemallGroundR = wavemall.groundRadiusAt(_cityLocal);
+    wavemallGroundR = tc.groundRadiusAt(_cityLocal);
   }
 
   // Recompute up / radius after the horizontal step.
@@ -878,6 +897,16 @@ export function updateWalkVisuals(dt, t) {
       scanModule(m, TALK_DIST_CROWD);
     }
   }
+  if (shadowreach) {
+    // The module group sits at identity under planet.surface, so playerLocalInto
+    // with an identity quaternion yields the raw surface-local player point —
+    // exactly the frame the module's triggers, followers and collision expect.
+    playerLocalInto(shadowreach.group, _identityQuat, _playerLocal);
+    shadowreach.update(t, dt, _playerLocal, sunDot);
+    scanModule(shadowreach, TALK_DIST_CROWD);
+    const toast = shadowreach.pendingToast();
+    if (toast) showViewToast(toast.text, toast.seconds);
+  }
 }
 
 // Squared distance from _playerLocal (the module's frame) to an entity.
@@ -1021,6 +1050,13 @@ function removeBeacon() {
 // Fails open when there's no parked ship, so the player is never trapped.
 export function nearParkedShip() {
   if (stationWalk.stationActive()) return stationWalk.nearAirlock();
+  // Shadowreach gates boarding to the story's endpoints: you may leave at the
+  // very start (in the field, before the flower) or once the dream completes in
+  // the garden — never mid-journey. Completed lets you "wake" from anywhere.
+  if (shadowreach) {
+    if (shadowreach.isComplete()) return true;
+    if (!shadowreach.canBoard()) return false;
+  }
   if (!parked || !walk.planet) return true;
   _parkPos
     .copy(parked.group.position)
@@ -1031,13 +1067,17 @@ export function nearParkedShip() {
 
 export function promptReturnToShip() {
   if (stationWalk.stationActive()) return stationWalk.promptReturnToAirlock();
+  if (shadowreach && !shadowreach.canBoard()) {
+    showViewToast('THE DREAM IS NOT FINISHED');
+    return;
+  }
   showViewToast('RETURN TO YOUR SHIP TO TAKE OFF');
 }
 
 // dev/verification handle (main.js __debug): the landing-site entities.
 export function walkSite() {
   return {
-    city, parked, crowd, dressing, wavemall, interiorCrowds,
+    city, parked, crowd, dressing, wavemall, shadowreach, interiorCrowds,
     station: stationWalk.stationSite(),
   };
 }
