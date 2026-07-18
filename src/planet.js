@@ -155,6 +155,32 @@ const CONFIGS = [
     dress: { rocks: true, rockTint: 0x8f8a92 }, // terrazzo rubble
   },
   {
+    name: 'shadowreach', // bespoke linear narrative world (world/shadowreach.js)
+    type: 'terra',
+    // Sun-facing so the whole narrative path (field → garden) reads in daylight
+    // rather than the night side (SUN ~ (0.85,0.30,0.43)); every zone sunDot ~0.9.
+    dir: new THREE.Vector3(0.7, 0.3, 0.2).normalize(),
+    distance: () => 40000,
+    radius: () => 900,
+    mass: () => 6.9e5, // surface g ~= 30, like glacia
+    skyColor: () => 0xe9e9ee, // soft near-white dream sky
+    spin: () => 0.006, // near-frozen dream-day: the sun barely moves in a walkthrough
+    atmoColor: 0xc9c9d2,
+    seaLevel: () => 0.02, // dry — the module owns all water as visual props
+    terrainHeight: () => 6, // near-flat: the narrative path lies on level ground
+    iceLat: 0.98,
+    // Greyscale terrain bands (black-and-white watercolor). The module supplies
+    // the only two accent colors (mask-blue, sprout-green) on its own props.
+    palette: {
+      deep: 0x141416, shallow: 0x2e2e30, sand: 0x8a8a8c,
+      low: 0x9c9c9e, mid: 0x6b6b6d, high: 0xf0f0f2,
+    },
+    water: null,
+    clouds: false,
+    // No dress block: createDressing returns null, so nothing colored spawns —
+    // world/shadowreach.js is a total conversion that owns 100% of the surface.
+  },
+  {
     name: 'saturnia',
     type: 'gas',
     dir: new THREE.Vector3(-0.72, 0.1, -0.68).normalize(),
