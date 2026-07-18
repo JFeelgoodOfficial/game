@@ -322,6 +322,28 @@ function spawnWorldEntities(planet) {
     wavemall = createWavemallPrime(planet, _localUp.clone(), {});
     planet.surface.add(wavemall.group);
     _wavemallInvQuat.copy(wavemall.crowd.group.quaternion).invert();
+    // Shopkeepers inside the enterable department stores: one tiny bounded
+    // crowd per lobby, living in its wing's district-local frame (each entry
+    // carries the wing group + inverse quaternion for playerLocalInto).
+    interiorCrowds = [];
+    for (const l of wavemall.lobbies ?? []) {
+      const m = createCrowd(
+        {
+          cityId: planet.cfg.name,
+          plazaCenters: [{ x: l.x, z: l.z, r: 1 }],
+          colliders: [],
+          groundHeightAt: () => l.floorY,
+        },
+        {
+          population: 2, maxRigs: 3, seed: l.seed, questChance: 0,
+          culture: 'shopkeeper', stationaryFirst: true,
+        }
+      );
+      l.group.add(m.group);
+      m.hostGroup = l.group;
+      m.hostInvQuat = l.invQuat;
+      interiorCrowds.push(m);
+    }
     wavemall.holdMusic.initAudio(); // the G keypress that landed us is fresh user activation
     return;
   }
@@ -492,7 +514,7 @@ export function exitWalk(camera) {
     crowd = null;
   }
   for (const m of interiorCrowds) {
-    if (city) city.group.remove(m.group);
+    m.group.parent?.remove(m.group); // city lobby or wavemall wing group
     m.dispose();
   }
   interiorCrowds = [];
@@ -625,6 +647,7 @@ export function stepWalk(dt) {
   // inside the footprint it walks the same flattened deck the buildings and
   // citizens use — plus rooftops and the landmark tower's stairs/floors.
   let cityGroundR = -1;
+  let wavemallGroundR = -1;
   let cityD = Infinity;
   if (city) {
     playerLocalInto(city.group, _cityInvQuat, _cityLocal);
@@ -694,10 +717,11 @@ export function stepWalk(dt) {
       }
     }
   } else if (wavemall) {
-    // Storefront walls: slide the walker out of building footprints. The
-    // module keeps its own per-district frame math; we just hand it the player
-    // in surface-local space and write back any push-out. Ground stays raw
-    // terrain (floorRadius below) — the near-flat config keeps floors flush.
+    // Storefront walls: slide the walker out of store footprints (AABB walls
+    // with doorway gaps — enterable lobbies admit the player). The module
+    // keeps its own per-district frame math; we just hand it the player in
+    // surface-local space and write back any push-out. Store floors, entry
+    // steps, and daises then override the terrain floor via groundRadiusAt.
     _cityLocal
       .subVectors(ship.position, planet.body.position)
       .applyAxisAngle(_yAxisV, -planet.surface.rotation.y); // world -> surface-local
@@ -707,6 +731,7 @@ export function stepWalk(dt) {
         .add(planet.body.position);
       ship.position.copy(_cityPt);
     }
+    wavemallGroundR = wavemall.groundRadiusAt(_cityLocal);
   }
 
   // Recompute up / radius after the horizontal step.
@@ -718,6 +743,10 @@ export function stepWalk(dt) {
     // City deck inside, blending back to raw terrain across the outer rim.
     const t = THREE.MathUtils.smoothstep(cityD, C.CITY_RADIUS * 0.92, C.CITY_RADIUS);
     surfaceR = THREE.MathUtils.lerp(cityGroundR, surfaceR, t);
+  } else if (wavemallGroundR > 0) {
+    // Store floors/steps sit at most a step-height above terrain: max() lets
+    // the walker climb onto them and drop back to raw ground past the edge.
+    surfaceR = Math.max(surfaceR, wavemallGroundR);
   }
   depth = waterDepth(planet, _up);
   walk.swimming =
@@ -843,6 +872,11 @@ export function updateWalkVisuals(dt, t) {
     playerLocalInto(wavemall.crowd.group, _wavemallInvQuat, _playerLocal);
     wavemall.update(t, dt, _playerLocal, sunDot);
     scanModule(wavemall, TALK_DIST_CROWD);
+    // Lobby shopkeepers each live in their wing's district-local frame.
+    for (const m of interiorCrowds) {
+      m.update(dt, playerLocalInto(m.hostGroup, m.hostInvQuat, _playerLocal), sunDot);
+      scanModule(m, TALK_DIST_CROWD);
+    }
   }
 }
 

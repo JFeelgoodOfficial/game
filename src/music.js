@@ -12,10 +12,15 @@ import { settings, onSettingsChange } from './settings.js';
 const MUSIC_BASE = `${import.meta.env.BASE_URL}music/`;
 
 const TRACKS = [
-  { url: `${MUSIC_BASE}mean-streets-wave-collector-remix.mp3`, title: 'MEAN STREETS (WAVE COLLECTOR REMIX)' },
+  { url: `${MUSIC_BASE}Wave Collector - Move 78.mp3`, title: 'WAVE COLLECTOR - MOVE 78)' },
   { url: `${MUSIC_BASE}wave-collector-i-know-youre-there.mp3`, title: "WAVE COLLECTOR — I KNOW YOU'RE THERE" },
   { url: `${MUSIC_BASE}wave-collector-electronics-dept.mp3`, title: 'WAVE COLLECTOR — ELECTRONICS DEPT.' },
-  { url: `${MUSIC_BASE}wave-collector-mens-casualwear.mp3`, title: "WAVE COLLECTOR — MEN'S CASUALWEAR" },
+  { url: `${MUSIC_BASE}Wave Collector - One Way In.mp3`, title: "WAVE COLLECTOR — ONE WAY IN" },
+  { url: `${MUSIC_BASE}Wave Collector - Question Air.mp3`, title: "WAVE COLLECTOR — QUESTION AIR" },
+  { url: `${MUSIC_BASE}Wave Collector - The Masterpiece.mp3`, title: "WAVE COLLECTOR — THE MASTERPIECE" },
+  { url: `${MUSIC_BASE}Wave Collector - The Mouse Shaman (Acoustic).mp3`, title: "WAVE COLLECTOR — THE MOUSE SHAMAN" },
+  { url: `${MUSIC_BASE}Bright Pearl Comes Out from the Sea.mp3`, title: "WAVE COLLECTOR — BRIGHT PEARL COMES OUT OF THE SEA" },
+  { url: `${MUSIC_BASE}Life Cycle.mp3`, title: "WAVE COLLECTOR — LIFE CYCLE" },
 ];
 
 let audio = null;

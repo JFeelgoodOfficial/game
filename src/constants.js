@@ -81,6 +81,13 @@ export const C = {
   DISK_INNER: 2.2, // accretion disk inner edge, × horizon radius
   DISK_OUTER: 7.0, // outer edge, × horizon radius
 
+  // --- deep nebulae (flyable clouds you fly through — see src/deepnebula.js) ---
+  // Each painting-nebula is one entry in the NEBULAE array in deepnebula.js;
+  // its position, palette, counts, and mass live in that config. Only these two
+  // shared knobs live here.
+  NEBULA_FIELD_INTENSITY: 1.0, // global master brightness for every deep nebula (tuning-panel live)
+  NEBULA_LOG_DIST: 5000.0, // default NAV contact-log distance for a deep nebula
+
   // --- horizon collapse / reset (beyond GDD 4.5) ---
   // A deliberate override of "falling in does nothing": crossing into the
   // hole stretches everything and returns you to the start (the GDD 7 loop).
