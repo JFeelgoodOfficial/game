@@ -86,6 +86,7 @@ function hashSeed(str) {
 }
 
 const _yAxis = new THREE.Vector3(0, 1, 0);
+const _burstMat4 = new THREE.Matrix4(); // scratch for the dragon burst instances
 
 // Full radial distance to terrain along a surface-local direction (a radius,
 // not a height) — same as wavemallprime.sampleGround.
@@ -244,11 +245,18 @@ function makeFigure(opts = {}) {
     group.position.y = baseY + Math.sin(t * 1.4 + phase) * 0.015;
     head.rotation.y = Math.sin(t * 0.5 + phase) * 0.18;
   }
+  function setOpacity(o) {
+    for (const m of mats) {
+      m.transparent = o < 1;
+      m.opacity = o;
+      m.needsUpdate = true;
+    }
+  }
   function dispose() {
     for (const g of geos) g.dispose();
     for (const m of mats) m.dispose();
   }
-  return { group, update, dispose };
+  return { group, update, setOpacity, materials: mats, dispose };
 }
 
 /* ----------------------------------------------------------------------
@@ -489,12 +497,14 @@ export function createActuality(planet, worldUp, opts = {}) {
     zg.add(retArch);
 
     const rec = {
-      id: meta.id, frame, group: zg,
+      id: meta.id, frame, group: zg, retArch,
       structure: makeStructure(0, 0, 0,
         [{ x0: -ZH, x1: ZH, z0: -ZH, z1: ZH, y: 0 }], [], ZH + 1),
+      r2: (ZH + 12) ** 2,
       center: frame.pos.clone(),
       // return trigger (surface-local) + hub destination
       retCenter: new THREE.Vector3(0, 0, 14).applyQuaternion(frame.q).add(frame.pos),
+      retR: AC.PORTAL_R,
       // entry destination: player arrives at zone-local (0,0,10) facing -Z
       entryDest: new THREE.Vector3(0, 0, 10).applyQuaternion(frame.q).add(frame.pos),
       entryHeading: new THREE.Vector3(0, 0, -1).applyQuaternion(frame.q).normalize(),
@@ -502,6 +512,27 @@ export function createActuality(planet, worldUp, opts = {}) {
     zoneList.push(rec);
     zoneById[meta.id] = rec;
   }
+
+  // Helpers: transform a zone-local point into anchor-local (interactable
+  // positions) or surface-local (trigger centers).
+  function zoneToAnchor(rec, x, y, z) {
+    return new THREE.Vector3(x, y, z).applyQuaternion(rec.frame.q).add(rec.frame.pos)
+      .sub(anchorPos).applyQuaternion(anchorQInv);
+  }
+  function zoneToSurface(rec, x, y, z) {
+    return new THREE.Vector3(x, y, z).applyQuaternion(rec.frame.q).add(rec.frame.pos);
+  }
+
+  // Zone content (NPCs + set pieces). Built here so interactable positions are
+  // pre-transformed into the anchor frame the host resolves the player into.
+  const zoneUpdaters = []; // per-frame zone animation callbacks
+  // Scripted-scene state (Joshua's departure, the dragon transformation).
+  let joshuaFig = null;
+  let joshuaDep = null;     // { t } while Joshua walks off
+  let dragonRefs = null;    // { fig, box, ring, seedLight, light } for zone 9
+  let dragonVfx = null;     // { t } while the transformation plays
+  let whiteFlashEl = null;  // DOM flash element for the dragon gift
+  buildDialogueZones();
 
   // --- Hub portal arches: nine, in a front arc on the terrace, one per zone.
   const hubPortals = [];
@@ -560,7 +591,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     r2: (AC.HUB_FLOOR_HALF + 12) ** 2,
   }];
   for (const z of zoneList) {
-    zones.push({ frame: z.frame, structures: [z.structure], r2: (AC.ZONE_FLOOR_HALF + 12) ** 2 });
+    zones.push({ frame: z.frame, structures: [z.structure], r2: z.r2 });
   }
   const _rc = new THREE.Vector3();
 
@@ -615,9 +646,21 @@ export function createActuality(planet, worldUp, opts = {}) {
   // Build the DialoguePayload for an interactable, dispatching on id + flags.
   function interact(entity) {
     entity.talking = true;
-    if (entity.id === 'she') return interactShe(entity);
-    // Zone NPCs land in later milestones; default to a soft idle.
-    return { speaker: DLG.SHE, lines: ['…'] };
+    switch (entity.id) {
+      case 'she': return interactShe(entity);
+      case 'andreiMikey':
+        if (!flags.talkedAndreiMikey) { entity.pending = 'andreiMikey'; return { speaker: DLG.ANDREI_MIKEY, lines: DLG.ANDREI_MIKEY_SCENE }; }
+        return { speaker: DLG.ANDREI_MIKEY, lines: DLG.ANDREI_MIKEY_IDLE };
+      case 'joshuaCaitlynn':
+        if (!flags.talkedJoshuaCaitlynn) { entity.pending = 'joshuaCaitlynn'; return { speaker: DLG.JOSHUA_CAITLYNN, lines: DLG.JOSHUA_CAITLYNN_SCENE }; }
+        return { speaker: DLG.JOSHUA_CAITLYNN, lines: DLG.JOSHUA_CAITLYNN_IDLE };
+      case 'dragon':
+        if (!flags.dragonGiftReceived) { entity.pending = 'dragon'; return { speaker: DLG.DRAGON, lines: DLG.DRAGON_BEFORE }; }
+        return { speaker: DLG.DRAGON, lines: DLG.DRAGON_AFTER };
+      case 'z1woman': return { speaker: DLG.Z1_WOMAN, lines: DLG.Z1_WOMAN_LINES };
+      case 'grandmother': return { speaker: DLG.GRANDMOTHER, lines: DLG.GRANDMOTHER_LINES };
+      default: return { speaker: DLG.SHE, lines: ['…'] };
+    }
   }
 
   function interactShe(entity) {
@@ -663,9 +706,20 @@ export function createActuality(planet, worldUp, opts = {}) {
   function endInteract(entity) {
     if (!entity) return;
     entity.talking = false;
-    // One-shot flag commits happen here (contract: safe to call twice).
-    if (entity.pending === 'intro') { flags.metCafeWoman = true; saveFlags(flags); }
-    if (entity.pending === 'final') { flags.zeroHeard = true; saveFlags(flags); }
+    // One-shot flag commits + side effects (contract: safe to call twice).
+    switch (entity.pending) {
+      case 'intro': flags.metCafeWoman = true; saveFlags(flags); break;
+      case 'final': flags.zeroHeard = true; saveFlags(flags); break;
+      case 'andreiMikey': flags.talkedAndreiMikey = true; saveFlags(flags); break;
+      case 'joshuaCaitlynn':
+        flags.talkedJoshuaCaitlynn = true; saveFlags(flags);
+        startJoshuaDeparture();
+        break;
+      case 'dragon':
+        flags.dragonGiftReceived = true; saveFlags(flags);
+        startDragonGift();
+        break;
+    }
     entity.pending = null;
   }
 
@@ -736,13 +790,15 @@ export function createActuality(planet, worldUp, opts = {}) {
 
   function update(t, dt, playerPos, sunDot = 1) {
     for (let i = 0; i < figures.length; i++) figures[i].update(t);
+    // Per-zone animation (only the active zone runs; the rest hold still).
+    for (let i = 0; i < zoneUpdaters.length; i++) zoneUpdaters[i](t, dt, playerPos);
 
     // Portal triggers — checked in surface-local space (frame-agnostic). Only
     // while idle; the current activeZone decides which portals are live.
     if (fade.phase === 'idle') {
       _surf.copy(playerPos).applyQuaternion(anchorQ).add(anchorPos);
-      const r2 = AC.PORTAL_R * AC.PORTAL_R;
       if (activeZone === 'hub') {
+        const r2 = AC.PORTAL_R * AC.PORTAL_R;
         for (let i = 0; i < hubPortals.length; i++) {
           if (_surf.distanceToSquared(hubPortals[i].center) < r2) {
             startTransition(hubPortals[i].targetZone);
@@ -751,11 +807,287 @@ export function createActuality(planet, worldUp, opts = {}) {
         }
       } else {
         const z = zoneById[activeZone];
-        if (z && _surf.distanceToSquared(z.retCenter) < r2) startTransition('hub');
+        if (z) {
+          let ret = _surf.distanceToSquared(z.retCenter) < z.retR * z.retR;
+          if (!ret && z.extraReturns) {
+            for (const er of z.extraReturns) {
+              if (_surf.distanceToSquared(er.center) < er.r * er.r) { ret = true; break; }
+            }
+          }
+          if (ret) startTransition('hub');
+        }
       }
     }
     advanceFade(dt);
   }
+
+  /* ------------------------------------------------------------------
+   * Dialogue-zone content (Z3 Soul, Z4 Self, Z9 Death/Rebirth).
+   * Interactable positions are pre-transformed into the anchor frame.
+   * ---------------------------------------------------------------- */
+  function buildDialogueZones() {
+    buildZone3();
+    buildZone4();
+    buildZone9();
+  }
+
+  function addZoneBox(rec, w, h, d, x, y, z, color, rough = 0.9) {
+    const g = new THREE.BoxGeometry(w, h, d);
+    const m = new THREE.MeshStandardMaterial({ color, roughness: rough });
+    const mesh = new THREE.Mesh(g, m);
+    mesh.position.set(x, y, z);
+    rec.group.add(mesh);
+    zoneGeos.push(g); zoneMats.push(m);
+    return mesh;
+  }
+
+  // Z3 — an ordinary daylight coffee shop. Andrei & Mikey at a table.
+  function buildZone3() {
+    const rec = zoneById['z3'];
+    // Bright daylight fill so it reads as an ordinary café.
+    const amb = new THREE.AmbientLight(0xfff4e0, 0.7);
+    rec.group.add(amb);
+    // A table + two chairs + a counter.
+    addZoneBox(rec, 1.4, 0.12, 1.4, 0, 0.78, -4, AC.COL_WOOD);
+    addZoneBox(rec, 0.16, 0.78, 0.16, 0, 0.39, -4, AC.COL_WOOD);
+    addZoneBox(rec, 10, 1.1, 1.0, 0, 0.55, -10, AC.COL_WOOD);
+    // Bright emissive "window" panels (gentle bloom for daylight).
+    const winGeo = new THREE.PlaneGeometry(4, 2.4);
+    const winMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff, emissive: 0xfff2d8, emissiveIntensity: 1.0, side: THREE.DoubleSide,
+    });
+    const win = new THREE.Mesh(winGeo, winMat);
+    win.position.set(-8, 2.0, -4); win.rotation.y = Math.PI / 2;
+    rec.group.add(win);
+    zoneGeos.push(winGeo); zoneMats.push(winMat);
+    // Figures.
+    const andrei = makeFigure({ seated: true, skin: 0xc9a074, cloth: 0x4a5a6a, seed: 31 });
+    andrei.group.position.set(-1.4, 0, -4); andrei.group.rotation.y = Math.PI / 2 + 0.2;
+    const mikey = makeFigure({ seated: true, skin: 0xd0a878, cloth: 0x6a4a3a, seed: 32 });
+    mikey.group.position.set(1.4, 0, -4); mikey.group.rotation.y = -Math.PI / 2 - 0.2;
+    rec.group.add(andrei.group, mikey.group);
+    figures.push(andrei, mikey);
+    interactables.push({ id: 'andreiMikey', zone: 'z3', pos: zoneToAnchor(rec, 0, 0, -2.6), talking: false });
+  }
+
+  // Z4 — cramped dorm fading into a warm apartment. Joshua & Caitlynn.
+  function buildZone4() {
+    const rec = zoneById['z4'];
+    // Cool dorm light + warm apartment light (the corridor between them reads
+    // as the fade the chapter describes).
+    const dorm = new THREE.PointLight(0x8ea4c0, 0.7, 40, 2.0);
+    dorm.position.set(-8, 4, 6);
+    const apt = new THREE.PointLight(0xffcaa0, 1.1, 60, 2.0);
+    apt.position.set(2, 4, -6);
+    rec.group.add(dorm, apt);
+    // Couch (apartment) + a narrow dorm bed.
+    addZoneBox(rec, 3.0, 0.6, 1.2, -2, 0.4, -8, 0x8a6a5a);
+    addZoneBox(rec, 0.9, 0.4, 2.0, -8, 0.3, 6, 0x9aa0a8); // dorm bed
+    // Big warm apartment window.
+    const winGeo = new THREE.PlaneGeometry(4, 2.6);
+    const winMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff, emissive: 0xffd9a8, emissiveIntensity: 0.9, side: THREE.DoubleSide,
+    });
+    const win = new THREE.Mesh(winGeo, winMat);
+    win.position.set(2, 2.1, -11.7);
+    rec.group.add(win);
+    zoneGeos.push(winGeo); zoneMats.push(winMat);
+    // Figures.
+    const caitlynn = makeFigure({ seated: true, skin: 0xe0c0a0, cloth: 0xb08090, seed: 41 });
+    caitlynn.group.position.set(-2, 0.5, -8); caitlynn.group.rotation.y = 0.2;
+    joshuaFig = makeFigure({ seated: false, skin: 0xc99a70, cloth: 0x33465a, seed: 42 });
+    joshuaFig.group.position.set(1.6, 0, -5); joshuaFig.group.rotation.y = -0.4;
+    rec.group.add(caitlynn.group, joshuaFig.group);
+    figures.push(caitlynn, joshuaFig);
+    interactables.push({ id: 'joshuaCaitlynn', zone: 'z4', pos: zoneToAnchor(rec, 0, 0, -3.5), talking: false });
+
+    // Joshua's scripted departure (fires once, after the scene resolves).
+    zoneUpdaters.push((t, dt) => {
+      if (!joshuaDep || !joshuaFig) return;
+      joshuaDep.t += dt;
+      const T = joshuaDep.t;
+      // Walk from the couch toward the door at (4, 0, 8) over ~8s.
+      const p = Math.min(1, T / 8);
+      const sx = 1.6, sz = -5, dx = 4, dz = 9;
+      joshuaFig.group.position.set(sx + (dx - sx) * p, 0, sz + (dz - sz) * p);
+      joshuaFig.group.rotation.y = Math.atan2(dx - sx, dz - sz);
+      // Fade out over the last 2s, then hide.
+      if (T > 8) joshuaFig.setOpacity(Math.max(0, 1 - (T - 8) / 2));
+      if (T > 10.2) { joshuaFig.group.visible = false; joshuaDep = null; }
+    });
+  }
+
+  // Z9 — vertical descent into a dark chamber with the granite dragon.
+  function buildZone9() {
+    const rec = zoneById['z9'];
+    // Rebuild the collision structure: top platform + descending ramp + chamber.
+    const surfaces = [
+      { x0: -30, x1: 30, z0: -6, z1: 30, y: 0 },               // arrival platform
+      { ramp: true, x0: -4, x1: 4, z0: -40, z1: -6, zA: -6, zB: -40, yA: 0, yB: -15 },
+      { x0: -16, x1: 16, z0: -72, z1: -40, y: -15 },           // chamber floor
+    ];
+    const wallH = { y0: -17, y1: 2 };
+    const walls = [
+      { x0: -4.8, x1: -4.4, z0: -40, z1: -6, ...wallH },       // ramp guards
+      { x0: 4.4, x1: 4.8, z0: -40, z1: -6, ...wallH },
+      { x0: -16, x1: 16, z0: -72, z1: -71.5, ...wallH },       // chamber back
+      { x0: -16, x1: -15.5, z0: -72, z1: -40, ...wallH },      // chamber sides
+      { x0: 15.5, x1: 16, z0: -72, z1: -40, ...wallH },
+      { x0: -16, x1: -4.5, z0: -40, z1: -39.5, ...wallH },     // chamber front (door gap)
+      { x0: 4.5, x1: 16, z0: -40, z1: -39.5, ...wallH },
+    ];
+    rec.structure = makeStructure(0, 0, 0, surfaces, walls, 78);
+    rec.r2 = (78 + 12) ** 2;
+
+    // Dim descent lighting.
+    const amb = new THREE.AmbientLight(0x30343c, 0.5);
+    rec.group.add(amb);
+    // Visual geometry: ramp, chamber floor + walls (matte near-black).
+    const dark = 0x14151a;
+    const ramp = addZoneBox(rec, 8, 0.4, 34.5, 0, -7.5, -23, dark); // spans the ramp band
+    ramp.rotation.x = Math.atan2(15, 34); // tilt to follow the descent
+    addZoneBox(rec, 32, 0.6, 32, 0, -15.3, -56, dark);             // chamber floor
+    addZoneBox(rec, 32, 18, 0.6, 0, -8, -71.7, dark);              // back wall
+    addZoneBox(rec, 0.6, 18, 32, -15.7, -8, -56, dark);            // side walls
+    addZoneBox(rec, 0.6, 18, 32, 15.7, -8, -56, dark);
+
+    // The granite dragon (stacked spheres/cones), on the chamber's far side.
+    const dragonGrp = new THREE.Group();
+    dragonGrp.position.set(0, -15, -60);
+    rec.group.add(dragonGrp);
+    const graniteMat = new THREE.MeshStandardMaterial({
+      color: 0x6a6a72, roughness: 0.95, emissive: 0x1a2230, emissiveIntensity: 0.25,
+    });
+    zoneMats.push(graniteMat);
+    const dragonMats = [graniteMat];
+    const dpart = (geo, x, y, z, rx = 0) => {
+      const mesh = new THREE.Mesh(geo, graniteMat);
+      mesh.position.set(x, y, z); if (rx) mesh.rotation.x = rx;
+      dragonGrp.add(mesh); zoneGeos.push(geo); return mesh;
+    };
+    dpart(new THREE.SphereGeometry(1.8, 12, 10), 0, 1.8, 0);          // lower body
+    dpart(new THREE.SphereGeometry(1.5, 12, 10), 0, 3.4, 0.4);        // chest
+    dpart(new THREE.CylinderGeometry(0.7, 1.1, 3.2, 10), 0, 5.4, 0.2, 0.5); // neck
+    dpart(new THREE.ConeGeometry(0.9, 1.8, 10), 0, 7.2, 0.9, 1.2);    // head
+    dpart(new THREE.ConeGeometry(0.5, 4.5, 8), 0, 1.4, -3.2, -0.8);   // tail
+    // folded wings (thin cones out to the sides)
+    const wingL = dpart(new THREE.ConeGeometry(0.6, 3.5, 6), -1.4, 3.6, -0.4, 0);
+    wingL.rotation.z = 0.9; const wingR = dpart(new THREE.ConeGeometry(0.6, 3.5, 6), 1.4, 3.6, -0.4, 0);
+    wingR.rotation.z = -0.9;
+    // Black box on the chest.
+    const boxGeo = new THREE.BoxGeometry(1.0, 1.0, 0.7);
+    const boxMat = new THREE.MeshStandardMaterial({ color: 0x050506, roughness: 0.6, metalness: 0.3 });
+    const box = new THREE.Mesh(boxGeo, boxMat);
+    box.position.set(0, 3.4, 1.6);
+    dragonGrp.add(box); zoneGeos.push(boxGeo); zoneMats.push(boxMat);
+
+    // A quiet return ring off to the side of the chamber (glows after the gift).
+    const ringGeo = new THREE.TorusGeometry(1.4, 0.14, 8, 24);
+    const ringMat = new THREE.MeshStandardMaterial({
+      color: 0x88ccff, emissive: 0x2a4a66, emissiveIntensity: 0.4, roughness: 0.5,
+    });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.position.set(8, -13.5, -56); ring.rotation.x = Math.PI / 2;
+    rec.group.add(ring);
+    zoneGeos.push(ringGeo); zoneMats.push(ringMat);
+
+    // Interactable in front of the box; chamber ring as an extra return.
+    interactables.push({ id: 'dragon', zone: 'z9', pos: zoneToAnchor(rec, 0, -14, -53), talking: false });
+    rec.extraReturns = [{ center: zoneToSurface(rec, 8, -14, -56), r: 3.0 }];
+
+    dragonRefs = { grp: dragonGrp, mats: dragonMats, box, ring, ringMat, seedLight: null, light: null };
+
+    // Transformation VFX updater.
+    zoneUpdaters.push((t, dt) => {
+      if (!dragonVfx) return;
+      dragonVfx.t += dt;
+      const T = dragonVfx.t;
+      // White DOM flash (0.3s).
+      if (whiteFlashEl) whiteFlashEl.style.opacity = String(Math.max(0, 0.9 * (1 - T / 0.35)));
+      // Dragon dissolves to a faint ghost over 2.5s.
+      const g = Math.max(0.15, 1 - (T / 2.5) * 0.85);
+      graniteMat.transparent = true; graniteMat.opacity = g; graniteMat.needsUpdate = true;
+      // Burst quads fly outward + fade.
+      if (dragonVfx.burst) {
+        const b = dragonVfx.burst;
+        const m4 = _burstMat4;
+        for (let i = 0; i < b.count; i++) {
+          const v = b.vel[i];
+          const s = 0.3 + T * 0.4;
+          m4.makeScale(s, s, s);
+          m4.setPosition(b.origin.x + v.x * T, b.origin.y + v.y * T, b.origin.z + v.z * T);
+          b.mesh.setMatrixAt(i, m4);
+        }
+        b.mesh.instanceMatrix.needsUpdate = true;
+        b.mesh.material.opacity = Math.max(0, 1 - T / 2.5);
+      }
+      // Ring brightens; seed light lingers.
+      dragonRefs.ringMat.emissiveIntensity = 0.4 + Math.min(1.2, T) * 1.1;
+      if (dragonRefs.light) dragonRefs.light.intensity = Math.max(0, 3.0 * (1 - T / 2.5));
+      if (T > 2.6) {
+        // Cleanup the burst; leave the ghost dragon + seed light.
+        if (dragonVfx.burst) {
+          rec.group.remove(dragonVfx.burst.mesh);
+          dragonVfx.burst.mesh.geometry.dispose();
+          dragonVfx.burst.mesh.material.dispose();
+          dragonVfx.burst = null;
+        }
+        if (whiteFlashEl && whiteFlashEl.parentNode) { whiteFlashEl.parentNode.removeChild(whiteFlashEl); whiteFlashEl = null; }
+        dragonVfx = null;
+      }
+    });
+  }
+
+  // Joshua walks off toward the door (fires once from endInteract).
+  function startJoshuaDeparture() {
+    if (joshuaFig && !joshuaDep) joshuaDep = { t: 0 };
+  }
+
+  // Dragon transformation: white flash + light-quad burst + dragon dissolve +
+  // a lingering seed light. Fires once from endInteract.
+  function startDragonGift() {
+    if (!dragonRefs || dragonVfx) return;
+    dragonVfx = { t: 0, burst: null };
+    // White DOM flash.
+    whiteFlashEl = document.createElement('div');
+    whiteFlashEl.style.cssText =
+      'position:fixed;inset:0;z-index:21;pointer-events:none;background:#fff;opacity:0.9;';
+    document.body.appendChild(whiteFlashEl);
+    // Light-quad burst around the box.
+    const N = 120;
+    const qGeo = new THREE.PlaneGeometry(0.28, 0.28);
+    const qMat = new THREE.MeshBasicMaterial({
+      color: 0xfff0c0, transparent: true, opacity: 1, depthWrite: false,
+      blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.InstancedMesh(qGeo, qMat, N);
+    const origin = new THREE.Vector3(0, -13.5, -58.4); // box in zone-local
+    const vel = [];
+    const rb = mulberry32(0x9e3d);
+    for (let i = 0; i < N; i++) {
+      const th = rb() * Math.PI * 2, ph = Math.acos(2 * rb() - 1);
+      const sp = 2 + rb() * 6;
+      vel.push(new THREE.Vector3(
+        Math.sin(ph) * Math.cos(th) * sp,
+        Math.cos(ph) * sp * 0.7 + 1,
+        Math.sin(ph) * Math.sin(th) * sp));
+    }
+    mesh.frustumCulled = false;
+    rec9AddBurst(mesh);
+    dragonVfx.burst = { mesh, vel, count: N, origin };
+    // Seed light left behind above the box.
+    const seed = new THREE.PointLight(0xfff0c0, 0.0, 20, 2.0);
+    seed.position.set(0, -12, -58.4);
+    zoneById['z9'].group.add(seed);
+    dragonRefs.seedLight = seed;
+    const surge = new THREE.PointLight(0xffffff, 3.0, 40, 2.0);
+    surge.position.set(0, -12.5, -58.4);
+    zoneById['z9'].group.add(surge);
+    dragonRefs.light = surge;
+    // fade the seed up gently
+    setTimeout(() => { if (seed) seed.intensity = 0.8; }, 400);
+  }
+  function rec9AddBurst(mesh) { zoneById['z9'].group.add(mesh); }
 
   // Pre-composer render hook (mirror room RTT lands in M6). No-op for now.
   function preRender(renderer) { /* mirror room only */ }
@@ -773,7 +1105,20 @@ export function createActuality(planet, worldUp, opts = {}) {
       returns: zoneList.map((z) => ({
         id: z.id, retCenter: [z.retCenter.x, z.retCenter.y, z.retCenter.z],
       })),
+      npcs: interactables.map((it) => ({
+        id: it.id, zone: it.zone, pos: [it.pos.x, it.pos.y, it.pos.z],
+      })),
+      joshuaVisible: joshuaFig ? joshuaFig.group.visible : null,
     };
+  }
+
+  // Test hook: ground radius (and reference terrain radius) at a zone-local
+  // point, for verifying below-grade descent.
+  function probeGround(zoneId, x, y, z) {
+    const rec = zoneById[zoneId];
+    if (!rec) return null;
+    const s = zoneToSurface(rec, x, y, z);
+    return { ground: groundRadiusAt(s.clone()), surfLen: s.length() };
   }
 
   function dispose() {
@@ -790,6 +1135,14 @@ export function createActuality(planet, worldUp, opts = {}) {
     });
     if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
     overlayEl = null;
+    // Clean up any in-flight dragon VFX (its burst mesh isn't tracked in bins).
+    if (dragonVfx && dragonVfx.burst) {
+      dragonVfx.burst.mesh.geometry.dispose();
+      dragonVfx.burst.mesh.material.dispose();
+    }
+    dragonVfx = null;
+    if (whiteFlashEl && whiteFlashEl.parentNode) whiteFlashEl.parentNode.removeChild(whiteFlashEl);
+    whiteFlashEl = null;
     if (audio && audio.ctx) { try { audio.ctx.close(); } catch { /* ignore */ } }
     audio = null;
   }
@@ -809,6 +1162,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     consumeTeleport,
     preRender,
     debug,
+    probeGround,
     // exposed for future milestones / tests
     _flags: flags,
   };
