@@ -12,8 +12,8 @@
 
 import { C } from './constants.js';
 import { input } from './input.js';
-import frameUrl from './assets/cockpit-frame.png';
-import yokeUrl from './assets/yoke.png';
+import frameUrl from './assets/cockpit-frame.webp';
+import yokeUrl from './assets/yoke.webp';
 
 let img = null;
 let yoke = null;

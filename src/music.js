@@ -4,16 +4,18 @@
 // permitted). The radio console (radio.js) switches tracks and shows the
 // title; the sequential auto-advance is the user's own playlist logic.
 
-import track1 from './11 Mean Streets (Wave Collector Remix).mp3';
-import track2 from './Wave Collector - I Know You\'re There.mp3';
-import track3 from './Wave Collector -Electronics Dept.mp3';
-import track4 from './Wave Collector -Men\'s Casualwear.mp3';
+import { settings, onSettingsChange } from './settings.js';
+
+// Tracks live in public/music/ and stream on demand — they stay out of the
+// JS bundle and out of Vite's asset pipeline. BASE_URL keeps the relative
+// `./` base working on the Pages deploy.
+const MUSIC_BASE = `${import.meta.env.BASE_URL}music/`;
 
 const TRACKS = [
-  { url: track1, title: 'MEAN STREETS (WAVE COLLECTOR REMIX)' },
-  { url: track2, title: "WAVE COLLECTOR — I KNOW YOU'RE THERE" },
-  { url: track3, title: 'WAVE COLLECTOR — ELECTRONICS DEPT.' },
-  { url: track4, title: "WAVE COLLECTOR — MEN'S CASUALWEAR" },
+  { url: `${MUSIC_BASE}mean-streets-wave-collector-remix.mp3`, title: 'MEAN STREETS (WAVE COLLECTOR REMIX)' },
+  { url: `${MUSIC_BASE}wave-collector-i-know-youre-there.mp3`, title: "WAVE COLLECTOR — I KNOW YOU'RE THERE" },
+  { url: `${MUSIC_BASE}wave-collector-electronics-dept.mp3`, title: 'WAVE COLLECTOR — ELECTRONICS DEPT.' },
+  { url: `${MUSIC_BASE}wave-collector-mens-casualwear.mp3`, title: "WAVE COLLECTOR — MEN'S CASUALWEAR" },
 ];
 
 let audio = null;
@@ -55,10 +57,17 @@ function setTrack(index) {
   emit();
 }
 
+function applyVolume() {
+  if (!audio) return;
+  audio.volume = settings.musicVolume;
+  audio.muted = settings.muted;
+}
+onSettingsChange(applyVolume);
+
 function ensureAudio() {
   if (audio) return;
   audio = new Audio(TRACKS[currentIndex].url);
-  audio.volume = 0.5;
+  applyVolume();
   // sequential playlist: when a track ends, the next one starts
   audio.addEventListener('ended', () => {
     setTrack(currentIndex + 1);
@@ -81,4 +90,21 @@ export function prevTrack() {
 export function startMusic() {
   ensureAudio();
   if (audio.paused) play();
+}
+
+// Game pause (main.js): the radio stops with the rest of the ship.
+let pausedByGame = false;
+
+export function pauseMusic() {
+  if (audio && !audio.paused) {
+    audio.pause();
+    pausedByGame = true;
+  }
+}
+
+export function resumeMusic() {
+  if (audio && pausedByGame) {
+    pausedByGame = false;
+    play();
+  }
 }
