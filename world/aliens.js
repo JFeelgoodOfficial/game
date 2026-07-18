@@ -175,6 +175,34 @@ const ROLE_CULTURES = {
     farewells: ['Watch the stairs on the way down.', 'Come back at sunset — it never disappoints.'],
     questBias: 'codex',
   },
+  // Orbital Art Gallery visitors — they can't see the images, so every line
+  // is about the experience of looking: reflective, funny, quietly moved.
+  gallerygoer: {
+    pronoun: 'I',
+    greetings: ["Oh — sorry, I was somewhere else entirely. This piece does that.", "No, stay — it's better with someone else looking too.", 'Shh. No, not you. The painting. It was about to say something.', 'First visit? Start anywhere. They all lead back here.'],
+    observations: ["I've circled this deck three times and it keeps changing on me.", 'Stand here, exactly here. Now it hums.', 'In this gravity the tears just sort of... hover. Very dignified.', 'I came for an hour. That was two terra-rises ago.', 'Every one of these came from a single collection. Imagine having that much to say.'],
+    requests: ["Tell me which one you'd steal, if you had a bigger ship.", 'Look at it once up close and once from the rail. Two different works.', 'Find the one that looks back. Then come tell me which it was.'],
+    farewells: ["I'm staying until the next terra-rise in the windows.", 'Go slowly. The art notices when you rush.', 'If you find the curator, say the third deck made me cry. Again.'],
+    questBias: 'codex',
+  },
+  // Station maintenance crew — pride, wrenches, and a half-tone-flat spin motor.
+  technician: {
+    pronoun: 'I',
+    greetings: ['Mind the conduit. Everything on this deck is load-bearing, including me.', "Lost? Art's that way. Work's here.", "You're standing on my access panel. No, don't move — it's nice to have company."],
+    observations: ['Four decks of masterpieces and the climate control still answers to a wrench.', 'The spin motors sing a half-tone flat. Nobody notices but me.', 'Low gravity is great for the visitors, terrible for keeping bolts in pockets.', 'Every window on the promenade is my window. I cleaned them. All of them.'],
+    requests: ['If a rail wobbles, tell me before you tell the curator.', 'Jump gently near the glass. For my nerves, not the glass.'],
+    farewells: ['Back to the vents. The art gets the glory, the ducts get me.', 'Enjoy the gallery. It runs because somebody loves it — two somebodies, counting the owner.'],
+    questBias: 'codex',
+  },
+  // The gallery's stationary attendant at the atrium desk.
+  curator: {
+    pronoun: 'I',
+    greetings: ['Welcome to the Grand Hall. Thirty-two works, four decks, no ropes — just respect.', 'Ah, a docking-spine arrival. The collection is up and everywhere.'],
+    observations: ['Every panel hangs at eye height. In this gravity, that took some arguing.', 'The owner sends new work when the muse allows. The empty frames are patience, not neglect.', 'Terra crosses the promenade windows every seven minutes. The art holds still. That contrast is the whole idea.'],
+    requests: ['Take the ramps. The jumps are faster, but the art deserves the walk.', 'Start on the atrium floor and spiral up. The hang order means something.'],
+    farewells: ['The gallery never closes. Orbit forbids it.', 'Come back with someone. Art doubles when shared.'],
+    questBias: 'codex',
+  },
 };
 
 function cultureForCity(cityId) {

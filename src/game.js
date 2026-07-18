@@ -65,10 +65,11 @@ import {
   walkPromptText,
   shipBearing,
   walkDebug,
+  enterStationWalk,
 } from './walkLazy.js';
 import { initJournal, journalState } from './journal.js';
 import { initSun, sunAltitude } from './sun.js';
-import { initStations, updateStations } from './stations.js';
+import { initStations, updateStations, nearestDockableStation } from './stations.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI, setWarpButtonVisible } from './menu.js';
 import { startMusic, nextTrack, prevTrack, currentTitle, pauseMusic, resumeMusic } from './music.js';
 import { initRadio, updateRadio } from './radio.js';
@@ -350,6 +351,24 @@ if (import.meta.env.DEV) {
         updateOrigin(ship);
       }
     },
+    // Teleport to the gallery berth and dock, for headless verification.
+    dockHere() {
+      const dock = nearestDockableStation(ship.position);
+      if (!dock) return null;
+      ship.position.copy(dock.berth);
+      ship.velocity.set(0, 0, 0);
+      if (enterStationWalk(dock.station)) {
+        heat = 0;
+        phase = 'walk';
+        accumulator = 0;
+        setWarpButtonVisible(false);
+        return dock.station.name;
+      }
+      return null;
+    },
+    get station() {
+      return walkDebug()?.walkSite?.().station;
+    },
     walkExit() {
       if (phase === 'walk') {
         exitWalk(camera);
@@ -562,8 +581,10 @@ function frame(now) {
       phase = 'explode';
       warpT = 0;
     }
-    // Disembark onto a rocky planet (G) when flying low and slow enough.
-    // Only from the pilot seat — sit back down before stepping outside.
+    // Disembark onto a rocky planet (G) when flying low and slow enough —
+    // or dock at a dockable station's berth (Orbital Art Gallery). Only from
+    // the pilot seat — sit back down before stepping outside. The two gates
+    // can't collide: near the gallery, terra's floor is ~2400u below.
     if (input.toggleWalk && !standing && standBlend < 0.05) {
       const floor = nearestTerraFloor(ship.position);
       if (
@@ -576,6 +597,19 @@ function frame(now) {
         phase = 'walk';
         accumulator = 0;
         setWarpButtonVisible(false); // no warping on foot
+      } else {
+        const dock = nearestDockableStation(ship.position);
+        if (
+          dock &&
+          dock.dist < C.STATION_DOCK_RANGE &&
+          ship.velocity.length() < C.WALK_LAND_SPEED &&
+          enterStationWalk(dock.station) // false until the walk chunk lands
+        ) {
+          heat = 0;
+          phase = 'walk';
+          accumulator = 0;
+          setWarpButtonVisible(false);
+        }
       }
     }
   } else if (phase === 'walk') {
@@ -707,7 +741,14 @@ function frame(now) {
               : null
         );
       } else {
-        setPrompt(promptTimer > 0 ? 'C — STAND UP' : null);
+        // seated: offer the dock when the gallery berth is in range and the
+        // approach is slow enough (mirrors the G gate above)
+        const dock = nearestDockableStation(ship.position);
+        const canDock =
+          dock &&
+          dock.dist < C.STATION_DOCK_RANGE &&
+          ship.velocity.length() < C.WALK_LAND_SPEED;
+        setPrompt(canDock ? 'G — DOCK' : promptTimer > 0 ? 'C — STAND UP' : null);
         if (promptTimer > 0) promptTimer -= delta;
       }
     } else {

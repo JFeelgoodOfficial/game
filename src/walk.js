@@ -52,6 +52,12 @@ import {
   completeWaypoint,
   clearWaypoint,
 } from './journal.js';
+// Station-interior walk (Orbital Art Gallery). Same public surface, flat
+// station-local frame. Every export below dispatches there while a dock is
+// active, so game.js keeps driving phase 'walk' and never knows which
+// walker is underneath. Re-exported so walkLazy can reach it.
+import * as stationWalk from './stationWalk.js';
+export { enterStationWalk } from './stationWalk.js';
 
 const LOOK_SENS = 0.0022; // radians of look per pixel of mouse travel
 const MAX_PITCH = 1.483; // ~85°, so you never flip past straight up/down
@@ -168,6 +174,7 @@ export function initWalk(scene) {
   astronaut = new Astronaut();
   astronaut.group.visible = false;
   scene.add(astronaut.group);
+  stationWalk.initStationWalk(astronaut); // the station walker shares the body
 }
 
 // The nearest rocky (terra) planet you could stand on, and your altitude above
@@ -439,6 +446,7 @@ function spawnWorldEntities(planet) {
 // planet so thrust climbs, at rest. (Near-planet gravity still needs boost to
 // climb out — that's the flight model, unchanged.)
 export function exitWalk(camera) {
+  if (stationWalk.stationActive()) return stationWalk.exitStationDock(camera);
   const planet = walk.planet;
   _up.subVectors(ship.position, planet.body.position).normalize();
   const ground = planet.body.groundAt(_up);
@@ -521,12 +529,14 @@ export function exitWalk(camera) {
 
 // T — switch first/third person on foot. Persists as the new preference.
 export function toggleWalkView() {
+  if (stationWalk.stationActive()) return stationWalk.toggleStationView();
   walk.view = toggleViewPref();
   camSnap = true;
   return walk.view;
 }
 
 export function stepWalk(dt) {
+  if (stationWalk.stationActive()) return stationWalk.stepStationWalk(dt);
   const planet = walk.planet;
 
   // Co-rotate with the planet's spin so the ground doesn't slide underfoot —
@@ -771,6 +781,7 @@ export function stepWalk(dt) {
 // its procedural animation + the dressing (grass sway, night dimming).
 // `t` is wall-clock seconds.
 export function updateWalkVisuals(dt, t) {
+  if (stationWalk.stationActive()) return stationWalk.updateStationVisuals(dt, t);
   if (!walk.active || !astronaut) return;
   const planet = walk.planet;
   _up.subVectors(ship.position, planet.body.position).normalize();
@@ -871,6 +882,7 @@ function scanModule(module, maxDist) {
 // with this frame's focused entity. The module's interact() supplies the
 // payload and starts its own talk pose; endInteract() releases it on close.
 export function walkInteract() {
+  if (stationWalk.stationActive()) return stationWalk.stationInteract();
   if (isDialogueOpen()) {
     advanceDialogue();
     return;
@@ -900,6 +912,7 @@ export function walkInteract() {
 // Bottom-center prompt line for main.js ("C — STAND UP" idiom). The dialogue
 // panel owns its own hints while open.
 export function walkPromptText() {
+  if (stationWalk.stationActive()) return stationWalk.stationPromptText();
   if (isDialogueOpen() || !focusEntity) return null;
   return 'E — TALK';
 }
@@ -973,6 +986,7 @@ function removeBeacon() {
 // True when the walker is close enough to the parked ship to board (G).
 // Fails open when there's no parked ship, so the player is never trapped.
 export function nearParkedShip() {
+  if (stationWalk.stationActive()) return stationWalk.nearAirlock();
   if (!parked || !walk.planet) return true;
   _parkPos
     .copy(parked.group.position)
@@ -982,16 +996,21 @@ export function nearParkedShip() {
 }
 
 export function promptReturnToShip() {
+  if (stationWalk.stationActive()) return stationWalk.promptReturnToAirlock();
   showViewToast('RETURN TO YOUR SHIP TO TAKE OFF');
 }
 
 // dev/verification handle (main.js __debug): the landing-site entities.
 export function walkSite() {
-  return { city, parked, crowd, dressing, wavemall, interiorCrowds };
+  return {
+    city, parked, crowd, dressing, wavemall, interiorCrowds,
+    station: stationWalk.stationSite(),
+  };
 }
 
 // Gravity scale of the world underfoot (1 = normal). For the walk-hint UI.
 export function currentGravityScale() {
+  if (stationWalk.stationActive()) return C.STATION_GRAVITY_SCALE;
   return walk.active ? (walk.planet?.cfg?.walkGravityScale ?? 1) : 1;
 }
 
@@ -1000,6 +1019,7 @@ export function currentGravityScale() {
 // dist: world units. Null when there's nothing to point at.
 const _bearingOut = { angle: 0, dist: 0 };
 export function shipBearing() {
+  if (stationWalk.stationActive()) return stationWalk.airlockBearing();
   if (!walk.active || !parked || !walk.planet) return null;
   _parkPos
     .copy(parked.group.position)
@@ -1025,6 +1045,7 @@ export function shipBearing() {
 // ship.position — absolute positions would smear across a floating-origin
 // rebase, which does fire on foot).
 export function updateWalkCamera(camera, delta = 0) {
+  if (stationWalk.stationActive()) return stationWalk.updateStationCamera(camera, delta);
   const planet = walk.planet;
   _up.subVectors(ship.position, planet.body.position).normalize();
   _right.crossVectors(walk.heading, _up).normalize();
