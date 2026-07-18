@@ -765,9 +765,12 @@ function orbitalArtGalleryStation() {
     const tex = galleryArtUrls.length
       ? galleryTexture(galleryArtUrls[k % galleryArtUrls.length])
       : galleryPlaceholder(k + 1);
+    // color scales the unlit texture to 0.82 so even a pure-white artwork
+    // stays under BLOOM_THRESHOLD (0.85) — bright pieces read as paintings,
+    // not bloom flares, and the glow frame keeps the lit-exhibit accent
     const art = new THREE.Mesh(
       new THREE.PlaneGeometry(GL.ART_W, GL.ART_H),
-      new THREE.MeshBasicMaterial({ map: tex })
+      new THREE.MeshBasicMaterial({ map: tex, color: 0xd2d2d2 })
     );
     art.position.set(s.x, s.y, s.z);
     art.rotation.y = s.rotY;
