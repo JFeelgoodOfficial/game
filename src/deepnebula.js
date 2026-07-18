@@ -25,6 +25,7 @@ import { addBody } from './gravity.js';
 import gasVert from './shaders/deepnebula.vert?raw';
 import gasFrag from './shaders/deepnebula.frag?raw';
 import dustFrag from './shaders/deepnebulaDust.frag?raw';
+import { makeStarburst, makeGlow } from './starburst.js';
 
 // Built nebulae, in NEBULAE order. Read by nav.js (auto-listing) and by the
 // per-frame uniform push. Each record: { id, name, group, navColor, logDist,
@@ -36,6 +37,15 @@ export const deepNebulae = [];
 // `warm` or `dust` may be null / count 0 for an open, glowing cloud with no
 // bright accents or no dark mass. Palettes are hex; dir/axis/warmSide are
 // normalized in code.
+//
+// Two SHAPES exist. The default (no `shape`) is the spine cloud above: a bent
+// dark flow with a bright shell around it. `shape: 'spiral'` instead builds a
+// face-on marbled spiral galaxy — a thin log-spiral disc coloured by a multi-band
+// palette, gold-leaf veins along the arms, and a blazing central star (the sun.js
+// un-tonemapped core + halo recipe) with an optional four-point flare. The spiral
+// path (buildSpiralNebula and friends) is fully gated behind that flag; the spine
+// nebulae are untouched by it. In a spiral config `axis` is the disc NORMAL, and
+// gas colour comes from `spiral.bands` rather than gas.crest/deep.
 const NEBULAE = [
   {
     id: 'sisters',
@@ -62,24 +72,43 @@ const NEBULAE = [
   {
     id: 'father',
     name: 'The Father Nebula',
+    shape: 'spiral', // face-on marbled spiral galaxy (buildSpiralNebula)
     dir: [-0.62, 0.34, 0.71], // opposite corner from The Sisters, up and forward
     distance: 58000,
-    radius: 7000, // twice The Sisters Nebula (3500) — a large region to cross
+    radius: 7000, // disc radius R (twice The Sisters — a large region to cross)
     mass: 9.0e4, // gentle, always-escapable pull; 0 = none. Never a radius (no hazard).
     intensity: 1.0,
     navColor: '#e8a63c',
-    axis: [1.0, 0.5, 0.3], // the diagonal flow of the bloom (coral upper-left → blue lower-right)
-    warmSide: [0.2, -0.3, 0.1], // the gold-leaf heart gathers near-centre, a touch low-right
-    gas: {
-      count: 17000, brightness: 0.05, crest: 0xe8b98a, deep: 0x5a2a20,
-      coreR: 0.1, shellR: 0.26, shellW: 0.24, sizeMin: 300, sizeAdd: 560,
+    axis: [0.35, 1.0, 0.25], // the disc NORMAL — tilted so it reads ~face-on on approach
+    spiral: {
+      arms: 2, // log-spiral arm count
+      twist: 3.6, // log-spiral tightness: theta = twist * ln(rad/holeR)
+      holeR: 0.05, // inner hole (fraction of R) where the core sits
+      armSharp: 2.4, // raised-cosine exponent: higher = tighter arms, darker lanes
+      armFloor: 0.03, // inter-arm density floor (dark lanes between the arms)
+      thickness: 0.04, // out-of-plane sigma (fraction of R) — a thin disc
+      bulge: 2.2, // extra thickness toward the centre
+      radBias: 1.05, // radius power > 1 packs samples toward the centre
+      // ordered palette, centre → rim: the acrylic-pour marbling of the painting.
+      // Saturated so distinct red/blue/gold survive the additive accumulation.
+      bands: [
+        { stop: 0.0, color: 0xffe9c0 }, // warm white (blends into the core)
+        { stop: 0.14, color: 0xf3b444 }, // gold
+        { stop: 0.32, color: 0xef4a24 }, // coral-red
+        { stop: 0.5, color: 0x2360e0 }, // cobalt-blue
+        { stop: 0.64, color: 0xd23020 }, // deep red
+        { stop: 0.8, color: 0x2f6fd8 }, // blue-steel
+        { stop: 1.0, color: 0x4a3c2c }, // taupe outer → dark
+      ],
+      // the blazing central star: sun.js un-tonemapped core + a soft glow sprite
+      core: { coreColor: 0xffffff, coreR: 580, haloColor: 0xffcf94, haloR: 2200, haloOpacity: 0.44 },
+      flare: true, // four-point starburst billboard at the core
+      flareScale: 9, // flare sprite size as a multiple of coreR
     },
-    warm: {
-      count: 4600, clumps: 10, base: 0xd8a848, hot: 0xf5e2a0,
-      clumpR: 0.14, offset: 0.1, sizeMin: 190, sizeAdd: 400,
-    },
-    stars: { count: 1300, sizeMin: 28, sizeAdd: 64 },
-    dust: { count: 0, color: 0x241410, opacity: 0.18, coreR: 0.14 }, // count 0: radiant bloom, no dark spine
+    gas: { count: 46000, brightness: 0.052, sizeMin: 100, sizeAdd: 210 }, // colours from spiral.bands
+    warm: { count: 2800, clumps: 26, base: 0xe8c66a, hot: 0xfff0c0, clumpR: 0.08, sizeMin: 80, sizeAdd: 150 },
+    stars: { count: 480, sizeMin: 11, sizeAdd: 22, bright: 0.5 }, // damped so bloomed stars don't fight the gas
+    dust: { count: 0 }, // no dark spine in the spiral
   },
 ];
 
@@ -104,6 +133,30 @@ function randDir(out) {
 function smoothstep(a, b, x) {
   const t = Math.min(Math.max((x - a) / (b - a), 0), 1);
   return t * t * (3 - 2 * t);
+}
+
+// Standard-normal sample (Box–Muller) — used for the spiral disc's thin
+// out-of-plane scatter, so points cluster near the disc plane and thin out above
+// and below it.
+function gauss() {
+  let u = 0;
+  while (u < 1e-6) u = Math.random();
+  const v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+// Sample an ordered band palette (parallel colors[] / stops[] arrays) at t in
+// [0,1], writing the interpolated colour into `out`. Gives the spiral its
+// concentric rings — red, blue, gold — as a function of radius.
+function sampleBands(colors, stops, t, out) {
+  let i = 0;
+  while (i < stops.length - 1 && t > stops[i + 1]) i++;
+  const j = Math.min(i + 1, stops.length - 1);
+  const a = stops[i], b = stops[j];
+  const s = b > a ? (t - a) / (b - a) : 0;
+  const ca = colors[i], cb = colors[j];
+  out.setRGB(ca.r + (cb.r - ca.r) * s, ca.g + (cb.g - ca.g) * s, ca.b + (cb.b - ca.b) * s);
+  return out;
 }
 
 // The spine: a gently bent polyline through the field along cfg.axis, sampled
@@ -340,7 +393,9 @@ function buildStars(cfg, gasPositions, mats) {
       positions[i * 3 + 2] = _d.z * rad;
     }
     starColor(_star);
-    const b = 0.25 + 1.5 * Math.pow(Math.random(), 3);
+    // cubic tail so a few punch past 1.0 and bloom; `bright` (default 1) lets a
+    // config dampen the tail where big bloomed stars would compete with the gas.
+    const b = (0.25 + 1.5 * Math.pow(Math.random(), 3)) * (s.bright ?? 1);
     colors[i * 3] = _star.r * b;
     colors[i * 3 + 1] = _star.g * b;
     colors[i * 3 + 2] = _star.b * b;
@@ -392,7 +447,212 @@ function buildDust(cfg, spine, mats) {
   });
 }
 
+// === Spiral galaxy (shape: 'spiral') ===============================
+// A face-on marbled spiral: a thin log-spiral disc built in the plane whose
+// NORMAL is cfg.axis. Same additive point-sprite technique as the spine gas, but
+// sampled into arms and coloured by a radial band palette instead of a shell +
+// two-colour lerp. Shares makeCloud / buildStars with the spine path.
+
+// Build the disc's local frame: axis is the disc normal, perp1/perp2 span the
+// plane. Returned by reference in the passed vectors.
+function discFrame(cfg, axis, perp1, perp2) {
+  axis.set(cfg.axis[0], cfg.axis[1], cfg.axis[2]).normalize();
+  const up = Math.abs(axis.y) > 0.9 ? _up.set(1, 0, 0) : _up.set(0, 1, 0);
+  perp1.crossVectors(axis, up).normalize();
+  perp2.crossVectors(axis, perp1).normalize();
+}
+
+const _axis = new THREE.Vector3();
+const _p1 = new THREE.Vector3();
+const _p2 = new THREE.Vector3();
+const _up = new THREE.Vector3();
+const _col = new THREE.Color();
+
+// The spiral gas disc. Rejection-sample the plane into arms, offset thinly out of
+// plane, colour by the band palette. Returns positions so buildStars embeds stars
+// in the arms, exactly like the spine gas.
+function buildSpiralGas(cfg, mats) {
+  const g = cfg.gas;
+  const sp = cfg.spiral;
+  const N = g.count;
+  const R = cfg.radius;
+  const HOLE = sp.holeR * R;
+  const sep = (Math.PI * 2) / sp.arms;
+
+  // pre-convert the band palette once
+  const bandColors = sp.bands.map((b) => new THREE.Color(b.color));
+  const bandStops = sp.bands.map((b) => b.stop);
+
+  discFrame(cfg, _axis, _p1, _p2);
+
+  const positions = new Float32Array(N * 3);
+  const colors = new Float32Array(N * 3);
+  const sizes = new Float32Array(N);
+
+  let n = 0;
+  let guard = 0;
+  while (n < N && guard < N * 40) {
+    guard++;
+    const rad = HOLE + (R - HOLE) * Math.pow(Math.random(), sp.radBias);
+    const phi = Math.random() * Math.PI * 2;
+
+    // log-spiral arm modulation: distance in angle to the nearest arm centreline
+    const armPhase = sp.twist * Math.log(rad / HOLE);
+    let m = (phi - armPhase) % sep;
+    if (m < 0) m += sep;
+    if (m > sep * 0.5) m -= sep; // fold to [-sep/2, sep/2]
+    const tArm = m / (sep * 0.5); // -1 .. 1 across the arm
+    const wArm = Math.pow(0.5 + 0.5 * Math.cos(Math.PI * tArm), sp.armSharp);
+    const w = sp.armFloor + (1 - sp.armFloor) * wArm;
+    const wEdge = 1 - smoothstep(0.86 * R, R, rad);
+    if (Math.random() > w * wEdge) continue;
+
+    // place in the disc plane, then a thin gaussian offset along the normal
+    const cphi = Math.cos(phi) * rad;
+    const sphi = Math.sin(phi) * rad;
+    const sigma = sp.thickness * R * (1 + sp.bulge * (1 - rad / R));
+    const off = gauss() * sigma;
+    positions[n * 3] = _p1.x * cphi + _p2.x * sphi + _axis.x * off;
+    positions[n * 3 + 1] = _p1.y * cphi + _p2.y * sphi + _axis.y * off;
+    positions[n * 3 + 2] = _p1.z * cphi + _p2.z * sphi + _axis.z * off;
+
+    // colour by radial band; arm ridges read brighter, lanes dimmer
+    sampleBands(bandColors, bandStops, rad / R, _col);
+    const b = g.brightness * (0.5 + Math.random()) * (0.55 + 0.9 * wArm);
+    colors[n * 3] = _col.r * b;
+    colors[n * 3 + 1] = _col.g * b;
+    colors[n * 3 + 2] = _col.b * b;
+
+    sizes[n] = g.sizeMin + g.sizeAdd * Math.random();
+    n++;
+  }
+  const gasPositions = positions.subarray(0, n * 3);
+  const points = makeCloud(mats, cfg.intensity, {
+    positions: gasPositions,
+    colors: colors.subarray(0, n * 3),
+    sizes: sizes.subarray(0, n),
+    frag: gasFrag,
+    blending: THREE.AdditiveBlending,
+    renderOrder: -3,
+  });
+  return { points, gasPositions };
+}
+
+// Gold-leaf veins: warm emission clumps placed ALONG the spiral arms (cf.
+// buildWarm, which places them along the spine). Only clump cores punch past 1.0
+// so they bloom into gold flecks tracing the swirl.
+function buildSpiralWarm(cfg, mats) {
+  const w = cfg.warm;
+  const sp = cfg.spiral;
+  const N = w.count;
+  const R = cfg.radius;
+  const K = w.clumps;
+  const HOLE = sp.holeR * R;
+  const sep = (Math.PI * 2) / sp.arms;
+  const CLUMP_R = w.clumpR * R;
+  const base = new THREE.Color(w.base);
+  const hot = new THREE.Color(w.hot);
+
+  discFrame(cfg, _axis, _p1, _p2);
+
+  // clump centres snapped onto arm centrelines, spread across the disc
+  const centers = [];
+  for (let k = 0; k < K; k++) {
+    const rad = R * (0.15 + 0.65 * Math.random());
+    const armPhase = sp.twist * Math.log(rad / HOLE);
+    const arm = Math.floor(Math.random() * sp.arms);
+    const phi = armPhase + arm * sep + (Math.random() - 0.5) * sep * 0.25;
+    const sigma = sp.thickness * R;
+    const off = gauss() * sigma;
+    centers.push(new THREE.Vector3(
+      _p1.x * Math.cos(phi) * rad + _p2.x * Math.sin(phi) * rad + _axis.x * off,
+      _p1.y * Math.cos(phi) * rad + _p2.y * Math.sin(phi) * rad + _axis.y * off,
+      _p1.z * Math.cos(phi) * rad + _p2.z * Math.sin(phi) * rad + _axis.z * off
+    ));
+  }
+
+  const positions = new Float32Array(N * 3);
+  const colors = new Float32Array(N * 3);
+  const sizes = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const c = centers[i % K];
+    randDir(_d);
+    const rr = CLUMP_R * Math.pow(Math.random(), 1.1); // spread, so cores don't pile into a white blob
+    positions[i * 3] = c.x + _d.x * rr;
+    positions[i * 3 + 1] = c.y + _d.y * rr;
+    positions[i * 3 + 2] = c.z + _d.z * rr;
+
+    const inner = 1 - rr / CLUMP_R;
+    // restrained: only faint cores punch past 1.0, so veins read as gold flecks
+    // tracing the arms rather than bloomed white squares
+    const b = 0.12 * (0.4 + 0.6 * inner) + Math.pow(inner, 5) * 0.28;
+    colors[i * 3] = (base.r + (hot.r - base.r) * inner) * b;
+    colors[i * 3 + 1] = (base.g + (hot.g - base.g) * inner) * b;
+    colors[i * 3 + 2] = (base.b + (hot.b - base.b) * inner) * b;
+
+    sizes[i] = w.sizeMin + w.sizeAdd * Math.random();
+  }
+  return makeCloud(mats, cfg.intensity, {
+    positions, colors, sizes,
+    frag: gasFrag,
+    blending: THREE.AdditiveBlending,
+    renderOrder: -3,
+  });
+}
+
+// The blazing central star. A small un-tonemapped white core SPHERE (bypasses
+// ACES so it feeds the bloom pass hard — the solid brilliant centre) plus a soft
+// round glow SPRITE for the halo. The halo is a sprite, not a sphere: an additive
+// transparent sphere rim-brightens at its silhouette and draws an ugly ring. Both
+// are visual only — no gravity radius — and being a mesh/sprite the gas near-fade
+// and 900px point cap never apply, so the core stays brilliant on a close pass.
+function buildSpiralCore(cfg) {
+  const c = cfg.spiral.core;
+  const grp = new THREE.Group();
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(c.coreR, 32, 16),
+    new THREE.MeshBasicMaterial({ color: c.coreColor, toneMapped: false })
+  );
+  core.renderOrder = 0; // after the additive gas (-3 / -2)
+  grp.add(core, makeGlow(cfg));
+  return grp;
+}
+
+function buildSpiralNebula(cfg) {
+  const group = new THREE.Group();
+  group.position
+    .set(cfg.dir[0], cfg.dir[1], cfg.dir[2])
+    .normalize()
+    .multiplyScalar(cfg.distance);
+
+  const mats = [];
+  const gas = buildSpiralGas(cfg, mats);
+  group.add(gas.points);
+  const coreGroup = buildSpiralCore(cfg);
+  group.add(coreGroup);
+  if (cfg.warm && cfg.warm.count > 0) group.add(buildSpiralWarm(cfg, mats));
+  group.add(buildStars(cfg, gas.gasPositions, mats)); // reused unchanged
+  if (cfg.spiral.flare) group.add(makeStarburst(cfg)); // sprite, auto-billboards
+
+  // The core mesh + glow + flare are meshes/sprites, so the gas vertex near-fade
+  // never touches them — flown into, they would fill the screen and blow to white.
+  // Collect their materials so updateDeepNebula can fade them as the camera nears
+  // the centre. R marks where the fade begins; coreR where it is fully gone.
+  const coreFade = [];
+  coreGroup.traverse((o) => { if (o.material) coreFade.push({ mat: o.material, base: o.material.opacity }); });
+  for (const child of group.children) {
+    if (child.isSprite && !coreFade.some((f) => f.mat === child.material)) {
+      coreFade.push({ mat: child.material, base: child.material.opacity });
+    }
+  }
+  for (const f of coreFade) f.mat.transparent = true;
+
+  return { group, mats, coreFade, coreR: cfg.spiral.core.coreR, radius: cfg.radius };
+}
+
 function buildNebula(cfg) {
+  if (cfg.shape === 'spiral') return buildSpiralNebula(cfg);
+
   const group = new THREE.Group();
   group.position
     .set(cfg.dir[0], cfg.dir[1], cfg.dir[2])
@@ -413,7 +673,7 @@ function buildNebula(cfg) {
 
 export function initDeepNebula(scene) {
   for (const cfg of NEBULAE) {
-    const { group, mats } = buildNebula(cfg);
+    const { group, mats, coreFade, coreR, radius } = buildNebula(cfg);
     scene.add(group);
     addShiftable(group); // floating-origin: the field moves with the world
 
@@ -429,6 +689,9 @@ export function initDeepNebula(scene) {
       logDist: cfg.logDist || C.NEBULA_LOG_DIST,
       mats,
       intensity: cfg.intensity,
+      coreFade: coreFade || null, // spiral core meshes/sprites to fade near the centre
+      fadeStart: (radius || 0) * 0.8, // full brightness beyond here
+      fadeEnd: (radius || 0) * 0.42, // gone by here, so flying through never whites out
     });
   }
 }
@@ -436,7 +699,9 @@ export function initDeepNebula(scene) {
 const _size = new THREE.Vector2();
 
 // Per frame: map a world sprite radius to pixels (uScale depends on live FOV,
-// which changes on boost/warp, and viewport). No geometry rebuild.
+// which changes on boost/warp, and viewport). No geometry rebuild. For spiral
+// nebulae, also fade the solid core / glow / flare as the camera nears the
+// centre, so a fly-through dissolves them instead of blowing the screen white.
 export function updateDeepNebula(renderer, camera) {
   renderer.getSize(_size);
   const scale = 0.5 * _size.y / Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5);
@@ -447,6 +712,11 @@ export function updateDeepNebula(renderer, camera) {
       m.uniforms.uScale.value = scale;
       m.uniforms.uPixelRatio.value = pr;
       m.uniforms.uIntensity.value = intensity;
+    }
+    if (n.coreFade) {
+      const d = camera.position.distanceTo(n.group.position);
+      const f = smoothstep(n.fadeEnd, n.fadeStart, d); // 0 at the centre, 1 far out
+      for (const c of n.coreFade) c.mat.opacity = c.base * f;
     }
   }
 }
