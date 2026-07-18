@@ -537,12 +537,20 @@ export function initStations(scene) {
   return stations;
 }
 
-export function updateStations(t) {
+// Animation is invisible well before a station shrinks to a few pixels —
+// beyond this range only the (origin-shift-critical) position updates run.
+// spin/anim use absolute t, so resuming in range lands exactly where the
+// motion would have been; there is no discontinuity. (Audit fix: the mining
+// rig's beam/shuttle trig used to run every frame from 90k units away.)
+const ANIM_DISTANCE_SQ = 6000 * 6000;
+
+export function updateStations(t, shipPos) {
   for (const s of stations) {
-    if (s.anim) s.anim(t);
+    const animate = s.group.position.distanceToSquared(shipPos) < ANIM_DISTANCE_SQ;
+    if (s.anim && animate) s.anim(t);
     // spin 0 means a deliberately fixed orientation (Port Feelgood's bore
     // stays aimed down the route) — don't clobber its quaternion
-    if (s.spin) s.group.rotation.y = t * s.spin;
+    if (s.spin && animate) s.group.rotation.y = t * s.spin;
     if (s.orbit) {
       const p = planets[s.orbit.planetIndex].group.position;
       const a = s.orbit.phase + t * s.orbit.rate;

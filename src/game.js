@@ -42,9 +42,15 @@ import {
   setPrompt,
 } from './interior.js';
 import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
-import { initPlanets, updatePlanets, atmosphereAt, planets, SUN } from './planet.js';
 import {
-  walk,
+  initPlanets,
+  updatePlanets,
+  startPlanetBake,
+  atmosphereAt,
+  planets,
+  SUN,
+} from './planet.js';
+import {
   initWalk,
   nearestTerraFloor,
   enterWalk,
@@ -58,15 +64,21 @@ import {
   walkInteract,
   walkPromptText,
   shipBearing,
-  walkSite,
-} from './walk.js';
+  walkDebug,
+} from './walkLazy.js';
 import { initJournal, journalState } from './journal.js';
 import { initSun, sunAltitude } from './sun.js';
 import { initStations, updateStations } from './stations.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI, setWarpButtonVisible } from './menu.js';
-import { startMusic, nextTrack, prevTrack, currentTitle } from './music.js';
+import { startMusic, nextTrack, prevTrack, currentTitle, pauseMusic, resumeMusic } from './music.js';
 import { initRadio, updateRadio } from './radio.js';
-import { initNav, updateNav, navState } from './nav.js';
+import { initNav, updateNav, navState, showNavToast } from './nav.js';
+import { settings, onSettingsChange } from './settings.js';
+import {
+  initSettingsPanel,
+  showPauseOverlay,
+  hidePauseOverlay,
+} from './settingsPanel.js';
 import { initCompass, updateCompass } from './compass.js';
 import { initControls, updateControls } from './controls.js';
 import { initCapture, capturePendingPhoto, updateCapture, requestPhoto, toggleRecording, isGalleryOpen } from './capture.js';
@@ -92,7 +104,7 @@ initPlanets(scene);
 initWalk(scene);
 
 // --- phase 2 environment ---
-initNebula(scene);
+initNebula(scene, renderer); // renderer: one-time cubemap bake of the sky
 initStarfield(scene);
 initSun(scene);
 initBlackHole(scene);
@@ -113,6 +125,7 @@ initControls();
 initCapture(renderer);
 initCredits();
 initJournal();
+initSettingsPanel();
 
 // --- composer (GDD 4.4) ---
 const composer = new EffectComposer(renderer);
@@ -250,12 +263,29 @@ composer.addPass(collapsePass);
 
 composer.addPass(new OutputPass());
 
-window.addEventListener('resize', () => {
+function onResize() {
   resizeCamera();
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
   lensPass.uniforms.uAspect.value = window.innerWidth / window.innerHeight;
-});
+}
+window.addEventListener('resize', onResize);
+
+// Quality setting: LOW caps the render at 1x pixel ratio and drops bloom —
+// the two biggest fixed costs a weaker GPU can shed without changing the
+// scene itself. (The planet shader also reads settings.quality; planet.js.)
+let appliedQuality = null;
+function applyQuality() {
+  if (settings.quality === appliedQuality) return; // change events fire for any setting
+  appliedQuality = settings.quality;
+  renderer.setPixelRatio(
+    Math.min(window.devicePixelRatio, settings.quality === 'low' ? 1 : 2)
+  );
+  bloomPass.enabled = settings.quality !== 'low';
+  onResize(); // repropagate sizes at the new ratio
+}
+applyQuality();
+onSettingsChange(applyQuality);
 
 // --- dev-only debug handle, for headless verification and tuning ---
 // Stripped from production along with the branch that reads it.
@@ -298,8 +328,11 @@ if (import.meta.env.DEV) {
         updateOrigin(ship);
       }
     },
-    // On-foot walk mode, for headless verification.
-    walk,
+    // On-foot walk mode, for headless verification. Lazy chunk: null until
+    // walkLazy.js finishes loading it (~2s after boot).
+    get walk() {
+      return walkDebug()?.walk;
+    },
     walkHere() {
       const floor = nearestTerraFloor(ship.position);
       if (floor) {
@@ -328,7 +361,9 @@ if (import.meta.env.DEV) {
     },
     // Landing-site entities, walker body + interior player — for headless
     // verification (teleports, ground checks).
-    walkSite,
+    get walkSite() {
+      return walkDebug()?.walkSite;
+    },
     ship,
     player: playerState,
     // Quest/codex record (interaction system), for headless verification.
@@ -374,6 +409,33 @@ let standing = false;
 let standBlend = 0; // seat <-> stand camera blend, 0..1
 let promptTimer = 0; // shows "C — STAND" briefly after each launch
 
+// Backspace — real pause (audit fix: Escape only dropped pointer lock while
+// physics kept running, with no on-screen cue). Freezes the accumulator and
+// heat by zeroing delta; the scene keeps rendering under the overlay. (P/R
+// are the in-game camera, so pause takes Backspace.)
+let paused = false;
+function setPaused(v) {
+  if (v === paused) return;
+  paused = v;
+  if (paused) {
+    showPauseOverlay(() => setPaused(false));
+    pauseMusic();
+  } else {
+    hidePauseOverlay();
+    resumeMusic();
+  }
+}
+
+// Photosensitivity / vestibular comfort: damp the camera shake and
+// turbulence for users who asked the OS for reduced motion. (The flashing
+// heat UI is handled in CSS via the same media query.)
+const MOTION_SCALE = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+  .matches
+  ? 0.25
+  : 1;
+
+const hintEl = document.getElementById('hint');
+
 function resetToStart() {
   ship.position.set(0, 0, 0);
   ship.velocity.set(0, 0, 0);
@@ -396,9 +458,23 @@ initMenu(() => {
   resetToStart();
   accumulator = 0;
   phase = 'fly';
+  setPaused(false);
   hideMenu();
   startMusic(); // user's track, from the LAUNCH click gesture
   renderer.domElement.requestPointerLock?.();
+  // One-time first-launch nudge: Terra sits dead ahead of the spawn point,
+  // but the nav chart is deliberately blank until bodies are discovered —
+  // give a brand-new pilot a single bearing without marking the map.
+  try {
+    if (!localStorage.getItem('nova7.introSeen')) {
+      localStorage.setItem('nova7.introSeen', '1');
+      // delayed past the near-spawn discovery toast (Meridian Ring logs
+      // within the first second and would overwrite this immediately)
+      setTimeout(() => showNavToast('UNIDENTIFIED CONTACT — DEAD AHEAD · HOLD W', 8), 4500);
+    }
+  } catch {
+    // no storage — skip the nudge rather than repeat it forever
+  }
 });
 
 function frame(now) {
@@ -410,6 +486,21 @@ function frame(now) {
     debug.recordFrame(delta);
     if (debug.paused) delta = 0;
   }
+
+  // Backspace — pause toggle, only meaningful with a live simulation to freeze
+  if (input.togglePause) {
+    input.togglePause = false;
+    if (phase === 'fly' || phase === 'walk') setPaused(!paused);
+  }
+  if (paused) {
+    delta = 0;
+    // swallow anything typed/moved under the overlay so it can't fire on resume
+    input.toggleWalk = input.toggleInterior = input.toggleView = input.interact = false;
+    input.photo = input.record = false;
+    input.mouseX = input.mouseY = 0;
+  }
+  // "click to steer" hint only makes sense with the sim live and unpaused
+  hintEl.classList.toggle('off', paused || (phase !== 'fly' && phase !== 'walk'));
 
   let flashAmt = 0;
   if (phase === 'fly') {
@@ -453,11 +544,15 @@ function frame(now) {
     const overFloor = altitudeAboveFloor(ship.position);
     const nearSun = sunAltitude(ship.position) < C.SUN_RADIUS * 0.5;
     const heatTotal = C.HEAT_WARN_TIME + C.HEAT_COUNTDOWN;
+    // Heat only accrues while piloted (audit fix): standing in the corridor
+    // disengages thrust, so a burn that starts while out of the seat used to
+    // be nearly unrecoverable — walk back, blend down, then pull up, against
+    // a 6-second fuse. Out of the seat the heat holds instead of climbing.
     if (nearSun) {
-      heat += (delta / heatTotal) * C.SUN_BURN_MULT;
+      if (piloted) heat += (delta / heatTotal) * C.SUN_BURN_MULT;
       deathReason = 'INCINERATED — FLEW INTO THE SUN';
     } else if (overFloor < C.HEAT_ALTITUDE) {
-      heat += delta / heatTotal;
+      if (piloted) heat += delta / heatTotal;
       deathReason = 'RE-ENTRY FAILURE — HULL DESTROYED';
     } else {
       heat -= delta / C.HEAT_COOL;
@@ -572,8 +667,8 @@ function frame(now) {
   }
   // hull-stress shake: time-hashed jitter, ramping in past half heat
   const shake = Math.max(heat - 0.5, 0) * 2 + (phase === 'explode' ? 1.5 : 0);
-  if (shake > 0) {
-    const s = shake * 0.02;
+  if (shake > 0 && !paused) {
+    const s = shake * 0.02 * MOTION_SCALE;
     camera.position.x += Math.sin(now * 0.093) * s;
     camera.position.y += Math.sin(now * 0.127 + 2.1) * s;
     camera.position.z += Math.sin(now * 0.071 + 4.4) * s;
@@ -621,8 +716,8 @@ function frame(now) {
   }
   updateStarfield(camera, renderer.getPixelRatio());
   updateNebula(camera);
-  updatePlanets(now / 1000);
-  updateStations(now / 1000);
+  updatePlanets(now / 1000, camera.position);
+  updateStations(now / 1000, ship.position);
   // nav AFTER the stations are placed: a reset snaps orbiting stations back
   // to their snapshot spot for one frame, and a discovery check reading that
   // stale position would log everything sitting at the spawn point
@@ -638,9 +733,9 @@ function frame(now) {
   // the ship is deepest inside
   atmosphereAt(camera.position, _atmo);
   // turbulence: the air buffets the ship, harder when deeper and faster
-  if (_atmo.atmo > 0.01 && phase === 'fly') {
+  if (_atmo.atmo > 0.01 && phase === 'fly' && !paused) {
     const speedFrac = Math.min(ship.velocity.length() / 300, 1);
-    const b = _atmo.atmo * _atmo.atmo * speedFrac * C.TURBULENCE;
+    const b = _atmo.atmo * _atmo.atmo * speedFrac * C.TURBULENCE * MOTION_SCALE;
     camera.position.x += Math.sin(now * 0.031) * Math.sin(now * 0.007) * b;
     camera.position.y += Math.sin(now * 0.043 + 1.7) * Math.sin(now * 0.011) * b;
     camera.position.z += Math.sin(now * 0.023 + 3.9) * b * 0.6;
@@ -674,3 +769,7 @@ function frame(now) {
   capturePendingPhoto();
 }
 requestAnimationFrame(frame);
+// Bake terra vertex displacement into the geometry in background time
+// slices (see planet.js) — the GPU displacement path covers until each
+// planet swaps over.
+startPlanetBake();
