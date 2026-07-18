@@ -28,7 +28,7 @@ import { camera, updateCamera, snapCamera, resizeCamera } from './camera.js';
 import { initTuning } from './tuning.js';
 import { initStarfield, updateStarfield } from './starfield.js';
 import { initNebula, updateNebula } from './nebula.js';
-import { initDeepNebula, updateDeepNebula, deepNebula } from './deepnebula.js';
+import { initDeepNebula, updateDeepNebula, deepNebulae } from './deepnebula.js';
 import { cockpitScene, updateCockpit, cockpitGroup, CockpitOverlayPass } from './cockpit.js';
 import { initCockpitFrame, updateCockpitFrame } from './cockpitFrame.js';
 import {
@@ -302,7 +302,7 @@ if (import.meta.env.DEV) {
     camera,
     planets,
     blackhole,
-    deepNebula,
+    deepNebulae,
     originOffset,
     paused: false,
     warpInfo: () => ({ phase, warp, heat }),

@@ -1,19 +1,22 @@
-// Deep nebula (owner request) — "The Sisters Nebula". A second nebula, unlike the
-// camera-following skybox in nebula.js: this one is a DISCRETE body placed out
-// in the world that you fly INTO and THROUGH. It is a field of additive point
-// clouds (the starfield.js technique) at a fixed world position (the blackhole.js
-// placement pattern), so parallax and the fly-through come for free.
+// Deep nebulae (owner feature) — flyable nebulae reinterpreted from the owner's
+// paintings. Unlike the camera-following skybox in nebula.js, each of these is a
+// DISCRETE body placed out in the world that you fly INTO and THROUGH. Each is a
+// field of additive point clouds (the starfield.js technique) at a fixed world
+// position (the blackhole.js placement pattern), so parallax and the fly-through
+// come for free.
 //
-// Reinterprets the owner's painting — black/teal marbled paint with gold-leaf
-// flakes — as deep space:
-//   - teal gas billows piled around a dark, hollow central spine (the black flow),
-//   - warm golden-orange emission clumps offset to one side (the gold leaf),
-//   - high-contrast stars embedded in the gas (the white specks),
-//   - a near-black dust layer along the spine that occludes the gas behind it.
+// Adding a painting is ONE config object appended to NEBULAE below — initDeepNebula
+// auto-iterates and nav.js auto-lists it, exactly like a planet CONFIGS entry. The
+// nebula-creator agent (.claude/agents/nebula-creator.md) writes those configs from
+// a painting. The mapping, per entry:
+//   - gas billows piled around a dark, hollow central spine (the painting's dark flow),
+//   - warm emission clumps offset to one side (its bright accent patches),
+//   - high-contrast stars embedded in the gas (its bright specks),
+//   - a dark dust layer along the spine that occludes the gas behind it (the dense mass).
 //
 // All buffers are generated ONCE at init (like the starfield); per frame we only
 // push a couple of uniforms. Nothing re-bakes. A tiny mass (no radius) gives a
-// gentle, always-escapable pull — like the black hole, the nebula is not a hazard.
+// gentle, always-escapable pull — like the black hole, a nebula is not a hazard.
 
 import * as THREE from 'three';
 import { C } from './constants.js';
@@ -23,62 +26,46 @@ import gasVert from './shaders/deepnebula.vert?raw';
 import gasFrag from './shaders/deepnebula.frag?raw';
 import dustFrag from './shaders/deepnebulaDust.frag?raw';
 
-export const deepNebula = { group: null, mats: [] };
+// Built nebulae, in NEBULAE order. Read by nav.js (auto-listing) and by the
+// per-frame uniform push. Each record: { id, name, group, navColor, logDist,
+// mats, intensity }.
+export const deepNebulae = [];
 
-// World direction to the field: the black hole's corner (its dir is
-// (0.52,0.14,-0.84)), but its own line and further out, so you don't reach it
-// straight through the hole.
-const FIELD_DIR = new THREE.Vector3(0.58, 0.20, -0.79).normalize();
+// One config object per nebula. Coefficients coreR / shellR / shellW / clumpR /
+// offset are FRACTIONS of `radius`, so a config scales cleanly to any size.
+// `warm` or `dust` may be null / count 0 for an open, glowing cloud with no
+// bright accents or no dark mass. Palettes are hex; dir/axis/warmSide are
+// normalized in code.
+const NEBULAE = [
+  {
+    id: 'sisters',
+    name: 'The Sisters Nebula',
+    dir: [0.58, 0.2, -0.79], // world direction — the black hole's corner, past it
+    distance: 46000,
+    radius: 3500,
+    mass: 8.0e4, // gentle, always-escapable pull; 0 = none. Never a radius (no hazard).
+    intensity: 1.0,
+    navColor: '#3fd0c8',
+    axis: [0.35, 0.15, 1.0], // the spine — the flow of the painting's black paint
+    warmSide: [-0.5, -0.75, 0.2], // where the gold-leaf emission gathers
+    gas: {
+      count: 9000, brightness: 0.06, crest: 0x2f9d92, deep: 0x123f4a,
+      coreR: 0.16, shellR: 0.3, shellW: 0.22, sizeMin: 200, sizeAdd: 380,
+    },
+    warm: {
+      count: 2200, clumps: 7, base: 0xffb347, hot: 0xffe4a3,
+      clumpR: 0.12, offset: 0.26, sizeMin: 120, sizeAdd: 260,
+    },
+    stars: { count: 650, sizeMin: 20, sizeAdd: 45 },
+    dust: { count: 2600, color: 0x0a1518, opacity: 0.25, coreR: 0.18 },
+  },
+];
 
-// --- local frame: the spine axis (flow of the black paint) and the gold side ---
-const AXIS = new THREE.Vector3(0.35, 0.15, 1.0).normalize();
-const GOLD_SIDE = new THREE.Vector3(-0.5, -0.75, 0.2).normalize();
+// --- stateless helpers (shared across all nebulae) ---
 
-// Two axes perpendicular to AXIS, for the spine's lateral bend and jitter.
-const PERP1 = new THREE.Vector3();
-const PERP2 = new THREE.Vector3();
-{
-  const up = Math.abs(AXIS.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
-  PERP1.crossVectors(AXIS, up).normalize();
-  PERP2.crossVectors(AXIS, PERP1).normalize();
-}
-
-// The spine: a gently bent polyline through the field, sampled once into a flat
-// [x,y,z, x,y,z, ...] array. distToSpine() measures nearest distance to it.
 const SPINE_N = 32;
-const spine = new Float32Array(SPINE_N * 3);
-{
-  const R = C.NEBULA_FIELD_RADIUS;
-  const half = 0.72 * R;
-  const bend = 0.22 * R;
-  for (let i = 0; i < SPINE_N; i++) {
-    const t = (i / (SPINE_N - 1)) * 2 - 1; // -1 .. 1
-    const b1 = Math.sin(t * Math.PI * 0.9) * bend;
-    const b2 = Math.sin(t * Math.PI * 1.7 + 0.6) * bend * 0.6;
-    spine[i * 3] = AXIS.x * t * half + PERP1.x * b1 + PERP2.x * b2;
-    spine[i * 3 + 1] = AXIS.y * t * half + PERP1.y * b1 + PERP2.y * b2;
-    spine[i * 3 + 2] = AXIS.z * t * half + PERP1.z * b1 + PERP2.z * b2;
-  }
-}
-
-function distToSpine(px, py, pz) {
-  let best = Infinity;
-  for (let i = 0; i < SPINE_N - 1; i++) {
-    const ax = spine[i * 3], ay = spine[i * 3 + 1], az = spine[i * 3 + 2];
-    const bx = spine[i * 3 + 3], by = spine[i * 3 + 4], bz = spine[i * 3 + 5];
-    const ex = bx - ax, ey = by - ay, ez = bz - az;
-    const wx = px - ax, wy = py - ay, wz = pz - az;
-    const len2 = ex * ex + ey * ey + ez * ez;
-    let s = len2 > 0 ? (wx * ex + wy * ey + wz * ez) / len2 : 0;
-    s = s < 0 ? 0 : s > 1 ? 1 : s;
-    const dx = wx - ex * s, dy = wy - ey * s, dz = wz - ez * s;
-    const d = dx * dx + dy * dy + dz * dz;
-    if (d < best) best = d;
-  }
-  return Math.sqrt(best);
-}
-
 const _d = new THREE.Vector3();
+
 function randDir(out) {
   let x, y, z, l;
   do {
@@ -97,8 +84,47 @@ function smoothstep(a, b, x) {
   return t * t * (3 - 2 * t);
 }
 
+// The spine: a gently bent polyline through the field along cfg.axis, sampled
+// once into a flat [x,y,z, ...] array in the group's local frame.
+function buildSpine(cfg) {
+  const R = cfg.radius;
+  const axis = new THREE.Vector3(cfg.axis[0], cfg.axis[1], cfg.axis[2]).normalize();
+  const up = Math.abs(axis.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+  const perp1 = new THREE.Vector3().crossVectors(axis, up).normalize();
+  const perp2 = new THREE.Vector3().crossVectors(axis, perp1).normalize();
+  const half = 0.72 * R;
+  const bend = 0.22 * R;
+  const spine = new Float32Array(SPINE_N * 3);
+  for (let i = 0; i < SPINE_N; i++) {
+    const t = (i / (SPINE_N - 1)) * 2 - 1; // -1 .. 1
+    const b1 = Math.sin(t * Math.PI * 0.9) * bend;
+    const b2 = Math.sin(t * Math.PI * 1.7 + 0.6) * bend * 0.6;
+    spine[i * 3] = axis.x * t * half + perp1.x * b1 + perp2.x * b2;
+    spine[i * 3 + 1] = axis.y * t * half + perp1.y * b1 + perp2.y * b2;
+    spine[i * 3 + 2] = axis.z * t * half + perp1.z * b1 + perp2.z * b2;
+  }
+  return spine;
+}
+
+function distToSpine(spine, px, py, pz) {
+  let best = Infinity;
+  for (let i = 0; i < SPINE_N - 1; i++) {
+    const ax = spine[i * 3], ay = spine[i * 3 + 1], az = spine[i * 3 + 2];
+    const bx = spine[i * 3 + 3], by = spine[i * 3 + 4], bz = spine[i * 3 + 5];
+    const ex = bx - ax, ey = by - ay, ez = bz - az;
+    const wx = px - ax, wy = py - ay, wz = pz - az;
+    const len2 = ex * ex + ey * ey + ez * ez;
+    let s = len2 > 0 ? (wx * ex + wy * ey + wz * ez) / len2 : 0;
+    s = s < 0 ? 0 : s > 1 ? 1 : s;
+    const dx = wx - ex * s, dy = wy - ey * s, dz = wz - ez * s;
+    const d = dx * dx + dy * dy + dz * dz;
+    if (d < best) best = d;
+  }
+  return Math.sqrt(best);
+}
+
 // Nearest point on the spine at parameter t in [0,1], into `out`.
-function spineAt(t, out) {
+function spineAt(spine, t, out) {
   const f = t * (SPINE_N - 1);
   const i = Math.min(Math.floor(f), SPINE_N - 2);
   const s = f - i;
@@ -110,13 +136,7 @@ function spineAt(t, out) {
   return out;
 }
 
-const _colTeal = new THREE.Color(C.NEBULA_TEAL);
-const _colTealDeep = new THREE.Color(C.NEBULA_TEAL_DEEP);
-const _colGold = new THREE.Color(C.NEBULA_GOLD);
-const _colGoldHot = new THREE.Color(C.NEBULA_GOLD_HOT);
-const _colDust = new THREE.Color(C.NEBULA_DUST_COLOR);
-
-function makeCloud({ positions, colors, sizes, frag, blending, renderOrder, opacity }) {
+function makeCloud(mats, intensity, { positions, colors, sizes, frag, blending, renderOrder, opacity }) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geo.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
@@ -125,7 +145,7 @@ function makeCloud({ positions, colors, sizes, frag, blending, renderOrder, opac
   const uniforms = {
     uScale: { value: 1 },
     uPixelRatio: { value: 1 },
-    uIntensity: { value: C.NEBULA_FIELD_INTENSITY },
+    uIntensity: { value: intensity },
   };
   if (opacity !== undefined) uniforms.uOpacity = { value: opacity };
 
@@ -142,22 +162,23 @@ function makeCloud({ positions, colors, sizes, frag, blending, renderOrder, opac
   const points = new THREE.Points(geo, mat);
   points.frustumCulled = false;
   points.renderOrder = renderOrder;
-  deepNebula.mats.push(mat);
+  mats.push(mat);
   return points;
 }
 
-// The teal body: rejection-sample the field, carving a dark hollow around the
+// The gas body: rejection-sample the field, carving a dark hollow around the
 // spine and piling the gas into a bright shell hugging it. Low per-sprite
-// brightness so additive overlap accumulates into smooth gas. Keeps its
-// positions for buildStars() to embed stars in the gas.
-let gasPositions = null;
-
-function buildGas() {
-  const N = C.NEBULA_GAS_COUNT;
-  const R = C.NEBULA_FIELD_RADIUS;
-  const CORE_R = 0.16 * R;
-  const SHELL_R = 0.30 * R;
-  const SHELL_W = 0.22 * R;
+// brightness so additive overlap accumulates into smooth gas. Returns the
+// positions too, so buildStars can embed stars in the gas.
+function buildGas(cfg, spine, mats) {
+  const g = cfg.gas;
+  const N = g.count;
+  const R = cfg.radius;
+  const CORE_R = g.coreR * R;
+  const SHELL_R = g.shellR * R;
+  const SHELL_W = g.shellW * R;
+  const crest = new THREE.Color(g.crest);
+  const deep = new THREE.Color(g.deep);
 
   const positions = new Float32Array(N * 3);
   const colors = new Float32Array(N * 3);
@@ -171,7 +192,7 @@ function buildGas() {
     const rad = R * Math.pow(Math.random(), 0.55);
     const px = _d.x * rad, py = _d.y * rad, pz = _d.z * rad;
 
-    const ds = distToSpine(px, py, pz);
+    const ds = distToSpine(spine, px, py, pz);
     const wEdge = 1 - smoothstep(0.72 * R, R, rad);
     const wCore = smoothstep(CORE_R * 0.4, CORE_R * 1.3, ds); // 0 inside spine -> hollow
     const shell = Math.exp(-Math.pow((ds - SHELL_R) / SHELL_W, 2));
@@ -182,47 +203,52 @@ function buildGas() {
     positions[n * 3 + 1] = py;
     positions[n * 3 + 2] = pz;
 
-    // colour: deep teal in the wisps, bright teal at the billow crests
-    const crest = shell;
-    const b = C.NEBULA_GAS_BRIGHTNESS * (0.5 + Math.random());
-    colors[n * 3] = (_colTealDeep.r + (_colTeal.r - _colTealDeep.r) * crest) * b;
-    colors[n * 3 + 1] = (_colTealDeep.g + (_colTeal.g - _colTealDeep.g) * crest) * b;
-    colors[n * 3 + 2] = (_colTealDeep.b + (_colTeal.b - _colTealDeep.b) * crest) * b;
+    // colour: deep tint in the wisps, bright crest at the billow ridges
+    const c = shell;
+    const b = g.brightness * (0.5 + Math.random());
+    colors[n * 3] = (deep.r + (crest.r - deep.r) * c) * b;
+    colors[n * 3 + 1] = (deep.g + (crest.g - deep.g) * c) * b;
+    colors[n * 3 + 2] = (deep.b + (crest.b - deep.b) * c) * b;
 
-    sizes[n] = 200 + 380 * Math.random();
+    sizes[n] = g.sizeMin + g.sizeAdd * Math.random();
     n++;
   }
-  // trim if rejection sampling fell short (it won't, but stay safe)
-  gasPositions = positions.subarray(0, n * 3);
-  return makeCloud({
-    positions: positions.subarray(0, n * 3),
+  const gasPositions = positions.subarray(0, n * 3);
+  const points = makeCloud(mats, cfg.intensity, {
+    positions: gasPositions,
     colors: colors.subarray(0, n * 3),
     sizes: sizes.subarray(0, n),
     frag: gasFrag,
     blending: THREE.AdditiveBlending,
     renderOrder: -3,
   });
+  return { points, gasPositions };
 }
 
-// Warm gold-leaf emission: a handful of gaussian clumps offset toward GOLD_SIDE,
-// like the gold flakes gathered to one side/bottom of the painting. Clump cores
+// Warm emission: a handful of gaussian clumps offset toward cfg.warmSide, like
+// the bright accent patches gathered to one side of the painting. Clump cores
 // are pushed above 1.0 so the bloom pass makes them glow.
-function buildWarm() {
-  const N = C.NEBULA_WARM_COUNT;
-  const R = C.NEBULA_FIELD_RADIUS;
-  const K = 7;
-  const CLUMP_R = 0.12 * R;
+function buildWarm(cfg, spine, mats) {
+  const w = cfg.warm;
+  const N = w.count;
+  const R = cfg.radius;
+  const K = w.clumps;
+  const CLUMP_R = w.clumpR * R;
+  const OFFSET = w.offset * R;
+  const side = new THREE.Vector3(cfg.warmSide[0], cfg.warmSide[1], cfg.warmSide[2]).normalize();
+  const base = new THREE.Color(w.base);
+  const hot = new THREE.Color(w.hot);
 
   const centers = [];
   const _s = new THREE.Vector3();
   for (let k = 0; k < K; k++) {
     const t = 0.15 + 0.7 * Math.random();
-    spineAt(t, _s);
+    spineAt(spine, t, _s);
     randDir(_d);
     centers.push(new THREE.Vector3(
-      _s.x + GOLD_SIDE.x * 0.26 * R + _d.x * 0.06 * R,
-      _s.y + GOLD_SIDE.y * 0.26 * R + _d.y * 0.06 * R,
-      _s.z + GOLD_SIDE.z * 0.26 * R + _d.z * 0.06 * R
+      _s.x + side.x * OFFSET + _d.x * 0.06 * R,
+      _s.y + side.y * OFFSET + _d.y * 0.06 * R,
+      _s.z + side.z * OFFSET + _d.z * 0.06 * R
     ));
   }
 
@@ -231,25 +257,23 @@ function buildWarm() {
   const sizes = new Float32Array(N);
   for (let i = 0; i < N; i++) {
     const c = centers[i % K];
-    // gaussian-ish offset: mean of two uniforms biased to the centre
     randDir(_d);
-    const rr = CLUMP_R * Math.pow(Math.random(), 1.6);
-    const px = c.x + _d.x * rr, py = c.y + _d.y * rr, pz = c.z + _d.z * rr;
-    positions[i * 3] = px;
-    positions[i * 3 + 1] = py;
-    positions[i * 3 + 2] = pz;
+    const rr = CLUMP_R * Math.pow(Math.random(), 1.6); // biased to the clump centre
+    positions[i * 3] = c.x + _d.x * rr;
+    positions[i * 3 + 1] = c.y + _d.y * rr;
+    positions[i * 3 + 2] = c.z + _d.z * rr;
 
     const inner = 1 - rr / CLUMP_R; // 1 at core .. 0 at edge
     // restrained warmth; only the very cores punch past 1.0 so a few points
     // bloom without the whole clump washing to white
     const b = 0.13 * (0.4 + 0.6 * inner) + Math.pow(inner, 4) * 0.55;
-    colors[i * 3] = (_colGold.r + (_colGoldHot.r - _colGold.r) * inner) * b;
-    colors[i * 3 + 1] = (_colGold.g + (_colGoldHot.g - _colGold.g) * inner) * b;
-    colors[i * 3 + 2] = (_colGold.b + (_colGoldHot.b - _colGold.b) * inner) * b;
+    colors[i * 3] = (base.r + (hot.r - base.r) * inner) * b;
+    colors[i * 3 + 1] = (base.g + (hot.g - base.g) * inner) * b;
+    colors[i * 3 + 2] = (base.b + (hot.b - base.b) * inner) * b;
 
-    sizes[i] = 120 + 260 * Math.random();
+    sizes[i] = w.sizeMin + w.sizeAdd * Math.random();
   }
-  return makeCloud({
+  return makeCloud(mats, cfg.intensity, {
     positions, colors, sizes,
     frag: gasFrag,
     blending: THREE.AdditiveBlending,
@@ -269,9 +293,10 @@ function starColor(out) {
   return out;
 }
 
-function buildStars() {
-  const N = C.NEBULA_STAR_COUNT;
-  const R = C.NEBULA_FIELD_RADIUS;
+function buildStars(cfg, gasPositions, mats) {
+  const s = cfg.stars;
+  const N = s.count;
+  const R = cfg.radius;
   const gasN = gasPositions ? gasPositions.length / 3 : 0;
 
   const positions = new Float32Array(N * 3);
@@ -279,12 +304,12 @@ function buildStars() {
   const sizes = new Float32Array(N);
   for (let i = 0; i < N; i++) {
     if (gasN > 0 && Math.random() < 0.7) {
-      const g = (Math.floor(Math.random() * gasN)) * 3;
+      const gi = Math.floor(Math.random() * gasN) * 3;
       randDir(_d);
       const j = 0.05 * R * Math.random();
-      positions[i * 3] = gasPositions[g] + _d.x * j;
-      positions[i * 3 + 1] = gasPositions[g + 1] + _d.y * j;
-      positions[i * 3 + 2] = gasPositions[g + 2] + _d.z * j;
+      positions[i * 3] = gasPositions[gi] + _d.x * j;
+      positions[i * 3 + 1] = gasPositions[gi + 1] + _d.y * j;
+      positions[i * 3 + 2] = gasPositions[gi + 2] + _d.z * j;
     } else {
       randDir(_d);
       const rad = R * Math.pow(Math.random(), 0.5);
@@ -297,9 +322,9 @@ function buildStars() {
     colors[i * 3] = _star.r * b;
     colors[i * 3 + 1] = _star.g * b;
     colors[i * 3 + 2] = _star.b * b;
-    sizes[i] = 20 + 45 * Math.random();
+    sizes[i] = s.sizeMin + s.sizeAdd * Math.random();
   }
-  return makeCloud({
+  return makeCloud(mats, cfg.intensity, {
     positions, colors, sizes,
     frag: gasFrag,
     blending: THREE.AdditiveBlending,
@@ -308,12 +333,13 @@ function buildStars() {
 }
 
 // Dark dust along the spine — NormalBlending, drawn last, so it occludes the
-// bright gas behind it and gives the nebula its dense black central mass.
-function buildDust() {
-  const N = C.NEBULA_DUST_COUNT;
-  if (N <= 0) return null;
-  const R = C.NEBULA_FIELD_RADIUS;
-  const CORE_R = 0.18 * R;
+// bright gas behind it and gives the nebula its dense central mass.
+function buildDust(cfg, spine, mats) {
+  const d = cfg.dust;
+  const N = d.count;
+  const R = cfg.radius;
+  const CORE_R = d.coreR * R;
+  const col = new THREE.Color(d.color);
 
   const positions = new Float32Array(N * 3);
   const colors = new Float32Array(N * 3);
@@ -321,7 +347,7 @@ function buildDust() {
   const _s = new THREE.Vector3();
   for (let i = 0; i < N; i++) {
     const t = Math.random();
-    spineAt(t, _s);
+    spineAt(spine, t, _s);
     randDir(_d);
     const rr = CORE_R * Math.pow(Math.random(), 0.7);
     positions[i * 3] = _s.x + _d.x * rr;
@@ -329,40 +355,60 @@ function buildDust() {
     positions[i * 3 + 2] = _s.z + _d.z * rr;
 
     const v = 0.7 + 0.6 * Math.random(); // faint value variation
-    colors[i * 3] = _colDust.r * v;
-    colors[i * 3 + 1] = _colDust.g * v;
-    colors[i * 3 + 2] = _colDust.b * v;
+    colors[i * 3] = col.r * v;
+    colors[i * 3 + 1] = col.g * v;
+    colors[i * 3 + 2] = col.b * v;
 
     sizes[i] = 150 + 350 * Math.random();
   }
-  return makeCloud({
+  return makeCloud(mats, cfg.intensity, {
     positions, colors, sizes,
     frag: dustFrag,
     blending: THREE.NormalBlending,
     renderOrder: -1,
-    opacity: C.NEBULA_DUST_OPACITY,
+    opacity: d.opacity,
   });
 }
 
-export function initDeepNebula(scene) {
+function buildNebula(cfg) {
   const group = new THREE.Group();
-  group.position.copy(FIELD_DIR).multiplyScalar(C.NEBULA_FIELD_DISTANCE);
+  group.position
+    .set(cfg.dir[0], cfg.dir[1], cfg.dir[2])
+    .normalize()
+    .multiplyScalar(cfg.distance);
 
-  const gas = buildGas();
-  const warm = buildWarm();
-  const stars = buildStars();
-  const dust = buildDust();
-  group.add(gas, warm, stars);
-  if (dust) group.add(dust);
+  const spine = buildSpine(cfg);
+  const mats = [];
 
-  scene.add(group);
-  addShiftable(group); // floating-origin: the field moves with the world
+  const gas = buildGas(cfg, spine, mats);
+  group.add(gas.points);
+  if (cfg.warm && cfg.warm.count > 0) group.add(buildWarm(cfg, spine, mats));
+  group.add(buildStars(cfg, gas.gasPositions, mats));
+  if (cfg.dust && cfg.dust.count > 0) group.add(buildDust(cfg, spine, mats));
 
-  // Gentle, always-escapable pull. No radius: never opts into the altitude
-  // floor or heat systems — a nebula is not a hazard (cf. the black hole).
-  addBody({ position: group.position, mass: C.NEBULA_FIELD_MASS });
+  return { group, mats };
+}
 
-  deepNebula.group = group;
+export function initDeepNebula(scene) {
+  for (const cfg of NEBULAE) {
+    const { group, mats } = buildNebula(cfg);
+    scene.add(group);
+    addShiftable(group); // floating-origin: the field moves with the world
+
+    // Gentle, always-escapable pull. No radius: never opts into the altitude
+    // floor or heat systems — a nebula is not a hazard (cf. the black hole).
+    if (cfg.mass > 0) addBody({ position: group.position, mass: cfg.mass });
+
+    deepNebulae.push({
+      id: cfg.id,
+      name: cfg.name,
+      group,
+      navColor: cfg.navColor,
+      logDist: cfg.logDist || C.NEBULA_LOG_DIST,
+      mats,
+      intensity: cfg.intensity,
+    });
+  }
 }
 
 const _size = new THREE.Vector2();
@@ -373,9 +419,12 @@ export function updateDeepNebula(renderer, camera) {
   renderer.getSize(_size);
   const scale = 0.5 * _size.y / Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5);
   const pr = renderer.getPixelRatio();
-  for (const m of deepNebula.mats) {
-    m.uniforms.uScale.value = scale;
-    m.uniforms.uPixelRatio.value = pr;
-    m.uniforms.uIntensity.value = C.NEBULA_FIELD_INTENSITY;
+  for (const n of deepNebulae) {
+    const intensity = n.intensity * C.NEBULA_FIELD_INTENSITY;
+    for (const m of n.mats) {
+      m.uniforms.uScale.value = scale;
+      m.uniforms.uPixelRatio.value = pr;
+      m.uniforms.uIntensity.value = intensity;
+    }
   }
 }
