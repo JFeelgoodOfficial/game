@@ -1,7 +1,7 @@
 // Space stations — procedural geometry, lit by the sun's directional light
 // (standard materials), with emissive accent strips that catch the bloom.
 // No gravity, no collision (GDD 1.2): scenery you can fly around and
-// through. Seven of them:
+// through. Eight of them:
 //   - Port Feelgood: a 1.4km open-truss drydock between terra and oceana —
 //     the bore is a wide open tunnel you fly straight through, past lit
 //     docking bays and a handful of parked ships.
@@ -13,6 +13,9 @@
 //   - Foundry Anchorage: a mining rig built around an asteroid off rustia —
 //     beams carve at glowing excavation pits, a debris stream rises to the
 //     hopper, and two shuttles loop between the rock face and the dock.
+//   - Orbital Art Gallery: a cultural hub in a wide terra orbit — a ringed
+//     docking spine leads to a glass Grand Hall tower whose balcony levels
+//     hang the owner's art collection (images from /artgallery).
 
 import * as THREE from 'three';
 import { C } from './constants.js';
@@ -449,6 +452,240 @@ function miningStation() {
   return { group: g, anim };
 }
 
+// --- Orbital Art Gallery: the cultural hub ---
+// A ringed docking spine (open bore, flythrough like Port Feelgood at a
+// fifth of the scale) runs into a tall tapered Grand Hall tower: a glazed
+// atrium where four balcony levels hang the owner's art collection on lit
+// panels. Brass-gold placards mark the approach and the entrance arch.
+
+// the owner's art: drop images into /artgallery at the repo root and they
+// hang themselves on the panels (alphabetical, cycling across 32 slots);
+// empty slots get a procedural placeholder — same contract as the corridor
+// pictures in interior.js
+const galleryArtUrls = Object.entries(
+  import.meta.glob('/artgallery/*.{png,jpg,jpeg,webp}', {
+    eager: true,
+    query: '?url',
+    import: 'default',
+  })
+)
+  .sort(([a], [b]) => (a < b ? -1 : 1))
+  .map(([, url]) => url);
+
+const artLoader = new THREE.TextureLoader();
+const galleryTexCache = new Map(); // url -> texture, so 32 slots share loads
+
+function galleryTexture(url) {
+  let tex = galleryTexCache.get(url);
+  if (!tex) {
+    tex = artLoader.load(url);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    galleryTexCache.set(url, tex);
+  }
+  return tex;
+}
+
+function galleryPlaceholder(seed) {
+  const cv = document.createElement('canvas');
+  cv.width = 256;
+  cv.height = 180;
+  const ctx = cv.getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 0, 180);
+  grad.addColorStop(0, '#141a26');
+  grad.addColorStop(1, '#0a0d14');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 180);
+  // a scatter of stars, deterministic per panel slot
+  ctx.fillStyle = '#9fb4cc';
+  for (let i = 0; i < 40; i++) {
+    const h = Math.sin(seed * 37.7 + i * 12.9898) * 43758.5453;
+    const h2 = Math.sin(seed * 51.3 + i * 78.233) * 24634.6345;
+    const x = (h - Math.floor(h)) * 256;
+    const y = (h2 - Math.floor(h2)) * 150;
+    ctx.globalAlpha = 0.25 + ((h * 7) % 1) * 0.6;
+    ctx.fillRect(x, y, 1.5, 1.5);
+  }
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = '#d4af6a';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(10, 10, 236, 160);
+  ctx.fillStyle = '#5a6a80';
+  ctx.font = '13px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('ORBITAL ART GALLERY', 128, 85);
+  ctx.font = '10px monospace';
+  ctx.fillText('add images to artgallery/', 128, 105);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// brass-gold accent — the gallery's signage color, nothing else uses it
+const brassMat = new THREE.MeshBasicMaterial({ color: 0xd4af6a });
+
+function orbitalArtGalleryStation() {
+  const g = new THREE.Group();
+
+  // docking spine: the open bore runs down local Z into the tower. Nothing
+  // occludes the gap between the spine (r 6) and the ring trusses (r 34) —
+  // thread it like Port Feelgood's bore at a fifth of the scale.
+  const spine = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, 260, 12), hullMat);
+  spine.rotation.x = Math.PI / 2;
+  spine.position.z = -20; // spans z -150..110, meeting the tower's base
+  g.add(spine);
+
+  // four ring trusses along the spine; the torus already lies in XY so it
+  // faces the bore. Collected for anim — each gets an independent micro-roll.
+  const rings = [];
+  [-90, -30, 40, 100].forEach((z, i) => {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(34, 3, 8, 24), darkMat);
+    ring.position.z = z;
+    g.add(ring);
+    rings.push(ring);
+    // solar wing pairs on alternating rings, parented so they ride the roll
+    if (i % 2 === 0) {
+      for (const s of [-1, 1]) {
+        const wing = new THREE.Mesh(new THREE.BoxGeometry(70, 1, 18), panelMat);
+        wing.position.x = s * 52;
+        ring.add(wing);
+      }
+    }
+  });
+
+  // approach placard over the spine — stands in for "ORBITAL ART GALLERY ·
+  // EST 2042 · CULTURAL HUB"
+  const placard = new THREE.Mesh(new THREE.BoxGeometry(40, 4, 1), brassMat);
+  placard.position.set(0, 12, 78);
+  g.add(placard);
+
+  // Grand Hall tower: a tapered open-ended shell standing vertical at the
+  // spine's +Z end. DoubleSide so the interior wall renders for visitors;
+  // the glazing band floats just outside it as translucent glass so the
+  // atrium reads as a lit glass tower rather than bare metal.
+  const tower = new THREE.Group();
+  tower.position.set(0, 50, 150); // base at y -40, crown at y 140
+  g.add(tower);
+  const shellMat = new THREE.MeshStandardMaterial({
+    color: 0x9aa2ad,
+    roughness: 0.55,
+    metalness: 0.75,
+    side: THREE.DoubleSide,
+  });
+  const shell = new THREE.Mesh(new THREE.CylinderGeometry(70, 55, 180, 16, 1, true), shellMat);
+  tower.add(shell);
+  const glassMat = new THREE.MeshBasicMaterial({
+    color: 0xbfe8ff,
+    transparent: true,
+    opacity: 0.25,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const glazing = new THREE.Mesh(new THREE.CylinderGeometry(72, 57, 176, 16, 1, true), glassMat);
+  tower.add(glazing);
+
+  // exterior glass-grid read: vertical mullions leaning with the taper, a
+  // lit window band at each balcony level, and a glowing crown ring — from
+  // outside the tower reads as an inhabited glass atrium, not bare hull
+  const towerR = (y) => 55 + ((y + 90) / 180) * 15; // shell radius at local y
+  const lean = Math.atan(15 / 180); // taper angle
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const mullion = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 181, 6), darkMat);
+    mullion.position.set(Math.cos(a) * 63, 0, Math.sin(a) * 63);
+    mullion.quaternion.setFromAxisAngle(
+      new THREE.Vector3(-Math.sin(a), 0, Math.cos(a)),
+      -lean
+    );
+    tower.add(mullion);
+  }
+  for (const y of [-70, -35, 0, 35]) {
+    const band = new THREE.Mesh(
+      new THREE.CylinderGeometry(towerR(y) + 1.2, towerR(y) + 1.2, 2.5, 16, 1, true),
+      windowMat
+    );
+    band.position.y = y + 9; // level with the hung art inside
+    tower.add(band);
+  }
+  const crown = new THREE.Mesh(new THREE.TorusGeometry(70, 1.6, 6, 32), glowMat);
+  crown.rotation.x = Math.PI / 2;
+  crown.position.y = 90;
+  tower.add(crown);
+
+  // the gallery's marquee on the tower face above the entrance
+  const marquee = new THREE.Mesh(new THREE.BoxGeometry(30, 5, 1), brassMat);
+  marquee.position.set(0, -5, -64);
+  tower.add(marquee);
+
+  // entrance arch at the base facing the spine, with the GRAND HALL placard
+  const arch = new THREE.Mesh(new THREE.TorusGeometry(20, 2, 8, 16, Math.PI), glowMat);
+  arch.position.set(0, -50, -58);
+  tower.add(arch);
+  const hallSign = new THREE.Mesh(new THREE.BoxGeometry(24, 3, 1), brassMat);
+  hallSign.position.set(0, -26, -58);
+  tower.add(hallSign);
+
+  // four balcony levels, each hanging eight art panels angled at the atrium
+  // axis. Fixed angular steps — deterministic, resets rebuild the same hang.
+  let slot = 0;
+  for (const y of [-70, -35, 0, 35]) {
+    const balcony = new THREE.Mesh(new THREE.TorusGeometry(50, 4, 6, 20), panelMat);
+    balcony.rotation.x = Math.PI / 2;
+    balcony.position.y = y;
+    tower.add(balcony);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const k = slot++;
+      const tex = galleryArtUrls.length
+        ? galleryTexture(galleryArtUrls[k % galleryArtUrls.length])
+        : galleryPlaceholder(k + 1);
+      const art = new THREE.Mesh(
+        new THREE.PlaneGeometry(10, 7),
+        new THREE.MeshBasicMaterial({ map: tex })
+      );
+      art.position.set(Math.cos(a) * 44, y + 9, Math.sin(a) * 44);
+      art.rotation.y = -a - Math.PI / 2; // face the atrium axis
+      tower.add(art);
+      // lit frame just behind the art so each piece reads as an exhibit
+      const frame = new THREE.Mesh(new THREE.PlaneGeometry(10.8, 7.8), glowMat);
+      frame.position.set(Math.cos(a) * 44.4, y + 9, Math.sin(a) * 44.4);
+      frame.rotation.y = art.rotation.y;
+      tower.add(frame);
+    }
+  }
+
+  // interior work lights — the sun can't reach past the glazing, so without
+  // these the balconies read as silhouettes (Port Feelgood convention)
+  for (const y of [-30, 60]) {
+    const lamp = new THREE.PointLight(0xfff2d8, 2.4, 300, 1.6);
+    lamp.position.y = y;
+    tower.add(lamp);
+  }
+
+  // dressing: a shuttle at the forward berth, two patrol craft off the crown
+  const berth = dockedShip(1.1, 0xd4af6a);
+  berth.position.set(16, 5, 60);
+  berth.rotation.y = 0.15;
+  g.add(berth);
+  const patrolA = dockedShip(0.7, 0xbfe8ff);
+  patrolA.position.set(95, 125, 150);
+  patrolA.rotation.set(0.1, 1.9, 0.05);
+  g.add(patrolA);
+  const patrolB = dockedShip(0.7, 0xbfe8ff);
+  patrolB.position.set(-88, 100, 178);
+  patrolB.rotation.set(-0.08, -0.7, 0.1);
+  g.add(patrolB);
+
+  // ring trusses roll independently of the hull spin, rates staggered so
+  // the spine reads alive on approach
+  function anim(t) {
+    for (let i = 0; i < rings.length; i++) {
+      rings[i].rotation.z = t * (0.02 + i * 0.005);
+    }
+  }
+
+  return { group: g, anim };
+}
+
 export function initStations(scene) {
   // Anchor planets are looked up by name, not raw index — CONFIGS order
   // shifts when planets are inserted (wavemall prime once bumped saturnia
@@ -533,6 +770,18 @@ export function initStations(scene) {
     offset: new THREE.Vector3(-3000, 800, 2200),
     planetIndex: idx('rustia'),
     anim: foundry.anim,
+  });
+
+  // Orbital Art Gallery: the cultural hub in a wide, stately terra orbit —
+  // outside Meridian Ring's lane (radius 2600) so the two never crowd.
+  const gallery = orbitalArtGalleryStation();
+  stations.push({
+    group: gallery.group,
+    name: 'Orbital Art Gallery',
+    logDist: 1600,
+    spin: 0.015,
+    orbit: { planetIndex: idx('terra'), radius: 3400, rate: 0.007, phase: 4.2 },
+    anim: gallery.anim,
   });
 
   for (const s of stations) {
