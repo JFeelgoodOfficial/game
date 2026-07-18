@@ -526,6 +526,40 @@ function galleryPlaceholder(seed) {
 // brass-gold accent — the gallery's signage color, nothing else uses it
 const brassMat = new THREE.MeshBasicMaterial({ color: 0xd4af6a });
 
+// A lit signage plate: dark backing, gold border, gold lettering — the
+// station's exterior name ("ORBITAL ART GALLERY"). Drawn to a canvas so it's
+// real text, not a stand-in bar. MeshBasicMaterial keeps it legible against
+// space; the gold (0xd4af6a, max channel ~0.83) sits just under the bloom
+// threshold so it reads as a sign, not a flare.
+function gallerySignTexture(line1, line2, wPx = 1024, hPx = 256) {
+  const cv = document.createElement('canvas');
+  cv.width = wPx;
+  cv.height = hPx;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#0a0d14';
+  ctx.fillRect(0, 0, wPx, hPx);
+  ctx.strokeStyle = '#d4af6a';
+  ctx.lineWidth = Math.round(hPx * 0.028);
+  const m = hPx * 0.07;
+  ctx.strokeRect(m, m, wPx - m * 2, hPx - m * 2);
+  ctx.fillStyle = '#d4af6a';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if (line2) {
+    ctx.font = `bold ${Math.round(hPx * 0.32)}px Georgia, "Times New Roman", serif`;
+    ctx.fillText(line1, wPx / 2, hPx * 0.4);
+    ctx.font = `${Math.round(hPx * 0.13)}px Georgia, serif`;
+    ctx.fillText(line2, wPx / 2, hPx * 0.72);
+  } else {
+    ctx.font = `bold ${Math.round(hPx * 0.5)}px Georgia, "Times New Roman", serif`;
+    ctx.fillText(line1, wPx / 2, hPx * 0.55);
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
 // interior surfaces are seen from both sides (decks from below, ramps from
 // everywhere), so they get their own double-sided variants of the house look
 const deckMat = new THREE.MeshStandardMaterial({
@@ -616,11 +650,17 @@ function orbitalArtGalleryStation() {
     }
   });
 
-  // approach placard over the spine — stands in for "ORBITAL ART GALLERY ·
-  // EST 2042 · CULTURAL HUB"
-  const placard = new THREE.Mesh(new THREE.BoxGeometry(40, 4, 1), brassMat);
-  placard.position.set(0, 12, 78);
-  g.add(placard);
+  // approach placard over the spine, facing back down the bore — you read
+  // the name as you line up your final approach through the ring trusses
+  const approachSign = new THREE.Mesh(
+    new THREE.PlaneGeometry(48, 12),
+    new THREE.MeshBasicMaterial({
+      map: gallerySignTexture('ORBITAL ART GALLERY', 'EST 2042 · CULTURAL HUB', 1024, 256),
+      side: THREE.DoubleSide,
+    })
+  );
+  approachSign.position.set(0, 14, 78);
+  g.add(approachSign);
 
   // Grand Hall tower: a tapered open-ended shell standing vertical at the
   // spine's +Z end. DoubleSide so the interior wall renders for visitors;
@@ -675,17 +715,31 @@ function orbitalArtGalleryStation() {
   crown.position.y = 90;
   tower.add(crown);
 
-  // the gallery's marquee on the tower face above the entrance
-  const marquee = new THREE.Mesh(new THREE.BoxGeometry(30, 5, 1), brassMat);
-  marquee.position.set(0, -5, -64);
-  tower.add(marquee);
+  // the gallery's name on the tower flanks — big lit plates on three sides
+  // (toward the bore, and both broad faces) so it reads from most approach
+  // angles. One shared texture, three planes.
+  const towerSignMat = new THREE.MeshBasicMaterial({
+    map: gallerySignTexture('ORBITAL ART GALLERY', 'EST 2042 · CULTURAL HUB', 1024, 256),
+  });
+  for (const a of [-Math.PI / 2, 0, Math.PI]) {
+    const y = 5;
+    const r = towerR(y) + 3.5;
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(46, 11.5), towerSignMat);
+    sign.position.set(Math.cos(a) * r, y, Math.sin(a) * r);
+    sign.rotation.y = Math.PI / 2 - a; // outward-facing at this azimuth
+    tower.add(sign);
+  }
 
-  // entrance arch at the base facing the spine, with the GRAND HALL placard
+  // entrance arch at the base facing the spine, with the GRAND HALL sign
   const arch = new THREE.Mesh(new THREE.TorusGeometry(20, 2, 8, 16, Math.PI), glowMat);
   arch.position.set(0, -50, -58);
   tower.add(arch);
-  const hallSign = new THREE.Mesh(new THREE.BoxGeometry(24, 3, 1), brassMat);
-  hallSign.position.set(0, -26, -58);
+  const hallSign = new THREE.Mesh(
+    new THREE.PlaneGeometry(26, 8),
+    new THREE.MeshBasicMaterial({ map: gallerySignTexture('GRAND HALL', null, 512, 160) })
+  );
+  hallSign.position.set(0, -26, -61);
+  hallSign.rotation.y = Math.PI; // face the bore, above the arch
   tower.add(hallSign);
 
   // ---- walkable interior (foot scale; layout numbers in galleryLayout.js,
@@ -1020,26 +1074,38 @@ export function initStations(scene) {
 }
 
 // The dockable-station lookup for game.js's G gate and stationWalk.js's
-// undock math: world-space berth point of the nearest station with a dock
-// entry. The returned berth vector is module scratch — copy, don't keep.
+// undock math. `dist` is to the NEAREST of the station's two anchors — the
+// spine (group origin) and the tower center — not the small berth point, so
+// pressing G anywhere alongside the ~400u-long station docks (the whole hard
+// part of "where do I dock" was aiming at an invisible spot). The returned
+// berth vector is module scratch — copy, don't keep.
 const _berthW = new THREE.Vector3();
+const _anchorW = new THREE.Vector3();
 const _yUpV = new THREE.Vector3(0, 1, 0);
 export function nearestDockableStation(shipPos) {
   let bestS = null;
   let bestD = Infinity;
   for (const s of stations) {
     if (!s.dock) continue;
-    _berthW
-      .set(s.dock.berthLocal.x, s.dock.berthLocal.y, s.dock.berthLocal.z)
+    // spine anchor (the group origin sits on the docking spine)
+    let d = s.group.position.distanceTo(shipPos);
+    // tower anchor (the Grand Hall is 150u down +Z from the origin)
+    _anchorW
+      .set(0, 50, 150)
       .applyAxisAngle(_yUpV, s.group.rotation.y)
       .add(s.group.position);
-    const d = _berthW.distanceTo(shipPos);
+    d = Math.min(d, _anchorW.distanceTo(shipPos));
     if (d < bestD) {
       bestD = d;
       bestS = s;
     }
   }
-  return bestS ? { station: bestS, dist: bestD, berth: _berthW } : null;
+  if (!bestS) return null;
+  _berthW
+    .set(bestS.dock.berthLocal.x, bestS.dock.berthLocal.y, bestS.dock.berthLocal.z)
+    .applyAxisAngle(_yUpV, bestS.group.rotation.y)
+    .add(bestS.group.position);
+  return { station: bestS, dist: bestD, berth: _berthW };
 }
 
 // Animation is invisible well before a station shrinks to a few pixels —

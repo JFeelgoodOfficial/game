@@ -148,7 +148,7 @@ export const C = {
   // G near the gallery's berth docks the ship; inside, the same walk controls
   // run in the station's flat local frame under gentle artificial gravity.
   // G at the airlock (or the parked ship) undocks.
-  STATION_DOCK_RANGE: 90.0, // G — DOCK allowed within this of the berth point
+  STATION_DOCK_RANGE: 300.0, // G — DOCK allowed within this of the station (measured to the nearest of its spine/tower anchors, so flying anywhere near it works)
   STATION_GRAVITY_SCALE: 0.3, // low-g inside the station (x WALK_GRAVITY)
   STATION_AIRLOCK_RADIUS: 4.0, // G — UNDOCK within this of the airlock pad
   STATION_UNDOCK_OFFSET: 60.0, // ship reappears this far off the spine
