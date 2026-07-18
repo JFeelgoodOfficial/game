@@ -450,6 +450,11 @@ function miningStation() {
 }
 
 export function initStations(scene) {
+  // Anchor planets are looked up by name, not raw index — CONFIGS order
+  // shifts when planets are inserted (wavemall prime once bumped saturnia
+  // and neptunia, stranding two stations off the wrong worlds).
+  const idx = (name) => planets.findIndex((p) => p.cfg.name === name);
+
   // Port Feelgood: parked on the terra→oceana run, bore aimed down the
   // route so travellers fly straight through. No spin — the fixed
   // orientation is the point (spin would swing the tunnel off the route).
@@ -462,7 +467,7 @@ export function initStations(scene) {
     logDist: 3500,
     spin: 0,
     offset: route.clone().multiplyScalar(6000),
-    planetIndex: 0,
+    planetIndex: idx('terra'),
   });
 
   // Meridian Ring: slow orbit around terra, high above the atmosphere.
@@ -472,7 +477,7 @@ export function initStations(scene) {
     name: 'Meridian Ring',
     logDist: 1600,
     spin: 0.05,
-    orbit: { planetIndex: 0, radius: 2600, rate: 0.01, phase: 1.2 },
+    orbit: { planetIndex: idx('terra'), radius: 2600, rate: 0.01, phase: 1.2 },
   });
 
   // Auric Platform: parked off Saturnia, above the ring plane.
@@ -483,7 +488,7 @@ export function initStations(scene) {
     logDist: 1600,
     spin: 0.012,
     offset: new THREE.Vector3(4200, 2200, -900),
-    planetIndex: 4,
+    planetIndex: idx('saturnia'),
   });
 
   // Relay KX-7: deep space, roughly halfway to the black hole.
@@ -501,7 +506,7 @@ export function initStations(scene) {
     logDist: 1600,
     spin: -0.06,
     offset: new THREE.Vector3(1800, 950, -420),
-    planetIndex: 2,
+    planetIndex: idx('glacia'),
   });
 
   // Halcyon Platform: a survey platform in neptunia's shadow.
@@ -513,7 +518,7 @@ export function initStations(scene) {
     logDist: 1600,
     spin: 0.02,
     offset: new THREE.Vector3(2600, -1300, 900),
-    planetIndex: 5,
+    planetIndex: idx('neptunia'),
   });
 
   // Foundry Anchorage: the asteroid mine, anchored off rustia — the iron
@@ -526,7 +531,7 @@ export function initStations(scene) {
     logDist: 1600,
     spin: 0,
     offset: new THREE.Vector3(-3000, 800, 2200),
-    planetIndex: 3,
+    planetIndex: idx('rustia'),
     anim: foundry.anim,
   });
 
