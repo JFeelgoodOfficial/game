@@ -143,6 +143,103 @@ function gradientTexture(top, bottom) {
   return tex;
 }
 
+// Subtle digit glyph stamped into a 2D canvas context (PDD §3 motif — a quiet
+// reward, never labeled). Low-contrast outline so it reads as texture, not a
+// sign. Caller sets composite/alpha before calling.
+function drawGlyph(g, digit, cx, cy, size, color, alpha = 0.14) {
+  g.save();
+  g.globalAlpha = alpha;
+  g.strokeStyle = color;
+  g.lineWidth = Math.max(2, size * 0.09);
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = `bold ${size}px Georgia, serif`;
+  g.strokeText(String(digit), cx, cy);
+  g.restore();
+}
+
+// Tileable stone/terrazzo paving for the terrace and interior floors.
+function pavingTexture(base, fleck, rng) {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = base; g.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 240; i++) {
+    g.fillStyle = i % 2 ? fleck : '#00000018';
+    const r = 0.6 + rng() * 2.2;
+    g.beginPath(); g.arc(rng() * 128, rng() * 128, r, 0, 6.28); g.fill();
+  }
+  g.strokeStyle = '#00000022'; g.lineWidth = 1.5;
+  for (let k = 0; k <= 128; k += 32) { g.beginPath(); g.moveTo(0, k); g.lineTo(128, k); g.moveTo(k, 0); g.lineTo(k, 128); g.stroke(); }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+// Colorful spray-art panel for Zone 1's alley (seeded blobs, arcs, tags).
+function graffitiTexture(rng, glyphDigit) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#26221e'; g.fillRect(0, 0, 256, 256);
+  const hues = [];
+  for (let i = 0; i < 7; i++) hues.push(Math.floor(rng() * 360));
+  for (let i = 0; i < 22; i++) {
+    g.globalAlpha = 0.55 + rng() * 0.45;
+    g.fillStyle = `hsl(${hues[i % hues.length]},80%,55%)`;
+    const x = rng() * 256, y = rng() * 256;
+    if (rng() < 0.5) { g.beginPath(); g.arc(x, y, 8 + rng() * 34, 0, 6.28); g.fill(); }
+    else {
+      g.strokeStyle = g.fillStyle; g.lineWidth = 4 + rng() * 10; g.beginPath();
+      g.moveTo(x, y); g.bezierCurveTo(x + 40, y - 60, x + 90, y + 50, x + 130, y - 20); g.stroke();
+    }
+  }
+  g.globalAlpha = 1;
+  if (glyphDigit != null) drawGlyph(g, glyphDigit, 128, 128, 150, '#ffffff', 0.1);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Chalk menu board (dark slate + scrawled lines; an optional hidden glyph).
+function menuBoardTexture(glyphDigit) {
+  const c = document.createElement('canvas');
+  c.width = 192; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#161c18'; g.fillRect(0, 0, 192, 256);
+  g.strokeStyle = '#6a5a3a'; g.lineWidth = 6; g.strokeRect(6, 6, 180, 244);
+  g.fillStyle = '#e8e2d0'; g.font = 'bold 22px Georgia, serif'; g.textAlign = 'center';
+  g.fillText('CAFÉ', 96, 40);
+  g.strokeStyle = '#cfc7b4'; g.lineWidth = 3;
+  for (let i = 0; i < 7; i++) {
+    const y = 74 + i * 24;
+    g.beginPath(); g.moveTo(24, y); g.lineTo(24 + 60 + Math.sin(i) * 40, y); g.stroke();
+    g.beginPath(); g.moveTo(150, y); g.lineTo(168, y); g.stroke();
+  }
+  if (glyphDigit != null) drawGlyph(g, glyphDigit, 96, 150, 150, '#ffffff', 0.16);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Lit-window facade (rows of warm/cool glowing windows) for Zone 1's city edge.
+function facadeTexture(rng) {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#1c1e24'; g.fillRect(0, 0, 128, 256);
+  for (let y = 12; y < 248; y += 26) {
+    for (let x = 12; x < 116; x += 26) {
+      g.fillStyle = rng() < 0.5 ? '#ffd98a' : (rng() < 0.5 ? '#8aa6d8' : '#2a2c33');
+      g.fillRect(x, y, 16, 18);
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 // Portal sign: the digit glyph + its word, glowing warm on dark. Used on the
 // hub arches (a quiet reward for players tracking the cipher).
 function signTexture(digit, word) {
@@ -332,26 +429,31 @@ function buildHub(rng) {
   group.name = 'actuality.hub';
   const geos = [];
   const mats = [];
+  const texs = [];
   const lights = [];
-  const track = (g, m) => { geos.push(g); mats.push(m); };
 
   const woodMat = new THREE.MeshStandardMaterial({ color: AC.COL_WOOD, roughness: 0.85 });
-  const stoneMat = new THREE.MeshStandardMaterial({ color: AC.COL_STONE, roughness: 0.9 });
-  mats.push(woodMat, stoneMat);
+  const woodDark = new THREE.MeshStandardMaterial({ color: 0x4a3524, roughness: 0.9 });
+  const porcelain = new THREE.MeshStandardMaterial({ color: 0xf2ede0, roughness: 0.4 });
+  mats.push(woodMat, woodDark, porcelain);
 
-  const addBox = (w, h, d, x, y, z, mat) => {
+  const addBox = (w, h, d, x, y, z, mat, ry = 0) => {
     const g = new THREE.BoxGeometry(w, h, d);
     const m = new THREE.Mesh(g, mat);
-    m.position.set(x, y, z);
+    m.position.set(x, y, z); if (ry) m.rotation.y = ry;
     group.add(m);
     geos.push(g);
     return m;
   };
 
-  // Terrace floor: a thin stone slab, top at y=0 (flush with the anchor
+  // Terrace floor: a thin paved slab, top at y=0 (flush with the anchor
   // ground), extending below grade so edges never open a gap.
   const H = AC.HUB_FLOOR_HALF;
-  addBox(H * 2, 1.2, H * 2, 0, -0.6, 0, stoneMat);
+  const paveTex = pavingTexture('#cbbfa2', '#e6dcc0', rng);
+  paveTex.repeat.set(9, 9); texs.push(paveTex);
+  const floorMat = new THREE.MeshStandardMaterial({ map: paveTex, roughness: 0.92 });
+  mats.push(floorMat);
+  addBox(H * 2, 1.2, H * 2, 0, -0.6, 0, floorMat);
 
   // Café nook: back wall + two side returns, open toward -Z (the terrace).
   const wallMat = new THREE.MeshStandardMaterial({ color: 0xd8c8a8, roughness: 0.9 });
@@ -360,24 +462,74 @@ function buildHub(rng) {
   addBox(20, WH, 0.5, 0, WH / 2, BZ, wallMat);         // back
   addBox(0.5, WH, 6.5, -10, WH / 2, BZ - 3.25, wallMat); // left return
   addBox(0.5, WH, 6.5, 10, WH / 2, BZ - 3.25, wallMat);  // right return
-  // Awning over the nook (emissive-free wood beams + a warm canopy).
+  // Awning over the nook — striped canopy over wood beams.
   const canopyMat = new THREE.MeshStandardMaterial({ color: 0xb5654d, roughness: 0.8 });
   mats.push(canopyMat);
   addBox(20.5, 0.3, 8, 0, WH + 0.2, BZ - 4, canopyMat);
-  // Counter along the back.
+  for (let i = 0; i < 5; i++) addBox(0.18, 0.4, 8, -9 + i * 4.5, WH + 0.05, BZ - 4, woodDark);
+  // Counter along the back + an espresso machine + a chalk menu board.
   addBox(12, 1.1, 1.2, 0, 0.55, BZ - 1.2, woodMat);
+  const steelMat = new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.5 });
+  mats.push(steelMat);
+  addBox(1.3, 0.9, 0.9, 3.5, 1.55, BZ - 1.2, steelMat);
+  const boardTex = menuBoardTexture(0); // hidden 0 lives at the hub / café
+  texs.push(boardTex);
+  const boardMat = new THREE.MeshStandardMaterial({ map: boardTex, roughness: 0.9 });
+  mats.push(boardMat);
+  const boardGeo = new THREE.PlaneGeometry(1.5, 2.0);
+  const board = new THREE.Mesh(boardGeo, boardMat);
+  board.position.set(-6.5, 1.9, BZ - 0.3); board.rotation.y = Math.PI; geos.push(boardGeo);
+  group.add(board);
 
-  // A few tables + chairs on the terrace.
-  const tableAt = (x, z) => {
-    addBox(1.6, 0.12, 1.6, x, 0.78, z, woodMat);       // top
-    addBox(0.16, 0.78, 0.16, x, 0.39, z, woodMat);     // pedestal
+  // Low planters ringing the terrace edge with shrubs.
+  const planterMat = new THREE.MeshStandardMaterial({ color: 0x6b5138, roughness: 0.9 });
+  const shrubMat = new THREE.MeshStandardMaterial({ color: 0x4a6b3a, roughness: 0.85 });
+  mats.push(planterMat, shrubMat);
+  const shrubGeo = new THREE.SphereGeometry(0.7, 8, 6);
+  geos.push(shrubGeo);
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    const px = Math.sin(a) * (H - 2.2), pz = Math.cos(a) * (H - 2.2);
+    if (pz > BZ - 8) continue; // don't block the café nook
+    addBox(2.2, 0.7, 1.0, px, 0.35, pz, planterMat, a);
+    const s = new THREE.Mesh(shrubGeo, shrubMat);
+    s.position.set(px, 1.0, pz); s.scale.set(1, 0.8, 1); group.add(s);
+  }
+
+  // Tables + chairs on the terrace (chair = seat + back + legs).
+  const chairAt = (x, z, ry) => {
+    addBox(0.5, 0.08, 0.5, x, 0.5, z, woodDark, ry);
+    const bx = x - Math.sin(ry) * 0.22, bz = z - Math.cos(ry) * 0.22;
+    addBox(0.5, 0.6, 0.08, bx, 0.8, bz, woodDark, ry);
+  };
+  const tableAt = (x, z, withChairs = true) => {
+    addBox(1.6, 0.12, 1.6, x, 0.78, z, woodMat);
+    addBox(0.16, 0.78, 0.16, x, 0.39, z, woodMat);
+    if (withChairs) { chairAt(x, z + 1.1, 0); chairAt(x, z - 1.1, Math.PI); }
   };
   tableAt(-6, 9);   // She's table
   tableAt(5, 8);
-  tableAt(0, 4);
+  tableAt(0, 3.5);
+  tableAt(-8, 2);
+  tableAt(8, 1);
+  tableAt(4, -5);
 
-  // Warm string lights strung under the awning — emissive spheres over the
-  // bloom threshold so they glow. Kept few; more added visually if needed.
+  // The tea set on She's table (the "join me for a tea" motif): pot + 2 cups.
+  const potGeo = new THREE.CylinderGeometry(0.16, 0.2, 0.24, 10);
+  geos.push(potGeo);
+  const pot = new THREE.Mesh(potGeo, porcelain); pot.position.set(-6, 0.96, 9); group.add(pot);
+  addBox(0.28, 0.06, 0.06, -6.24, 0.96, 9, porcelain);       // spout
+  const cupGeo = new THREE.CylinderGeometry(0.09, 0.07, 0.11, 8);
+  geos.push(cupGeo);
+  for (const [cx, cz] of [[-6.4, 9.4], [-5.6, 8.6]]) {
+    const cup = new THREE.Mesh(cupGeo, porcelain); cup.position.set(cx, 0.9, cz); group.add(cup);
+  }
+  // A stray cup on two other tables.
+  for (const [cx, cz] of [[5.2, 8.2], [0, 3.7]]) {
+    const cup = new THREE.Mesh(cupGeo, porcelain); cup.position.set(cx, 0.9, cz); group.add(cup);
+  }
+
+  // Warm string lights under the awning + three hanging lanterns.
   const bulbGeo = new THREE.SphereGeometry(0.12, 8, 6);
   geos.push(bulbGeo);
   const bulbMat = new THREE.MeshStandardMaterial({
@@ -394,9 +546,18 @@ function buildHub(rng) {
   }
   bulbs.instanceMatrix.needsUpdate = true;
   group.add(bulbs);
+  const lanternGeo = new THREE.BoxGeometry(0.3, 0.4, 0.3);
+  geos.push(lanternGeo);
+  const lanternMat = new THREE.MeshStandardMaterial({
+    color: 0xffcf8a, emissive: 0xffb860, emissiveIntensity: 1.0, roughness: 0.5,
+  });
+  mats.push(lanternMat);
+  for (const lx of [-7, 0, 7]) {
+    const l = new THREE.Mesh(lanternGeo, lanternMat); l.position.set(lx, WH - 0.5, BZ - 7.4); group.add(l);
+  }
 
-  // Local lighting: two warm point lights + a soft warm ambient so the café
-  // reads at dawn regardless of the sun's true angle.
+  // Local lighting: warm point lights + a soft warm ambient (dawn regardless
+  // of the true sun angle).
   const key = new THREE.PointLight(AC.COL_WARM_LIGHT, 1.6, 60, 2.0);
   key.position.set(0, 5, BZ - 6);
   const fill = new THREE.PointLight(0xffe6c2, 0.9, 50, 2.0);
@@ -405,38 +566,62 @@ function buildHub(rng) {
   group.add(key, fill, amb);
   lights.push(key, fill, amb);
 
-  // Sky dome — large inward sphere with a cream→gold gradient, faint emissive
-  // so it glows softly at the horizon.
+  // Sky dome — cream→gold gradient.
   const domeTex = gradientTexture('#fbf1dc', '#e9c98c');
+  texs.push(domeTex);
   const domeGeo = new THREE.SphereGeometry(AC.DOME_RADIUS, 24, 16);
   const domeMat = new THREE.MeshBasicMaterial({ map: domeTex, side: THREE.BackSide, fog: false });
   const dome = new THREE.Mesh(domeGeo, domeMat);
   group.add(dome);
   geos.push(domeGeo); mats.push(domeMat);
 
-  // Collision: the café nook walls (with the terrace open). One structure in
-  // anchor-local space (ox=0, oz=0, baseY=0).
+  // Gentle breeze: leaves drifting slowly across the terrace.
+  const NL = 60;
+  const leafGeo = new THREE.PlaneGeometry(0.16, 0.16);
+  const leafMat = new THREE.MeshBasicMaterial({
+    color: 0xe0b060, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false,
+  });
+  const leaves = new THREE.InstancedMesh(leafGeo, leafMat, NL);
+  leaves.frustumCulled = false; group.add(leaves);
+  geos.push(leafGeo); mats.push(leafMat);
+  const lr = mulberry32(0x0eaf);
+  const lbase = [];
+  for (let i = 0; i < NL; i++) lbase.push({ x0: (lr() - 0.5) * H * 2, y: 0.5 + lr() * 5, z: (lr() - 0.5) * H * 2, ph: lr() * 6.28, sp: 0.3 + lr() * 0.5 });
+  const _lm = new THREE.Matrix4();
+
+  // Collision: the café nook walls (with the terrace open).
   const walls = [
     { x0: -10, x1: 10, z0: BZ - 0.25, z1: BZ + 0.25, y0: 0, y1: WH },
     { x0: -10.25, x1: -9.75, z0: BZ - 6.5, z1: BZ, y0: 0, y1: WH },
     { x0: 9.75, x1: 10.25, z0: BZ - 6.5, z1: BZ, y0: 0, y1: WH },
-    // counter (waist-high; blocks walking through it)
-    { x0: -6, x1: 6, z0: BZ - 1.8, z1: BZ - 0.6, y0: 0, y1: 1.1 },
+    { x0: -6, x1: 6, z0: BZ - 1.8, z1: BZ - 0.6, y0: 0, y1: 1.1 }, // counter
   ];
-  const surfaces = [
-    { x0: -H, x1: H, z0: -H, z1: H, y: 0 }, // the terrace floor
-  ];
+  const surfaces = [{ x0: -H, x1: H, z0: -H, z1: H, y: 0 }];
   const structure = makeStructure(0, 0, 0, surfaces, walls, H + 1);
+
+  function update(t) {
+    for (let i = 0; i < NL; i++) {
+      const b = lbase[i];
+      const x = b.x0 + ((t * b.sp * 3) % (H * 2 + 8)) - 4; // drift +X, wrap
+      const wx = x > H ? x - (H * 2 + 8) : x;
+      const y = b.y + Math.sin(t * 0.6 + b.ph) * 0.4;
+      _lm.makeRotationZ(t * 0.5 + b.ph);
+      _lm.setPosition(wx, y, b.z + Math.sin(t * 0.4 + b.ph) * 1.5);
+      leaves.setMatrixAt(i, _lm);
+    }
+    leaves.instanceMatrix.needsUpdate = true;
+  }
 
   return {
     group,
     structure,
     lights,
-    shePos: new THREE.Vector3(-6, 0, 10.4), // just in front of She's table
+    update,
+    shePos: new THREE.Vector3(-6, 0, 10.4),
     dispose() {
       for (const g of geos) g.dispose();
       for (const m of mats) m.dispose();
-      if (domeTex) domeTex.dispose();
+      for (const tx of texs) tx.dispose();
     },
   };
 }
@@ -537,6 +722,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     zg.name = `actuality.${meta.id}`;
     zg.position.copy(frame.pos);
     zg.quaternion.copy(frame.q);
+    zg.visible = false; // only the active zone renders (visibility gating)
     group.add(zg);
 
     // Landing-pad floor slab (top at y=0, extends below grade). Replace-ground
@@ -642,6 +828,21 @@ export function createActuality(planet, worldUp, opts = {}) {
   let activeZone = 'hub';
   const fade = { phase: 'idle', t: 0, target: 'hub', dest: null, heading: null };
   const _surf = new THREE.Vector3(); // scratch: player position in surface-local
+  let toastQueue = null; // {text, seconds} queued at blackout, drained by walk.js
+
+  function zoneTitle(id) {
+    if (id === 'hub') return 'THE CAFÉ';
+    if (id === 'mirror') return 'THE HYPER-HOLO-GRID';
+    const idx = Number(id.slice(1)) - 1;
+    return `${idx + 1} — ${ZONE_META[idx].word}`;
+  }
+
+  // Drained once per queued toast by the walk.js host (shadowreach pattern).
+  function pendingToast() {
+    const t = toastQueue;
+    toastQueue = null;
+    return t;
+  }
 
   // --- Cipher menu state ---
   let pendingDigit = null; // set via onOutcome after She's choice menu
@@ -918,6 +1119,13 @@ export function createActuality(planet, worldUp, opts = {}) {
           flags.visited[fade.target] = true;
           saveFlags(flags);
         }
+        // Only the active zone's group renders (its PointLights would otherwise
+        // bloat every forward-pass shader). The swap hides inside the blackout.
+        for (let i = 0; i < zoneList.length; i++) {
+          zoneList[i].group.visible = zoneList[i].id === activeZone;
+        }
+        // Zone-title toast, drained by the walk.js host (shadowreach pattern).
+        toastQueue = { text: zoneTitle(fade.target), seconds: 2.6 };
         if (zoneEnterCallbacks[fade.target]) zoneEnterCallbacks[fade.target]();
         fade.phase = 'in';
         fade.t = 0;
@@ -930,6 +1138,7 @@ export function createActuality(planet, worldUp, opts = {}) {
 
   function update(t, dt, playerPos, sunDot = 1) {
     for (let i = 0; i < figures.length; i++) figures[i].update(t);
+    hub.update(t); // hub breeze (always visible)
     // Per-zone animation (only the active zone runs; the rest hold still).
     for (let i = 0; i < zoneUpdaters.length; i++) zoneUpdaters[i](t, dt, playerPos);
     audioUpdate(t, dt);
@@ -1675,6 +1884,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     zg.name = 'actuality.mirror';
     zg.position.copy(frame.pos);
     zg.quaternion.copy(frame.q);
+    zg.visible = false; // visibility gating: rendered only while active
     group.add(zg);
 
     mirror = createMirrorRoom({ half: 4 });
@@ -1825,6 +2035,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     endInteract,
     onOutcome,
     consumeTeleport,
+    pendingToast,
     preRender,
     debug,
     probeGround,

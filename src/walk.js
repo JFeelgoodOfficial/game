@@ -961,6 +961,8 @@ export function updateWalkVisuals(dt, t) {
     playerLocalInto(actuality.anchor, _actualityInvQuat, _playerLocal);
     actuality.update(t, dt, _playerLocal, sunDot);
     scanModule(actuality, TALK_DIST_ACTUALITY);
+    const toast = actuality.pendingToast();
+    if (toast) showViewToast(toast.text, toast.seconds);
   }
   if (shadowreach) {
     // The module group sits at identity under planet.surface, so playerLocalInto
