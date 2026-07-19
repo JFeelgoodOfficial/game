@@ -57,6 +57,21 @@ const ART_ENTRIES = Object.entries(
 const DREAM_ART_URL =
   (ART_ENTRIES.find(([path]) => /dream/i.test(path)) ?? ART_ENTRIES[0])?.[1] ?? null;
 
+// Owner-supplied character portraits (repo-root /shadowreach-characters). Each
+// file is keyed by name — lady / warrior / stranger / girl / cloaked — and, when
+// present, is pinned to the front of the matching NPC as a player-facing
+// hologram (see attachHologram). The folder can be empty: the glob then yields
+// [], every lookup returns null, and the NPCs simply stay their 3D figures.
+const CHAR_ART = Object.entries(
+  import.meta.glob('/shadowreach-characters/*.{png,jpg,jpeg,webp}', {
+    eager: true,
+    query: '?url',
+    import: 'default',
+  })
+);
+const charArtFor = (key) =>
+  CHAR_ART.find(([path]) => path.toLowerCase().includes(key))?.[1] ?? null;
+
 /* ----------------------------------------------------------------------
  * Tunables + palette + authored text — every magic value lives here.
  * ------------------------------------------------------------------- */
@@ -665,6 +680,62 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     }
   }
 
+  // Player-facing character holograms: a flat plane of the owner's own portrait
+  // art pinned above the front of a built NPC, yawing to face the player. From
+  // the player's view you see the real character; walking around reveals the 3D
+  // figure. Keyed by filename — an NPC whose portrait hasn't been committed just
+  // stays its procedural rig (charArtFor returns null and attachHologram bails).
+  const holograms = []; // { key, mesh, mat, holder, rig, height, drop, activeFn }
+  function attachHologram(rig, key, { height = 1.9, drop = 0, activeFn = null } = {}) {
+    const url = charArtFor(key);
+    if (!url) return; // no art committed yet — keep the 3D figure
+    const holder = new THREE.Group();
+    group.add(holder);
+    const geo = keep(new THREE.PlaneGeometry(1.2, height));
+    const mat = keep(new THREE.MeshBasicMaterial({
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      opacity: 0.9, alphaTest: 0.02,
+    }));
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.renderOrder = 6;
+    holder.add(mesh);
+    const h = { key, mesh, mat, holder, rig, height, drop, activeFn };
+    holograms.push(h);
+    // Load async; apply the image's true aspect + colorspace when it decodes.
+    new THREE.TextureLoader().load(url, (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+      mat.map = tex;
+      mat.needsUpdate = true;
+      disposables.push(tex);
+      const img = tex.image;
+      if (img && img.width && img.height) {
+        // Base plane is 1.2 wide × `height` tall; widen to the portrait's aspect.
+        mesh.scale.x = (img.width / img.height) * height / 1.2;
+      }
+    });
+  }
+
+  // Yaw a holder Group upright on its local up and turn it to face the player.
+  // Same two-quaternion math as faceRig, but on a bare Group (no rig joints).
+  const _hq0 = new THREE.Quaternion(), _hq1 = new THREE.Quaternion();
+  const _hToL = new THREE.Vector3(), _hdir = new THREE.Vector3();
+  function updateHolograms(t) {
+    for (const h of holograms) {
+      const on = h.rig.group.visible && (!h.activeFn || h.activeFn());
+      h.holder.visible = on;
+      if (!on) continue;
+      _hdir.copy(h.rig.group.position).normalize(); // local up at the figure
+      h.holder.position.copy(h.rig.group.position)
+        .addScaledVector(_hdir, h.height * 0.5 + h.drop);
+      _hq0.setFromUnitVectors(_yAxis, _hdir);
+      _hToL.copy(_pl).sub(h.holder.position).applyQuaternion(_hq1.copy(_hq0).invert());
+      const yaw = Math.atan2(_hToL.x, _hToL.z);
+      h.holder.quaternion.copy(_hq0).multiply(_hq1.setFromAxisAngle(_yAxis, yaw));
+      h.mat.opacity = 0.86 + Math.sin(t * 2.0 + h.key.length) * 0.06; // faint shimmer
+    }
+  }
+
   // An ash puff rising from a surface-local direction; a few points may carry an
   // accent tint (the cloaked figure's blue tear at the finale).
   function makeDissolve(dirLocal, colorHex, count = 220, accentHex = null, accentFrac = 0) {
@@ -806,6 +877,9 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     placeRig(lady, pathDir(SR.LADY, 4), Math.PI); // faces the arriving player
     addLooker(lady); // her head follows you; she never rises
     g.add(lady.group);
+    attachHologram(lady, 'lady', { height: 1.5, drop: 0.15 }); // seated
+
+    // (cloaked hologram attached below, once cloakedFigure is set)
     const flowerMat = stdMat(0xff5a7a, { emis: 0.4, emisColor: 0xff5a7a });
     const flower = new THREE.Mesh(keep(new THREE.ConeGeometry(0.12, 0.3, 5)), flowerMat);
     flower.position.set(0.28, 1.0 * lady.params.scaleY, 0.2);
@@ -825,6 +899,10 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     cloak.rig.group.visible = true;
     g.add(cloak.rig.group);
     cloakedFigure = cloak;
+    // Hide the portrait once the finale starts so the mask-lift + dissolve beat
+    // plays on the real 3D rig (a flat portrait would cover the climactic reveal).
+    attachHologram(cloak.rig, 'cloaked',
+      { height: 1.9, activeFn: () => cloak.rig.group.visible && !endingStarted });
 
     return { group: g };
   }
@@ -1250,6 +1328,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     };
     entities.push(girlEnt);
     girl._ent = girlEnt;
+    attachHologram(gr, 'girl', { height: 1.3, activeFn: () => girl.state !== 'hidden' });
 
     // Girl motion + the line vanishing after the break.
     let fadeT = -1;
@@ -1484,6 +1563,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     addLooker(wr, () => !has('warrior_embraced'));
     g.add(wr.group);
     warrior = { rig: wr, talkedOnce: false };
+    attachHologram(wr, 'warrior', { height: 1.7, activeFn: () => !has('warrior_embraced') });
 
     // The planted greatsword — a strong silhouette beside the stone.
     const swordParts = [
@@ -1789,6 +1869,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     placeRig(st, pathDir(SR.GARDEN, 2), Math.PI);
     addLooker(st, () => !endingStarted);
     g.add(st.group);
+    attachHologram(st, 'stranger', { height: 1.6, activeFn: () => !endingStarted });
     // The staff, leaning beside him with a glowing gold finial.
     const staff = new THREE.Mesh(keep(mergeParts([
       coloredGeo(new THREE.CylinderGeometry(0.05, 0.06, 2.6, 6).translate(0, 1.3, 0), 0x6b4a30),
@@ -2171,6 +2252,9 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     // Companion followers trail behind the player along the path.
     updateFollowers(dt, t);
 
+    // Player-facing portrait holograms (after rigs move, so we read final pos).
+    updateHolograms(t);
+
     // Live dissolves.
     for (let i = dissolves.length - 1; i >= 0; i--) {
       if (!dissolves[i].update(dt)) { dissolves[i].dispose(); dissolves.splice(i, 1); }
@@ -2304,6 +2388,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     planet.cfg.skyColor = origSkyColor;
     for (const d of dissolves) d.dispose();
     dissolves.length = 0;
+    holograms.length = 0;
     for (const d of disposables) { try { d.dispose(); } catch (e) { /* already gone */ } }
     disposables.length = 0;
     if (audioCtx) {
