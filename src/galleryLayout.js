@@ -61,7 +61,7 @@ export const ROOMS = {
   berthPad: { x0: -26, x1: -8, z0: 48, z1: 66, topY: 6.6 }, // open EVA pad
   airlock: { x0: -5, x1: 5, z0: 50, z1: 64 }, // west opening to the pad z 54..60
   padDoor: { z0: 54, z1: 60 }, // gap in the airlock's west wall
-  aftDoor: { x0: -1.8, x1: 1.8 }, // airlock -> promenade doorway
+  aftDoor: { x0: -2.2, x1: 2.2 }, // airlock -> promenade doorway
   promenade: { x0: -3, x1: 3, z0: 64, z1: 92 }, // glazed viewing corridor
   bay: { x0: -7, x1: 7, z0: 72, z1: 82 }, // widened observation bay (west side)
   crew: { x0: 3, x1: 15, z0: 68, z1: 82 }, // maintenance bay (east side)
@@ -106,11 +106,18 @@ export const CATWALKS = [
 // treats it as a solid wall (see-through, not walk-through).
 export const WINDOW = { thDeg: 90, halfDeg: 33 };
 
-// Art panel size at foot scale — 3x the first pass (was 4.6x3.2), so the
-// pieces read as real paintings you walk up to.
-export const ART_W = 13.8;
-export const ART_H = 9.6;
-export const ART_EYE = 5.6; // panel center height above its deck (bottom ~0.8 up)
+// Art sizing at foot scale: each piece keeps its ORIGINAL aspect ratio,
+// scaled up to fit a per-slot bounding box (~3x the previous uniform
+// panels; width capped by the 45-degree hang spacing so neighbors never
+// touch). stations.js reads the true image dimensions as each texture
+// loads and sizes the mesh to fit. Pieces hang bottom-aligned.
+export const ART_MAX_W = 38; // shell panels, decks B/C/D
+export const ART_MAX_H = 28.8;
+export const ART_MAX_W_A = 34; // deck A wall panels (tighter radius/spacing)
+export const ART_BOTTOM = 0.8; // canvas bottom above the deck
+export const EASEL_MAX_W = 16; // freestanding atrium pieces
+export const EASEL_MAX_H = 13;
+export const EASEL_BASE = 1.7; // canvas bottom = pedestal top
 
 const DEG = Math.PI / 180;
 
@@ -126,46 +133,56 @@ function inWindow(deg) {
 // alphabetical hang order. Deck A: wall panels + 2 easel pieces; B/C/D:
 // 8 shell panels each, staggered per deck and clear of the ramp notches,
 // the entrance sector, and the window wall. Cycling fills any gaps.
+// Each slot carries its bounding box (maxW/maxH) and the absolute y of the
+// canvas BOTTOM (baseY) — stations.js sizes the mesh to the image's real
+// aspect within that box. Wall radii are pulled in so a flat panel's edges
+// never pierce the curved shell (chord bulge of a 38-wide plane is ~3.5u).
 export function artSpots() {
   const spots = [];
-  // Deck A wall panels at r 52 (shell there is 58.3), skipping the entrance
+  // Deck A wall panels at r 49 (shell there is 58.3), skipping the entrance
   // sector, the R1 ramp foot, and the window wall.
   for (const deg of [67.5, 112.5, 157.5, 202.5, 292.5, 337.5]) {
     if (inWindow(deg)) continue;
     const a = deg * DEG;
     spots.push({
-      x: TOWER.x + Math.cos(a) * 52,
-      y: DECKS[0] + ART_EYE,
-      z: TOWER.z + Math.sin(a) * 52,
+      x: TOWER.x + Math.cos(a) * 49,
+      z: TOWER.z + Math.sin(a) * 49,
       rotY: -a - Math.PI / 2, // face the atrium axis
       deck: 0,
+      maxW: ART_MAX_W_A,
+      maxH: ART_MAX_H,
+      baseY: DECKS[0] + ART_BOTTOM,
     });
   }
   // Two easel pieces flanking the lift, facing the entrance (-Z).
   for (const e of EASELS) {
     spots.push({
       x: e.x,
-      y: DECKS[0] + ART_EYE,
       z: e.z,
       rotY: Math.PI + (e.x < 0 ? -0.25 : 0.25),
       deck: 0,
+      maxW: EASEL_MAX_W,
+      maxH: EASEL_MAX_H,
+      baseY: EASEL_BASE,
     });
   }
-  // Decks B/C/D: 8 panels on the shell, radius towerR(deck) - 2.6, angle
-  // stagger chosen per deck to clear that deck's notch sector.
+  // Decks B/C/D: 8 panels on the shell, angle stagger chosen per deck to
+  // clear that deck's notch sector.
   const stagger = [null, 11.25, 7.5, 11.25];
   for (let d = 1; d < DECKS.length; d++) {
-    const r = towerR(DECKS[d]) - 2.6;
+    const r = towerR(DECKS[d]) - 5.5;
     for (let i = 0; i < 8; i++) {
       const deg = i * 45 + stagger[d];
       if (inWindow(deg)) continue;
       const a = deg * DEG;
       spots.push({
         x: TOWER.x + Math.cos(a) * r,
-        y: DECKS[d] + ART_EYE,
         z: TOWER.z + Math.sin(a) * r,
         rotY: -a - Math.PI / 2,
         deck: d,
+        maxW: ART_MAX_W,
+        maxH: ART_MAX_H,
+        baseY: DECKS[d] + ART_BOTTOM,
       });
     }
   }

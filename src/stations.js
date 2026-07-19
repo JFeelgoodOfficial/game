@@ -476,16 +476,28 @@ const galleryArtUrls = Object.entries(
   .map(([, url]) => url);
 
 const artLoader = new THREE.TextureLoader();
-const galleryTexCache = new Map(); // url -> texture, so 32 slots share loads
+// url -> { tex, size, pending[] }: slots share one load per image, and each
+// registers an onSize callback so its mesh can be scaled to the image's TRUE
+// aspect ratio once the pixels arrive (fires immediately on a cache hit).
+const galleryTexCache = new Map();
 
-function galleryTexture(url) {
-  let tex = galleryTexCache.get(url);
-  if (!tex) {
-    tex = artLoader.load(url);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    galleryTexCache.set(url, tex);
+function galleryTexture(url, onSize) {
+  let entry = galleryTexCache.get(url);
+  if (!entry) {
+    entry = { tex: null, size: null, pending: [] };
+    galleryTexCache.set(url, entry);
+    entry.tex = artLoader.load(url, (t) => {
+      entry.size = { w: t.image.width, h: t.image.height };
+      for (const cb of entry.pending) cb(entry.size.w, entry.size.h);
+      entry.pending.length = 0;
+    });
+    entry.tex.colorSpace = THREE.SRGBColorSpace;
   }
-  return tex;
+  if (onSize) {
+    if (entry.size) onSize(entry.size.w, entry.size.h);
+    else entry.pending.push(onSize);
+  }
+  return entry.tex;
 }
 
 function galleryPlaceholder(seed) {
@@ -675,17 +687,20 @@ function orbitalArtGalleryStation() {
     metalness: 0.75,
     side: THREE.DoubleSide,
   });
-  // The opaque shell is a PARTIAL cylinder: one sector (facing +Z, opposite
-  // the entrance) is left open for a floor-to-ceiling window. THREE cylinder
-  // theta T relates to our polar angle P by P = 90° - T, so the window
-  // (P = 90 ± halfDeg) is T ∈ [-halfDeg, +halfDeg]; the shell covers the rest.
-  const winHalf = GL.WINDOW.halfDeg * (Math.PI / 180);
-  const winArc = 2 * winHalf;
-  const shell = new THREE.Mesh(
-    new THREE.CylinderGeometry(70, 55, 180, 15, 1, true, winHalf, Math.PI * 2 - winArc),
-    shellMat
-  );
-  tower.add(shell);
+  // The shell has TWO openings: the floor-to-ceiling window (polar 90°±33,
+  // facing +Z) and the entrance DOOR SLOT (polar 270°±6, toward the spine) —
+  // the door used to be collision-only, so you walked through solid-looking
+  // wall. THREE cylinder theta T relates to our polar angle P by P = 90°-T;
+  // an arc from P0..P1 is (thetaStart 90°-P1, thetaLength P1-P0). The shell
+  // (and its translucent glazing) become two arcs between the openings, and
+  // a filler closes the door slot above door height so it reads as a
+  // doorway, not a full-height crack.
+  const DR = Math.PI / 180;
+  const P_WIN0 = (90 - GL.WINDOW.halfDeg) * DR;
+  const P_WIN1 = (90 + GL.WINDOW.halfDeg) * DR;
+  const P_DOOR0 = (270 - GL.SHELL_DOOR.halfDeg) * DR;
+  const P_DOOR1 = (270 + GL.SHELL_DOOR.halfDeg) * DR;
+  const arc = (p0, p1) => [Math.PI / 2 - p1, p1 - p0];
   const glassMat = new THREE.MeshBasicMaterial({
     color: 0xbfe8ff,
     transparent: true,
@@ -693,8 +708,23 @@ function orbitalArtGalleryStation() {
     side: THREE.DoubleSide,
     depthWrite: false,
   });
-  const glazing = new THREE.Mesh(new THREE.CylinderGeometry(72, 57, 176, 16, 1, true), glassMat);
-  tower.add(glazing);
+  for (const [p0, p1] of [
+    [P_WIN1, P_DOOR0],
+    [P_DOOR1, P_WIN0 + Math.PI * 2],
+  ]) {
+    const [t0, tl] = arc(p0, p1);
+    tower.add(new THREE.Mesh(new THREE.CylinderGeometry(70, 55, 180, 12, 1, true, t0, tl), shellMat));
+    tower.add(new THREE.Mesh(new THREE.CylinderGeometry(72, 57, 176, 12, 1, true, t0, tl), glassMat));
+  }
+  // filler over the door slot: wall from door height (group y 12) to the
+  // crown, so only the walkable doorway below is open
+  const [dt0, dtl] = arc(P_DOOR0, P_DOOR1);
+  const doorFill = new THREE.Mesh(
+    new THREE.CylinderGeometry(70, GL.towerR(12), 128, 2, 1, true, dt0, dtl),
+    shellMat
+  );
+  doorFill.position.y = 26; // tower-local: spans group y 12..140
+  tower.add(doorFill);
   // the full-height window: a clear glass pane filling the open sector
   const clearGlassMat = new THREE.MeshBasicMaterial({
     color: 0xcfeeff,
@@ -703,8 +733,9 @@ function orbitalArtGalleryStation() {
     side: THREE.DoubleSide,
     depthWrite: false,
   });
+  const [wt0, wtl] = arc(P_WIN0, P_WIN1);
   const windowPane = new THREE.Mesh(
-    new THREE.CylinderGeometry(69.5, 54.5, 179, 8, 1, true, -winHalf, winArc),
+    new THREE.CylinderGeometry(69.5, 54.5, 179, 8, 1, true, wt0, wtl),
     clearGlassMat
   );
   tower.add(windowPane);
@@ -715,6 +746,7 @@ function orbitalArtGalleryStation() {
   const towerR = (y) => 55 + ((y + 90) / 180) * 15; // shell radius at local y
   const lean = Math.atan(15 / 180); // taper angle
   for (let i = 0; i < 8; i++) {
+    if (i === 6) continue; // 270°: would stand dead center in the doorway
     const a = (i / 8) * Math.PI * 2;
     const mullion = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 181, 6), darkMat);
     mullion.position.set(Math.cos(a) * 63, 0, Math.sin(a) * 63);
@@ -752,10 +784,25 @@ function orbitalArtGalleryStation() {
     tower.add(sign);
   }
 
-  // entrance arch at the base facing the spine, with the GRAND HALL sign
+  // entrance arch at the base facing the spine, with the GRAND HALL sign,
+  // plus glowing jambs + header framing the actual door slot in the shell —
+  // the opening reads as a lit doorway from the promenade
   const arch = new THREE.Mesh(new THREE.TorusGeometry(20, 2, 8, 16, Math.PI), glowMat);
   arch.position.set(0, -50, -58);
   tower.add(arch);
+  for (const pd of [270 - GL.SHELL_DOOR.halfDeg, 270 + GL.SHELL_DOOR.halfDeg]) {
+    const pa = pd * DR;
+    const jamb = new THREE.Mesh(new THREE.BoxGeometry(0.7, GL.SHELL_DOOR.top, 0.7), glowMat);
+    jamb.position.set(
+      Math.cos(pa) * 58.6,
+      GL.SHELL_DOOR.top / 2 - 50, // tower-local (group y 0..12)
+      Math.sin(pa) * 58.6
+    );
+    tower.add(jamb);
+  }
+  const doorHeader = new THREE.Mesh(new THREE.BoxGeometry(13.5, 0.7, 0.8), glowMat);
+  doorHeader.position.set(0, GL.SHELL_DOOR.top - 49.7, -58.4);
+  tower.add(doorHeader);
   const hallSign = new THREE.Mesh(
     new THREE.PlaneGeometry(26, 8),
     new THREE.MeshBasicMaterial({ map: gallerySignTexture('GRAND HALL', null, 512, 160) })
@@ -879,33 +926,42 @@ function orbitalArtGalleryStation() {
     addBox(g, 0.5, 1.4, 0.5, e.x, 1.0, e.z, darkMat);
   }
 
-  // The 32 exhibits at eye height. Slot order preserved bottom-up so the
-  // /artgallery images keep their alphabetical hang order.
+  // The exhibits. Slot order preserved bottom-up so the /artgallery images
+  // keep their alphabetical hang order. Each piece is a unit plane scaled to
+  // the image's TRUE aspect ratio once its texture reports its pixel size,
+  // filling the slot's bounding box and hanging bottom-aligned — portraits
+  // stay portraits, landscapes stay landscapes, nothing gets stretched.
   const spots = GL.artSpots();
+  const unitPlane = new THREE.PlaneGeometry(1, 1); // shared, scaled per piece
   for (let k = 0; k < spots.length; k++) {
     const s = spots[k];
-    const tex = galleryArtUrls.length
-      ? galleryTexture(galleryArtUrls[k % galleryArtUrls.length])
-      : galleryPlaceholder(k + 1);
     // color scales the unlit texture to 0.82 so even a pure-white artwork
-    // stays under BLOOM_THRESHOLD (0.85) — bright pieces read as paintings,
-    // not bloom flares, and the glow frame keeps the lit-exhibit accent
-    const art = new THREE.Mesh(
-      new THREE.PlaneGeometry(GL.ART_W, GL.ART_H),
-      new THREE.MeshBasicMaterial({ map: tex, color: 0xd2d2d2 })
-    );
-    art.position.set(s.x, s.y, s.z);
-    art.rotation.y = s.rotY;
-    g.add(art);
-    // lit frame just behind the art (against the panel's facing normal)
-    const frame = new THREE.Mesh(
-      new THREE.PlaneGeometry(GL.ART_W + 1.4, GL.ART_H + 1.4),
-      glowMat
-    );
+    // stays under BLOOM_THRESHOLD (0.85) — pieces read as paintings, not
+    // bloom flares, and the glow frame keeps the lit-exhibit accent
+    const artMat = new THREE.MeshBasicMaterial({ color: 0xd2d2d2 });
+    const art = new THREE.Mesh(unitPlane, artMat);
+    const frame = new THREE.Mesh(unitPlane, glowMat);
     const nx = Math.sin(s.rotY);
     const nz = Math.cos(s.rotY);
-    frame.position.set(s.x - nx * 0.06, s.y, s.z - nz * 0.06);
+    art.rotation.y = s.rotY;
     frame.rotation.y = s.rotY;
+    const fit = (iw, ih) => {
+      const w = Math.min(s.maxW, (s.maxH * iw) / ih);
+      const h = (w * ih) / iw;
+      const cy = s.baseY + h / 2;
+      art.scale.set(w, h, 1);
+      art.position.set(s.x, cy, s.z);
+      frame.scale.set(w + 1.4, h + 1.4, 1);
+      frame.position.set(s.x - nx * 0.06, cy, s.z - nz * 0.06);
+    };
+    if (galleryArtUrls.length) {
+      fit(10, 7); // provisional until the image's real size arrives
+      artMat.map = galleryTexture(galleryArtUrls[k % galleryArtUrls.length], fit);
+    } else {
+      artMat.map = galleryPlaceholder(k + 1);
+      fit(256, 180); // the placeholder canvas's own aspect
+    }
+    g.add(art);
     g.add(frame);
   }
 
@@ -931,8 +987,21 @@ function orbitalArtGalleryStation() {
   addBox(g, 0.6, wallH, 14, al.x1 + 0.3, wallY, 57, hullMat); // east
   addBox(g, R.aftDoor.x0 - al.x0, wallH, 0.6, (al.x0 + R.aftDoor.x0) / 2, wallY, al.z1 + 0.3, hullMat);
   addBox(g, al.x1 - R.aftDoor.x1, wallH, 0.6, (R.aftDoor.x1 + al.x1) / 2, wallY, al.z1 + 0.3, hullMat);
-  addBox(g, 3.6, 0.25, 0.7, 0, R.ceilY - 0.35, al.z1 + 0.3, glowMat); // aft door strip
+  addBox(g, 4.8, 0.25, 0.7, 0, R.ceilY - 0.35, al.z1 + 0.3, glowMat); // aft door strip
   addBox(g, 0.7, 0.25, 6.2, al.x0 - 0.3, R.ceilY - 0.35, 57, glowMat); // pad door strip
+  // lit doorframes: full-height jambs flanking both doorways so the openings
+  // read as doors, not gaps in a flat wall — plus a lamp so the airlock
+  // itself is lit (it only got spillover before, which made its doors read
+  // as dark wall)
+  for (const z of [R.padDoor.z0 + 0.25, R.padDoor.z1 - 0.25]) {
+    addBox(g, 0.8, wallH, 0.5, al.x0 - 0.3, wallY, z, windowMat);
+  }
+  for (const x of [R.aftDoor.x0 - 0.2, R.aftDoor.x1 + 0.2]) {
+    addBox(g, 0.5, wallH, 0.8, x, wallY, al.z1 + 0.3, windowMat);
+  }
+  const airlockLamp = new THREE.PointLight(0xfff2d8, 5, 40, 1.0);
+  airlockLamp.position.set(0, 10.4, 57);
+  g.add(airlockLamp);
 
   // Viewing promenade: open window bays on the west (sill + header + posts,
   // the 8.1..10.2 band is clear glass at eye height), solid hull east wall
