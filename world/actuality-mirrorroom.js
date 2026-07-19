@@ -26,10 +26,27 @@ export function createMirrorRoom(opts = {}) {
   group.name = 'actuality.mirror';
   const geos = [];
   const mats = [];
+  const texs = [];
 
-  // --- Chamber shell: near-black translucent "glass" on all six faces. ---
+  // Faint cyan grid lines on near-black glass (sells "hyper-holo-grid"); a
+  // barely-visible "0" is worked into the center (the tenth digit, 0 = repeat).
+  const gc = document.createElement('canvas');
+  gc.width = 256; gc.height = 256;
+  const gg = gc.getContext('2d');
+  gg.fillStyle = '#04050a'; gg.fillRect(0, 0, 256, 256);
+  gg.strokeStyle = 'rgba(120,200,255,0.35)'; gg.lineWidth = 1.5;
+  for (let k = 0; k <= 256; k += 16) { gg.beginPath(); gg.moveTo(0, k); gg.lineTo(256, k); gg.moveTo(k, 0); gg.lineTo(k, 256); gg.stroke(); }
+  gg.globalAlpha = 0.12; gg.strokeStyle = '#bfe0ff'; gg.lineWidth = 10;
+  gg.font = 'bold 190px Georgia, serif'; gg.textAlign = 'center'; gg.textBaseline = 'middle';
+  gg.strokeText('0', 128, 128);
+  const gridTex = new THREE.CanvasTexture(gc);
+  gridTex.colorSpace = THREE.SRGBColorSpace;
+  gridTex.wrapS = gridTex.wrapT = THREE.RepeatWrapping;
+  texs.push(gridTex);
+
+  // --- Chamber shell: near-black translucent "glass" (grid) on all six faces.
   const glassMat = new THREE.MeshBasicMaterial({
-    color: 0x05060a, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false,
+    map: gridTex, color: 0x6a8ab0, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false,
   });
   mats.push(glassMat);
   const faceGeo = new THREE.PlaneGeometry(HALF * 2, HALF * 2);
@@ -154,6 +171,7 @@ export function createMirrorRoom(opts = {}) {
   function dispose() {
     for (const g of geos) g.dispose();
     for (const m of mats) m.dispose();
+    for (const tx of texs) tx.dispose();
     rt.dispose();
     cloneScene.traverse((o) => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
   }
