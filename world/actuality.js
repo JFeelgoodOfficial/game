@@ -1841,9 +1841,29 @@ export function createActuality(planet, worldUp, opts = {}) {
   // into extruding directions", kept abstract/tasteful).
   function buildZone2() {
     const rec = zoneById['z2'];
-    rec.group.add(new THREE.AmbientLight(0x3a2418, 0.45));
+    rec.group.add(new THREE.AmbientLight(0x4a3020, 0.5));
     const breathLight = new THREE.PointLight(0xffb070, 0.8, 34, 2.0);
     breathLight.position.set(0, 3.2, 0); rec.group.add(breathLight);
+
+    // "Shared reality" (Ch.2): two soul-lights — one warm rose, one amber —
+    // drift apart and draw back together, merging into a single glow at the
+    // room's centre ("connected as if we were one unit of creation"). Kept
+    // abstract: two auras of light, no figures. The room breathes on a heartbeat.
+    const soulGeo = new THREE.SphereGeometry(0.7, 16, 12);
+    zoneGeos.push(soulGeo);
+    const soulAMat = new THREE.MeshBasicMaterial({ color: 0xff7a9a, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false });
+    const soulBMat = new THREE.MeshBasicMaterial({ color: 0xffc070, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false });
+    zoneMats.push(soulAMat, soulBMat);
+    const soulA = new THREE.Mesh(soulGeo, soulAMat); soulA.scale.set(1, 1.9, 1);
+    const soulB = new THREE.Mesh(soulGeo, soulBMat); soulB.scale.set(1, 1.9, 1);
+    rec.group.add(soulA, soulB);
+    const soulLightA = new THREE.PointLight(0xff6a8a, 0.9, 16, 2.0);
+    const soulLightB = new THREE.PointLight(0xffb060, 0.9, 16, 2.0);
+    rec.group.add(soulLightA, soulLightB);
+    const mergeMat = new THREE.MeshBasicMaterial({ color: 0xfff0e0, transparent: true, opacity: 0.0, blending: THREE.AdditiveBlending, depthWrite: false });
+    zoneMats.push(mergeMat);
+    const mergeGlow = new THREE.Mesh(soulGeo, mergeMat); mergeGlow.scale.set(1.6, 2.4, 1.6); mergeGlow.position.set(0, 2.4, 0);
+    rec.group.add(mergeGlow);
     const R = 12, WH = 6.5;
     const PER = 8;                         // 8×8 panels per surface
     const cell = (R * 2) / PER;
@@ -1899,11 +1919,30 @@ export function createActuality(planet, worldUp, opts = {}) {
     const _pm = new THREE.Matrix4(), _pv = new THREE.Vector3(), _ps = new THREE.Vector3(1, 1, 1);
     zoneUpdaters.push((t) => {
       if (activeZone !== 'z2') return;
-      const breath = Math.sin(t * 0.4) * 0.5 + 0.5; // 0..1
-      breathLight.intensity = 0.5 + breath * 0.6;
+      // Heartbeat (a lub-dub every ~1.3 s) drives the breathing + the glow.
+      const x = (t / 1.3) % 1;
+      const g1 = ((x - 0.12) / 0.05) ** 2, g2 = ((x - 0.30) / 0.05) ** 2;
+      const heart = Math.exp(-g1) + 0.6 * Math.exp(-g2);
+      const breath = Math.sin(t * 0.4) * 0.5 + 0.5;
+      breathLight.intensity = 0.5 + breath * 0.5 + heart * 0.4;
+      // The two souls swing apart and back together (merge), on a slow cycle.
+      const near = Math.sin(t * 0.28) * 0.5 + 0.5;   // 1 = together, 0 = apart
+      const sep = 3.6 * (1 - near);
+      const bob = Math.sin(t * 1.1) * 0.15;
+      soulA.position.set(-sep, 2.4 + bob, 0.4 * (1 - near));
+      soulB.position.set(sep, 2.4 - bob, -0.4 * (1 - near));
+      soulLightA.position.copy(soulA.position);
+      soulLightB.position.copy(soulB.position);
+      const pulse = 0.45 + heart * 0.3;
+      soulAMat.opacity = pulse; soulBMat.opacity = pulse;
+      const merged = Math.max(0, near - 0.7) / 0.3; // ramps up as they close
+      mergeMat.opacity = merged * (0.5 + heart * 0.4);
+      mergeGlow.scale.setScalar(1.6 + heart * 0.3 * merged);
+      // Breathing panel grid extrudes on the heartbeat.
+      const amp = 0.28 + heart * 0.22;
       for (let i = 0; i < cells.length; i++) {
         const c = cells[i];
-        const d = Math.sin(t * 0.4 + c.ph) * breath * 0.4; // per-panel extrude
+        const d = Math.sin(t * 0.4 + c.ph) * breath * amp;
         _pv.set(c.bx + c.n[0] * d, c.by + c.n[1] * d, c.bz + c.n[2] * d);
         _pm.compose(_pv, c.q, _ps);
         panels.setMatrixAt(i, _pm);
