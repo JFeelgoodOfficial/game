@@ -107,7 +107,9 @@ function buildBodies() {
   for (const n of deepNebulae) {
     bodies.push({
       id: `neb:${n.id}`, label: n.name.toUpperCase(), pos: n.group.position,
-      dot: 9, logDist: n.logDist, color: n.navColor,
+      dot: 9, logDist: n.logDist,
+      // live getter: painting nebulae learn their color when the image decodes
+      get color() { return n.navColor; },
     });
   }
   for (const s of stations) {

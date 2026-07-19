@@ -211,7 +211,7 @@ function spineAt(spine, t, out) {
   return out;
 }
 
-function makeCloud(mats, intensity, { positions, colors, sizes, frag, blending, renderOrder, opacity }) {
+export function makeCloud(mats, intensity, { positions, colors, sizes, frag, blending, renderOrder, opacity }) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geo.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
