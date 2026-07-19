@@ -38,6 +38,9 @@ import * as THREE from 'three';
 import { makeStructure } from './city.js';
 import * as DLG from './actuality-dialogue.js';
 import { createMirrorRoom } from './actuality-mirrorroom.js';
+// The owner's dragon artwork, shown in Zone 9 the way the deep nebulae show the
+// owner's paintings — a large luminous billboard rather than a built sculpt.
+import dragonImgUrl from '../src/assets/actuality-dragon.png';
 
 /* ----------------------------------------------------------------------
  * Tunables — every magic number lives here.
@@ -289,66 +292,6 @@ function cityBelowTexture() {
   g.globalAlpha = 1;
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-// A holographic, pixel-art seated dragon in profile (original silhouette) —
-// projected in front of the sculpted dragon so the shape reads unmistakably as
-// a dragon. Chunky low-res canvas (nearest-sampled) + scanlines = hologram.
-function dragonHologramTexture() {
-  const W = 176, H = 190;
-  const c = document.createElement('canvas');
-  c.width = W; c.height = H;
-  const g = c.getContext('2d');
-  g.clearRect(0, 0, W, H);
-  const poly = (pts) => { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); g.closePath(); g.fill(); };
-  const ell = (x, y, rx, ry) => { g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, 6.28); g.fill(); };
-  g.fillStyle = '#bfe6ff';
-  // Seated in 3/4 profile, facing right (matching the reference pose): haunch on
-  // the left, chest and one foreleg forward on the right, folded wing raised
-  // behind the shoulder, long neck to a horned head, long spiked tail sweeping
-  // back to the lower left.
-  // Rear haunch + rump + lower belly (the seated mass).
-  ell(58, 132, 40, 42);
-  ell(92, 142, 30, 30);
-  // Raised folded wing behind the shoulder — a tall angular sail + top claw.
-  poly([[98, 112], [74, 58], [86, 34], [96, 60], [112, 52], [126, 104]]);
-  poly([[86, 40], [80, 12], [94, 34]]);          // wing-finger claw at the top
-  poly([[96, 104], [82, 60], [94, 92]]);          // inner wing strut (a darker fold-line reads as depth)
-  // Chest + shoulder rising to the neck.
-  poly([[86, 118], [116, 150], [130, 120], [126, 92], [104, 96]]);
-  // Neck curving up and forward (thick at the base).
-  poly([[108, 100], [122, 58], [142, 50], [150, 66], [128, 108]]);
-  // Head facing right: skull, back-swept horned frill, snout + jaw.
-  poly([[140, 52], [160, 48], [166, 58], [158, 68], [142, 66]]);
-  poly([[158, 60], [178, 62], [172, 72], [156, 70]]); // snout
-  poly([[152, 68], [170, 74], [162, 82], [150, 76]]); // jaw
-  poly([[142, 52], [128, 30], [136, 42], [148, 54]]); // horns / frill
-  poly([[148, 50], [138, 24], [148, 36], [154, 52]]);
-  poly([[154, 52], [152, 26], [160, 40], [160, 54]]);
-  // Dorsal ridge spikes from the nape over the back to the hip.
-  for (const [sx, sy, s] of [[118, 96, 8], [106, 100, 10], [92, 106, 11], [78, 114, 10], [64, 122, 9], [50, 130, 8]]) poly([[sx, sy], [sx - s * 0.5, sy - s], [sx + 5, sy - 2]]);
-  // Forelegs: one extended forward to a planted clawed foot, one tucked.
-  poly([[120, 122], [132, 152], [144, 152], [130, 118]]);
-  poly([[132, 150], [136, 178], [154, 180], [150, 156], [140, 150]]); // lower leg + foot
-  for (const cx of [136, 142, 148]) poly([[cx, 178], [cx - 3, 186], [cx + 2, 184]]); // toe claws
-  poly([[74, 150], [70, 176], [92, 178], [94, 152]]); // near hind foot
-  // Long spiked tail sweeping down and back to the lower-left, tapering.
-  poly([[34, 140], [16, 158], [4, 180], [16, 184], [30, 166], [50, 150], [60, 146]]);
-  for (const [tx, ty, s] of [[56, 144, 7], [46, 150, 7], [34, 160, 6], [22, 172, 5], [12, 180, 4]]) poly([[tx, ty], [tx - s * 0.5, ty - s], [tx + 3, ty - 2]]);
-  // Glowing eye.
-  g.fillStyle = '#eaf6ff'; g.beginPath(); g.arc(154, 58, 2.4, 0, 6.28); g.fill();
-  // Faint interior scale/fold lines (drawn as thin cutouts) add read at distance.
-  g.globalCompositeOperation = 'destination-out';
-  g.lineWidth = 1; g.strokeStyle = '#000';
-  for (const [x0, y0, x1, y1] of [[104, 100, 120, 108], [96, 112, 118, 126], [90, 128, 116, 140]]) { g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); }
-  // Scanlines for the holographic read.
-  for (let y = 0; y < H; y += 3) g.fillRect(0, y, W, 1);
-  g.globalCompositeOperation = 'source-over';
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.magFilter = THREE.NearestFilter; // keep the chunky pixels
-  tex.minFilter = THREE.LinearMipmapLinearFilter;
   return tex;
 }
 
@@ -1667,115 +1610,31 @@ export function createActuality(planet, worldUp, opts = {}) {
     addZoneBox(rec, 0.6, 18, 36, -15.7, -8, -54, dark);
     addZoneBox(rec, 0.6, 18, 36, 15.7, -8, -54, dark);
 
-    // The massive black dragon, sitting upright on a low dais — horned frill,
-    // shoulder spikes, folded wings, clawed forelegs, a spiked tail curling to
-    // the side. Built from primitives; black with a faint sheen so the rim/key
-    // lights pick out its form. Glowing eyes.
-    const dragonGrp = new THREE.Group();
-    dragonGrp.position.set(0, -15, -62);
-    dragonGrp.scale.setScalar(1.6); // massive
-    dragonGrp.rotation.y = Math.PI;  // face +Z (toward the arriving player)
-    rec.group.add(dragonGrp);
-    // A dais under the dragon.
-    addZoneBox2(rec, 9, 1.0, 9, 0, -14.7, -62, new THREE.MeshStandardMaterial({ color: 0x0c1018, roughness: 0.5, metalness: 0.4 }));
-    zoneMats.push(rec.group.children[rec.group.children.length - 1].material);
-
-    const graniteMat = new THREE.MeshStandardMaterial({ color: 0x0c0c11, roughness: 0.42, metalness: 0.35, emissive: 0x0a1220, emissiveIntensity: 0.18 });
-    const eyeMat = new THREE.MeshStandardMaterial({ color: 0xff5522, emissive: 0xff2a08, emissiveIntensity: 2.2, roughness: 0.4 });
-    zoneMats.push(graniteMat, eyeMat);
-    const part = (geo, x, y, z, opt = {}) => {
-      const m = new THREE.Mesh(geo, opt.mat || graniteMat);
-      m.position.set(x, y, z);
-      if (opt.rx) m.rotation.x = opt.rx; if (opt.ry) m.rotation.y = opt.ry; if (opt.rz) m.rotation.z = opt.rz;
-      if (opt.s) m.scale.set(opt.s[0], opt.s[1], opt.s[2]);
-      dragonGrp.add(m); zoneGeos.push(geo); return m;
-    };
-    const S = (r, seg = 12) => new THREE.SphereGeometry(r, seg, seg);
-    const C = (rt, rb, h, seg = 10) => new THREE.CylinderGeometry(rt, rb, h, seg);
-    const K = (r, h, seg = 8) => new THREE.ConeGeometry(r, h, seg);
-    // Body mass.
-    part(S(1.9), 0, 1.7, -0.6, { s: [1.25, 1.25, 1.5] });                 // haunches/hips
-    part(S(1.7), 0, 1.7, 0.6, { s: [1.35, 1.2, 1.3] });                   // lower belly
-    part(S(1.4), 0, 3.1, 0.7, { s: [1.35, 1.35, 1.2] });                  // chest (rising)
-    // Thighs + clawed forelegs.
-    for (const sx of [-1, 1]) {
-      part(S(0.9), sx * 1.25, 1.2, -0.4, { s: [1, 1.3, 1.2] });           // thigh
-      part(C(0.35, 0.6, 2.4), sx * 1.15, 1.6, 1.3, { rx: 0.5 });          // upper foreleg
-      part(C(0.28, 0.4, 1.6), sx * 1.15, 0.55, 2.0, { rx: 0.15 });        // lower foreleg
-      part(S(0.5), sx * 1.15, 0.15, 2.5, { s: [1.2, 0.6, 1.4] });         // foot
-      for (const cx of [-0.35, 0, 0.35]) part(K(0.1, 0.5, 5), sx * 1.15 + cx * 0.5, 0.12, 3.0, { rx: 1.5 }); // claws
-    }
-    // Shoulders + big shoulder spikes.
-    for (const sx of [-1, 1]) {
-      part(S(0.85), sx * 1.15, 3.2, 0.6);
-      part(K(0.5, 3.6, 7), sx * 1.9, 3.9, 0.3, { rz: sx * 1.1, rx: -0.4 }); // shoulder spike
-    }
-    // Neck (two segments, curving up) + head.
-    part(C(0.85, 1.1, 2.0), 0, 4.2, 0.5, { rx: -0.35 });
-    part(C(0.6, 0.85, 1.8), 0, 5.6, 0.15, { rx: -0.15 });
-    const head = part(S(0.75), 0, 6.5, 0.4, { s: [1.0, 0.9, 1.35] });     // skull
-    part(K(0.42, 1.4, 8), 0, 6.35, 1.35, { rx: 1.57 });                   // snout
-    part(S(0.4), 0, 6.0, 1.2, { s: [1.1, 0.6, 1.0] });                    // jaw
-    // Horned frill (a crown of back-swept horns).
-    for (const [hx, hy, hz, hr, hl, tilt] of [[0, 7.1, -0.1, 0.16, 1.3, -0.7], [-0.45, 7.0, 0.0, 0.15, 1.2, -0.7], [0.45, 7.0, 0.0, 0.15, 1.2, -0.7], [-0.7, 6.8, 0.1, 0.13, 1.0, -0.9], [0.7, 6.8, 0.1, 0.13, 1.0, -0.9]]) {
-      part(K(hr, hl, 6), hx, hy, hz, { rx: tilt, rz: hx * 0.3 });
-    }
-    // Glowing eyes.
-    part(S(0.12, 8), -0.35, 6.5, 1.15, { mat: eyeMat });
-    part(S(0.12, 8), 0.35, 6.5, 1.15, { mat: eyeMat });
-    // Back ridge spikes (neck → hips).
-    for (let i = 0; i < 9; i++) {
-      const f = i / 8;
-      const zz = 0.4 - f * 3.0, yy = 5.6 - f * 3.4, sp = 0.7 - f * 0.35;
-      part(K(0.18, sp * 2, 5), 0, yy + sp, zz, { rx: -0.2 });
-    }
-    // Folded wings (an arm strut + a membrane, tucked against the flanks).
-    for (const sx of [-1, 1]) {
-      part(C(0.22, 0.4, 4.2, 6), sx * 1.7, 3.6, -0.8, { rz: sx * 0.5, rx: -0.6 }); // wing arm
-      part(K(1.6, 3.6, 4), sx * 2.1, 2.6, -1.4, { rz: sx * 0.4, rx: 1.4, s: [0.4, 1, 1.2] }); // folded membrane
-      for (const fz of [0, 0.5, 1]) part(C(0.1, 0.16, 3.0, 5), sx * 2.2, 3.2 - fz, -1.6 - fz * 0.4, { rz: sx * (0.5 + fz * 0.2), rx: -0.5 }); // finger struts
-    }
-    // Spiked tail curling out to the (dragon's) right, ending in a point.
-    let tx = 0, ty = 1.0, tz = -2.0, ta = 0;
-    for (let i = 0; i < 16; i++) {
-      const r = 0.65 * (1 - i / 18);
-      ta += 0.18; tx += Math.sin(ta) * 0.55 + 0.05; tz -= 0.35 - i * 0.008; ty += Math.max(0, (i - 9) * 0.06);
-      part(S(r), tx, ty, tz);
-      if (i % 2 === 0 && i < 14) part(K(r * 0.5, r * 1.8, 5), tx, ty + r, tz, { rx: -0.3 });
-    }
-    part(K(0.28, 1.4, 5), tx + 0.4, ty + 0.2, tz, { rz: -0.8 }); // tail barb
-
-    // Holographic dragon projection — a pixel-art dragon cast in the air in
-    // front of the sculpt (behind the box), so the silhouette reads clearly as a
-    // dragon. Two crossed planes (so it holds up off-axis) + a plinth beam.
-    const holoTex = dragonHologramTexture();
-    zoneTextures.push(holoTex);
-    const holoMat = new THREE.MeshBasicMaterial({
-      map: holoTex, color: 0x9fd4ff, transparent: true, opacity: 0.82,
-      depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
-    });
-    zoneMats.push(holoMat);
-    // A single profile plane facing the arriving player so the dragon silhouette
-    // reads clearly (crossed planes washed out under additive blend).
-    const holoGeo = new THREE.PlaneGeometry(10.5, 11.3);
-    const holo = new THREE.Mesh(holoGeo, holoMat);
-    holo.position.set(0, -7.6, -58.5); rec.group.add(holo);
-    zoneGeos.push(holoGeo);
-    // A faint projector base ring + a thin upward beam (kept subtle so it frames
-    // rather than drowns the silhouette).
-    const beamMat = new THREE.MeshBasicMaterial({ color: 0x4a8fd0, transparent: true, opacity: 0.07, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-    zoneMats.push(beamMat);
-    const beamGeo = new THREE.ConeGeometry(2.6, 11, 20, 1, true);
-    const beam = new THREE.Mesh(beamGeo, beamMat); beam.position.set(0, -8.6, -58.5); rec.group.add(beam);
-    zoneGeos.push(beamGeo);
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0x7fc0ff, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-    zoneMats.push(ringMat);
-    const ringGeo = new THREE.RingGeometry(1.6, 2.4, 28);
-    const ring = new THREE.Mesh(ringGeo, ringMat); ring.position.set(0, -13.9, -58.5); ring.rotation.x = -Math.PI / 2; rec.group.add(ring);
-    zoneGeos.push(ringGeo);
-    const holoLight = new THREE.PointLight(0x7fc0ff, 1.2, 24, 2.0);
-    holoLight.position.set(0, -6, -58.5); rec.group.add(holoLight);
-    z9Holo = { mat: holoMat, mat2: beamMat, light: holoLight };
+    // The dragon itself is the owner's artwork, shown as a large luminous
+    // billboard (the way the deep nebulae show the owner's paintings) rather than
+    // a built sculpt. It stands at the back of the chamber facing the arriving
+    // player; the functional black box sits in front of it (built below). A soft
+    // glow disc behind it lifts it off the black shell, and a faint edge light
+    // keeps the surrounding stone from going flat.
+    const dragonTex = new THREE.TextureLoader().load(dragonImgUrl);
+    dragonTex.colorSpace = THREE.SRGBColorSpace;
+    zoneTextures.push(dragonTex);
+    const dragonMat = new THREE.MeshBasicMaterial({ map: dragonTex, transparent: true, side: THREE.DoubleSide, depthWrite: false });
+    zoneMats.push(dragonMat);
+    const DW = 20, DH = 30; // portrait artwork (~2:3), towering over the chamber
+    const dragonGeo = new THREE.PlaneGeometry(DW, DH);
+    const dragon = new THREE.Mesh(dragonGeo, dragonMat);
+    dragon.position.set(0, -1.5, -63); // bottom ~ the chamber floor, rising well overhead
+    rec.group.add(dragon); zoneGeos.push(dragonGeo);
+    // A soft halo behind the artwork so it reads as a projected image in the dark.
+    const haloMat = new THREE.MeshBasicMaterial({ color: 0x2a4a80, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    zoneMats.push(haloMat);
+    const haloGeo = new THREE.PlaneGeometry(DW + 8, DH + 8);
+    const halo = new THREE.Mesh(haloGeo, haloMat); halo.position.set(0, -1.5, -63.5); rec.group.add(halo);
+    zoneGeos.push(haloGeo);
+    const holoLight = new THREE.PointLight(0x7fc0ff, 1.2, 30, 2.0);
+    holoLight.position.set(0, -4, -56); rec.group.add(holoLight);
+    z9Holo = { mat: dragonMat, mat2: haloMat, light: holoLight };
 
     // The open black box at the dragon's feet — an opening looking down onto a
     // city far below. Rim walls around a 4x4 hole; a luminous aerial-city plane
@@ -1831,12 +1690,11 @@ export function createActuality(planet, worldUp, opts = {}) {
     const FALL_DUR = 1.2, FALL_OUT = 0.5;
     zoneUpdaters.push((t, dt, playerPos) => {
       if (activeZone === 'z9') upGlow.intensity = 1.1 + Math.sin(t * 2.0) * 0.3;
-      // Holographic dragon flicker — a subtle scanline shimmer + occasional blink.
+      // The dragon artwork holds full presence; only its halo + glow breathe.
       if (activeZone === 'z9' && z9Holo) {
-        const base = 0.6 + Math.sin(t * 3.1) * 0.06;
-        const blink = (Math.sin(t * 27.0) > 0.93) ? 0.5 : 1.0; // rare quick dropout
-        z9Holo.mat.opacity = base * blink;
-        z9Holo.light.intensity = 1.1 + Math.sin(t * 4.0) * 0.4;
+        z9Holo.mat.opacity = 0.94 + Math.sin(t * 2.2) * 0.06; // faint holographic shimmer
+        z9Holo.mat2.opacity = 0.3 + Math.sin(t * 1.5) * 0.08; // halo breathes
+        z9Holo.light.intensity = 1.1 + Math.sin(t * 3.0) * 0.35;
       }
       // Arm the fall when the player stands over the opening.
       if (activeZone === 'z9' && fade.phase === 'idle' && !z9Fall) {
