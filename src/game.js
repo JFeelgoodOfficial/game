@@ -65,6 +65,7 @@ import {
   walkInteract,
   walkPromptText,
   walkPreRender,
+  walkPendingReset,
   shipBearing,
   walkDebug,
   enterStationWalk,
@@ -627,19 +628,30 @@ function frame(now) {
     if (input.toggleView) toggleWalkView();
     // Astronaut pose/animation + dressing sway ride the render rate.
     updateWalkVisuals(delta, now / 1000);
-    // E — talk to the focused citizen/creature, or advance the open dialogue.
-    if (input.interact) walkInteract();
-    if (input.toggleWalk) {
-      if (nearParkedShip()) {
-        // Board the ship and hand control back to flight.
-        exitWalk(camera);
-        snapCamera(ship); // resync the camera-lag state exitWalk set directly
-        phase = 'fly';
-        accumulator = 0;
-        setWarpButtonVisible(true);
-      } else {
-        // You walked here — the ship didn't. Go back for it.
-        promptReturnToShip();
+    // The actuality hyper-holo-grid finale loops the whole game back to start
+    // (0 = repeat program): board off, reset to the spawn, resume flight.
+    if (walkPendingReset()) {
+      exitWalk(camera);
+      resetToStart();
+      snapCamera(ship);
+      phase = 'fly';
+      accumulator = 0;
+      setWarpButtonVisible(true);
+    } else {
+      // E — talk to the focused citizen/creature, or advance the open dialogue.
+      if (input.interact) walkInteract();
+      if (input.toggleWalk) {
+        if (nearParkedShip()) {
+          // Board the ship and hand control back to flight.
+          exitWalk(camera);
+          snapCamera(ship); // resync the camera-lag state exitWalk set directly
+          phase = 'fly';
+          accumulator = 0;
+          setWarpButtonVisible(true);
+        } else {
+          // You walked here — the ship didn't. Go back for it.
+          promptReturnToShip();
+        }
       }
     }
   } else if (phase === 'collapse') {

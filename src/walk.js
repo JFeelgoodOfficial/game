@@ -1156,6 +1156,13 @@ export function walkPreRender(renderer) {
   if (walk.active && actuality) actuality.preRender(renderer);
 }
 
+// The actuality world's hyper-holo-grid finale asks the host to loop the whole
+// game back to its start (0 = repeat program). Consumed once; game.js does the
+// exitWalk + resetToStart.
+export function walkPendingReset() {
+  return walk.active && actuality ? actuality.consumeReset() : false;
+}
+
 // Gravity scale of the world underfoot (1 = normal). For the walk-hint UI.
 export function currentGravityScale() {
   if (stationWalk.stationActive()) return C.STATION_GRAVITY_SCALE;
