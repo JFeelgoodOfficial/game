@@ -2040,7 +2040,41 @@ export function createActuality(planet, worldUp, opts = {}) {
     const muralLight = new THREE.PointLight(0xffb884, 1.0, 26, 2.0);
     muralLight.position.set(0, WH / 2, -R + 3.5); rec.group.add(muralLight);
 
+    // Rising sparkles → starfield (the painting's motif): a warm column of motes
+    // lifts from the merge point up to a field of stars gathered on the ceiling.
+    const sparkGeo = new THREE.PlaneGeometry(0.12, 0.12);
+    zoneGeos.push(sparkGeo);
+    const RISE = 130;
+    const riseMat = new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
+    zoneMats.push(riseMat);
+    const rising = new THREE.InstancedMesh(sparkGeo, riseMat, RISE);
+    rising.frustumCulled = false; rec.group.add(rising);
+    const rr = mulberry32(0x2b0d);
+    const rb = [];
+    for (let i = 0; i < RISE; i++) rb.push({ a: rr() * 6.28, rad: rr() * rr() * 2.4, ph: rr(), sp: 0.10 + rr() * 0.14, sz: 0.5 + rr() * 1.1, wob: rr() * 6.28 });
+    // A twinkling starfield gathered high in the room / across the ceiling.
+    const STARS = 150;
+    const starMat = new THREE.MeshBasicMaterial({ color: 0xfff0d0, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
+    zoneMats.push(starMat);
+    const starfield = new THREE.InstancedMesh(sparkGeo, starMat, STARS);
+    starfield.frustumCulled = false; rec.group.add(starfield);
+    const sr = mulberry32(0x5713);
+    const sb = [];
+    const _sm = new THREE.Matrix4(), _sq = new THREE.Quaternion(), _ssv = new THREE.Vector3();
+    for (let i = 0; i < STARS; i++) {
+      const x = (sr() - 0.5) * (R * 1.7), z = (sr() - 0.5) * (R * 1.7), y = WH - 0.2 - sr() * 3.2;
+      sb.push({ x, y, z, ph: sr() * 6.28, sz: 0.4 + sr() * 1.4 });
+    }
+    // Static stars placed once (they only twinkle in scale).
+    for (let i = 0; i < STARS; i++) {
+      _sm.compose(_ssv.set(sb[i].x, sb[i].y, sb[i].z), _sq, _ssv.clone().set(sb[i].sz, sb[i].sz, sb[i].sz));
+      // NB compose needs a separate scale vector; set below in the updater too.
+      starfield.setMatrixAt(i, _sm);
+    }
+    starfield.instanceMatrix.needsUpdate = true;
+
     const _pm = new THREE.Matrix4(), _pv = new THREE.Vector3(), _ps = new THREE.Vector3(1, 1, 1);
+    const _idq = new THREE.Quaternion();
     zoneUpdaters.push((t) => {
       if (activeZone !== 'z2') return;
       // Heartbeat (a lub-dub every ~1.3 s) drives the breathing + the glow.
@@ -2072,6 +2106,35 @@ export function createActuality(planet, worldUp, opts = {}) {
         panels.setMatrixAt(i, _pm);
       }
       panels.instanceMatrix.needsUpdate = true;
+      // Rising sparkles lift from the merge point to the ceiling; brighter and
+      // denser as the two souls draw together (near → 1), pulsing on the heart.
+      const flow = 0.35 + near * 0.65;
+      for (let i = 0; i < RISE; i++) {
+        const b = rb[i];
+        const prog = ((t * b.sp + b.ph) % 1);
+        const y = 1.8 + prog * (WH - 2.2);
+        const spread = 0.4 + prog * 2.6;                 // fans out as it rises
+        const wob = Math.sin(t * 1.3 + b.wob) * 0.3 * prog;
+        const rad = b.rad * (0.3 + prog * 0.9);
+        const fade = Math.sin(prog * Math.PI);           // fade in/out over the climb
+        _ps.set(b.sz, b.sz, b.sz);
+        _pv.set(Math.cos(b.a) * rad * spread + wob, y, Math.sin(b.a) * rad * spread);
+        _pm.compose(_pv, _idq, _ps);
+        rising.setMatrixAt(i, _pm);
+      }
+      riseMat.opacity = (0.35 + heart * 0.4) * flow;
+      rising.instanceMatrix.needsUpdate = true;
+      // Starfield twinkle (scale flicker), gathered brighter as the souls merge.
+      for (let i = 0; i < STARS; i++) {
+        const b = sb[i];
+        const tw = 0.6 + Math.sin(t * 2.4 + b.ph) * 0.4;
+        _ps.set(b.sz * tw, b.sz * tw, b.sz * tw);
+        _pv.set(b.x, b.y, b.z);
+        _pm.compose(_pv, _idq, _ps);
+        starfield.setMatrixAt(i, _pm);
+      }
+      starMat.opacity = 0.55 + merged * 0.4;
+      starfield.instanceMatrix.needsUpdate = true;
     });
   }
 
