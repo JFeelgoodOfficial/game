@@ -157,6 +157,12 @@ export const C = {
   STATION_LIFT_SPEED: 9.0, // antigrav pad: steady rise up the atrium shaft, u/s
   STATION_LIFT_EXIT_CAP: 5.0, // soft-cap residual vUp when stepping off the column
 
+  // --- gallery atmosphere fx (shaders/particles; drive uTime once per frame,
+  // zero per-frame allocation — see galleryFx in stations.js) ---
+  GALLERY_DUST: 220, // floating light motes in the atrium (one Points draw)
+  GALLERY_DUST_RISE: 0.02, // fraction of the shaft the motes drift up per second
+  GALLERY_BEAM_SPEED: 2.6, // upward scroll rate of the antigrav beam's energy bands
+
   // --- on-foot water (the sea sphere sits at planet radius + 1.5) ---
   WALK_WATER_LEVEL: 1.5, // sea surface height above the base sphere (planet.js water mesh)
   WALK_SWIM_DEPTH: 1.1, // water deeper than this means swim, not wade
