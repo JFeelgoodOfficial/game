@@ -44,6 +44,19 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildRig, poseRig } from './aliens.js';
 
+// The owner's paintings (repo-root /artgallery, same pipeline as the Orbital
+// Art Gallery in src/stations.js). One dream-themed piece appears faintly in
+// the garden's windowpane — the window "shows a memory". Asset URLs only.
+const ART_ENTRIES = Object.entries(
+  import.meta.glob('/artgallery/*.{png,jpg,jpeg,webp}', {
+    eager: true,
+    query: '?url',
+    import: 'default',
+  })
+).sort(([a], [b]) => (a < b ? -1 : 1));
+const DREAM_ART_URL =
+  (ART_ENTRIES.find(([path]) => /dream/i.test(path)) ?? ART_ENTRIES[0])?.[1] ?? null;
+
 /* ----------------------------------------------------------------------
  * Tunables + palette + authored text — every magic value lives here.
  * ------------------------------------------------------------------- */
@@ -376,6 +389,88 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     return mesh;
   }
 
+  // Fluttering wildlife (butterflies / moths): one InstancedMesh of two-wing
+  // planes. Wings flap in the vertex shader (tips rise with |x|, body still,
+  // phase from the instance origin); bodies drift on figure-8 paths around
+  // scattered home points via a per-frame matrix recompose (no allocation).
+  const flutters = []; // { mesh, homes }
+  function makeFlutter(count, o) {
+    const wing = new THREE.PlaneGeometry(0.22, 0.13);
+    const geo = keep(mergeParts([
+      wing.clone().translate(0.12, 0, 0),
+      wing.translate(-0.12, 0, 0),
+    ]));
+    geo.rotateX(-Math.PI / 2); // wings lie flat, flap along local Y
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xffffff, side: THREE.DoubleSide, roughness: 1.0,
+    });
+    if (o.emis) { mat.emissive = new THREE.Color(o.emisColor); mat.emissiveIntensity = o.emis; }
+    const timeU = { value: 0 };
+    swayUniforms.push(timeU);
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = timeU;
+      shader.vertexShader = 'uniform float uTime;\n' + shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        {
+          vec4 ip = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+          transformed.y += abs(transformed.x) * sin(uTime * 11.0 + ip.x * 3.1 + ip.z * 2.7) * 0.9;
+        }`
+      );
+    };
+    disposables.push(mat);
+    const mesh = new THREE.InstancedMesh(geo, mat, count);
+    mesh.frustumCulled = false;
+    const homes = [];
+    const col = new THREE.Color();
+    for (let i = 0; i < count; i++) {
+      homes.push({
+        d: o.d0 + rng() * o.dSpan,
+        lat: (rng() - 0.5) * o.latSpan,
+        h: 0.8 + rng() * 2.2,
+        ph: rng() * 20,
+        sp: 0.3 + rng() * 0.5,
+        ampD: 2 + rng() * 4,
+        ampL: 2 + rng() * 4,
+        yaw: rng() * Math.PI * 2,
+      });
+      mesh.setColorAt(i, col.setHex(o.colors[Math.floor(rng() * o.colors.length)]));
+    }
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    flutters.push({ mesh, homes });
+    return mesh;
+  }
+  const _bM = new THREE.Matrix4(), _bQ = new THREE.Quaternion();
+  const _bP = new THREE.Vector3(), _bD = new THREE.Vector3(), _bS = new THREE.Vector3(1, 1, 1);
+  function updateFlutters(t) {
+    for (const F of flutters) {
+      const { mesh, homes } = F;
+      for (let i = 0; i < homes.length; i++) {
+        const b = homes[i];
+        const dd = b.d + Math.sin(t * b.sp + b.ph) * b.ampD;
+        const ll = b.lat + Math.sin((t * b.sp + b.ph) * 2.0) * b.ampL; // figure-8
+        pathDirInto(dd, ll, _bD);
+        _bP.copy(_bD).multiplyScalar(sampleGround(planet, _bD) + b.h + Math.sin(t * 1.7 + b.ph) * 0.5);
+        _bQ.setFromUnitVectors(_yAxis, _bD)
+          .multiply(_qScratch.setFromAxisAngle(_yAxis, b.yaw + Math.sin(t * b.sp) * 0.8));
+        _bM.compose(_bP, _bQ, _bS);
+        mesh.setMatrixAt(i, _bM);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  // Tile a ground texture instead of stretching one 512^2 canvas across a
+  // whole 200-300 m disc: detail lands at ~`metersPerTile` scale, and
+  // anisotropy keeps it sharp at the grazing angles a walker actually sees.
+  function tileTex(tex, r, metersPerTile = 15) {
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    const k = Math.max(1, Math.round((r * 2) / metersPerTile));
+    tex.repeat.set(k, k);
+    tex.anisotropy = 8; // driver clamps to hardware max
+    return tex;
+  }
+
   // Large colored ground carpet draped onto the sphere (wavemallprime drape:
   // a naive flat disc floats ~d^2/2R at the rim — ~12 m for a 300 m span — so
   // every vertex is pushed to the exact terrain radius). Opaque core disc plus
@@ -398,6 +493,8 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const holder = new THREE.Group();
     holder.position.copy(f.pos);
     holder.quaternion.copy(f.q);
+
+    if (o.map) tileTex(o.map, r); // fine-grain detail underfoot, not one giant blob
 
     const coreGeo = keep(drape(new THREE.RingGeometry(0.01, r * 0.8, 48, 8).rotateX(-Math.PI / 2), o.lift ?? 0.08));
     const core = new THREE.Mesh(coreGeo, stdMat(o.map ? 0xffffff : o.color, { rough: 1.0, map: o.map }));
@@ -543,6 +640,31 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     followers.push({ rig, slotX, cur: new THREE.Vector3(), inited: false });
   }
 
+  // Seated/static named NPCs come alive: heads turn to track the player when
+  // near (damped, clamped), and torsos breathe. Only rigs that never run
+  // poseRig are registered here, so there is exactly one writer per joint.
+  const lookers = []; // { rig, activeFn? }
+  function addLooker(rig, activeFn = null) { lookers.push({ rig, activeFn }); }
+  const _lkP = new THREE.Vector3();
+  const _lkQ = new THREE.Quaternion();
+  function updateLookers(dt, t) {
+    for (const L of lookers) {
+      const rig = L.rig;
+      if (!rig.group.visible || (L.activeFn && !L.activeFn())) continue;
+      let targetYaw = 0;
+      if (rig.group.position.distanceToSquared(_pl) < 81) { // within 9 m
+        _lkP.copy(_pl).sub(rig.group.position)
+          .applyQuaternion(_lkQ.copy(rig.group.quaternion).invert());
+        targetYaw = THREE.MathUtils.clamp(Math.atan2(_lkP.x, _lkP.z), -0.8, 0.8);
+      }
+      rig.joints.head.rotation.y =
+        THREE.MathUtils.damp(rig.joints.head.rotation.y, targetYaw, 4, dt);
+      // Gentle breathing (seated pose is set once; poseRig never runs here).
+      rig.joints.torso.position.y =
+        0.18 * rig.params.scaleY + Math.sin(t * 1.3 + rig.params.gaitPhase) * 0.012;
+    }
+  }
+
   // An ash puff rising from a surface-local direction; a few points may carry an
   // accent tint (the cloaked figure's blue tear at the finale).
   function makeDissolve(dirLocal, colorHex, count = 220, accentHex = null, accentFrac = 0) {
@@ -652,6 +774,12 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     // with a scrolling streak texture for flow.
     g.add(buildRiverRibbon());
 
+    // Butterflies drifting over the meadow.
+    g.add(makeFlutter(36, {
+      d0: 20, dSpan: 300, latSpan: 110,
+      colors: [0xffffff, 0xffe08a, 0xffb0c8, 0x9fd8ff],
+    }));
+
     // Worn path strip pointing at the water.
     const strip = new THREE.Mesh(keep(new THREE.PlaneGeometry(2.6, SR.RIVER - 20)), stdMat(0x8a6f4d, { rough: 1.0 }));
     const f = frameAt((SR.RIVER - 20) / 2);
@@ -680,6 +808,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     meshOn(lady.joints.head, keep(new THREE.SphereGeometry(0.13 * lsc, 8, 6)), stdMat(0xd8c0a0, { rough: 1 }), 0, 0.16 * lsc, -0.12 * lsc); // hair bun
     seatRig(lady, 0);
     placeRig(lady, pathDir(SR.LADY, 4), Math.PI); // faces the arriving player
+    addLooker(lady); // her head follows you; she never rises
     g.add(lady.group);
     const flowerMat = stdMat(0xff5a7a, { emis: 0.4, emisColor: 0xff5a7a });
     const flower = new THREE.Mesh(keep(new THREE.ConeGeometry(0.12, 0.3, 5)), flowerMat);
@@ -744,6 +873,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     geo.setIndex(indices);
     geo.computeVertexNormals();
     const waterTex = keep(makeWaterTexture());
+    waterTex.anisotropy = 8;
     // Strong blue emissive floor so the water reads saturated blue even at
     // grazing angles (a river seen on foot is almost always edge-on).
     // DoubleSide: the ribbon's winding depends on the flow direction, so don't
@@ -752,6 +882,37 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       rough: 0.12, metal: 0.2, map: waterTex, emis: 0.3, emisColor: 0x2470e8,
       side: THREE.DoubleSide,
     });
+    // Living-water shader: vertex ripple + moving sparkle glints + a real
+    // fresnel term that brightens the surface blue at grazing angles — the
+    // view a walker actually has of a river.
+    const waterTime = { value: 0 };
+    swayUniforms.push(waterTime);
+    waterMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = waterTime;
+      shader.vertexShader = 'uniform float uTime;\n' + shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        transformed += normalize(normal) * (
+          sin(uv.x * 40.0 + uTime * 2.0) * 0.05 +
+          sin(uv.x * 13.0 - uTime * 1.3) * 0.03
+        );`
+      );
+      shader.fragmentShader = 'uniform float uTime;\n' + shader.fragmentShader.replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+        {
+          // Sparkle glints drifting against the flow. (r165 standard shader
+          // exposes per-map UVs — vMapUv — rather than a generic vUv.)
+          float glint = pow(max(sin(vMapUv.x * 60.0 - uTime * 3.0) *
+                                sin(vMapUv.y * 14.0 + uTime * 2.0), 0.0), 8.0);
+          totalEmissiveRadiance += vec3(0.55, 0.75, 1.0) * glint * 0.55;
+          // Fresnel: grazing views pick up sky-blue shine.
+          vec3 fvDir = normalize(vViewPosition);
+          float fres = pow(1.0 - clamp(abs(dot(fvDir, normalize(vNormal))), 0.0, 1.0), 3.0);
+          totalEmissiveRadiance += vec3(0.25, 0.5, 1.0) * fres * 0.55;
+        }`
+      );
+    };
     scrollers.push({ map: waterTex, speed: 0.07 });
     const mesh = new THREE.Mesh(geo, waterMat);
     mesh.frustumCulled = false;
@@ -829,7 +990,11 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const roomGap = SR.ROOM_INNER_R + 8;
 
     // Central glowing road (warm pale stone) — split around the round room.
+    // The ribbon's UVs already tile along its length (u/8), so the texture
+    // just needs RepeatWrapping; anisotropy keeps it sharp receding ahead.
     const roadTex = keep(makeMottleTexture(0xdcc7a0, 0xc9b285));
+    roadTex.wrapS = roadTex.wrapT = THREE.RepeatWrapping;
+    roadTex.anisotropy = 8;
     const roadMat = stdMat(0xffffff, { rough: 0.9, map: roadTex, emis: 0.3, emisColor: 0xffe2a8, side: THREE.DoubleSide });
     g.add(buildRibbon(6, SR.ROOM - roomGap, 3.2, roadMat));
     g.add(buildRibbon(SR.ROOM + roomGap, SR.GARDEN, 3.2, roadMat));
@@ -1133,7 +1298,9 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     // Glowing molten fissures: a second draped disc using the crack pattern as
     // an emissive/alpha map so only the cracks light up orange — big color in
     // an otherwise black zone, and it pulses like embers.
-    const crackTex = keep(makeCrackTexture());
+    // Same fixed-seed crack pattern AND same tiling as the ground disc (r150),
+    // so the orange glow stays registered to the visible cracks.
+    const crackTex = keep(tileTex(makeCrackTexture(), 150));
     const lavaMat = new THREE.MeshBasicMaterial({
       color: 0xff5a1e, map: crackTex, alphaMap: crackTex,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
@@ -1318,6 +1485,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     wr.params.groundOffset *= 1.15;
     seatRig(wr, 0.6);
     placeRig(wr, pathDir(SR.DESERT, 0), Math.PI);
+    addLooker(wr, () => !has('warrior_embraced'));
     g.add(wr.group);
     warrior = { rig: wr, talkedOnce: false };
 
@@ -1431,12 +1599,29 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     cone.renderOrder = 4;
     g.add(cone);
 
-    // The mirror-self: begins matte black, resolves as you approach.
+    // The mirror-self: begins matte black, resolves as you approach. A fresnel
+    // rim (pale grey-blue outline) makes the shadow READ in the void before it
+    // is understood — fading out as the figure resolves.
     const mr = tintRig('mirror', 0x050505, 0x050505);
     mr.materials.skinMat.emissive = new THREE.Color(0x000000);
+    const rimUniform = { value: 0.9 };
+    for (const m of [mr.materials.skinMat, mr.materials.clothMat]) {
+      m.onBeforeCompile = (shader) => {
+        shader.uniforms.uRim = rimUniform;
+        shader.fragmentShader = 'uniform float uRim;\n' + shader.fragmentShader.replace(
+          '#include <emissivemap_fragment>',
+          `#include <emissivemap_fragment>
+          {
+            vec3 rvDir = normalize(vViewPosition);
+            float rim = pow(1.0 - clamp(abs(dot(rvDir, normalize(vNormal))), 0.0, 1.0), 3.0);
+            totalEmissiveRadiance += vec3(0.55, 0.62, 0.78) * rim * uRim;
+          }`
+        );
+      };
+    }
     placeRig(mr, roomCenterDir, 0); // faces the entrance, where the player enters
     g.add(mr.group);
-    mirror = { rig: mr, reveal: 0 };
+    mirror = { rig: mr, reveal: 0, rimUniform };
 
     entities.push({
       pos: bodyPosAt(SR.ROOM, 0),
@@ -1468,6 +1653,8 @@ export function createShadowreach(planet, worldUp, opts = {}) {
         const c = 0.02 + mirror.reveal * 0.62; // → astronaut grey
         mr.materials.skinMat.color.setRGB(c, c, c);
         mr.materials.clothMat.color.setRGB(c * 0.8, c * 0.8, c * 0.8);
+        // Ghost outline strong while it's still a shadow, gone once resolved.
+        mirror.rimUniform.value = 0.9 * (1 - mirror.reveal) + 0.08;
         poseRig(mr, dt, t, 'idle', 0);
       } else {
         // Reflect the player across the room center in the room frame, mirror pose.
@@ -1571,7 +1758,22 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     orientOnSurface(trunk, treeDir, 0);
     g.add(trunk);
     const paneFrame = new THREE.Mesh(keep(new THREE.BoxGeometry(1.6, 2.2, 0.12)), stdMat(0x8a7a5c, { rough: 0.8 }));
-    const pane = new THREE.Mesh(keep(new THREE.PlaneGeometry(1.4, 2.0)), stdMat(0xdce8f0, { rough: 0.1, metal: 0.3, transparent: true, opacity: 0.25 }));
+    // The windowpane shows a dream: one of the owner's own paintings, softly
+    // self-lit so the memory reads in the night garden.
+    let paneMat;
+    if (DREAM_ART_URL) {
+      const dreamTex = new THREE.TextureLoader().load(DREAM_ART_URL);
+      dreamTex.colorSpace = THREE.SRGBColorSpace;
+      dreamTex.anisotropy = 8;
+      disposables.push(dreamTex);
+      paneMat = stdMat(0xffffff, { rough: 0.35, map: dreamTex, transparent: true, opacity: 0.94, side: THREE.DoubleSide });
+      paneMat.emissive = new THREE.Color(0xffffff);
+      paneMat.emissiveMap = dreamTex;
+      paneMat.emissiveIntensity = 0.42;
+    } else {
+      paneMat = stdMat(0xdce8f0, { rough: 0.1, metal: 0.3, transparent: true, opacity: 0.25 });
+    }
+    const pane = new THREE.Mesh(keep(new THREE.PlaneGeometry(1.4, 2.0)), paneMat);
     const paneDir = pathDir(SR.GARDEN + 13, 6.6);
     placeAtDir(paneFrame, planet, paneDir, 1.1);
     orientOnSurface(paneFrame, paneDir, 0.5);
@@ -1589,6 +1791,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     meshOn(st.group, keep(new THREE.TorusGeometry(0.24 * ssc, 0.045 * ssc, 6, 10)), stdMat(0xe8c86a, { emis: 0.22 }), 0, 1.12 * ssc, 0, Math.PI / 2); // gold belt
     seatRig(st, 0);
     placeRig(st, pathDir(SR.GARDEN, 2), Math.PI);
+    addLooker(st, () => !endingStarted);
     g.add(st.group);
     // The staff, leaning beside him with a glowing gold finial.
     const staff = new THREE.Mesh(keep(mergeParts([
@@ -1658,12 +1861,16 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     fireflies.frustumCulled = false;
     g.add(fireflies);
 
+    // Pale glowing moths circling the night garden's lamps.
+    g.add(makeFlutter(24, {
+      d0: SR.GARDEN - 90, dSpan: 160, latSpan: 110,
+      colors: [0xfff0c0, 0xd0ffe0, 0xffd0f0],
+      emis: 0.5, emisColor: 0xfff0c0,
+    }));
+
     const _fp = new THREE.Vector3();
     zoneUpdaters.push((t, dt) => {
-      if (sprout.grow >= 0 && sprout.grow < 1) {
-        sprout.grow = Math.min(1, sprout.grow + dt / 3);
-        sproutMesh.scale.setScalar(THREE.MathUtils.lerp(0.001, 1, sprout.grow));
-      }
+      // (sprout growth is keyframed via sproutMixer in startEnding)
       const arr = fireGeo.attributes.position.array;
       for (let i = 0; i < FN; i++) {
         const f = fireBase[i];
@@ -1678,17 +1885,53 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   }
 
   // The garden's closing sequence: sprout → mask removal → dissolve → complete.
+  // The mask and sprout beats are keyframed (AnimationMixer, LoopOnce +
+  // clampWhenFinished) instead of popping — the schedule() timings that gate
+  // story flags are unchanged.
+  let maskMixer = null, sproutMixer = null;
   function startEnding() {
     if (endingStarted) return;
     endingStarted = true;
     sprout.mesh.visible = true;
-    sprout.grow = 0;
+    {
+      const tr = new THREE.VectorKeyframeTrack('.scale', [0, 2.4, 3.2],
+        [0.001, 0.001, 0.001, 1.15, 1.15, 1.15, 1, 1, 1]);
+      tr.setInterpolation(THREE.InterpolateSmooth); // overshoot bounce
+      const clip = new THREE.AnimationClip('sproutGrow', 3.2, [tr]);
+      sproutMixer = new THREE.AnimationMixer(sprout.mesh);
+      const a = sproutMixer.clipAction(clip);
+      a.loop = THREE.LoopOnce; a.clampWhenFinished = true; a.play();
+    }
     queueToast(TXT.toastSprout, 4, 0.2);
     schedule(4, () => {
-      // The cloaked figure removes the mask (its blue emissive blooms once).
-      if (cloakedFigure) {
-        cloakedFigure.maskMat.emissiveIntensity = 1.35;
-        cloakedFigure.mask.position.z += 0.4 * cloakedFigure.rig.params.scaleY;
+      // The cloaked figure lifts the mask away: it floats up off his face,
+      // tumbling slowly, flaring blue once (bloom), then dimming — keyframed
+      // in the mask's own head-local space so it starts exactly where it sat.
+      const cf = cloakedFigure;
+      if (cf) {
+        const sc = cf.rig.params.scaleY;
+        const p0 = cf.mask.position;
+        const q0 = cf.mask.quaternion;
+        const qEnd = q0.clone().multiply(
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(0.9, 1.4, 0.4)));
+        const qMid = q0.clone().slerp(qEnd, 0.5);
+        const pos = new THREE.VectorKeyframeTrack('.position', [0, 1.2, 3.5], [
+          p0.x, p0.y, p0.z,
+          p0.x + 0.1 * sc, p0.y + 0.8 * sc, p0.z + 0.5 * sc,
+          p0.x + 0.25 * sc, p0.y + 2.2 * sc, p0.z + 1.1 * sc,
+        ]);
+        pos.setInterpolation(THREE.InterpolateSmooth);
+        const quat = new THREE.QuaternionKeyframeTrack('.quaternion', [0, 1.7, 3.5], [
+          q0.x, q0.y, q0.z, q0.w,
+          qMid.x, qMid.y, qMid.z, qMid.w,
+          qEnd.x, qEnd.y, qEnd.z, qEnd.w,
+        ]);
+        const emis = new THREE.NumberKeyframeTrack('.material.emissiveIntensity',
+          [0, 0.8, 3.5], [0.5, 2.0, 0.4]);
+        const clip = new THREE.AnimationClip('maskAway', 3.5, [pos, quat, emis]);
+        maskMixer = new THREE.AnimationMixer(cf.mask);
+        const a = maskMixer.clipAction(clip);
+        a.loop = THREE.LoopOnce; a.clampWhenFinished = true; a.play();
       }
       queueToast(TXT.toastMask, 4, 0);
     });
@@ -1819,8 +2062,18 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     null,                        // 7: complete — beacon off
   ];
   const beaconHolder = new THREE.Group();
+  // Vertical fade: CylinderGeometry's V coordinate runs along height, so a
+  // simple gradient alphaMap dissolves the column into the sky (no hard cap).
+  const beamAlpha = keep(makeCanvasTex(64, (ctx, S) => {
+    const grad = ctx.createLinearGradient(0, S, 0, 0);
+    grad.addColorStop(0, '#fff');
+    grad.addColorStop(0.55, '#9a9a9a');
+    grad.addColorStop(1, '#000');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, S, S);
+  }));
   const beamMat = new THREE.MeshBasicMaterial({
-    color: 0x9fe8ff, transparent: true, opacity: 0.26,
+    color: 0x9fe8ff, transparent: true, opacity: 0.26, alphaMap: beamAlpha,
     blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
   });
   disposables.push(beamMat);
@@ -1911,6 +2164,13 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     // Move the objective beacon to the current goal.
     updateBeacon(t);
+
+    // Living-character systems: head tracking + breathing, butterflies/moths,
+    // and the keyframed ending beats (mask float-away, sprout bounce).
+    updateLookers(dt, t);
+    updateFlutters(t);
+    if (maskMixer) maskMixer.update(dt);
+    if (sproutMixer) sproutMixer.update(dt);
 
     // Companion followers trail behind the player along the path.
     updateFollowers(dt, t);
