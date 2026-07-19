@@ -364,6 +364,16 @@ function spawnWorldEntities(planet) {
     planet.surface.add(actuality.group);
     _actualityInvQuat.copy(actuality.anchor.quaternion).invert();
     actuality.initAudio(); // the landing G keypress is fresh user activation
+    // The module builds its own floors flush with the terra ground (it OWNS the
+    // ground via groundRadiusAt), so the terrain sphere and every module floor
+    // are coplanar and z-fight — the whole plain shimmers/"vibrates" as the
+    // camera moves. Bias the terrain's depth backward so the opaque module
+    // floors always win the depth test; the plain still shows beyond their
+    // edges. Restored in exitWalk. (Each planet owns its surface material.)
+    const sm = planet.surface.material;
+    sm.polygonOffset = true;
+    sm.polygonOffsetFactor = 3;
+    sm.polygonOffsetUnits = 3;
     return; // city/crowd/wonders/creatures stay null (guards short-circuit)
   }
 
@@ -570,6 +580,11 @@ export function exitWalk(camera) {
   if (actuality) {
     actuality.dispose(); // closes its AudioContext, frees geometries/render targets
     planet.surface.remove(actuality.group);
+    // Undo the terrain depth bias set in spawnWorldEntities.
+    const sm = planet.surface.material;
+    sm.polygonOffset = false;
+    sm.polygonOffsetFactor = 0;
+    sm.polygonOffsetUnits = 0;
     actuality = null;
   }
   if (shadowreach) {
@@ -1239,6 +1254,15 @@ export function updateWalkCamera(camera, delta = 0) {
   _camDir.multiplyScalar(1 / camR);
   let minR = planet.radius + planet.body.groundAt(_camDir) + 1.15;
   if (planet.water && minR < planet.water.r + 0.4) minR = planet.water.r + 0.4;
+  // Actuality's Zone 9 descends into an open pit below the terrain. When the
+  // walker is underground the terrain clamp would shove the third-person camera
+  // back up to the surface — so the walkway down to the dragon was only visible
+  // in first person. Let the camera follow the walker into the pit instead.
+  if (actuality) {
+    const wr = ship.position.distanceTo(planet.body.position);
+    const terraR = planet.radius + planet.body.groundAt(_up) + 1.15;
+    if (wr < terraR - 1.5) minR = Math.min(minR, wr - 4);
+  }
   if (camR < minR) _desired.copy(planet.body.position).addScaledVector(_camDir, minR);
 
   // Rebase-safe smoothing: ease the offset-from-walker, then re-anchor.

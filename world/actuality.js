@@ -54,7 +54,7 @@ const AC = {
   PORTAL_R: 2.0,             // portal trigger radius
   FADE_OUT: 0.6,             // seconds to black
   FADE_IN: 1.4,              // seconds back from black (~2 s total transition)
-  HOLOGRID_SECONDS: 5,       // time in the hyper-holo-grid before the loop resets
+  HOLOGRID_SECONDS: 10,      // time in the hyper-holo-grid before the loop resets
   BLOOM_THRESHOLD: 0.85,     // emissive above this blooms
   STRING_LIGHT_EMISSIVE: 1.1,
   TRIM_EMISSIVE: 0.4,        // stays under threshold (no bloom)
@@ -246,31 +246,98 @@ function facadeTexture(rng) {
 // of the opening so looking in reads as "a city far below."
 function cityBelowTexture() {
   const c = document.createElement('canvas');
-  c.width = 256; c.height = 256;
+  c.width = 512; c.height = 512;
   const g = c.getContext('2d');
-  const sky = g.createRadialGradient(128, 128, 20, 128, 128, 180);
-  sky.addColorStop(0, '#ffe6b0'); sky.addColorStop(0.5, '#e8b980'); sky.addColorStop(1, '#6a5a7a');
-  g.fillStyle = sky; g.fillRect(0, 0, 256, 256);
   const rng = mulberry32(0xc17a);
-  // river curve
-  g.strokeStyle = 'rgba(90,150,200,0.7)'; g.lineWidth = 16;
-  g.beginPath(); g.moveTo(-10, 60); g.bezierCurveTo(80, 120, 160, 90, 270, 170); g.stroke();
-  // street grid + building blocks (top-down), lit roofs
-  for (let bx = 16; bx < 240; bx += 26) {
-    for (let by = 16; by < 240; by += 26) {
-      const d = Math.hypot(bx - 128, by - 128) / 180; // fade toward the haze
-      if (rng() < 0.15) continue;
-      const s = 12 + rng() * 8;
-      g.fillStyle = `rgba(${40 + rng() * 40},${40 + rng() * 40},${50 + rng() * 40},${0.85 - d * 0.5})`;
+  // Warm dawn haze the whole city sits in (you're looking straight down).
+  const sky = g.createRadialGradient(256, 256, 30, 256, 256, 380);
+  sky.addColorStop(0, '#ffe9bc'); sky.addColorStop(0.45, '#eabe86'); sky.addColorStop(0.8, '#a07a80'); sky.addColorStop(1, '#4a3a5a');
+  g.fillStyle = sky; g.fillRect(0, 0, 512, 512);
+  // Green parks scattered through the grid.
+  for (let i = 0; i < 7; i++) {
+    g.fillStyle = `rgba(${70 + rng() * 30},${110 + rng() * 40},${70 + rng() * 30},0.5)`;
+    g.beginPath(); g.ellipse(40 + rng() * 430, 40 + rng() * 430, 20 + rng() * 34, 16 + rng() * 26, 0, 0, 6.28); g.fill();
+  }
+  // A broad river winding through, catching the dawn light.
+  g.strokeStyle = 'rgba(120,175,215,0.8)'; g.lineWidth = 34; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(-20, 130); g.bezierCurveTo(160, 250, 320, 180, 540, 350); g.stroke();
+  g.strokeStyle = 'rgba(210,235,255,0.35)'; g.lineWidth = 8;
+  g.beginPath(); g.moveTo(-20, 130); g.bezierCurveTo(160, 250, 320, 180, 540, 350); g.stroke();
+  // City blocks (top-down), taller towers casting little shadows toward the haze,
+  // lit rooftops and windows — denser and brighter at the core, fading out.
+  for (let bx = 20; bx < 500; bx += 30) {
+    for (let by = 20; by < 500; by += 30) {
+      const d = Math.hypot(bx - 256, by - 256) / 300; // 0 core → 1 edge
+      if (rng() < 0.12 + d * 0.3) continue;
+      const s = 12 + rng() * 12;
+      const h = rng(); // tall-tower chance
+      // drop shadow (as if the sun is low to the upper-left)
+      g.fillStyle = `rgba(20,16,26,${0.28 * (1 - d)})`;
+      g.fillRect(bx + 3, by + 3, s, s);
+      const v = 60 + rng() * 60;
+      g.fillStyle = `rgba(${v},${v - 6},${v + 14},${0.9 - d * 0.55})`;
       g.fillRect(bx, by, s, s);
-      if (rng() < 0.5) { g.fillStyle = `rgba(255,220,150,${0.7 - d * 0.5})`; g.fillRect(bx + 2, by + 2, 3, 3); }
+      // lit roof cap on taller blocks
+      if (h > 0.55) { g.fillStyle = `rgba(255,226,168,${0.85 - d * 0.5})`; g.fillRect(bx + s * 0.3, by + s * 0.3, s * 0.4, s * 0.4); }
+      // scattered window sparkle
+      if (rng() < 0.4) { g.fillStyle = `rgba(255,240,205,${0.7 - d * 0.4})`; g.fillRect(bx + 1, by + s - 3, 2, 2); }
     }
   }
-  // soft cloud wisps near the edges (you're above them)
-  g.globalAlpha = 0.35; g.fillStyle = '#f4ecdc';
-  for (let i = 0; i < 8; i++) { g.beginPath(); g.ellipse(rng() * 256, rng() * 256, 20 + rng() * 30, 8 + rng() * 10, 0, 0, 6.28); g.fill(); }
+  // Soft cloud wisps near the edges — you're above them.
+  g.globalAlpha = 0.3; g.fillStyle = '#f6eede';
+  for (let i = 0; i < 10; i++) { g.beginPath(); g.ellipse(rng() * 512, rng() * 512, 30 + rng() * 60, 12 + rng() * 18, 0, 0, 6.28); g.fill(); }
+  g.globalAlpha = 1;
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// A holographic, pixel-art seated dragon in profile (original silhouette) —
+// projected in front of the sculpted dragon so the shape reads unmistakably as
+// a dragon. Chunky low-res canvas (nearest-sampled) + scanlines = hologram.
+function dragonHologramTexture() {
+  const W = 150, H = 200;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, W, H);
+  const poly = (pts) => { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); g.closePath(); g.fill(); };
+  g.fillStyle = '#bfe6ff';
+  // Haunch + seated body mass.
+  g.beginPath(); g.ellipse(74, 138, 34, 40, 0, 0, 6.28); g.fill();
+  g.beginPath(); g.ellipse(96, 120, 26, 34, 0, 0, 6.28); g.fill();
+  // Chest rising to the neck.
+  poly([[92, 96], [116, 110], [118, 140], [96, 150], [80, 130]]);
+  // Neck curving up to the head (facing right).
+  poly([[104, 104], [118, 70], [130, 62], [128, 84], [112, 116]]);
+  // Head + snout (points up-right) + lower jaw.
+  poly([[122, 74], [150, 58], [150, 68], [132, 80], [126, 86]]);
+  poly([[124, 82], [146, 74], [140, 84], [126, 90]]);
+  // Back-swept horns / frill off the skull.
+  poly([[124, 66], [112, 44], [120, 52], [128, 68]]);
+  poly([[128, 64], [120, 40], [128, 48], [134, 62]]);
+  poly([[132, 64], [130, 38], [136, 46], [138, 62]]);
+  // Folded wing — a big triangular membrane with a clawed strut.
+  poly([[70, 96], [40, 60], [50, 96], [30, 92], [58, 122], [86, 118]]);
+  poly([[66, 100], [44, 74], [52, 104]]);
+  // Foreleg reaching to the ground + hind foot.
+  poly([[108, 138], [112, 176], [124, 178], [120, 138]]);
+  poly([[64, 170], [60, 186], [92, 186], [92, 168]]);
+  // Long spiked tail sweeping down and to the left.
+  poly([[46, 150], [20, 172], [10, 188], [24, 184], [40, 168], [60, 160]]);
+  for (const [tx, ty] of [[40, 158], [30, 168], [20, 178], [52, 154]]) poly([[tx, ty], [tx - 6, ty - 10], [tx + 2, ty - 4]]);
+  // Dorsal ridge spikes from nape to hip.
+  for (const [sx, sy, s] of [[112, 96, 7], [100, 100, 8], [88, 104, 9], [76, 108, 8], [64, 116, 7]]) poly([[sx, sy], [sx - s * 0.5, sy - s], [sx + 4, sy - 2]]);
+  // Glowing eye.
+  g.fillStyle = '#eaf6ff'; g.beginPath(); g.arc(134, 72, 2.2, 0, 6.28); g.fill();
+  // Scanlines for the holographic read.
+  g.globalCompositeOperation = 'destination-out';
+  for (let y = 0; y < H; y += 3) g.fillRect(0, y, W, 1);
+  g.globalCompositeOperation = 'source-over';
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.NearestFilter; // keep the chunky pixels
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
   return tex;
 }
 
@@ -369,15 +436,15 @@ function silhouetteTexture(kind) {
 // Per-zone metadata: digit word (for the arch sign) and a tint used for the
 // pad's ambient light so each zone reads as a distinct place at a glance.
 const ZONE_META = [
-  { id: 'z1', word: 'MIND', tint: 0xe8b878 },
-  { id: 'z2', word: 'BODY', tint: 0xd8926a },
-  { id: 'z3', word: 'SOUL', tint: 0xd8d0b0 },
-  { id: 'z4', word: 'SELF', tint: 0xe0c090 },
-  { id: 'z5', word: 'ORDER', tint: 0x8890b0 },
-  { id: 'z6', word: 'LIFE', tint: 0x6a86a0 },
-  { id: 'z7', word: 'TIME', tint: 0x7088a8 },
-  { id: 'z8', word: 'ETERNITY', tint: 0xc88a5a },
-  { id: 'z9', word: 'DEATH / REBIRTH', tint: 0x707078 },
+  { id: 'z1', word: 'MIND', tint: 0xe8b878, note: 'THE MIND, CHASING ITS OWN THOUGHTS' },
+  { id: 'z2', word: 'BODY', tint: 0xd8926a, note: 'TWO SOULS DRAWN TOGETHER INTO ONE' },
+  { id: 'z3', word: 'SOUL', tint: 0xd8d0b0, note: 'AN ORDINARY CAFÉ — THE SOUL IS THE EVERYDAY' },
+  { id: 'z4', word: 'SELF', tint: 0xe0c090, note: 'THE FRIENDS WHO MADE YOU WHO YOU ARE' },
+  { id: 'z5', word: 'ORDER', tint: 0x8890b0, note: 'YOUR MEMORIES, SET IN ORDER ALONG THE PATH' },
+  { id: 'z6', word: 'LIFE', tint: 0x6a86a0, note: 'STEP DOWN INTO THE WATER — LIFE, DEATH, REBIRTH' },
+  { id: 'z7', word: 'TIME', tint: 0x7088a8, note: 'SIT BY THE TV — TIME YOU WON’T REMEMBER' },
+  { id: 'z8', word: 'ETERNITY', tint: 0xc88a5a, note: 'LET THE FIRE BURN DOWN UNDER AN ENDLESS SKY' },
+  { id: 'z9', word: 'DEATH / REBIRTH', tint: 0x707078, note: 'THE DRAGON — LEAP INTO THE BLACK BOX TO BE REBORN' },
 ];
 
 // One portal arch (two posts + a lintel + a glowing sign), built facing +Z in
@@ -507,7 +574,11 @@ function buildHub(rng) {
   const wallMat = new THREE.MeshStandardMaterial({ color: 0xd8c8a8, roughness: 0.9 });
   mats.push(wallMat);
   const WH = AC.HUB_WALL_H, BZ = AC.CAFE_BACK_Z;
-  addBox(20, WH, 0.5, 0, WH / 2, BZ, wallMat);         // back
+  // Back wall, split around a central doorway gap (the sealed mirror door fills
+  // it; it opens once every zone is seen — buildMirrorDoor owns the door itself).
+  addBox(7.4, WH, 0.5, -6.3, WH / 2, BZ, wallMat);     // back — left of doorway
+  addBox(7.4, WH, 0.5, 6.3, WH / 2, BZ, wallMat);      // back — right of doorway
+  addBox(3.2, WH - 2.6, 0.5, 0, WH - (WH - 2.6) / 2, BZ, wallMat); // lintel over the doorway
   addBox(0.5, WH, 6.5, -10, WH / 2, BZ - 3.25, wallMat); // left return
   addBox(0.5, WH, 6.5, 10, WH / 2, BZ - 3.25, wallMat);  // right return
   // Awning over the nook — striped canopy over wood beams.
@@ -870,6 +941,7 @@ export function createActuality(planet, worldUp, opts = {}) {
   let birdAnchorPos = null;  // zone-1 bird position in anchor-local (for chirp gain)
   let birdDist = 999;        // player-to-bird distance (zone-1 local), for the chirp
   let z9Fall = null;         // { t, tp } while the player falls through the black box
+  let z9Holo = null;         // { mat, mat2, light } the holographic dragon projection
   let cityFallEl = null;     // DOM overlay for the fall-to-city sequence
   let cityFallUrl = null;    // data URL of the aerial-city texture
   let mirrorTimer = 0;       // seconds inside the hyper-holo-grid
@@ -911,12 +983,20 @@ export function createActuality(planet, worldUp, opts = {}) {
   const fade = { phase: 'idle', t: 0, target: 'hub', dest: null, heading: null };
   const _surf = new THREE.Vector3(); // scratch: player position in surface-local
   let toastQueue = null; // {text, seconds} queued at blackout, drained by walk.js
+  let deferredNote = null; // {text, at} a "what's happening" line, shown after the title
 
   function zoneTitle(id) {
     if (id === 'hub') return 'THE CAFÉ';
     if (id === 'mirror') return 'THE HYPER-HOLO-GRID';
     const idx = Number(id.slice(1)) - 1;
     return `${idx + 1} — ${ZONE_META[idx].word}`;
+  }
+  // The short subtitle that explains what a zone is about (queued a beat after
+  // its title so both read cleanly through the single-line toast).
+  function zoneNote(id) {
+    if (id === 'hub' || id === 'mirror') return null;
+    const idx = Number(id.slice(1)) - 1;
+    return ZONE_META[idx].note || null;
   }
 
   // Drained once per queued toast by the walk.js host (shadowreach pattern).
@@ -1221,8 +1301,11 @@ export function createActuality(planet, worldUp, opts = {}) {
         // Only the active zone's group renders (its PointLights would otherwise
         // bloat every forward-pass shader). The swap hides inside the blackout.
         applyZoneVisibility();
-        // Zone-title toast, drained by the walk.js host (shadowreach pattern).
+        // Zone-title toast, drained by the walk.js host (shadowreach pattern);
+        // its meaning follows a couple of seconds later so both lines read.
         toastQueue = { text: zoneTitle(fade.target), seconds: 2.6 };
+        const note = zoneNote(fade.target);
+        deferredNote = note ? { text: note, at: 3.0 } : null; // countdown in update()
         if (zoneEnterCallbacks[fade.target]) zoneEnterCallbacks[fade.target]();
         fade.phase = 'in';
         fade.t = 0;
@@ -1240,10 +1323,31 @@ export function createActuality(planet, worldUp, opts = {}) {
     for (let i = 0; i < zoneUpdaters.length; i++) zoneUpdaters[i](t, dt, playerPos);
     audioUpdate(t, dt);
 
-    // Open the mirror door once every zone has been seen.
+    // Show a zone's meaning a beat after its title (both drain through the
+    // single-line host toast, so they can't share a frame).
+    if (deferredNote) {
+      deferredNote.at -= dt;
+      if (deferredNote.at <= 0) {
+        if (!toastQueue) { toastQueue = { text: deferredNote.text, seconds: 3.6 }; deferredNote = null; }
+      }
+    }
+
+    // Open the mirror door once every zone has been seen: the slab rises out of
+    // the frame and a blue threshold glow reveals the passage beyond.
     if (mirrorDoor && !mirrorDoor.opened && allZonesVisited()) {
       mirrorDoor.opened = true;
-      mirrorDoor.mesh.visible = false; // the doorway is now a passage
+    }
+    if (mirrorDoor && mirrorDoor.opened && mirrorDoor.anim < 1) {
+      mirrorDoor.anim = Math.min(1, mirrorDoor.anim + dt / 1.6);
+      const a = mirrorDoor.anim;
+      mirrorDoor.mesh.position.y = 1.55 + a * 3.2;       // slab lifts up and away
+      mirrorDoor.mesh.visible = a < 0.98;
+      mirrorDoor.glowMat.opacity = a * 0.7;
+      mirrorDoor.doorLight.intensity = a * 1.6;
+      mirrorDoor.sign.opacity = 0.85 + a * 0.15;
+    }
+    if (mirrorDoor && mirrorDoor.opened && mirrorDoor.anim >= 1) {
+      mirrorDoor.glowMat.opacity = 0.55 + Math.sin(t * 1.6) * 0.15; // gentle pulse
     }
 
     // Portal triggers — checked in surface-local space (frame-agnostic). Only
@@ -1630,6 +1734,32 @@ export function createActuality(planet, worldUp, opts = {}) {
     }
     part(K(0.28, 1.4, 5), tx + 0.4, ty + 0.2, tz, { rz: -0.8 }); // tail barb
 
+    // Holographic dragon projection — a pixel-art dragon cast in the air in
+    // front of the sculpt (behind the box), so the silhouette reads clearly as a
+    // dragon. Two crossed planes (so it holds up off-axis) + a plinth beam.
+    const holoTex = dragonHologramTexture();
+    zoneTextures.push(holoTex);
+    const holoMat = new THREE.MeshBasicMaterial({
+      map: holoTex, color: 0x9fd4ff, transparent: true, opacity: 0.72,
+      depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+    });
+    zoneMats.push(holoMat);
+    const holoGeo = new THREE.PlaneGeometry(9, 12);
+    const holo = new THREE.Mesh(holoGeo, holoMat);
+    holo.position.set(0, -8.0, -58.5); rec.group.add(holo);
+    const holo2 = new THREE.Mesh(holoGeo, holoMat);
+    holo2.position.set(0, -8.0, -58.5); holo2.rotation.y = Math.PI / 2; rec.group.add(holo2);
+    zoneGeos.push(holoGeo);
+    // A soft projector base + upward beam under the hologram.
+    const beamMat = new THREE.MeshBasicMaterial({ color: 0x4a8fd0, transparent: true, opacity: 0.14, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    zoneMats.push(beamMat);
+    const beamGeo = new THREE.ConeGeometry(3.4, 12, 16, 1, true);
+    const beam = new THREE.Mesh(beamGeo, beamMat); beam.position.set(0, -8.5, -58.5); rec.group.add(beam);
+    zoneGeos.push(beamGeo);
+    const holoLight = new THREE.PointLight(0x7fc0ff, 1.4, 24, 2.0);
+    holoLight.position.set(0, -6, -58.5); rec.group.add(holoLight);
+    z9Holo = { mat: holoMat, mat2: beamMat, light: holoLight };
+
     // The open black box at the dragon's feet — an opening looking down onto a
     // city far below. Rim walls around a 4x4 hole; a luminous aerial-city plane
     // recessed beneath, dark shaft walls, and a warm up-glow.
@@ -1664,11 +1794,15 @@ export function createActuality(planet, worldUp, opts = {}) {
     zoneTextures.push(cityTex);
     cityFallUrl = cityTex.image.toDataURL(); // reused by the fall overlay
     const cityMat = new THREE.MeshBasicMaterial({ map: cityTex, side: THREE.DoubleSide });
-    const cityGeo = new THREE.PlaneGeometry(3.6, 3.6);
+    const cityGeo = new THREE.PlaneGeometry(4.2, 4.2); // fills the opening when you look in
     const cityPlane = new THREE.Mesh(cityGeo, cityMat);
-    cityPlane.position.set(BX, -18.4, BZ); cityPlane.rotation.x = -Math.PI / 2;
+    cityPlane.position.set(BX, -18.0, BZ); cityPlane.rotation.x = -Math.PI / 2;
     rec.group.add(cityPlane); zoneGeos.push(cityGeo); zoneMats.push(cityMat);
-    const upGlow = new THREE.PointLight(0xffd9a0, 1.4, 16, 2.0);
+    // A second, larger faint city layer deeper down for a sense of depth.
+    const cityFar = new THREE.Mesh(new THREE.PlaneGeometry(7, 7), new THREE.MeshBasicMaterial({ map: cityTex, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
+    cityFar.position.set(BX, -22.5, BZ); cityFar.rotation.x = -Math.PI / 2;
+    rec.group.add(cityFar); zoneGeos.push(cityFar.geometry); zoneMats.push(cityFar.material);
+    const upGlow = new THREE.PointLight(0xffd9a0, 1.6, 18, 2.0);
     upGlow.position.set(BX, -15.5, BZ); rec.group.add(upGlow);
 
     // Dragon dialogue (talk before you jump), placed clear of the box footprint.
@@ -1680,6 +1814,13 @@ export function createActuality(planet, worldUp, opts = {}) {
     const FALL_DUR = 1.2, FALL_OUT = 0.5;
     zoneUpdaters.push((t, dt, playerPos) => {
       if (activeZone === 'z9') upGlow.intensity = 1.1 + Math.sin(t * 2.0) * 0.3;
+      // Holographic dragon flicker — a subtle scanline shimmer + occasional blink.
+      if (activeZone === 'z9' && z9Holo) {
+        const base = 0.6 + Math.sin(t * 3.1) * 0.06;
+        const blink = (Math.sin(t * 27.0) > 0.93) ? 0.5 : 1.0; // rare quick dropout
+        z9Holo.mat.opacity = base * blink;
+        z9Holo.light.intensity = 1.1 + Math.sin(t * 4.0) * 0.4;
+      }
       // Arm the fall when the player stands over the opening.
       if (activeZone === 'z9' && fade.phase === 'idle' && !z9Fall) {
         _zLocal.copy(playerPos).applyQuaternion(anchorQ).add(anchorPos)
@@ -2214,7 +2355,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     rec.group.add(new THREE.AmbientLight(0x101018, 0.35));
     addDome(rec, 60, '#04040a', '#08080f');
     // Enclose the dark room (walls + ceiling, door gap on +Z, window on +X).
-    const RX = 8, RZ = 10, WH = 3.6;
+    const RX = 8, RZ = 10, WH = 7.2; // room made twice as tall
     const roomMat = new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.95, side: THREE.DoubleSide });
     zoneMats.push(roomMat);
     const wall = (w, h, x, y, z, ry, rx = 0) => { const g = new THREE.PlaneGeometry(w, h); const m = new THREE.Mesh(g, roomMat); m.position.set(x, y, z); m.rotation.set(rx, ry, 0); rec.group.add(m); zoneGeos.push(g); };
@@ -2382,12 +2523,41 @@ export function createActuality(planet, worldUp, opts = {}) {
     rec.group.add(gran.group); figures.push(gran);
     interactables.push({ id: 'grandmother', zone: 'z8', pos: zoneToAnchor(rec, 13.2, 0, -4), talking: false });
 
+    // The eternal star — a bright pole star high overhead that kindles as the
+    // fire dies (the finite flame giving way to the endless sky). A soft halo +
+    // a hard point. The embers rise toward it: the fire becoming part of forever.
+    const starGrp = new THREE.Group(); starGrp.position.set(0, 46, -30); rec.group.add(starGrp);
+    const starCore = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 12), new THREE.MeshBasicMaterial({ color: 0xfdf6e0 }));
+    starGrp.add(starCore); zoneGeos.push(starCore.geometry); zoneMats.push(starCore.material);
+    const starHalo = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), new THREE.MeshBasicMaterial({ color: 0xdfe8ff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+    starGrp.add(starHalo); zoneGeos.push(starHalo.geometry); zoneMats.push(starHalo.material);
+    const starLight = new THREE.PointLight(0xdfe8ff, 0, 120, 1.0); starGrp.add(starLight);
+    // A soul-light that lifts from the bedside toward the star once the fire is
+    // nearly out — grandmother passing gently into the eternal.
+    const soul = new THREE.Mesh(new THREE.SphereGeometry(0.35, 10, 10), new THREE.MeshBasicMaterial({ color: 0xffe6c0, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+    soul.position.set(15, 1.2, -4); rec.group.add(soul);
+    zoneGeos.push(soul.geometry); zoneMats.push(soul.material);
+    const soulLight = new THREE.PointLight(0xffd8a8, 0, 18, 2.0); soul.add(soulLight);
+
     // Reset the burn-down timer each time the player enters zone 8.
     zoneEnterCallbacks['z8'] = () => { z8Burn = 0; };
     zoneUpdaters.push((t, dt) => {
       if (activeZone !== 'z8') return;
       z8Burn += dt;
       const burn = Math.max(0.12, 1 - z8Burn / 90); // 1 → embers over ~90 s
+      // The eternal star kindles as the fire fades (inverse of the burn).
+      const rise = 1 - burn; // 0 → 1 as the fire dies
+      starHalo.material.opacity = 0.15 + rise * 0.55 + Math.sin(t * 1.3) * 0.05;
+      starHalo.lookAt(0, 1.6, 6); // face the clearing
+      starCore.scale.setScalar(0.7 + rise * 0.6 + Math.sin(t * 3) * 0.04);
+      starLight.intensity = rise * 2.2;
+      // The soul-light lifts from the bedside toward the star once the fire is low.
+      if (rise > 0.5) {
+        const k = Math.min(1, (rise - 0.5) / 0.45);
+        soul.material.opacity = k * 0.9;
+        soulLight.intensity = k * 1.4;
+        soul.position.set(15 - k * 15, 1.2 + k * 42, -4 - k * 24); // arcs up to the star
+      } else { soul.material.opacity = 0; soulLight.intensity = 0; soul.position.set(15, 1.2, -4); }
       for (let i = 0; i < flames.length; i++) {
         const s = burn * (0.9 + Math.sin(t * 8 + i) * 0.12);
         flames[i].scale.set(s, s + Math.sin(t * 6 + i) * 0.1, s);
@@ -2445,7 +2615,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     };
 
     // Updater: drive the clone + billboard the lattice. The hyper-holo-grid is
-    // the end: after ~5 s (the "0 = repeat program"), or on touching a wall,
+    // the end: after ~10 s (the "0 = repeat program"), or on touching a wall,
     // the program repeats and the host resets the player to the game start.
     zoneUpdaters.push((t, dt, playerPos) => {
       if (activeZone !== 'mirror') return;
@@ -2464,16 +2634,46 @@ export function createActuality(planet, worldUp, opts = {}) {
   // Sealed door behind the café; opens (and its portal arms) once every zone is
   // visited. Built after the hub portals so it can register with them.
   function buildMirrorDoor() {
-    const doorGeo = new THREE.BoxGeometry(2.4, 3.2, 0.3);
-    const doorMat = new THREE.MeshStandardMaterial({ color: 0x14110c, roughness: 0.9 });
+    const BZ = AC.CAFE_BACK_Z;
+    const grp = new THREE.Group();
+    grp.position.set(0, 0, BZ - 0.28); // in the doorway gap, facing the terrace (-Z)
+    anchor.add(grp);
+    // A stone door frame (posts + lintel) around the 3 m opening, always visible
+    // so the passage the lady mentions is easy to find from the café.
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x2a231a, roughness: 0.85, emissive: 0x1a2436, emissiveIntensity: 0.3 });
+    zoneMats.push(frameMat);
+    const fbox = (w, h, d, x, y, z, mat) => { const g = new THREE.BoxGeometry(w, h, d); const m = new THREE.Mesh(g, mat); m.position.set(x, y, z); grp.add(m); zoneGeos.push(g); return m; };
+    fbox(0.4, 3.4, 0.5, -1.6, 1.7, 0, frameMat); // left post
+    fbox(0.4, 3.4, 0.5, 1.6, 1.7, 0, frameMat);  // right post
+    fbox(3.6, 0.4, 0.5, 0, 3.4, 0, frameMat);    // lintel
+    // The door slab (dark while sealed; slides up out of sight when it opens).
+    const doorGeo = new THREE.BoxGeometry(2.9, 3.1, 0.22);
+    const doorMat = new THREE.MeshStandardMaterial({ color: 0x14110c, roughness: 0.9, emissive: 0x0a1420, emissiveIntensity: 0.25 });
     const mesh = new THREE.Mesh(doorGeo, doorMat);
-    mesh.position.set(0, 1.6, AC.CAFE_BACK_Z + 0.4); // behind the café back wall
-    anchor.add(mesh);
+    mesh.position.set(0, 1.55, -0.05); grp.add(mesh);
     zoneGeos.push(doorGeo); zoneMats.push(doorMat);
-    mirrorDoor = { mesh, mat: doorMat, opened: false };
+    // A luminous "0 — REPEAT" sign over the lintel (the tenth digit) so the door
+    // reads as the way on even before it opens.
+    const signTex = signTexture(0, 'REPEAT');
+    zoneTextures.push(signTex);
+    const signGeo = new THREE.PlaneGeometry(2.6, 0.9);
+    const signMat = new THREE.MeshBasicMaterial({ map: signTex, transparent: true, opacity: 0.85 });
+    const sign = new THREE.Mesh(signGeo, signMat);
+    sign.position.set(0, 4.0, 0.1); grp.add(sign);
+    zoneGeos.push(signGeo); zoneMats.push(signMat);
+    // The threshold glow behind the slab — a blue-lit plane that shows once the
+    // door opens, hinting the hyper-holo-grid beyond.
+    const glowGeo = new THREE.PlaneGeometry(2.7, 3.0);
+    const glowMat = new THREE.MeshBasicMaterial({ color: 0x6fb4ff, transparent: true, opacity: 0.0, side: THREE.DoubleSide });
+    const glow = new THREE.Mesh(glowGeo, glowMat);
+    glow.position.set(0, 1.55, 0.14); grp.add(glow);
+    zoneGeos.push(glowGeo); zoneMats.push(glowMat);
+    const doorLight = new THREE.PointLight(0x8fc0ff, 0, 8, 2.0);
+    doorLight.position.set(0, 1.6, -0.6); grp.add(doorLight);
+    mirrorDoor = { mesh, mat: doorMat, glowMat, doorLight, sign: signMat, opened: false, anim: 0 };
     hubPortals.push({
       targetZone: 'mirror', gated: true,
-      center: new THREE.Vector3(0, 0, AC.CAFE_BACK_Z + 1.2).applyQuaternion(anchorQ).add(anchorPos),
+      center: new THREE.Vector3(0, 0, BZ + 0.6).applyQuaternion(anchorQ).add(anchorPos),
     });
   }
 
