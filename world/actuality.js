@@ -1516,8 +1516,16 @@ export function createActuality(planet, worldUp, opts = {}) {
     rec.structure = makeStructure(0, 0, 0, surfaces, walls, 78);
     rec.r2 = (78 + 12) ** 2;
 
-    const amb = new THREE.AmbientLight(0x30343c, 0.5);
-    rec.group.add(amb);
+    rec.group.add(new THREE.AmbientLight(0x3a4460, 0.95));
+    // Dramatic lighting so the black granite dragon reads clearly: a cool key
+    // from the front-side, a blue rim from behind, and a soft front fill. Decay
+    // 1.0 so the light actually reaches the dragon across the ~14 m chamber.
+    const dragonKey = new THREE.PointLight(0xcfe0ff, 26, 80, 1.0);
+    dragonKey.position.set(5, -4, -52); rec.group.add(dragonKey);
+    const dragonRim = new THREE.PointLight(0x7fb0ff, 20, 80, 1.0);
+    dragonRim.position.set(-6, 2, -70); rec.group.add(dragonRim);
+    const dragonFill = new THREE.PointLight(0x9fb8e0, 12, 70, 1.0);
+    dragonFill.position.set(-1, -7, -46); rec.group.add(dragonFill);
     const dark = 0x14151a;
     // Monolith door framing the shaft mouth on the arrival platform.
     const monoMat = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.9, emissive: 0x0a1420, emissiveIntensity: 0.2 });
@@ -1544,48 +1552,106 @@ export function createActuality(planet, worldUp, opts = {}) {
     addZoneBox(rec, 0.6, 18, 36, -15.7, -8, -54, dark);
     addZoneBox(rec, 0.6, 18, 36, 15.7, -8, -54, dark);
 
-    // The massive black-granite dragon on the chamber's far side — horns,
-    // folded wings, a tail coiled into a "9" (top-down glyph).
+    // The massive black dragon, sitting upright on a low dais — horned frill,
+    // shoulder spikes, folded wings, clawed forelegs, a spiked tail curling to
+    // the side. Built from primitives; black with a faint sheen so the rim/key
+    // lights pick out its form. Glowing eyes.
     const dragonGrp = new THREE.Group();
-    dragonGrp.position.set(0, -15, -64);
-    dragonGrp.scale.setScalar(1.7); // massive
+    dragonGrp.position.set(0, -15, -62);
+    dragonGrp.scale.setScalar(1.6); // massive
+    dragonGrp.rotation.y = Math.PI;  // face +Z (toward the arriving player)
     rec.group.add(dragonGrp);
-    const graniteMat = new THREE.MeshStandardMaterial({
-      color: 0x0e0e12, roughness: 0.9, emissive: 0x0e1826, emissiveIntensity: 0.3, // black granite
-    });
-    zoneMats.push(graniteMat);
-    const dpart = (geo, x, y, z, rx = 0, rz = 0) => {
-      const mesh = new THREE.Mesh(geo, graniteMat);
-      mesh.position.set(x, y, z); if (rx) mesh.rotation.x = rx; if (rz) mesh.rotation.z = rz;
-      dragonGrp.add(mesh); zoneGeos.push(geo); return mesh;
+    // A dais under the dragon.
+    addZoneBox2(rec, 9, 1.0, 9, 0, -14.7, -62, new THREE.MeshStandardMaterial({ color: 0x0c1018, roughness: 0.5, metalness: 0.4 }));
+    zoneMats.push(rec.group.children[rec.group.children.length - 1].material);
+
+    const graniteMat = new THREE.MeshStandardMaterial({ color: 0x0c0c11, roughness: 0.42, metalness: 0.35, emissive: 0x0a1220, emissiveIntensity: 0.18 });
+    const eyeMat = new THREE.MeshStandardMaterial({ color: 0xff5522, emissive: 0xff2a08, emissiveIntensity: 2.2, roughness: 0.4 });
+    zoneMats.push(graniteMat, eyeMat);
+    const part = (geo, x, y, z, opt = {}) => {
+      const m = new THREE.Mesh(geo, opt.mat || graniteMat);
+      m.position.set(x, y, z);
+      if (opt.rx) m.rotation.x = opt.rx; if (opt.ry) m.rotation.y = opt.ry; if (opt.rz) m.rotation.z = opt.rz;
+      if (opt.s) m.scale.set(opt.s[0], opt.s[1], opt.s[2]);
+      dragonGrp.add(m); zoneGeos.push(geo); return m;
     };
-    dpart(new THREE.SphereGeometry(2.0, 12, 10), 0, 2.0, 0);          // haunches
-    dpart(new THREE.SphereGeometry(1.8, 12, 10), 0, 2.6, 1.4);        // belly
-    dpart(new THREE.SphereGeometry(1.5, 12, 10), 0, 3.8, 0.6);        // chest
-    dpart(new THREE.CylinderGeometry(0.7, 1.1, 3.6, 10), 0, 6.0, 0.3, 0.5); // neck
-    dpart(new THREE.ConeGeometry(0.95, 2.0, 10), 0, 8.0, 1.0, 1.2);   // head
-    dpart(new THREE.ConeGeometry(0.22, 0.9, 6), -0.5, 8.7, 0.6, -0.4); // horn L
-    dpart(new THREE.ConeGeometry(0.22, 0.9, 6), 0.5, 8.7, 0.6, -0.4);  // horn R
-    dpart(new THREE.ConeGeometry(0.7, 4.0, 6), -1.7, 4.0, -0.6, 0, 0.9);
-    dpart(new THREE.ConeGeometry(0.7, 4.0, 6), 1.7, 4.0, -0.6, 0, -0.9);
-    const segGeo = new THREE.SphereGeometry(0.45, 8, 6);
-    zoneGeos.push(segGeo);
-    for (let i = 0; i < 14; i++) {
-      const a = i * 0.9, rad = 3.2 - i * 0.16;
-      const seg = new THREE.Mesh(segGeo, graniteMat);
-      seg.position.set(Math.cos(a) * rad, 0.5, -3.5 + Math.sin(a) * rad);
-      seg.scale.setScalar(1 - i * 0.045);
-      dragonGrp.add(seg);
+    const S = (r, seg = 12) => new THREE.SphereGeometry(r, seg, seg);
+    const C = (rt, rb, h, seg = 10) => new THREE.CylinderGeometry(rt, rb, h, seg);
+    const K = (r, h, seg = 8) => new THREE.ConeGeometry(r, h, seg);
+    // Body mass.
+    part(S(1.9), 0, 1.7, -0.6, { s: [1.25, 1.25, 1.5] });                 // haunches/hips
+    part(S(1.7), 0, 1.7, 0.6, { s: [1.35, 1.2, 1.3] });                   // lower belly
+    part(S(1.4), 0, 3.1, 0.7, { s: [1.35, 1.35, 1.2] });                  // chest (rising)
+    // Thighs + clawed forelegs.
+    for (const sx of [-1, 1]) {
+      part(S(0.9), sx * 1.25, 1.2, -0.4, { s: [1, 1.3, 1.2] });           // thigh
+      part(C(0.35, 0.6, 2.4), sx * 1.15, 1.6, 1.3, { rx: 0.5 });          // upper foreleg
+      part(C(0.28, 0.4, 1.6), sx * 1.15, 0.55, 2.0, { rx: 0.15 });        // lower foreleg
+      part(S(0.5), sx * 1.15, 0.15, 2.5, { s: [1.2, 0.6, 1.4] });         // foot
+      for (const cx of [-0.35, 0, 0.35]) part(K(0.1, 0.5, 5), sx * 1.15 + cx * 0.5, 0.12, 3.0, { rx: 1.5 }); // claws
     }
+    // Shoulders + big shoulder spikes.
+    for (const sx of [-1, 1]) {
+      part(S(0.85), sx * 1.15, 3.2, 0.6);
+      part(K(0.5, 3.6, 7), sx * 1.9, 3.9, 0.3, { rz: sx * 1.1, rx: -0.4 }); // shoulder spike
+    }
+    // Neck (two segments, curving up) + head.
+    part(C(0.85, 1.1, 2.0), 0, 4.2, 0.5, { rx: -0.35 });
+    part(C(0.6, 0.85, 1.8), 0, 5.6, 0.15, { rx: -0.15 });
+    const head = part(S(0.75), 0, 6.5, 0.4, { s: [1.0, 0.9, 1.35] });     // skull
+    part(K(0.42, 1.4, 8), 0, 6.35, 1.35, { rx: 1.57 });                   // snout
+    part(S(0.4), 0, 6.0, 1.2, { s: [1.1, 0.6, 1.0] });                    // jaw
+    // Horned frill (a crown of back-swept horns).
+    for (const [hx, hy, hz, hr, hl, tilt] of [[0, 7.1, -0.1, 0.16, 1.3, -0.7], [-0.45, 7.0, 0.0, 0.15, 1.2, -0.7], [0.45, 7.0, 0.0, 0.15, 1.2, -0.7], [-0.7, 6.8, 0.1, 0.13, 1.0, -0.9], [0.7, 6.8, 0.1, 0.13, 1.0, -0.9]]) {
+      part(K(hr, hl, 6), hx, hy, hz, { rx: tilt, rz: hx * 0.3 });
+    }
+    // Glowing eyes.
+    part(S(0.12, 8), -0.35, 6.5, 1.15, { mat: eyeMat });
+    part(S(0.12, 8), 0.35, 6.5, 1.15, { mat: eyeMat });
+    // Back ridge spikes (neck → hips).
+    for (let i = 0; i < 9; i++) {
+      const f = i / 8;
+      const zz = 0.4 - f * 3.0, yy = 5.6 - f * 3.4, sp = 0.7 - f * 0.35;
+      part(K(0.18, sp * 2, 5), 0, yy + sp, zz, { rx: -0.2 });
+    }
+    // Folded wings (an arm strut + a membrane, tucked against the flanks).
+    for (const sx of [-1, 1]) {
+      part(C(0.22, 0.4, 4.2, 6), sx * 1.7, 3.6, -0.8, { rz: sx * 0.5, rx: -0.6 }); // wing arm
+      part(K(1.6, 3.6, 4), sx * 2.1, 2.6, -1.4, { rz: sx * 0.4, rx: 1.4, s: [0.4, 1, 1.2] }); // folded membrane
+      for (const fz of [0, 0.5, 1]) part(C(0.1, 0.16, 3.0, 5), sx * 2.2, 3.2 - fz, -1.6 - fz * 0.4, { rz: sx * (0.5 + fz * 0.2), rx: -0.5 }); // finger struts
+    }
+    // Spiked tail curling out to the (dragon's) right, ending in a point.
+    let tx = 0, ty = 1.0, tz = -2.0, ta = 0;
+    for (let i = 0; i < 16; i++) {
+      const r = 0.65 * (1 - i / 18);
+      ta += 0.18; tx += Math.sin(ta) * 0.55 + 0.05; tz -= 0.35 - i * 0.008; ty += Math.max(0, (i - 9) * 0.06);
+      part(S(r), tx, ty, tz);
+      if (i % 2 === 0 && i < 14) part(K(r * 0.5, r * 1.8, 5), tx, ty + r, tz, { rx: -0.3 });
+    }
+    part(K(0.28, 1.4, 5), tx + 0.4, ty + 0.2, tz, { rz: -0.8 }); // tail barb
 
     // The open black box at the dragon's feet — an opening looking down onto a
     // city far below. Rim walls around a 4x4 hole; a luminous aerial-city plane
     // recessed beneath, dark shaft walls, and a warm up-glow.
     const BX = 0, BZ = -56;               // box center (zone-local)
-    const boxMat = new THREE.MeshStandardMaterial({ color: 0x050506, roughness: 0.55, metalness: 0.3 });
+    const boxMat = new THREE.MeshStandardMaterial({ color: 0x050506, roughness: 0.5, metalness: 0.4, emissive: 0x0a1626, emissiveIntensity: 0.25 });
     zoneMats.push(boxMat);
-    for (const [dx, dz, w, d] of [[-2.4, 0, 0.8, 5], [2.4, 0, 0.8, 5], [0, -2.4, 5, 0.8], [0, 2.4, 5, 0.8]]) {
-      addZoneBox2(rec, w, 1.2, d, BX + dx, -14.4, BZ + dz, boxMat); // rim (top ~ -13.8)
+    // Raised open-topped box walls — a prominent black cube with a glowing
+    // opening in its top looking down onto the city.
+    for (const [dx, dz, w, d] of [[-2.4, 0, 0.8, 5.2], [2.4, 0, 0.8, 5.2], [0, -2.4, 5.2, 0.8], [0, 2.4, 5.2, 0.8]]) {
+      addZoneBox2(rec, w, 2.0, d, BX + dx, -14.0, BZ + dz, boxMat); // rim (top ~ -13.0)
+    }
+    // Corner posts read the cube's edges under the rim/key light.
+    const postMat = new THREE.MeshStandardMaterial({ color: 0x08080c, roughness: 0.4, metalness: 0.5, emissive: 0x0c1c30, emissiveIntensity: 0.35 });
+    zoneMats.push(postMat);
+    for (const cx of [-2.6, 2.6]) for (const cz of [-2.6, 2.6]) addZoneBox2(rec, 0.55, 2.3, 0.55, BX + cx, -13.85, BZ + cz, postMat);
+    // A thin luminous lip framing the opening so it glows like a window.
+    const lipMat = new THREE.MeshBasicMaterial({ color: 0x7fb4ff });
+    zoneMats.push(lipMat);
+    for (const [dx, dz, w, d] of [[-2.0, 0, 0.14, 4.0], [2.0, 0, 0.14, 4.0], [0, -2.0, 4.0, 0.14], [0, 2.0, 4.0, 0.14]]) {
+      const lg = new THREE.BoxGeometry(w, 0.1, d);
+      const lm = new THREE.Mesh(lg, lipMat); lm.position.set(BX + dx, -12.95, BZ + dz);
+      rec.group.add(lm); zoneGeos.push(lg);
     }
     const shaftMat = new THREE.MeshStandardMaterial({ color: 0x0a0b10, roughness: 0.9, side: THREE.DoubleSide });
     zoneMats.push(shaftMat);

@@ -99,8 +99,22 @@ export function createMirrorRoom(opts = {}) {
   const rimMat = new THREE.MeshStandardMaterial({ color: 0xbfe6ff, emissive: 0x8fd0ff, emissiveIntensity: 1.2, roughness: 0.3 });
   const rim = new THREE.Mesh(rimGeo, rimMat); rim.position.set(0, 0.21, 0); rim.rotation.x = Math.PI / 2;
   group.add(rim); geos.push(rimGeo); mats.push(rimMat);
-  const downLight = new THREE.PointLight(0xcfe8ff, 1.2, 10, 2.0);
+  const downLight = new THREE.PointLight(0xcfe8ff, 1.7, 14, 2.0);
   downLight.position.set(0, HALF * 1.6, 0); group.add(downLight);
+  // Softer, brighter room: a cool ambient fill + a sky-blue hemisphere so the
+  // whole grid lifts out of the dark, and four low corner glows for a gentle
+  // blue wash up the walls.
+  group.add(new THREE.AmbientLight(0x5a86c0, 0.55));
+  group.add(new THREE.HemisphereLight(0x9fd0ff, 0x0a1424, 0.6));
+  for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const gl = new THREE.PointLight(0x6fb0ff, 0.7, 12, 2.0);
+    gl.position.set(cx * (HALF - 0.6), 1.2, cz * (HALF - 0.6)); group.add(gl);
+  }
+  // A large, faint additive halo that reads as a soft blue glow filling the air.
+  const haloGeo = new THREE.SphereGeometry(HALF * 1.3, 20, 16);
+  const haloMat = new THREE.MeshBasicMaterial({ color: 0x2f6dc0, transparent: true, opacity: 0.14, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending });
+  const halo = new THREE.Mesh(haloGeo, haloMat); halo.position.set(0, HALF, 0);
+  group.add(halo); geos.push(haloGeo); mats.push(haloMat);
 
   // Recessed ceiling light discs.
   const discGeo = new THREE.CircleGeometry(0.4, 20);
