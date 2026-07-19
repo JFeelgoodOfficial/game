@@ -476,16 +476,28 @@ const galleryArtUrls = Object.entries(
   .map(([, url]) => url);
 
 const artLoader = new THREE.TextureLoader();
-const galleryTexCache = new Map(); // url -> texture, so 32 slots share loads
+// url -> { tex, size, pending[] }: slots share one load per image, and each
+// registers an onSize callback so its mesh can be scaled to the image's TRUE
+// aspect ratio once the pixels arrive (fires immediately on a cache hit).
+const galleryTexCache = new Map();
 
-function galleryTexture(url) {
-  let tex = galleryTexCache.get(url);
-  if (!tex) {
-    tex = artLoader.load(url);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    galleryTexCache.set(url, tex);
+function galleryTexture(url, onSize) {
+  let entry = galleryTexCache.get(url);
+  if (!entry) {
+    entry = { tex: null, size: null, pending: [] };
+    galleryTexCache.set(url, entry);
+    entry.tex = artLoader.load(url, (t) => {
+      entry.size = { w: t.image.width, h: t.image.height };
+      for (const cb of entry.pending) cb(entry.size.w, entry.size.h);
+      entry.pending.length = 0;
+    });
+    entry.tex.colorSpace = THREE.SRGBColorSpace;
   }
-  return tex;
+  if (onSize) {
+    if (entry.size) onSize(entry.size.w, entry.size.h);
+    else entry.pending.push(onSize);
+  }
+  return entry.tex;
 }
 
 function galleryPlaceholder(seed) {
@@ -525,6 +537,40 @@ function galleryPlaceholder(seed) {
 
 // brass-gold accent — the gallery's signage color, nothing else uses it
 const brassMat = new THREE.MeshBasicMaterial({ color: 0xd4af6a });
+
+// A lit signage plate: dark backing, gold border, gold lettering — the
+// station's exterior name ("ORBITAL ART GALLERY"). Drawn to a canvas so it's
+// real text, not a stand-in bar. MeshBasicMaterial keeps it legible against
+// space; the gold (0xd4af6a, max channel ~0.83) sits just under the bloom
+// threshold so it reads as a sign, not a flare.
+function gallerySignTexture(line1, line2, wPx = 1024, hPx = 256) {
+  const cv = document.createElement('canvas');
+  cv.width = wPx;
+  cv.height = hPx;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#0a0d14';
+  ctx.fillRect(0, 0, wPx, hPx);
+  ctx.strokeStyle = '#d4af6a';
+  ctx.lineWidth = Math.round(hPx * 0.028);
+  const m = hPx * 0.07;
+  ctx.strokeRect(m, m, wPx - m * 2, hPx - m * 2);
+  ctx.fillStyle = '#d4af6a';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if (line2) {
+    ctx.font = `bold ${Math.round(hPx * 0.32)}px Georgia, "Times New Roman", serif`;
+    ctx.fillText(line1, wPx / 2, hPx * 0.4);
+    ctx.font = `${Math.round(hPx * 0.13)}px Georgia, serif`;
+    ctx.fillText(line2, wPx / 2, hPx * 0.72);
+  } else {
+    ctx.font = `bold ${Math.round(hPx * 0.5)}px Georgia, "Times New Roman", serif`;
+    ctx.fillText(line1, wPx / 2, hPx * 0.55);
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
 
 // interior surfaces are seen from both sides (decks from below, ramps from
 // everywhere), so they get their own double-sided variants of the house look
@@ -616,11 +662,17 @@ function orbitalArtGalleryStation() {
     }
   });
 
-  // approach placard over the spine — stands in for "ORBITAL ART GALLERY ·
-  // EST 2042 · CULTURAL HUB"
-  const placard = new THREE.Mesh(new THREE.BoxGeometry(40, 4, 1), brassMat);
-  placard.position.set(0, 12, 78);
-  g.add(placard);
+  // approach placard over the spine, facing back down the bore — you read
+  // the name as you line up your final approach through the ring trusses
+  const approachSign = new THREE.Mesh(
+    new THREE.PlaneGeometry(48, 12),
+    new THREE.MeshBasicMaterial({
+      map: gallerySignTexture('ORBITAL ART GALLERY', 'EST 2042 · CULTURAL HUB', 1024, 256),
+      side: THREE.DoubleSide,
+    })
+  );
+  approachSign.position.set(0, 14, 78);
+  g.add(approachSign);
 
   // Grand Hall tower: a tapered open-ended shell standing vertical at the
   // spine's +Z end. DoubleSide so the interior wall renders for visitors;
@@ -635,8 +687,20 @@ function orbitalArtGalleryStation() {
     metalness: 0.75,
     side: THREE.DoubleSide,
   });
-  const shell = new THREE.Mesh(new THREE.CylinderGeometry(70, 55, 180, 16, 1, true), shellMat);
-  tower.add(shell);
+  // The shell has TWO openings: the floor-to-ceiling window (polar 90°±33,
+  // facing +Z) and the entrance DOOR SLOT (polar 270°±6, toward the spine) —
+  // the door used to be collision-only, so you walked through solid-looking
+  // wall. THREE cylinder theta T relates to our polar angle P by P = 90°-T;
+  // an arc from P0..P1 is (thetaStart 90°-P1, thetaLength P1-P0). The shell
+  // (and its translucent glazing) become two arcs between the openings, and
+  // a filler closes the door slot above door height so it reads as a
+  // doorway, not a full-height crack.
+  const DR = Math.PI / 180;
+  const P_WIN0 = (90 - GL.WINDOW.halfDeg) * DR;
+  const P_WIN1 = (90 + GL.WINDOW.halfDeg) * DR;
+  const P_DOOR0 = (270 - GL.SHELL_DOOR.halfDeg) * DR;
+  const P_DOOR1 = (270 + GL.SHELL_DOOR.halfDeg) * DR;
+  const arc = (p0, p1) => [Math.PI / 2 - p1, p1 - p0];
   const glassMat = new THREE.MeshBasicMaterial({
     color: 0xbfe8ff,
     transparent: true,
@@ -644,8 +708,37 @@ function orbitalArtGalleryStation() {
     side: THREE.DoubleSide,
     depthWrite: false,
   });
-  const glazing = new THREE.Mesh(new THREE.CylinderGeometry(72, 57, 176, 16, 1, true), glassMat);
-  tower.add(glazing);
+  for (const [p0, p1] of [
+    [P_WIN1, P_DOOR0],
+    [P_DOOR1, P_WIN0 + Math.PI * 2],
+  ]) {
+    const [t0, tl] = arc(p0, p1);
+    tower.add(new THREE.Mesh(new THREE.CylinderGeometry(70, 55, 180, 12, 1, true, t0, tl), shellMat));
+    tower.add(new THREE.Mesh(new THREE.CylinderGeometry(72, 57, 176, 12, 1, true, t0, tl), glassMat));
+  }
+  // filler over the door slot: wall from door height (group y 12) to the
+  // crown, so only the walkable doorway below is open
+  const [dt0, dtl] = arc(P_DOOR0, P_DOOR1);
+  const doorFill = new THREE.Mesh(
+    new THREE.CylinderGeometry(70, GL.towerR(12), 128, 2, 1, true, dt0, dtl),
+    shellMat
+  );
+  doorFill.position.y = 26; // tower-local: spans group y 12..140
+  tower.add(doorFill);
+  // the full-height window: a clear glass pane filling the open sector
+  const clearGlassMat = new THREE.MeshBasicMaterial({
+    color: 0xcfeeff,
+    transparent: true,
+    opacity: 0.12,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const [wt0, wtl] = arc(P_WIN0, P_WIN1);
+  const windowPane = new THREE.Mesh(
+    new THREE.CylinderGeometry(69.5, 54.5, 179, 8, 1, true, wt0, wtl),
+    clearGlassMat
+  );
+  tower.add(windowPane);
 
   // exterior glass-grid read: vertical mullions leaning with the taper, a
   // lit window band at each balcony level, and a glowing crown ring — from
@@ -653,6 +746,7 @@ function orbitalArtGalleryStation() {
   const towerR = (y) => 55 + ((y + 90) / 180) * 15; // shell radius at local y
   const lean = Math.atan(15 / 180); // taper angle
   for (let i = 0; i < 8; i++) {
+    if (i === 6) continue; // 270°: would stand dead center in the doorway
     const a = (i / 8) * Math.PI * 2;
     const mullion = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 181, 6), darkMat);
     mullion.position.set(Math.cos(a) * 63, 0, Math.sin(a) * 63);
@@ -675,17 +769,46 @@ function orbitalArtGalleryStation() {
   crown.position.y = 90;
   tower.add(crown);
 
-  // the gallery's marquee on the tower face above the entrance
-  const marquee = new THREE.Mesh(new THREE.BoxGeometry(30, 5, 1), brassMat);
-  marquee.position.set(0, -5, -64);
-  tower.add(marquee);
+  // the gallery's name on the tower flanks — big lit plates on three sides
+  // (toward the bore, and both broad faces) so it reads from most approach
+  // angles. One shared texture, three planes.
+  const towerSignMat = new THREE.MeshBasicMaterial({
+    map: gallerySignTexture('ORBITAL ART GALLERY', 'EST 2042 · CULTURAL HUB', 1024, 256),
+  });
+  for (const a of [-Math.PI / 2, 0, Math.PI]) {
+    const y = 5;
+    const r = towerR(y) + 3.5;
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(46, 11.5), towerSignMat);
+    sign.position.set(Math.cos(a) * r, y, Math.sin(a) * r);
+    sign.rotation.y = Math.PI / 2 - a; // outward-facing at this azimuth
+    tower.add(sign);
+  }
 
-  // entrance arch at the base facing the spine, with the GRAND HALL placard
+  // entrance arch at the base facing the spine, with the GRAND HALL sign,
+  // plus glowing jambs + header framing the actual door slot in the shell —
+  // the opening reads as a lit doorway from the promenade
   const arch = new THREE.Mesh(new THREE.TorusGeometry(20, 2, 8, 16, Math.PI), glowMat);
   arch.position.set(0, -50, -58);
   tower.add(arch);
-  const hallSign = new THREE.Mesh(new THREE.BoxGeometry(24, 3, 1), brassMat);
-  hallSign.position.set(0, -26, -58);
+  for (const pd of [270 - GL.SHELL_DOOR.halfDeg, 270 + GL.SHELL_DOOR.halfDeg]) {
+    const pa = pd * DR;
+    const jamb = new THREE.Mesh(new THREE.BoxGeometry(0.7, GL.SHELL_DOOR.top, 0.7), glowMat);
+    jamb.position.set(
+      Math.cos(pa) * 58.6,
+      GL.SHELL_DOOR.top / 2 - 50, // tower-local (group y 0..12)
+      Math.sin(pa) * 58.6
+    );
+    tower.add(jamb);
+  }
+  const doorHeader = new THREE.Mesh(new THREE.BoxGeometry(13.5, 0.7, 0.8), glowMat);
+  doorHeader.position.set(0, GL.SHELL_DOOR.top - 49.7, -58.4);
+  tower.add(doorHeader);
+  const hallSign = new THREE.Mesh(
+    new THREE.PlaneGeometry(26, 8),
+    new THREE.MeshBasicMaterial({ map: gallerySignTexture('GRAND HALL', null, 512, 160) })
+  );
+  hallSign.position.set(0, -26, -61);
+  hallSign.rotation.y = Math.PI; // face the bore, above the arch
   tower.add(hallSign);
 
   // ---- walkable interior (foot scale; layout numbers in galleryLayout.js,
@@ -745,45 +868,100 @@ function orbitalArtGalleryStation() {
     }
   }
 
-  // Atrium furniture: central dais, the curator's desk, two easel pedestals
-  // (their art panels come from the exhibit loop below).
-  const dais = new THREE.Mesh(
-    new THREE.CylinderGeometry(GL.DAIS.r - 0.4, GL.DAIS.r - 0.2, GL.DAIS.h, 20),
-    darkMat
+  // Central antigravity pad: a glowing purple disc at the middle of the
+  // atrium floor. Standing on it floats you straight up the shaft (physics in
+  // stationWalk.js); a faint light column marks the lift, and catwalks below
+  // reach out to each balcony. Purple pushes past the bloom threshold on
+  // purpose — the pad should glow.
+  const padMat = new THREE.MeshBasicMaterial({ color: 0x9a5cff });
+  const pad = new THREE.Mesh(
+    new THREE.CylinderGeometry(GL.LIFT.r, GL.LIFT.r, 0.3, 24),
+    padMat
   );
-  dais.position.set(GL.DAIS.x, GL.DAIS.h / 2, GL.DAIS.z);
-  g.add(dais);
+  pad.position.set(GL.LIFT.x, 0.16, GL.LIFT.z);
+  g.add(pad);
+  const beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(GL.LIFT.r * 0.9, GL.LIFT.r * 0.9, GL.LIFT.ceiling, 20, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0x9a5cff,
+      transparent: true,
+      opacity: 0.1,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+  );
+  beam.position.set(GL.LIFT.x, GL.LIFT.ceiling / 2, GL.LIFT.z);
+  g.add(beam);
+
+  // Catwalk bridges from the lift shaft out to each balcony deck's inner
+  // edge (a boarding-gantry stack at one azimuth). rotation.y = -angle aims
+  // the box's length radially outward.
+  const cwAng = (GL.CATWALK_DEG * Math.PI) / 180;
+  const cwMidR = (GL.CATWALK_R_IN + GL.CATWALK_R_OUT) / 2;
+  const cwLen = GL.CATWALK_R_OUT - GL.CATWALK_R_IN;
+  const cwCX = TX + Math.cos(cwAng) * cwMidR;
+  const cwCZ = TZ + Math.sin(cwAng) * cwMidR;
+  for (const cw of GL.CATWALKS) {
+    const deckPath = new THREE.Mesh(new THREE.BoxGeometry(cwLen, 0.4, 5), deckMat);
+    deckPath.position.set(cwCX, cw.y - 0.2, cwCZ);
+    deckPath.rotation.y = -cwAng;
+    g.add(deckPath);
+    for (const s of [-1, 1]) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(cwLen, 0.14, 0.22), glowMat);
+      strip.position.set(cwCX, cw.y + 0.06, cwCZ);
+      strip.rotation.y = -cwAng;
+      strip.translateZ(s * 2.4);
+      g.add(strip);
+    }
+  }
+
+  // Atrium furniture: the curator's desk and two easel pedestals (their art
+  // panels come from the exhibit loop below; the easels are now big canvases,
+  // so the pedestals get a wider base + a support post).
   addBox(g, 3, 1.1, 1.4, GL.DESK.x, 0.55, GL.DESK.z, darkMat);
   addBox(g, 3.2, 0.1, 1.6, GL.DESK.x, 1.15, GL.DESK.z, brassMat);
-  for (const e of GL.EASELS) addBox(g, 0.6, 0.5, 0.6, e.x, 0.25, e.z, darkMat);
+  for (const e of GL.EASELS) {
+    addBox(g, 3, 0.6, 1.4, e.x, 0.3, e.z, darkMat);
+    addBox(g, 0.5, 1.4, 0.5, e.x, 1.0, e.z, darkMat);
+  }
 
-  // The 32 exhibits at eye height. Slot order preserved bottom-up so the
-  // /artgallery images keep their alphabetical hang order.
+  // The exhibits. Slot order preserved bottom-up so the /artgallery images
+  // keep their alphabetical hang order. Each piece is a unit plane scaled to
+  // the image's TRUE aspect ratio once its texture reports its pixel size,
+  // filling the slot's bounding box and hanging bottom-aligned — portraits
+  // stay portraits, landscapes stay landscapes, nothing gets stretched.
   const spots = GL.artSpots();
+  const unitPlane = new THREE.PlaneGeometry(1, 1); // shared, scaled per piece
   for (let k = 0; k < spots.length; k++) {
     const s = spots[k];
-    const tex = galleryArtUrls.length
-      ? galleryTexture(galleryArtUrls[k % galleryArtUrls.length])
-      : galleryPlaceholder(k + 1);
     // color scales the unlit texture to 0.82 so even a pure-white artwork
-    // stays under BLOOM_THRESHOLD (0.85) — bright pieces read as paintings,
-    // not bloom flares, and the glow frame keeps the lit-exhibit accent
-    const art = new THREE.Mesh(
-      new THREE.PlaneGeometry(GL.ART_W, GL.ART_H),
-      new THREE.MeshBasicMaterial({ map: tex, color: 0xd2d2d2 })
-    );
-    art.position.set(s.x, s.y, s.z);
-    art.rotation.y = s.rotY;
-    g.add(art);
-    // lit frame just behind the art (against the panel's facing normal)
-    const frame = new THREE.Mesh(
-      new THREE.PlaneGeometry(GL.ART_W + 0.6, GL.ART_H + 0.6),
-      glowMat
-    );
+    // stays under BLOOM_THRESHOLD (0.85) — pieces read as paintings, not
+    // bloom flares, and the glow frame keeps the lit-exhibit accent
+    const artMat = new THREE.MeshBasicMaterial({ color: 0xd2d2d2 });
+    const art = new THREE.Mesh(unitPlane, artMat);
+    const frame = new THREE.Mesh(unitPlane, glowMat);
     const nx = Math.sin(s.rotY);
     const nz = Math.cos(s.rotY);
-    frame.position.set(s.x - nx * 0.06, s.y, s.z - nz * 0.06);
+    art.rotation.y = s.rotY;
     frame.rotation.y = s.rotY;
+    const fit = (iw, ih) => {
+      const w = Math.min(s.maxW, (s.maxH * iw) / ih);
+      const h = (w * ih) / iw;
+      const cy = s.baseY + h / 2;
+      art.scale.set(w, h, 1);
+      art.position.set(s.x, cy, s.z);
+      frame.scale.set(w + 1.4, h + 1.4, 1);
+      frame.position.set(s.x - nx * 0.06, cy, s.z - nz * 0.06);
+    };
+    if (galleryArtUrls.length) {
+      fit(10, 7); // provisional until the image's real size arrives
+      artMat.map = galleryTexture(galleryArtUrls[k % galleryArtUrls.length], fit);
+    } else {
+      artMat.map = galleryPlaceholder(k + 1);
+      fit(256, 180); // the placeholder canvas's own aspect
+    }
+    g.add(art);
     g.add(frame);
   }
 
@@ -809,8 +987,21 @@ function orbitalArtGalleryStation() {
   addBox(g, 0.6, wallH, 14, al.x1 + 0.3, wallY, 57, hullMat); // east
   addBox(g, R.aftDoor.x0 - al.x0, wallH, 0.6, (al.x0 + R.aftDoor.x0) / 2, wallY, al.z1 + 0.3, hullMat);
   addBox(g, al.x1 - R.aftDoor.x1, wallH, 0.6, (R.aftDoor.x1 + al.x1) / 2, wallY, al.z1 + 0.3, hullMat);
-  addBox(g, 3.6, 0.25, 0.7, 0, R.ceilY - 0.35, al.z1 + 0.3, glowMat); // aft door strip
+  addBox(g, 4.8, 0.25, 0.7, 0, R.ceilY - 0.35, al.z1 + 0.3, glowMat); // aft door strip
   addBox(g, 0.7, 0.25, 6.2, al.x0 - 0.3, R.ceilY - 0.35, 57, glowMat); // pad door strip
+  // lit doorframes: full-height jambs flanking both doorways so the openings
+  // read as doors, not gaps in a flat wall — plus a lamp so the airlock
+  // itself is lit (it only got spillover before, which made its doors read
+  // as dark wall)
+  for (const z of [R.padDoor.z0 + 0.25, R.padDoor.z1 - 0.25]) {
+    addBox(g, 0.8, wallH, 0.5, al.x0 - 0.3, wallY, z, windowMat);
+  }
+  for (const x of [R.aftDoor.x0 - 0.2, R.aftDoor.x1 + 0.2]) {
+    addBox(g, 0.5, wallH, 0.8, x, wallY, al.z1 + 0.3, windowMat);
+  }
+  const airlockLamp = new THREE.PointLight(0xfff2d8, 5, 40, 1.0);
+  airlockLamp.position.set(0, 10.4, 57);
+  g.add(airlockLamp);
 
   // Viewing promenade: open window bays on the west (sill + header + posts,
   // the 8.1..10.2 band is clear glass at eye height), solid hull east wall
@@ -1020,26 +1211,38 @@ export function initStations(scene) {
 }
 
 // The dockable-station lookup for game.js's G gate and stationWalk.js's
-// undock math: world-space berth point of the nearest station with a dock
-// entry. The returned berth vector is module scratch — copy, don't keep.
+// undock math. `dist` is to the NEAREST of the station's two anchors — the
+// spine (group origin) and the tower center — not the small berth point, so
+// pressing G anywhere alongside the ~400u-long station docks (the whole hard
+// part of "where do I dock" was aiming at an invisible spot). The returned
+// berth vector is module scratch — copy, don't keep.
 const _berthW = new THREE.Vector3();
+const _anchorW = new THREE.Vector3();
 const _yUpV = new THREE.Vector3(0, 1, 0);
 export function nearestDockableStation(shipPos) {
   let bestS = null;
   let bestD = Infinity;
   for (const s of stations) {
     if (!s.dock) continue;
-    _berthW
-      .set(s.dock.berthLocal.x, s.dock.berthLocal.y, s.dock.berthLocal.z)
+    // spine anchor (the group origin sits on the docking spine)
+    let d = s.group.position.distanceTo(shipPos);
+    // tower anchor (the Grand Hall is 150u down +Z from the origin)
+    _anchorW
+      .set(0, 50, 150)
       .applyAxisAngle(_yUpV, s.group.rotation.y)
       .add(s.group.position);
-    const d = _berthW.distanceTo(shipPos);
+    d = Math.min(d, _anchorW.distanceTo(shipPos));
     if (d < bestD) {
       bestD = d;
       bestS = s;
     }
   }
-  return bestS ? { station: bestS, dist: bestD, berth: _berthW } : null;
+  if (!bestS) return null;
+  _berthW
+    .set(bestS.dock.berthLocal.x, bestS.dock.berthLocal.y, bestS.dock.berthLocal.z)
+    .applyAxisAngle(_yUpV, bestS.group.rotation.y)
+    .add(bestS.group.position);
+  return { station: bestS, dist: bestD, berth: _berthW };
 }
 
 // Animation is invisible well before a station shrinks to a few pixels —
@@ -1049,13 +1252,40 @@ export function nearestDockableStation(shipPos) {
 // rig's beam/shuttle trig used to run every frame from 90k units away.)
 const ANIM_DISTANCE_SQ = 6000 * 6000;
 
+// While the player is walking a docked station's interior, its orbit + spin
+// are frozen so the ground doesn't drift underfoot. On resume we re-phase the
+// stateless orbit/spin so they continue smoothly from the frozen pose instead
+// of leaping to where absolute-t "would" have carried them.
+let frozenStation = null;
+let resumeStation = null;
+export function setStationFrozen(s) {
+  if (s) {
+    frozenStation = s;
+  } else if (frozenStation) {
+    resumeStation = frozenStation; // re-phased on the next updateStations tick
+    frozenStation = null;
+  }
+}
+
 export function updateStations(t, shipPos) {
   for (const s of stations) {
+    if (s === frozenStation) continue; // held still while docked
+    if (s === resumeStation) {
+      // Re-phase so this frame's transform equals the frozen one, then let
+      // absolute-t advance normally from here (no position/orientation jump).
+      if (s.orbit) {
+        const p = planets[s.orbit.planetIndex].group.position;
+        const ang = Math.atan2(s.group.position.z - p.z, s.group.position.x - p.x);
+        s.orbit.phase = ang - t * s.orbit.rate;
+      }
+      if (s.spin) s.spinBase = s.group.rotation.y - t * s.spin;
+      resumeStation = null;
+    }
     const animate = s.group.position.distanceToSquared(shipPos) < ANIM_DISTANCE_SQ;
     if (s.anim && animate) s.anim(t);
     // spin 0 means a deliberately fixed orientation (Port Feelgood's bore
     // stays aimed down the route) — don't clobber its quaternion
-    if (s.spin && animate) s.group.rotation.y = t * s.spin;
+    if (s.spin && animate) s.group.rotation.y = (s.spinBase || 0) + t * s.spin;
     if (s.orbit) {
       const p = planets[s.orbit.planetIndex].group.position;
       const a = s.orbit.phase + t * s.orbit.rate;

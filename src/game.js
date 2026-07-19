@@ -359,6 +359,19 @@ if (import.meta.env.DEV) {
         updateOrigin(ship);
       }
     },
+    // Nearest dockable station's distance (to the whole station) + its berth,
+    // for verifying the dock gate.
+    dockInfo() {
+      const dock = nearestDockableStation(ship.position);
+      return dock
+        ? { dist: dock.dist, name: dock.station.name, berth: dock.berth.clone() }
+        : null;
+    },
+    // The gallery station's world position, for verifying freeze/undock.
+    galleryPos() {
+      const dock = nearestDockableStation(ship.position);
+      return dock ? dock.station.group.position.clone() : null;
+    },
     // Teleport to the gallery berth and dock, for headless verification.
     dockHere() {
       const dock = nearestDockableStation(ship.position);

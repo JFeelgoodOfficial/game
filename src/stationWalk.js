@@ -27,7 +27,7 @@ import * as THREE from 'three';
 import { C } from './constants.js';
 import { input } from './input.js';
 import { ship } from './ship.js';
-import { updateStations } from './stations.js';
+import { setStationFrozen } from './stations.js';
 import * as GL from './galleryLayout.js';
 import { makeStructure } from '../world/city.js';
 import { createCrowd } from '../world/aliens.js';
@@ -76,6 +76,7 @@ export const sWalk = {
   view: 'tp',
   camDist: 5,
   facingYaw: 0, // body heading, follows the velocity
+  inColumn: false, // riding the antigrav pad's shaft last tick
 };
 
 let astronaut = null; // shared with walk.js (initStationWalk)
@@ -191,13 +192,17 @@ function buildTowerStructure() {
   }));
   const doorTh = GL.SHELL_DOOR.thDeg * D2R;
   const doorHalf = GL.SHELL_DOOR.halfDeg * D2R;
+  // furniture push-out (player + NPCs). The lift pad is deliberately absent —
+  // the player must be able to stand on it.
   const circles = [
-    { x: GL.DAIS.x, z: GL.DAIS.z, r: GL.DAIS.r },
     { x: GL.DESK.x, z: GL.DESK.z, r: GL.DESK.r },
     { x: GL.EASELS[0].x, z: GL.EASELS[0].z, r: GL.EASELS[0].r },
     { x: GL.EASELS[1].x, z: GL.EASELS[1].z, r: GL.EASELS[1].r },
   ];
   const rampY = (rp, th) => rp.yA + ((rp.yB - rp.yA) * (th - rp.th0)) / (rp.th1 - rp.th0);
+  // catwalk azimuth test (degrees), shared by surface + rail-gap
+  const inCatwalk = (thDeg) =>
+    Math.abs(((thDeg - GL.CATWALK_DEG + 540) % 360) - 180) < GL.CATWALK_HALF_DEG;
 
   return {
     surfaceYAt(x, z, feetY) {
@@ -225,6 +230,11 @@ function buildTowerStructure() {
         if (th < rp.th0 || th > rp.th1) continue;
         consider(rampY(rp, th));
       }
+      // catwalk bridges over the void, from the lift shaft out to each balcony
+      if (r >= GL.CATWALK_R_IN - 0.5 && r <= GL.CATWALK_R_OUT + 0.5 &&
+          inCatwalk((th * 180) / Math.PI)) {
+        for (const cw of GL.CATWALKS) consider(cw.y);
+      }
       return best;
     },
     resolveWalls(p, radius) {
@@ -244,14 +254,20 @@ function buildTowerStructure() {
         if (!inDoor) newR = shell;
       }
       // inner-edge rails on decks B/C/D: a low band — blocked on foot,
-      // cleared by a low-g jump (drop into the atrium is allowed)
-      for (let d = 1; d < GL.DECKS.length; d++) {
-        const y = GL.DECKS[d];
-        if (p.y < y - 0.3 || p.y > y + GL.RAIL_HEIGHT) continue;
-        const lo = GL.DECK_INNER_R - 0.3 - radius;
-        const hi = GL.DECK_INNER_R + 0.3 + radius;
-        if (newR > lo && newR < hi) {
-          newR = newR < GL.DECK_INNER_R ? lo : hi;
+      // cleared by a low-g jump (drop into the atrium is allowed). Open the
+      // rail where a catwalk meets the deck so you can step off the bridge.
+      const thDeg = (th * 180) / Math.PI;
+      const atCatwalk = Math.abs(((thDeg - GL.CATWALK_DEG + 540) % 360) - 180) <
+        GL.CATWALK_HALF_DEG + 2;
+      if (!atCatwalk) {
+        for (let d = 1; d < GL.DECKS.length; d++) {
+          const y = GL.DECKS[d];
+          if (p.y < y - 0.3 || p.y > y + GL.RAIL_HEIGHT) continue;
+          const lo = GL.DECK_INNER_R - 0.3 - radius;
+          const hi = GL.DECK_INNER_R + 0.3 + radius;
+          if (newR > lo && newR < hi) {
+            newR = newR < GL.DECK_INNER_R ? lo : hi;
+          }
         }
       }
       // ramp edge clamps, active while actually on that ramp's surface
@@ -327,7 +343,7 @@ function spawnCrowds(station) {
     crowds.push({ module: m, deckY: groundY });
   };
   const furniture = [
-    { x: GL.DAIS.x, z: GL.DAIS.z, radius: GL.DAIS.r },
+    { x: GL.LIFT.x, z: GL.LIFT.z, radius: GL.LIFT.r + 0.5 }, // NPCs avoid the pad
     { x: GL.DESK.x, z: GL.DESK.z, radius: GL.DESK.r },
     { x: GL.EASELS[0].x, z: GL.EASELS[0].z, radius: GL.EASELS[0].r },
     { x: GL.EASELS[1].x, z: GL.EASELS[1].z, radius: GL.EASELS[1].r },
@@ -373,6 +389,7 @@ function teardown() {
   }
   if (astronaut) astronaut.group.visible = false;
   hideViewUI();
+  setStationFrozen(null); // resume the station's orbit + spin (re-phased, no jump)
   sWalk.active = false;
   sWalk.station = null;
 }
@@ -410,6 +427,7 @@ export function enterStationWalk(station) {
   parked.group.rotation.y = -Math.PI / 2;
 
   spawnCrowds(station);
+  setStationFrozen(station); // hold the station still while we walk it
 
   // First time on foot ever: offer the view choice (walk.js idiom).
   const pref = getViewPref();
@@ -494,20 +512,42 @@ export function stepStationWalk(dt) {
     if (y !== null && y !== undefined && (gy === null || y > gy)) gy = y;
   }
 
-  // vertical: low-g jump/fall (stepWalk's model on a flat frame)
-  if (gy !== null && sWalk.vUp <= 0 && sWalk.pos.y <= gy + C.STATION_GROUND_SNAP) {
-    sWalk.pos.y = gy;
-    sWalk.grounded = true;
-    sWalk.vUp = 0;
-    if (input.brake && !sWalk.jumpHeld) sWalk.vUp = C.WALK_JUMP;
-  } else {
+  // antigrav pad: inside the central column, gravity is off and you rise
+  // steadily up the atrium shaft to the ceiling — then step out onto a
+  // catwalk at any balcony level.
+  const dxl = sWalk.pos.x - GL.LIFT.x;
+  const dzl = sWalk.pos.z - GL.LIFT.z;
+  const inColumn =
+    dxl * dxl + dzl * dzl < GL.LIFT.r * GL.LIFT.r && sWalk.pos.y < GL.LIFT.ceiling + 0.5;
+
+  if (inColumn) {
     sWalk.grounded = false;
-    sWalk.vUp -= C.WALK_GRAVITY * C.STATION_GRAVITY_SCALE * dt;
-    sWalk.pos.y += sWalk.vUp * dt;
-    if (gy !== null && sWalk.pos.y <= gy) {
+    sWalk.vUp = C.STATION_LIFT_SPEED;
+    sWalk.pos.y = Math.min(sWalk.pos.y + sWalk.vUp * dt, GL.LIFT.ceiling);
+    if (sWalk.pos.y >= GL.LIFT.ceiling) sWalk.vUp = 0; // hover at the top
+    sWalk.inColumn = true;
+  } else {
+    // just stepped off the column — soft-cap the residual rise so you settle
+    // onto the catwalk instead of rocketing past it
+    if (sWalk.inColumn && sWalk.vUp > C.STATION_LIFT_EXIT_CAP) {
+      sWalk.vUp = C.STATION_LIFT_EXIT_CAP;
+    }
+    sWalk.inColumn = false;
+    // vertical: low-g jump/fall (stepWalk's model on a flat frame)
+    if (gy !== null && sWalk.vUp <= 0 && sWalk.pos.y <= gy + C.STATION_GROUND_SNAP) {
       sWalk.pos.y = gy;
       sWalk.grounded = true;
       sWalk.vUp = 0;
+      if (input.brake && !sWalk.jumpHeld) sWalk.vUp = C.WALK_JUMP;
+    } else {
+      sWalk.grounded = false;
+      sWalk.vUp -= C.WALK_GRAVITY * C.STATION_GRAVITY_SCALE * dt;
+      sWalk.pos.y += sWalk.vUp * dt;
+      if (gy !== null && sWalk.pos.y <= gy) {
+        sWalk.pos.y = gy;
+        sWalk.grounded = true;
+        sWalk.vUp = 0;
+      }
     }
   }
   sWalk.jumpHeld = input.brake;
@@ -691,12 +731,9 @@ export function currentStationGravityScale() {
 
 export function updateStationCamera(camera, delta = 0) {
   const st = sWalk.station;
-  // Re-place the station for THIS frame before deriving the camera — the
-  // game.js updateStations call happens later in the loop, and the station
-  // moves ~0.4u/frame on its orbit; without this the interior would swim.
-  // updateStations is absolute-time idempotent, so the later call just
-  // recomputes the same transform.
-  updateStations(performance.now() / 1000, ship.position);
+  // The station is frozen while docked (setStationFrozen), so its transform
+  // is stable across the whole frame — just re-derive the player's world
+  // position from it and aim the camera. No mid-frame station motion to chase.
   writeShipPos();
 
   const rotY = st.group.rotation.y;
@@ -749,5 +786,11 @@ export function updateStationCamera(camera, delta = 0) {
 
 // dev/verification handle (__debug via walk.js walkSite)
 export function stationSite() {
-  return { crowds, parked, structures, sWalk };
+  return {
+    crowds,
+    parked,
+    structures,
+    sWalk,
+    groupPos: sWalk.station ? sWalk.station.group.position.clone() : null,
+  };
 }
