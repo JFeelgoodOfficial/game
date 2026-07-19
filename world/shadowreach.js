@@ -780,13 +780,9 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       colors: [0xffffff, 0xffe08a, 0xffb0c8, 0x9fd8ff],
     }));
 
-    // Worn path strip pointing at the water.
-    const strip = new THREE.Mesh(keep(new THREE.PlaneGeometry(2.6, SR.RIVER - 20)), stdMat(0x8a6f4d, { rough: 1.0 }));
-    const f = frameAt((SR.RIVER - 20) / 2);
-    strip.position.copy(f.pos).addScaledVector(f.dir, 0.14);
-    strip.quaternion.copy(f.q).multiply(_qScratch.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2));
-    strip.renderOrder = 1;
-    g.add(strip);
+    // (The path itself is marked by the draped, sphere-conforming guide road
+    // in buildGuidePath — an earlier flat "worn path" plane floated above the
+    // curved ground toward its ends and has been removed.)
 
     // Stepping stones across the crossing (visual — the ground is walkable).
     const stoneGeo = keep(new THREE.CylinderGeometry(1.0, 1.1, 0.5, 7));
