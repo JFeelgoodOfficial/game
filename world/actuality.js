@@ -54,6 +54,7 @@ const AC = {
   PORTAL_R: 2.0,             // portal trigger radius
   FADE_OUT: 0.6,             // seconds to black
   FADE_IN: 1.4,              // seconds back from black (~2 s total transition)
+  HOLOGRID_SECONDS: 5,       // time in the hyper-holo-grid before the loop resets
   BLOOM_THRESHOLD: 0.85,     // emissive above this blooms
   STRING_LIGHT_EMISSIVE: 1.1,
   TRIM_EMISSIVE: 0.4,        // stays under threshold (no bloom)
@@ -87,9 +88,9 @@ function hashSeed(str) {
 }
 
 const _yAxis = new THREE.Vector3(0, 1, 0);
-const _burstMat4 = new THREE.Matrix4(); // scratch for the dragon burst instances
 const _z6Local = new THREE.Vector3();   // scratch: player in zone-6 local frame
 const _dbgMirror = new THREE.Vector3(); // last computed mirror-local player pos
+const _zLocal = new THREE.Vector3();    // scratch: player in an arbitrary zone frame
 
 // Full radial distance to terrain along a surface-local direction (a radius,
 // not a height) — same as wavemallprime.sampleGround.
@@ -138,6 +139,150 @@ function gradientTexture(top, bottom) {
   grad.addColorStop(0, top);
   grad.addColorStop(1, bottom);
   g.fillStyle = grad; g.fillRect(0, 0, 4, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Subtle digit glyph stamped into a 2D canvas context (PDD §3 motif — a quiet
+// reward, never labeled). Low-contrast outline so it reads as texture, not a
+// sign. Caller sets composite/alpha before calling.
+function drawGlyph(g, digit, cx, cy, size, color, alpha = 0.14) {
+  g.save();
+  g.globalAlpha = alpha;
+  g.strokeStyle = color;
+  g.lineWidth = Math.max(2, size * 0.09);
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = `bold ${size}px Georgia, serif`;
+  g.strokeText(String(digit), cx, cy);
+  g.restore();
+}
+
+// Tileable stone/terrazzo paving for the terrace and interior floors.
+function pavingTexture(base, fleck, rng) {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = base; g.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 240; i++) {
+    g.fillStyle = i % 2 ? fleck : '#00000018';
+    const r = 0.6 + rng() * 2.2;
+    g.beginPath(); g.arc(rng() * 128, rng() * 128, r, 0, 6.28); g.fill();
+  }
+  g.strokeStyle = '#00000022'; g.lineWidth = 1.5;
+  for (let k = 0; k <= 128; k += 32) { g.beginPath(); g.moveTo(0, k); g.lineTo(128, k); g.moveTo(k, 0); g.lineTo(k, 128); g.stroke(); }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+// Colorful spray-art panel for Zone 1's alley (seeded blobs, arcs, tags).
+function graffitiTexture(rng, glyphDigit) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#26221e'; g.fillRect(0, 0, 256, 256);
+  const hues = [];
+  for (let i = 0; i < 7; i++) hues.push(Math.floor(rng() * 360));
+  for (let i = 0; i < 22; i++) {
+    g.globalAlpha = 0.55 + rng() * 0.45;
+    g.fillStyle = `hsl(${hues[i % hues.length]},80%,55%)`;
+    const x = rng() * 256, y = rng() * 256;
+    if (rng() < 0.5) { g.beginPath(); g.arc(x, y, 8 + rng() * 34, 0, 6.28); g.fill(); }
+    else {
+      g.strokeStyle = g.fillStyle; g.lineWidth = 4 + rng() * 10; g.beginPath();
+      g.moveTo(x, y); g.bezierCurveTo(x + 40, y - 60, x + 90, y + 50, x + 130, y - 20); g.stroke();
+    }
+  }
+  g.globalAlpha = 1;
+  if (glyphDigit != null) drawGlyph(g, glyphDigit, 128, 128, 150, '#ffffff', 0.1);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Chalk menu board (dark slate + scrawled lines; an optional hidden glyph).
+function menuBoardTexture(glyphDigit) {
+  const c = document.createElement('canvas');
+  c.width = 192; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#161c18'; g.fillRect(0, 0, 192, 256);
+  g.strokeStyle = '#6a5a3a'; g.lineWidth = 6; g.strokeRect(6, 6, 180, 244);
+  g.fillStyle = '#e8e2d0'; g.font = 'bold 22px Georgia, serif'; g.textAlign = 'center';
+  g.fillText('CAFÉ', 96, 40);
+  g.strokeStyle = '#cfc7b4'; g.lineWidth = 3;
+  for (let i = 0; i < 7; i++) {
+    const y = 74 + i * 24;
+    g.beginPath(); g.moveTo(24, y); g.lineTo(24 + 60 + Math.sin(i) * 40, y); g.stroke();
+    g.beginPath(); g.moveTo(150, y); g.lineTo(168, y); g.stroke();
+  }
+  if (glyphDigit != null) drawGlyph(g, glyphDigit, 96, 150, 150, '#ffffff', 0.16);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Lit-window facade (rows of warm/cool glowing windows) for Zone 1's city edge.
+function facadeTexture(rng) {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#1c1e24'; g.fillRect(0, 0, 128, 256);
+  for (let y = 12; y < 248; y += 26) {
+    for (let x = 12; x < 116; x += 26) {
+      g.fillStyle = rng() < 0.5 ? '#ffd98a' : (rng() < 0.5 ? '#8aa6d8' : '#2a2c33');
+      g.fillRect(x, y, 16, 18);
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// A beautiful city seen from high above — the view down through the open black
+// box (dawn sky, streets, warm-lit blocks, a river). Faces up from the bottom
+// of the opening so looking in reads as "a city far below."
+function cityBelowTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 256;
+  const g = c.getContext('2d');
+  const sky = g.createRadialGradient(128, 128, 20, 128, 128, 180);
+  sky.addColorStop(0, '#ffe6b0'); sky.addColorStop(0.5, '#e8b980'); sky.addColorStop(1, '#6a5a7a');
+  g.fillStyle = sky; g.fillRect(0, 0, 256, 256);
+  const rng = mulberry32(0xc17a);
+  // river curve
+  g.strokeStyle = 'rgba(90,150,200,0.7)'; g.lineWidth = 16;
+  g.beginPath(); g.moveTo(-10, 60); g.bezierCurveTo(80, 120, 160, 90, 270, 170); g.stroke();
+  // street grid + building blocks (top-down), lit roofs
+  for (let bx = 16; bx < 240; bx += 26) {
+    for (let by = 16; by < 240; by += 26) {
+      const d = Math.hypot(bx - 128, by - 128) / 180; // fade toward the haze
+      if (rng() < 0.15) continue;
+      const s = 12 + rng() * 8;
+      g.fillStyle = `rgba(${40 + rng() * 40},${40 + rng() * 40},${50 + rng() * 40},${0.85 - d * 0.5})`;
+      g.fillRect(bx, by, s, s);
+      if (rng() < 0.5) { g.fillStyle = `rgba(255,220,150,${0.7 - d * 0.5})`; g.fillRect(bx + 2, by + 2, 3, 3); }
+    }
+  }
+  // soft cloud wisps near the edges (you're above them)
+  g.globalAlpha = 0.35; g.fillStyle = '#f4ecdc';
+  for (let i = 0; i < 8; i++) { g.beginPath(); g.ellipse(rng() * 256, rng() * 256, 20 + rng() * 30, 8 + rng() * 10, 0, 0, 6.28); g.fill(); }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Crescent moon on transparent (full disc minus an offset disc).
+function crescentTexture(flip = false) {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#f0ead0';
+  g.beginPath(); g.arc(64, 64, 52, 0, 6.28); g.fill();
+  g.globalCompositeOperation = 'destination-out';
+  g.beginPath(); g.arc(flip ? 44 : 84, 64, 50, 0, 6.28); g.fill();
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
@@ -332,26 +477,31 @@ function buildHub(rng) {
   group.name = 'actuality.hub';
   const geos = [];
   const mats = [];
+  const texs = [];
   const lights = [];
-  const track = (g, m) => { geos.push(g); mats.push(m); };
 
   const woodMat = new THREE.MeshStandardMaterial({ color: AC.COL_WOOD, roughness: 0.85 });
-  const stoneMat = new THREE.MeshStandardMaterial({ color: AC.COL_STONE, roughness: 0.9 });
-  mats.push(woodMat, stoneMat);
+  const woodDark = new THREE.MeshStandardMaterial({ color: 0x4a3524, roughness: 0.9 });
+  const porcelain = new THREE.MeshStandardMaterial({ color: 0xf2ede0, roughness: 0.4 });
+  mats.push(woodMat, woodDark, porcelain);
 
-  const addBox = (w, h, d, x, y, z, mat) => {
+  const addBox = (w, h, d, x, y, z, mat, ry = 0) => {
     const g = new THREE.BoxGeometry(w, h, d);
     const m = new THREE.Mesh(g, mat);
-    m.position.set(x, y, z);
+    m.position.set(x, y, z); if (ry) m.rotation.y = ry;
     group.add(m);
     geos.push(g);
     return m;
   };
 
-  // Terrace floor: a thin stone slab, top at y=0 (flush with the anchor
+  // Terrace floor: a thin paved slab, top at y=0 (flush with the anchor
   // ground), extending below grade so edges never open a gap.
   const H = AC.HUB_FLOOR_HALF;
-  addBox(H * 2, 1.2, H * 2, 0, -0.6, 0, stoneMat);
+  const paveTex = pavingTexture('#cbbfa2', '#e6dcc0', rng);
+  paveTex.repeat.set(9, 9); texs.push(paveTex);
+  const floorMat = new THREE.MeshStandardMaterial({ map: paveTex, roughness: 0.92 });
+  mats.push(floorMat);
+  addBox(H * 2, 1.2, H * 2, 0, -0.6, 0, floorMat);
 
   // Café nook: back wall + two side returns, open toward -Z (the terrace).
   const wallMat = new THREE.MeshStandardMaterial({ color: 0xd8c8a8, roughness: 0.9 });
@@ -360,24 +510,74 @@ function buildHub(rng) {
   addBox(20, WH, 0.5, 0, WH / 2, BZ, wallMat);         // back
   addBox(0.5, WH, 6.5, -10, WH / 2, BZ - 3.25, wallMat); // left return
   addBox(0.5, WH, 6.5, 10, WH / 2, BZ - 3.25, wallMat);  // right return
-  // Awning over the nook (emissive-free wood beams + a warm canopy).
+  // Awning over the nook — striped canopy over wood beams.
   const canopyMat = new THREE.MeshStandardMaterial({ color: 0xb5654d, roughness: 0.8 });
   mats.push(canopyMat);
   addBox(20.5, 0.3, 8, 0, WH + 0.2, BZ - 4, canopyMat);
-  // Counter along the back.
+  for (let i = 0; i < 5; i++) addBox(0.18, 0.4, 8, -9 + i * 4.5, WH + 0.05, BZ - 4, woodDark);
+  // Counter along the back + an espresso machine + a chalk menu board.
   addBox(12, 1.1, 1.2, 0, 0.55, BZ - 1.2, woodMat);
+  const steelMat = new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.5 });
+  mats.push(steelMat);
+  addBox(1.3, 0.9, 0.9, 3.5, 1.55, BZ - 1.2, steelMat);
+  const boardTex = menuBoardTexture(0); // hidden 0 lives at the hub / café
+  texs.push(boardTex);
+  const boardMat = new THREE.MeshStandardMaterial({ map: boardTex, roughness: 0.9 });
+  mats.push(boardMat);
+  const boardGeo = new THREE.PlaneGeometry(1.5, 2.0);
+  const board = new THREE.Mesh(boardGeo, boardMat);
+  board.position.set(-6.5, 1.9, BZ - 0.3); board.rotation.y = Math.PI; geos.push(boardGeo);
+  group.add(board);
 
-  // A few tables + chairs on the terrace.
-  const tableAt = (x, z) => {
-    addBox(1.6, 0.12, 1.6, x, 0.78, z, woodMat);       // top
-    addBox(0.16, 0.78, 0.16, x, 0.39, z, woodMat);     // pedestal
+  // Low planters ringing the terrace edge with shrubs.
+  const planterMat = new THREE.MeshStandardMaterial({ color: 0x6b5138, roughness: 0.9 });
+  const shrubMat = new THREE.MeshStandardMaterial({ color: 0x4a6b3a, roughness: 0.85 });
+  mats.push(planterMat, shrubMat);
+  const shrubGeo = new THREE.SphereGeometry(0.7, 8, 6);
+  geos.push(shrubGeo);
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    const px = Math.sin(a) * (H - 2.2), pz = Math.cos(a) * (H - 2.2);
+    if (pz > BZ - 8) continue; // don't block the café nook
+    addBox(2.2, 0.7, 1.0, px, 0.35, pz, planterMat, a);
+    const s = new THREE.Mesh(shrubGeo, shrubMat);
+    s.position.set(px, 1.0, pz); s.scale.set(1, 0.8, 1); group.add(s);
+  }
+
+  // Tables + chairs on the terrace (chair = seat + back + legs).
+  const chairAt = (x, z, ry) => {
+    addBox(0.5, 0.08, 0.5, x, 0.5, z, woodDark, ry);
+    const bx = x - Math.sin(ry) * 0.22, bz = z - Math.cos(ry) * 0.22;
+    addBox(0.5, 0.6, 0.08, bx, 0.8, bz, woodDark, ry);
+  };
+  const tableAt = (x, z, withChairs = true) => {
+    addBox(1.6, 0.12, 1.6, x, 0.78, z, woodMat);
+    addBox(0.16, 0.78, 0.16, x, 0.39, z, woodMat);
+    if (withChairs) { chairAt(x, z + 1.1, 0); chairAt(x, z - 1.1, Math.PI); }
   };
   tableAt(-6, 9);   // She's table
   tableAt(5, 8);
-  tableAt(0, 4);
+  tableAt(0, 3.5);
+  tableAt(-8, 2);
+  tableAt(8, 1);
+  tableAt(4, -5);
 
-  // Warm string lights strung under the awning — emissive spheres over the
-  // bloom threshold so they glow. Kept few; more added visually if needed.
+  // The tea set on She's table (the "join me for a tea" motif): pot + 2 cups.
+  const potGeo = new THREE.CylinderGeometry(0.16, 0.2, 0.24, 10);
+  geos.push(potGeo);
+  const pot = new THREE.Mesh(potGeo, porcelain); pot.position.set(-6, 0.96, 9); group.add(pot);
+  addBox(0.28, 0.06, 0.06, -6.24, 0.96, 9, porcelain);       // spout
+  const cupGeo = new THREE.CylinderGeometry(0.09, 0.07, 0.11, 8);
+  geos.push(cupGeo);
+  for (const [cx, cz] of [[-6.4, 9.4], [-5.6, 8.6]]) {
+    const cup = new THREE.Mesh(cupGeo, porcelain); cup.position.set(cx, 0.9, cz); group.add(cup);
+  }
+  // A stray cup on two other tables.
+  for (const [cx, cz] of [[5.2, 8.2], [0, 3.7]]) {
+    const cup = new THREE.Mesh(cupGeo, porcelain); cup.position.set(cx, 0.9, cz); group.add(cup);
+  }
+
+  // Warm string lights under the awning + three hanging lanterns.
   const bulbGeo = new THREE.SphereGeometry(0.12, 8, 6);
   geos.push(bulbGeo);
   const bulbMat = new THREE.MeshStandardMaterial({
@@ -394,9 +594,18 @@ function buildHub(rng) {
   }
   bulbs.instanceMatrix.needsUpdate = true;
   group.add(bulbs);
+  const lanternGeo = new THREE.BoxGeometry(0.3, 0.4, 0.3);
+  geos.push(lanternGeo);
+  const lanternMat = new THREE.MeshStandardMaterial({
+    color: 0xffcf8a, emissive: 0xffb860, emissiveIntensity: 1.0, roughness: 0.5,
+  });
+  mats.push(lanternMat);
+  for (const lx of [-7, 0, 7]) {
+    const l = new THREE.Mesh(lanternGeo, lanternMat); l.position.set(lx, WH - 0.5, BZ - 7.4); group.add(l);
+  }
 
-  // Local lighting: two warm point lights + a soft warm ambient so the café
-  // reads at dawn regardless of the sun's true angle.
+  // Local lighting: warm point lights + a soft warm ambient (dawn regardless
+  // of the true sun angle).
   const key = new THREE.PointLight(AC.COL_WARM_LIGHT, 1.6, 60, 2.0);
   key.position.set(0, 5, BZ - 6);
   const fill = new THREE.PointLight(0xffe6c2, 0.9, 50, 2.0);
@@ -405,38 +614,92 @@ function buildHub(rng) {
   group.add(key, fill, amb);
   lights.push(key, fill, amb);
 
-  // Sky dome — large inward sphere with a cream→gold gradient, faint emissive
-  // so it glows softly at the horizon.
+  // Sky dome — cream→gold gradient.
   const domeTex = gradientTexture('#fbf1dc', '#e9c98c');
+  texs.push(domeTex);
   const domeGeo = new THREE.SphereGeometry(AC.DOME_RADIUS, 24, 16);
   const domeMat = new THREE.MeshBasicMaterial({ map: domeTex, side: THREE.BackSide, fog: false });
   const dome = new THREE.Mesh(domeGeo, domeMat);
   group.add(dome);
   geos.push(domeGeo); mats.push(domeMat);
 
-  // Collision: the café nook walls (with the terrace open). One structure in
-  // anchor-local space (ox=0, oz=0, baseY=0).
+  // The café sits in a city: a distant skyline silhouette wrapped inside the
+  // dome, plus a ring of tall building blocks beyond the terrace (this is the
+  // "city where his ship awaits" the player drops into from zone 9).
+  const skyTex = silhouetteTexture('skyline');
+  texs.push(skyTex);
+  skyTex.wrapS = THREE.RepeatWrapping; skyTex.repeat.set(6, 1);
+  const skyMat = new THREE.MeshBasicMaterial({ map: skyTex, transparent: true, depthWrite: false, side: THREE.BackSide });
+  const skyGeo = new THREE.CylinderGeometry(110, 110, 34, 48, 1, true);
+  const skyline = new THREE.Mesh(skyGeo, skyMat);
+  skyline.position.y = 14; group.add(skyline);
+  geos.push(skyGeo); mats.push(skyMat);
+  const cityRng = mulberry32(0x0c17);
+  const bldgMat = new THREE.MeshStandardMaterial({ color: 0x6a6470, roughness: 0.9 });
+  mats.push(bldgMat);
+  const winMat = new THREE.MeshStandardMaterial({ color: 0xffe0a0, emissive: 0xffcf80, emissiveIntensity: 0.7, roughness: 0.6 });
+  mats.push(winMat);
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2 + 0.2;
+    const rad = 44 + cityRng() * 26;
+    const bx = Math.sin(a) * rad, bz = Math.cos(a) * rad;
+    if (bz > AC.CAFE_BACK_Z + 4 && Math.abs(bx) < 18) continue; // keep the café view open
+    const bh = 14 + cityRng() * 34;
+    const bg = new THREE.BoxGeometry(6 + cityRng() * 6, bh, 6 + cityRng() * 6);
+    const bm = new THREE.Mesh(bg, bldgMat); bm.position.set(bx, bh / 2, bz);
+    group.add(bm); geos.push(bg);
+    const lg = new THREE.BoxGeometry(0.6, bh * 0.7, 0.6); // a lit window strip
+    const lm = new THREE.Mesh(lg, winMat); lm.position.set(bx, bh * 0.5, bz + 3.1 * (bz < 0 ? -1 : 1));
+    group.add(lm); geos.push(lg);
+  }
+
+  // Gentle breeze: leaves drifting slowly across the terrace.
+  const NL = 60;
+  const leafGeo = new THREE.PlaneGeometry(0.16, 0.16);
+  const leafMat = new THREE.MeshBasicMaterial({
+    color: 0xe0b060, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false,
+  });
+  const leaves = new THREE.InstancedMesh(leafGeo, leafMat, NL);
+  leaves.frustumCulled = false; group.add(leaves);
+  geos.push(leafGeo); mats.push(leafMat);
+  const lr = mulberry32(0x0eaf);
+  const lbase = [];
+  for (let i = 0; i < NL; i++) lbase.push({ x0: (lr() - 0.5) * H * 2, y: 0.5 + lr() * 5, z: (lr() - 0.5) * H * 2, ph: lr() * 6.28, sp: 0.3 + lr() * 0.5 });
+  const _lm = new THREE.Matrix4();
+
+  // Collision: the café nook walls (with the terrace open).
   const walls = [
     { x0: -10, x1: 10, z0: BZ - 0.25, z1: BZ + 0.25, y0: 0, y1: WH },
     { x0: -10.25, x1: -9.75, z0: BZ - 6.5, z1: BZ, y0: 0, y1: WH },
     { x0: 9.75, x1: 10.25, z0: BZ - 6.5, z1: BZ, y0: 0, y1: WH },
-    // counter (waist-high; blocks walking through it)
-    { x0: -6, x1: 6, z0: BZ - 1.8, z1: BZ - 0.6, y0: 0, y1: 1.1 },
+    { x0: -6, x1: 6, z0: BZ - 1.8, z1: BZ - 0.6, y0: 0, y1: 1.1 }, // counter
   ];
-  const surfaces = [
-    { x0: -H, x1: H, z0: -H, z1: H, y: 0 }, // the terrace floor
-  ];
+  const surfaces = [{ x0: -H, x1: H, z0: -H, z1: H, y: 0 }];
   const structure = makeStructure(0, 0, 0, surfaces, walls, H + 1);
+
+  function update(t) {
+    for (let i = 0; i < NL; i++) {
+      const b = lbase[i];
+      const x = b.x0 + ((t * b.sp * 3) % (H * 2 + 8)) - 4; // drift +X, wrap
+      const wx = x > H ? x - (H * 2 + 8) : x;
+      const y = b.y + Math.sin(t * 0.6 + b.ph) * 0.4;
+      _lm.makeRotationZ(t * 0.5 + b.ph);
+      _lm.setPosition(wx, y, b.z + Math.sin(t * 0.4 + b.ph) * 1.5);
+      leaves.setMatrixAt(i, _lm);
+    }
+    leaves.instanceMatrix.needsUpdate = true;
+  }
 
   return {
     group,
     structure,
     lights,
-    shePos: new THREE.Vector3(-6, 0, 10.4), // just in front of She's table
+    update,
+    shePos: new THREE.Vector3(-6, 0, 10.4),
     dispose() {
       for (const g of geos) g.dispose();
       for (const m of mats) m.dispose();
-      if (domeTex) domeTex.dispose();
+      for (const tx of texs) tx.dispose();
     },
   };
 }
@@ -537,6 +800,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     zg.name = `actuality.${meta.id}`;
     zg.position.copy(frame.pos);
     zg.quaternion.copy(frame.q);
+    zg.visible = false; // only the active zone renders (visibility gating)
     group.add(zg);
 
     // Landing-pad floor slab (top at y=0, extends below grade). Replace-ground
@@ -595,9 +859,6 @@ export function createActuality(planet, worldUp, opts = {}) {
   // Scripted-scene state (Joshua's departure, the dragon transformation).
   let joshuaFig = null;
   let joshuaDep = null;     // { t } while Joshua walks off
-  let dragonRefs = null;    // { fig, box, ring, seedLight, light } for zone 9
-  let dragonVfx = null;     // { t } while the transformation plays
-  let whiteFlashEl = null;  // DOM flash element for the dragon gift
   // Ambient-zone state.
   let z6Tint = null;        // blue submersion overlay for the lake
   let z6Vision = null;      // { t } rebirth vision timer (fires once)
@@ -606,6 +867,13 @@ export function createActuality(planet, worldUp, opts = {}) {
   let z7Caption = null;     // { i, t } running caption sequence
   let z7CaptionEl = null;   // DOM caption element
   let z8Burn = 0;           // seconds since entering zone 8 (fire burn-down)
+  let birdAnchorPos = null;  // zone-1 bird position in anchor-local (for chirp gain)
+  let birdDist = 999;        // player-to-bird distance (zone-1 local), for the chirp
+  let z9Fall = null;         // { t, tp } while the player falls through the black box
+  let cityFallEl = null;     // DOM overlay for the fall-to-city sequence
+  let cityFallUrl = null;    // data URL of the aerial-city texture
+  let mirrorTimer = 0;       // seconds inside the hyper-holo-grid
+  let pendingReset = false;  // host consumes this → exitWalk + resetToStart (the loop)
   let mirror = null;        // createMirrorRoom handle (hyper-holo-grid)
   let mirrorRec = null;     // its zone record
   let mirrorDoor = null;    // { mesh, mat, opened } sealed hub door
@@ -642,6 +910,21 @@ export function createActuality(planet, worldUp, opts = {}) {
   let activeZone = 'hub';
   const fade = { phase: 'idle', t: 0, target: 'hub', dest: null, heading: null };
   const _surf = new THREE.Vector3(); // scratch: player position in surface-local
+  let toastQueue = null; // {text, seconds} queued at blackout, drained by walk.js
+
+  function zoneTitle(id) {
+    if (id === 'hub') return 'THE CAFÉ';
+    if (id === 'mirror') return 'THE HYPER-HOLO-GRID';
+    const idx = Number(id.slice(1)) - 1;
+    return `${idx + 1} — ${ZONE_META[idx].word}`;
+  }
+
+  // Drained once per queued toast by the walk.js host (shadowreach pattern).
+  function pendingToast() {
+    const t = toastQueue;
+    toastQueue = null;
+    return t;
+  }
 
   // --- Cipher menu state ---
   let pendingDigit = null; // set via onOutcome after She's choice menu
@@ -714,8 +997,11 @@ export function createActuality(planet, worldUp, opts = {}) {
       g.value += (target - g.value) * k;
     }
     if (audio.chirpGain) {
+      // Chirp guides you: it pulses in zone 1, louder while the bird is still
+      // far ahead (calling you on), softer as you catch up to it.
+      const amp = 0.018 + Math.min(1, birdDist / 40) * 0.03;
       const on = activeZone === 'z1' && Math.sin(t * 7.0) > 0.7;
-      audio.chirpGain.gain.value += ((on ? 0.03 : 0) - audio.chirpGain.gain.value) * Math.min(1, dt * 8);
+      audio.chirpGain.gain.value += ((on ? amp : 0) - audio.chirpGain.gain.value) * Math.min(1, dt * 8);
     }
   }
 
@@ -854,10 +1140,8 @@ export function createActuality(planet, worldUp, opts = {}) {
         flags.talkedJoshuaCaitlynn = true; saveFlags(flags);
         startJoshuaDeparture();
         break;
-      case 'dragon':
-        flags.dragonGiftReceived = true; saveFlags(flags);
-        startDragonGift();
-        break;
+      // The dragon's gift is the descent itself: dragonGiftReceived is set when
+      // the player falls through the open box, not by talking.
     }
     entity.pending = null;
   }
@@ -873,6 +1157,14 @@ export function createActuality(planet, worldUp, opts = {}) {
     const t = pendingTeleport;
     pendingTeleport = null;
     return t;
+  }
+
+  // Consumed once by the walk.js host: true means the hyper-holo-grid finished
+  // and the program should repeat (host does exitWalk + resetToStart).
+  function consumeReset() {
+    if (!pendingReset) return false;
+    pendingReset = false;
+    return true;
   }
 
   // --- Transition overlay (module-owned full-screen DOM fade) ---
@@ -891,6 +1183,14 @@ export function createActuality(planet, worldUp, opts = {}) {
   }
 
   // Begin a soft transition to `target` ('hub' or 'z1'..'z9').
+  // Only the active zone's group renders (keeps the forward-pass light count
+  // sane). Shared by the fade blackout and Zone 9's box-fall.
+  function applyZoneVisibility() {
+    for (let i = 0; i < zoneList.length; i++) {
+      zoneList[i].group.visible = zoneList[i].id === activeZone;
+    }
+  }
+
   function startTransition(target) {
     fade.phase = 'out';
     fade.t = 0;
@@ -918,6 +1218,11 @@ export function createActuality(planet, worldUp, opts = {}) {
           flags.visited[fade.target] = true;
           saveFlags(flags);
         }
+        // Only the active zone's group renders (its PointLights would otherwise
+        // bloat every forward-pass shader). The swap hides inside the blackout.
+        applyZoneVisibility();
+        // Zone-title toast, drained by the walk.js host (shadowreach pattern).
+        toastQueue = { text: zoneTitle(fade.target), seconds: 2.6 };
         if (zoneEnterCallbacks[fade.target]) zoneEnterCallbacks[fade.target]();
         fade.phase = 'in';
         fade.t = 0;
@@ -930,6 +1235,7 @@ export function createActuality(planet, worldUp, opts = {}) {
 
   function update(t, dt, playerPos, sunDot = 1) {
     for (let i = 0; i < figures.length; i++) figures[i].update(t);
+    hub.update(t); // hub breeze (always visible)
     // Per-zone animation (only the active zone runs; the rest hold still).
     for (let i = 0; i < zoneUpdaters.length; i++) zoneUpdaters[i](t, dt, playerPos);
     audioUpdate(t, dt);
@@ -980,35 +1286,92 @@ export function createActuality(planet, worldUp, opts = {}) {
     buildZone9();
   }
 
-  function addZoneBox(rec, w, h, d, x, y, z, color, rough = 0.9) {
+  function addZoneBox(rec, w, h, d, x, y, z, color, ry = 0, rough = 0.9) {
     const g = new THREE.BoxGeometry(w, h, d);
     const m = new THREE.MeshStandardMaterial({ color, roughness: rough });
     const mesh = new THREE.Mesh(g, m);
-    mesh.position.set(x, y, z);
+    mesh.position.set(x, y, z); if (ry) mesh.rotation.y = ry;
     rec.group.add(mesh);
     zoneGeos.push(g); zoneMats.push(m);
     return mesh;
   }
 
-  // Z3 — an ordinary daylight coffee shop. Andrei & Mikey at a table.
+  // Box with a caller-supplied material (already tracked in zoneMats).
+  function addZoneBox2(rec, w, h, d, x, y, z, mat) {
+    const g = new THREE.BoxGeometry(w, h, d);
+    const mesh = new THREE.Mesh(g, mat);
+    mesh.position.set(x, y, z);
+    rec.group.add(mesh);
+    zoneGeos.push(g);
+    return mesh;
+  }
+
+  // Z3 — an enclosed, ordinary daylight coffee shop. Andrei & Mikey at the
+  // window table, everyday clutter, an espresso counter and pastry case.
   function buildZone3() {
     const rec = zoneById['z3'];
-    // Bright daylight fill so it reads as an ordinary café.
-    const amb = new THREE.AmbientLight(0xfff4e0, 0.7);
-    rec.group.add(amb);
-    // A table + two chairs + a counter.
-    addZoneBox(rec, 1.4, 0.12, 1.4, 0, 0.78, -4, AC.COL_WOOD);
-    addZoneBox(rec, 0.16, 0.78, 0.16, 0, 0.39, -4, AC.COL_WOOD);
-    addZoneBox(rec, 10, 1.1, 1.0, 0, 0.55, -10, AC.COL_WOOD);
-    // Bright emissive "window" panels (gentle bloom for daylight).
+    rec.group.add(new THREE.AmbientLight(0xfff4e0, 0.7));
+    const fill = new THREE.PointLight(0xfff0da, 0.5, 40, 2.0);
+    fill.position.set(0, 3.5, -2); rec.group.add(fill);
+    // Walls + ceiling enclosing the shop (open +Z for the return arch).
+    const RX = 9, RZ = 12, WH = 4.2;
+    const shopMat = new THREE.MeshStandardMaterial({ color: 0xcfc3ac, roughness: 0.9, side: THREE.DoubleSide });
+    zoneMats.push(shopMat);
+    const wall = (w, h, x, y, z, ry) => {
+      const g = new THREE.PlaneGeometry(w, h);
+      const m = new THREE.Mesh(g, shopMat); m.position.set(x, y, z); m.rotation.y = ry;
+      rec.group.add(m); zoneGeos.push(g);
+    };
+    wall(RX * 2, WH, 0, WH / 2, -RZ, 0);       // back
+    wall(RZ * 2, WH, -RX, WH / 2, 0, Math.PI / 2); // left
+    wall(RZ * 2, WH, RX, WH / 2, 0, Math.PI / 2);  // right
+    const ceilG = new THREE.PlaneGeometry(RX * 2, RZ * 2);
+    const ceil = new THREE.Mesh(ceilG, shopMat); ceil.position.set(0, WH, 0); ceil.rotation.x = Math.PI / 2;
+    rec.group.add(ceil); zoneGeos.push(ceilG);
+    // Two big daylight windows.
     const winGeo = new THREE.PlaneGeometry(4, 2.4);
-    const winMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff, emissive: 0xfff2d8, emissiveIntensity: 1.0, side: THREE.DoubleSide,
-    });
-    const win = new THREE.Mesh(winGeo, winMat);
-    win.position.set(-8, 2.0, -4); win.rotation.y = Math.PI / 2;
-    rec.group.add(win);
-    zoneGeos.push(winGeo); zoneMats.push(winMat);
+    zoneGeos.push(winGeo);
+    const winMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2d8, emissiveIntensity: 1.0, side: THREE.DoubleSide });
+    zoneMats.push(winMat);
+    for (const [wx, wz, wry] of [[-RX + 0.1, -4, Math.PI / 2], [3, -RZ + 0.1, 0]]) {
+      const w = new THREE.Mesh(winGeo, winMat); w.position.set(wx, 2.0, wz); w.rotation.y = wry; rec.group.add(w);
+    }
+    // Counter, espresso machine, glass pastry case, chalk board ("3" glyph).
+    addZoneBox(rec, 10, 1.1, 1.0, 0, 0.55, -10.5, AC.COL_WOOD);
+    addZoneBox(rec, 1.3, 0.9, 0.8, 3, 1.55, -10.5, 0x8a8f96);
+    const caseMat = new THREE.MeshStandardMaterial({ color: 0xbfe0ff, transparent: true, opacity: 0.4, roughness: 0.2 });
+    zoneMats.push(caseMat);
+    addZoneBox2(rec, 2.4, 0.9, 0.9, -3, 1.05, -10.4, caseMat);
+    const boardTex = menuBoardTexture(3);
+    zoneTextures.push(boardTex);
+    const boardMat = new THREE.MeshStandardMaterial({ map: boardTex, roughness: 0.9 });
+    zoneMats.push(boardMat);
+    const boardGeo = new THREE.PlaneGeometry(1.4, 1.9);
+    const board = new THREE.Mesh(boardGeo, boardMat); board.position.set(-6, 2.4, -11.8); rec.group.add(board);
+    zoneGeos.push(boardGeo);
+    // Tables + chairs (Andrei & Mikey at the window table), plus clutter.
+    const chair = (x, z, ry) => { addZoneBox(rec, 0.5, 0.08, 0.5, x, 0.5, z, 0x6b4a34); addZoneBox(rec, 0.5, 0.6, 0.08, x - Math.sin(ry) * 0.22, 0.8, z - Math.cos(ry) * 0.22, 0x6b4a34); };
+    const table = (x, z) => { addZoneBox(rec, 1.3, 0.1, 1.3, x, 0.78, z, AC.COL_WOOD); addZoneBox(rec, 0.14, 0.78, 0.14, x, 0.39, z, AC.COL_WOOD); };
+    table(0, -4); chair(-1.3, -4, Math.PI / 2); chair(1.3, -4, -Math.PI / 2);
+    table(-5, -3); table(5, -5);
+    // Mugs on the tables.
+    const mugGeo = new THREE.CylinderGeometry(0.08, 0.07, 0.12, 8);
+    zoneGeos.push(mugGeo);
+    const mugMat = new THREE.MeshStandardMaterial({ color: 0xe8e0d0, roughness: 0.5 });
+    zoneMats.push(mugMat);
+    for (const [mx, mz] of [[-0.3, -3.7], [0.3, -4.3], [-5, -3], [5, -5]]) {
+      const mug = new THREE.Mesh(mugGeo, mugMat); mug.position.set(mx, 0.9, mz); rec.group.add(mug);
+    }
+    // Collision: perimeter walls, door gap on +Z.
+    const wt = 0.4;
+    rec.structure = makeStructure(0, 0, 0,
+      [{ x0: -RX, x1: RX, z0: -RZ, z1: RZ, y: 0 }],
+      [
+        { x0: -RX, x1: RX, z0: -RZ - wt, z1: -RZ, y0: 0, y1: WH },
+        { x0: -RX - wt, x1: -RX, z0: -RZ, z1: RZ, y0: 0, y1: WH },
+        { x0: RX, x1: RX + wt, z0: -RZ, z1: RZ, y0: 0, y1: WH },
+      ], RZ + 2);
+    rec.r2 = (RZ + 12) ** 2;
     // Figures.
     const andrei = makeFigure({ seated: true, skin: 0xc9a074, cloth: 0x4a5a6a, seed: 31 });
     andrei.group.position.set(-1.4, 0, -4); andrei.group.rotation.y = Math.PI / 2 + 0.2;
@@ -1019,224 +1382,285 @@ export function createActuality(planet, worldUp, opts = {}) {
     interactables.push({ id: 'andreiMikey', zone: 'z3', pos: zoneToAnchor(rec, 0, 0, -2.6), talking: false });
   }
 
-  // Z4 — cramped dorm fading into a warm apartment. Joshua & Caitlynn.
+  // Z4 — a cramped dorm joined by a short corridor to a spacious warm
+  // apartment. Joshua paces between the two until the scene fires.
   function buildZone4() {
     const rec = zoneById['z4'];
-    // Cool dorm light + warm apartment light (the corridor between them reads
-    // as the fade the chapter describes).
-    const dorm = new THREE.PointLight(0x8ea4c0, 0.7, 40, 2.0);
-    dorm.position.set(-8, 4, 6);
-    const apt = new THREE.PointLight(0xffcaa0, 1.1, 60, 2.0);
-    apt.position.set(2, 4, -6);
-    rec.group.add(dorm, apt);
-    // Couch (apartment) + a narrow dorm bed.
-    addZoneBox(rec, 3.0, 0.6, 1.2, -2, 0.4, -8, 0x8a6a5a);
-    addZoneBox(rec, 0.9, 0.4, 2.0, -8, 0.3, 6, 0x9aa0a8); // dorm bed
-    // Big warm apartment window.
+    // Dorm at +Z (cool, low), apartment at -Z (warm, tall), corridor between.
+    const dormLight = new THREE.PointLight(0x8ea4c0, 0.6, 26, 2.0);
+    dormLight.position.set(0, 2.0, 7); rec.group.add(dormLight);
+    const aptLight = new THREE.PointLight(0xffcaa0, 1.1, 60, 2.0);
+    aptLight.position.set(0, 3.5, -7); rec.group.add(aptLight);
+    rec.group.add(new THREE.AmbientLight(0x2a2c30, 0.35));
+
+    const dormMat = new THREE.MeshStandardMaterial({ color: 0x6a7078, roughness: 0.92, side: THREE.DoubleSide });
+    const aptMat = new THREE.MeshStandardMaterial({ color: 0xcaa583, roughness: 0.9, side: THREE.DoubleSide });
+    zoneMats.push(dormMat, aptMat);
+    const panel = (mat, w, h, x, y, z, ry, rx = 0) => {
+      const g = new THREE.PlaneGeometry(w, h);
+      const m = new THREE.Mesh(g, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, 0);
+      rec.group.add(m); zoneGeos.push(g);
+    };
+    // Dorm shell: 5m wide, 2.2m ceiling, z 4..9 (door gap on -Z toward corridor).
+    const DCH = 2.2;
+    panel(dormMat, 5, DCH, 0, DCH / 2, 9, 0);          // dorm back
+    panel(dormMat, 5, DCH, -2.5, DCH / 2, 6.5, Math.PI / 2);
+    panel(dormMat, 5, DCH, 2.5, DCH / 2, 6.5, Math.PI / 2);
+    panel(dormMat, 5, 5, 0, DCH, 6.5, 0, Math.PI / 2);  // dorm ceiling
+    // Corridor (z 1..4), cool→warm vertex tint via two short wall segments +
+    // ceiling beams that cross into a "4" (glyph).
+    panel(dormMat, 2.6, 2.6, -1.3, 1.3, 2.5, Math.PI / 2);
+    panel(aptMat, 2.6, 2.6, 1.3, 1.3, 2.5, Math.PI / 2);
+    addZoneBox(rec, 0.12, 0.12, 3, 0, 2.55, 2.5, 0x4a3a2a);         // beam along
+    addZoneBox(rec, 2.4, 0.12, 0.12, 0, 2.55, 1.8, 0x4a3a2a);  // beam across = "4"
+    // Apartment shell: 9m, 3.6m ceiling, z -12..0 (door gap on +Z).
+    const ACH = 3.6;
+    panel(aptMat, 9, ACH, 0, ACH / 2, -12, 0);
+    panel(aptMat, 12, ACH, -4.5, ACH / 2, -6, Math.PI / 2);
+    panel(aptMat, 12, ACH, 4.5, ACH / 2, -6, Math.PI / 2);
+    panel(aptMat, 9, 12, 0, ACH, -6, 0, Math.PI / 2);   // apt ceiling
+
+    // Dorm furniture.
+    addZoneBox(rec, 0.9, 0.4, 2.0, -1.6, 0.3, 7, 0x9aa0a8);  // narrow bed
+    addZoneBox(rec, 1.4, 0.8, 0.6, 1.6, 0.4, 8.4, 0x7a6a58); // desk
+    addZoneBox(rec, 0.4, 0.4, 0.4, 1.6, 1.0, 8.4, 0x8a8f96); // clutter box
+    // Apartment furniture: couch, rug, plants, big warm window.
+    addZoneBox(rec, 3.2, 0.6, 1.2, -2.4, 0.4, -8, 0x8a5a6a); // couch
+    addZoneBox(rec, 3.2, 0.3, 0.5, -2.4, 0.85, -8.6, 0x9a6a7a); // couch back
+    addZoneBox(rec, 3.6, 0.04, 2.6, 0, 0.03, -7, 0x8a5040); // rug
+    for (const [px, pz] of [[3.6, -10.5], [-3.6, -2]]) { // plants
+      addZoneBox(rec, 0.5, 0.5, 0.5, px, 0.25, pz, 0x6b4a34);
+      const pot = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 6), new THREE.MeshStandardMaterial({ color: 0x3a6b3a, roughness: 0.85 }));
+      pot.position.set(px, 1.0, pz); pot.scale.y = 1.3; rec.group.add(pot);
+      zoneGeos.push(pot.geometry); zoneMats.push(pot.material);
+    }
     const winGeo = new THREE.PlaneGeometry(4, 2.6);
-    const winMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff, emissive: 0xffd9a8, emissiveIntensity: 0.9, side: THREE.DoubleSide,
-    });
-    const win = new THREE.Mesh(winGeo, winMat);
-    win.position.set(2, 2.1, -11.7);
-    rec.group.add(win);
+    const winMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffd9a8, emissiveIntensity: 0.9, side: THREE.DoubleSide });
+    const win = new THREE.Mesh(winGeo, winMat); win.position.set(0, 2.1, -11.8); rec.group.add(win);
     zoneGeos.push(winGeo); zoneMats.push(winMat);
+
+    // Collision: dorm box + apartment box (each with a corridor door gap).
+    rec.structure = makeStructure(0, 0, 0,
+      [{ x0: -4.5, x1: 4.5, z0: -12, z1: 9.5, y: 0 }],
+      [
+        // dorm walls (gap toward -Z corridor mouth at x∈[-1.3,1.3])
+        { x0: -2.5, x1: 2.5, z0: 9, z1: 9.4, y0: 0, y1: DCH },
+        { x0: -2.9, x1: -2.5, z0: 4, z1: 9.4, y0: 0, y1: DCH },
+        { x0: 2.5, x1: 2.9, z0: 4, z1: 9.4, y0: 0, y1: DCH },
+        { x0: -2.5, x1: -1.3, z0: 4, z1: 4.4, y0: 0, y1: DCH },
+        { x0: 1.3, x1: 2.5, z0: 4, z1: 4.4, y0: 0, y1: DCH },
+        // apartment walls (gap toward +Z corridor mouth)
+        { x0: -4.5, x1: 4.5, z0: -12.4, z1: -12, y0: 0, y1: ACH },
+        { x0: -4.9, x1: -4.5, z0: -12, z1: 0, y0: 0, y1: ACH },
+        { x0: 4.5, x1: 4.9, z0: -12, z1: 0, y0: 0, y1: ACH },
+        { x0: -4.5, x1: -1.3, z0: 0, z1: 0.4, y0: 0, y1: ACH },
+        { x0: 1.3, x1: 4.5, z0: 0, z1: 0.4, y0: 0, y1: ACH },
+      ], 14);
+    rec.r2 = (14 + 12) ** 2;
+
     // Figures.
     const caitlynn = makeFigure({ seated: true, skin: 0xe0c0a0, cloth: 0xb08090, seed: 41 });
-    caitlynn.group.position.set(-2, 0.5, -8); caitlynn.group.rotation.y = 0.2;
+    caitlynn.group.position.set(-2.4, 0.5, -8); caitlynn.group.rotation.y = 0.2;
     joshuaFig = makeFigure({ seated: false, skin: 0xc99a70, cloth: 0x33465a, seed: 42 });
-    joshuaFig.group.position.set(1.6, 0, -5); joshuaFig.group.rotation.y = -0.4;
+    joshuaFig.group.position.set(0, 0, -4); joshuaFig.group.rotation.y = 0;
     rec.group.add(caitlynn.group, joshuaFig.group);
     figures.push(caitlynn, joshuaFig);
     interactables.push({ id: 'joshuaCaitlynn', zone: 'z4', pos: zoneToAnchor(rec, 0, 0, -3.5), talking: false });
 
-    // Joshua's scripted departure (fires once, after the scene resolves).
+    // Joshua paces the corridor (dorm ↔ apartment) until the scene fires, then
+    // his scripted departure plays.
+    const paceA = new THREE.Vector3(0, 0, 7), paceB = new THREE.Vector3(-2, 0, -6);
     zoneUpdaters.push((t, dt) => {
-      if (!joshuaDep || !joshuaFig) return;
-      joshuaDep.t += dt;
-      const T = joshuaDep.t;
-      // Walk from the couch toward the door at (4, 0, 8) over ~8s.
-      const p = Math.min(1, T / 8);
-      const sx = 1.6, sz = -5, dx = 4, dz = 9;
-      joshuaFig.group.position.set(sx + (dx - sx) * p, 0, sz + (dz - sz) * p);
-      joshuaFig.group.rotation.y = Math.atan2(dx - sx, dz - sz);
-      // Fade out over the last 2s, then hide.
-      if (T > 8) joshuaFig.setOpacity(Math.max(0, 1 - (T - 8) / 2));
-      if (T > 10.2) { joshuaFig.group.visible = false; joshuaDep = null; }
+      if (activeZone !== 'z4' || !joshuaFig) return;
+      if (joshuaDep) {
+        joshuaDep.t += dt;
+        const T = joshuaDep.t, p = Math.min(1, T / 8);
+        const sx = -2, sz = -6, dx = 3, dz = 8.6; // toward the dorm door
+        joshuaFig.group.position.set(sx + (dx - sx) * p, 0, sz + (dz - sz) * p);
+        joshuaFig.group.rotation.y = Math.atan2(dx - sx, dz - sz);
+        if (T > 8) joshuaFig.setOpacity(Math.max(0, 1 - (T - 8) / 2));
+        if (T > 10.2) { joshuaFig.group.visible = false; joshuaDep = null; }
+        return;
+      }
+      if (flags.talkedJoshuaCaitlynn) return; // stays put after the scene
+      // Slow pace between the two rooms.
+      const phase = (Math.sin(t * 0.25) * 0.5 + 0.5);
+      joshuaFig.group.position.lerpVectors(paceA, paceB, phase);
+      joshuaFig.group.rotation.y = phase > 0.5 ? Math.PI : 0;
     });
   }
 
-  // Z9 — vertical descent into a dark chamber with the granite dragon.
+  // Z9 — a monolith door opening onto a switchback shaft that descends to the
+  // granite dragon's chamber.
   function buildZone9() {
     const rec = zoneById['z9'];
-    // Rebuild the collision structure: top platform + descending ramp + chamber.
-    const surfaces = [
-      { x0: -30, x1: 30, z0: -6, z1: 30, y: 0 },               // arrival platform
-      { ramp: true, x0: -4, x1: 4, z0: -40, z1: -6, zA: -6, zB: -40, yA: 0, yB: -15 },
-      { x0: -16, x1: 16, z0: -72, z1: -40, y: -15 },           // chamber floor
-    ];
+    // Terraced switchback landings at y = 0,-3,-6,-9,-12,-15 down to the
+    // chamber, each a flat slab joined by a short ramp (along -Z).
+    const surfaces = [{ x0: -30, x1: 30, z0: -6, z1: 30, y: 0 }]; // arrival
+    const walls = [];
     const wallH = { y0: -17, y1: 2 };
-    const walls = [
-      { x0: -4.8, x1: -4.4, z0: -40, z1: -6, ...wallH },       // ramp guards
-      { x0: 4.4, x1: 4.8, z0: -40, z1: -6, ...wallH },
-      { x0: -16, x1: 16, z0: -72, z1: -71.5, ...wallH },       // chamber back
-      { x0: -16, x1: -15.5, z0: -72, z1: -40, ...wallH },      // chamber sides
-      { x0: 15.5, x1: 16, z0: -72, z1: -40, ...wallH },
-      { x0: -16, x1: -4.5, z0: -40, z1: -39.5, ...wallH },     // chamber front (door gap)
-      { x0: 4.5, x1: 16, z0: -40, z1: -39.5, ...wallH },
-    ];
+    for (let k = 0; k < 5; k++) {
+      const y = -3 * k, z0 = -6 - k * 6;
+      surfaces.push({ x0: -5, x1: 5, z0: z0 - 3, z1: z0, y });                 // landing
+      surfaces.push({ ramp: true, x0: -5, x1: 5, z0: z0 - 6, z1: z0 - 3, zA: z0 - 3, zB: z0 - 6, yA: y, yB: y - 3 }); // ramp down
+    }
+    surfaces.push({ x0: -16, x1: 16, z0: -72, z1: -36, y: -15 });             // chamber floor
+    // Shaft guard walls down both sides, + chamber shell (door gap at z=-36).
+    walls.push({ x0: -5.4, x1: -5.0, z0: -36, z1: -6, ...wallH });
+    walls.push({ x0: 5.0, x1: 5.4, z0: -36, z1: -6, ...wallH });
+    walls.push({ x0: -16, x1: 16, z0: -72, z1: -71.5, ...wallH });
+    walls.push({ x0: -16, x1: -15.5, z0: -72, z1: -36, ...wallH });
+    walls.push({ x0: 15.5, x1: 16, z0: -72, z1: -36, ...wallH });
+    walls.push({ x0: -16, x1: -5.5, z0: -36, z1: -35.5, ...wallH });
+    walls.push({ x0: 5.5, x1: 16, z0: -36, z1: -35.5, ...wallH });
     rec.structure = makeStructure(0, 0, 0, surfaces, walls, 78);
     rec.r2 = (78 + 12) ** 2;
 
-    // Dim descent lighting.
     const amb = new THREE.AmbientLight(0x30343c, 0.5);
     rec.group.add(amb);
-    // Visual geometry: ramp, chamber floor + walls (matte near-black).
     const dark = 0x14151a;
-    const ramp = addZoneBox(rec, 8, 0.4, 34.5, 0, -7.5, -23, dark); // spans the ramp band
-    ramp.rotation.x = Math.atan2(15, 34); // tilt to follow the descent
-    addZoneBox(rec, 32, 0.6, 32, 0, -15.3, -56, dark);             // chamber floor
-    addZoneBox(rec, 32, 18, 0.6, 0, -8, -71.7, dark);              // back wall
-    addZoneBox(rec, 0.6, 18, 32, -15.7, -8, -56, dark);            // side walls
-    addZoneBox(rec, 0.6, 18, 32, 15.7, -8, -56, dark);
+    // Monolith door framing the shaft mouth on the arrival platform.
+    const monoMat = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.9, emissive: 0x0a1420, emissiveIntensity: 0.2 });
+    zoneMats.push(monoMat);
+    addZoneBox2(rec, 1.4, 8, 1.4, -4, 4, -6, monoMat);
+    addZoneBox2(rec, 1.4, 8, 1.4, 4, 4, -6, monoMat);
+    addZoneBox2(rec, 10, 1.6, 1.4, 0, 8.2, -6, monoMat);
+    // Landing slabs + ramp fill + emissive vein strips down the shaft walls.
+    for (let k = 0; k < 5; k++) {
+      const y = -3 * k, z0 = -6 - k * 6;
+      addZoneBox(rec, 10, 0.4, 3, 0, y - 0.2, z0 - 1.5, dark);
+      const r = addZoneBox(rec, 10, 0.3, 3.4, 0, y - 1.5, z0 - 4.5, dark);
+      r.rotation.x = Math.atan2(3, 3);
+    }
+    const veinMat = new THREE.MeshStandardMaterial({ color: 0x2a3a4a, emissive: 0x2a5a7a, emissiveIntensity: 0.5, roughness: 0.6 });
+    zoneMats.push(veinMat);
+    for (let k = 0; k < 5; k++) {
+      addZoneBox2(rec, 0.1, 0.1, 2.4, -5.2, -3 * k - 1, -8 - k * 6, veinMat);
+      addZoneBox2(rec, 0.1, 0.1, 2.4, 5.2, -3 * k - 1, -8 - k * 6, veinMat);
+    }
+    // Chamber shell (matte near-black).
+    addZoneBox(rec, 32, 0.6, 36, 0, -15.3, -54, dark);
+    addZoneBox(rec, 32, 18, 0.6, 0, -8, -71.7, dark);
+    addZoneBox(rec, 0.6, 18, 36, -15.7, -8, -54, dark);
+    addZoneBox(rec, 0.6, 18, 36, 15.7, -8, -54, dark);
 
-    // The granite dragon (stacked spheres/cones), on the chamber's far side.
+    // The massive black-granite dragon on the chamber's far side — horns,
+    // folded wings, a tail coiled into a "9" (top-down glyph).
     const dragonGrp = new THREE.Group();
-    dragonGrp.position.set(0, -15, -60);
+    dragonGrp.position.set(0, -15, -64);
+    dragonGrp.scale.setScalar(1.7); // massive
     rec.group.add(dragonGrp);
     const graniteMat = new THREE.MeshStandardMaterial({
-      color: 0x6a6a72, roughness: 0.95, emissive: 0x1a2230, emissiveIntensity: 0.25,
+      color: 0x0e0e12, roughness: 0.9, emissive: 0x0e1826, emissiveIntensity: 0.3, // black granite
     });
     zoneMats.push(graniteMat);
-    const dragonMats = [graniteMat];
-    const dpart = (geo, x, y, z, rx = 0) => {
+    const dpart = (geo, x, y, z, rx = 0, rz = 0) => {
       const mesh = new THREE.Mesh(geo, graniteMat);
-      mesh.position.set(x, y, z); if (rx) mesh.rotation.x = rx;
+      mesh.position.set(x, y, z); if (rx) mesh.rotation.x = rx; if (rz) mesh.rotation.z = rz;
       dragonGrp.add(mesh); zoneGeos.push(geo); return mesh;
     };
-    dpart(new THREE.SphereGeometry(1.8, 12, 10), 0, 1.8, 0);          // lower body
-    dpart(new THREE.SphereGeometry(1.5, 12, 10), 0, 3.4, 0.4);        // chest
-    dpart(new THREE.CylinderGeometry(0.7, 1.1, 3.2, 10), 0, 5.4, 0.2, 0.5); // neck
-    dpart(new THREE.ConeGeometry(0.9, 1.8, 10), 0, 7.2, 0.9, 1.2);    // head
-    dpart(new THREE.ConeGeometry(0.5, 4.5, 8), 0, 1.4, -3.2, -0.8);   // tail
-    // folded wings (thin cones out to the sides)
-    const wingL = dpart(new THREE.ConeGeometry(0.6, 3.5, 6), -1.4, 3.6, -0.4, 0);
-    wingL.rotation.z = 0.9; const wingR = dpart(new THREE.ConeGeometry(0.6, 3.5, 6), 1.4, 3.6, -0.4, 0);
-    wingR.rotation.z = -0.9;
-    // Black box on the chest.
-    const boxGeo = new THREE.BoxGeometry(1.0, 1.0, 0.7);
-    const boxMat = new THREE.MeshStandardMaterial({ color: 0x050506, roughness: 0.6, metalness: 0.3 });
-    const box = new THREE.Mesh(boxGeo, boxMat);
-    box.position.set(0, 3.4, 1.6);
-    dragonGrp.add(box); zoneGeos.push(boxGeo); zoneMats.push(boxMat);
+    dpart(new THREE.SphereGeometry(2.0, 12, 10), 0, 2.0, 0);          // haunches
+    dpart(new THREE.SphereGeometry(1.8, 12, 10), 0, 2.6, 1.4);        // belly
+    dpart(new THREE.SphereGeometry(1.5, 12, 10), 0, 3.8, 0.6);        // chest
+    dpart(new THREE.CylinderGeometry(0.7, 1.1, 3.6, 10), 0, 6.0, 0.3, 0.5); // neck
+    dpart(new THREE.ConeGeometry(0.95, 2.0, 10), 0, 8.0, 1.0, 1.2);   // head
+    dpart(new THREE.ConeGeometry(0.22, 0.9, 6), -0.5, 8.7, 0.6, -0.4); // horn L
+    dpart(new THREE.ConeGeometry(0.22, 0.9, 6), 0.5, 8.7, 0.6, -0.4);  // horn R
+    dpart(new THREE.ConeGeometry(0.7, 4.0, 6), -1.7, 4.0, -0.6, 0, 0.9);
+    dpart(new THREE.ConeGeometry(0.7, 4.0, 6), 1.7, 4.0, -0.6, 0, -0.9);
+    const segGeo = new THREE.SphereGeometry(0.45, 8, 6);
+    zoneGeos.push(segGeo);
+    for (let i = 0; i < 14; i++) {
+      const a = i * 0.9, rad = 3.2 - i * 0.16;
+      const seg = new THREE.Mesh(segGeo, graniteMat);
+      seg.position.set(Math.cos(a) * rad, 0.5, -3.5 + Math.sin(a) * rad);
+      seg.scale.setScalar(1 - i * 0.045);
+      dragonGrp.add(seg);
+    }
 
-    // A quiet return ring off to the side of the chamber (glows after the gift).
-    const ringGeo = new THREE.TorusGeometry(1.4, 0.14, 8, 24);
-    const ringMat = new THREE.MeshStandardMaterial({
-      color: 0x88ccff, emissive: 0x2a4a66, emissiveIntensity: 0.4, roughness: 0.5,
-    });
-    const ring = new THREE.Mesh(ringGeo, ringMat);
-    ring.position.set(8, -13.5, -56); ring.rotation.x = Math.PI / 2;
-    rec.group.add(ring);
-    zoneGeos.push(ringGeo); zoneMats.push(ringMat);
+    // The open black box at the dragon's feet — an opening looking down onto a
+    // city far below. Rim walls around a 4x4 hole; a luminous aerial-city plane
+    // recessed beneath, dark shaft walls, and a warm up-glow.
+    const BX = 0, BZ = -56;               // box center (zone-local)
+    const boxMat = new THREE.MeshStandardMaterial({ color: 0x050506, roughness: 0.55, metalness: 0.3 });
+    zoneMats.push(boxMat);
+    for (const [dx, dz, w, d] of [[-2.4, 0, 0.8, 5], [2.4, 0, 0.8, 5], [0, -2.4, 5, 0.8], [0, 2.4, 5, 0.8]]) {
+      addZoneBox2(rec, w, 1.2, d, BX + dx, -14.4, BZ + dz, boxMat); // rim (top ~ -13.8)
+    }
+    const shaftMat = new THREE.MeshStandardMaterial({ color: 0x0a0b10, roughness: 0.9, side: THREE.DoubleSide });
+    zoneMats.push(shaftMat);
+    for (const [dx, dz, w, d, ry] of [[-2, 0, 3.4, 0.1, 0], [2, 0, 3.4, 0.1, 0], [0, -2, 3.4, 0.1, Math.PI / 2], [0, 2, 3.4, 0.1, Math.PI / 2]]) {
+      const g = new THREE.PlaneGeometry(w, 3.4);
+      const m = new THREE.Mesh(g, shaftMat); m.position.set(BX + dx, -16.7, BZ + dz); m.rotation.y = ry;
+      rec.group.add(m); zoneGeos.push(g);
+    }
+    const cityTex = cityBelowTexture();
+    zoneTextures.push(cityTex);
+    cityFallUrl = cityTex.image.toDataURL(); // reused by the fall overlay
+    const cityMat = new THREE.MeshBasicMaterial({ map: cityTex, side: THREE.DoubleSide });
+    const cityGeo = new THREE.PlaneGeometry(3.6, 3.6);
+    const cityPlane = new THREE.Mesh(cityGeo, cityMat);
+    cityPlane.position.set(BX, -18.4, BZ); cityPlane.rotation.x = -Math.PI / 2;
+    rec.group.add(cityPlane); zoneGeos.push(cityGeo); zoneMats.push(cityMat);
+    const upGlow = new THREE.PointLight(0xffd9a0, 1.4, 16, 2.0);
+    upGlow.position.set(BX, -15.5, BZ); rec.group.add(upGlow);
 
-    // Interactable in front of the box; chamber ring as an extra return.
-    interactables.push({ id: 'dragon', zone: 'z9', pos: zoneToAnchor(rec, 0, -14, -53), talking: false });
-    rec.extraReturns = [{ center: zoneToSurface(rec, 8, -14, -56), r: 3.0 }];
+    // Dragon dialogue (talk before you jump), placed clear of the box footprint.
+    interactables.push({ id: 'dragon', zone: 'z9', pos: zoneToAnchor(rec, 0, -14, -50), talking: false });
 
-    dragonRefs = { grp: dragonGrp, mats: dragonMats, box, ring, ringMat, seedLight: null, light: null };
-
-    // Transformation VFX updater.
-    zoneUpdaters.push((t, dt) => {
-      if (!dragonVfx) return;
-      dragonVfx.t += dt;
-      const T = dragonVfx.t;
-      // White DOM flash (0.3s).
-      if (whiteFlashEl) whiteFlashEl.style.opacity = String(Math.max(0, 0.9 * (1 - T / 0.35)));
-      // Dragon dissolves to a faint ghost over 2.5s.
-      const g = Math.max(0.15, 1 - (T / 2.5) * 0.85);
-      graniteMat.transparent = true; graniteMat.opacity = g; graniteMat.needsUpdate = true;
-      // Burst quads fly outward + fade.
-      if (dragonVfx.burst) {
-        const b = dragonVfx.burst;
-        const m4 = _burstMat4;
-        for (let i = 0; i < b.count; i++) {
-          const v = b.vel[i];
-          const s = 0.3 + T * 0.4;
-          m4.makeScale(s, s, s);
-          m4.setPosition(b.origin.x + v.x * T, b.origin.y + v.y * T, b.origin.z + v.z * T);
-          b.mesh.setMatrixAt(i, m4);
+    // Fall trigger: stepping over the box opening drops the player to the city
+    // (the hub, where the ship waits). The generic top return arch stays as the
+    // "didn't jump" exit.
+    const FALL_DUR = 1.2, FALL_OUT = 0.5;
+    zoneUpdaters.push((t, dt, playerPos) => {
+      if (activeZone === 'z9') upGlow.intensity = 1.1 + Math.sin(t * 2.0) * 0.3;
+      // Arm the fall when the player stands over the opening.
+      if (activeZone === 'z9' && fade.phase === 'idle' && !z9Fall) {
+        _zLocal.copy(playerPos).applyQuaternion(anchorQ).add(anchorPos)
+          .sub(rec.frame.pos).applyQuaternion(rec.frame.qInv);
+        if (Math.abs(_zLocal.x - BX) < 2.1 && Math.abs(_zLocal.z - BZ) < 2.1) {
+          z9Fall = { t: 0, tp: false };
+          if (!flags.dragonGiftReceived) { flags.dragonGiftReceived = true; saveFlags(flags); }
         }
-        b.mesh.instanceMatrix.needsUpdate = true;
-        b.mesh.material.opacity = Math.max(0, 1 - T / 2.5);
       }
-      // Ring brightens; seed light lingers.
-      dragonRefs.ringMat.emissiveIntensity = 0.4 + Math.min(1.2, T) * 1.1;
-      if (dragonRefs.light) dragonRefs.light.intensity = Math.max(0, 3.0 * (1 - T / 2.5));
-      if (T > 2.6) {
-        // Cleanup the burst; leave the ghost dragon + seed light.
-        if (dragonVfx.burst) {
-          rec.group.remove(dragonVfx.burst.mesh);
-          dragonVfx.burst.mesh.geometry.dispose();
-          dragonVfx.burst.mesh.material.dispose();
-          dragonVfx.burst = null;
+      if (z9Fall) {
+        z9Fall.t += dt;
+        const T = z9Fall.t;
+        if (T <= FALL_DUR) setCityFall(T / FALL_DUR, 1 + (T / FALL_DUR) * 1.6); // rush toward the city
+        if (T > FALL_DUR && !z9Fall.tp) {
+          pendingTeleport = { pos: hubReturnDest.clone(), heading: hubReturnHeading.clone() };
+          activeZone = 'hub';
+          applyZoneVisibility();
+          z9Fall.tp = true;
         }
-        if (whiteFlashEl && whiteFlashEl.parentNode) { whiteFlashEl.parentNode.removeChild(whiteFlashEl); whiteFlashEl = null; }
-        dragonVfx = null;
+        if (T > FALL_DUR) setCityFall(Math.max(0, 1 - (T - FALL_DUR) / FALL_OUT), 2.6); // reveal the hub
+        if (T > FALL_DUR + FALL_OUT) { setCityFall(-1); z9Fall = null; }
       }
     });
+  }
+
+  // Full-screen fall-to-city overlay (the aerial city rushing up as you drop).
+  function setCityFall(opacity, zoom) {
+    if (opacity < 0) {
+      if (cityFallEl && cityFallEl.parentNode) cityFallEl.parentNode.removeChild(cityFallEl);
+      cityFallEl = null; return;
+    }
+    if (!cityFallEl) {
+      cityFallEl = document.createElement('div');
+      cityFallEl.style.cssText =
+        'position:fixed;inset:0;z-index:19;pointer-events:none;background-size:cover;' +
+        'background-position:center;transition:none;' +
+        (cityFallUrl ? `background-image:url(${cityFallUrl});` : 'background:#e8b980;');
+      document.body.appendChild(cityFallEl);
+    }
+    cityFallEl.style.opacity = String(opacity);
+    cityFallEl.style.transform = `scale(${zoom || 1})`;
   }
 
   // Joshua walks off toward the door (fires once from endInteract).
   function startJoshuaDeparture() {
     if (joshuaFig && !joshuaDep) joshuaDep = { t: 0 };
   }
-
-  // Dragon transformation: white flash + light-quad burst + dragon dissolve +
-  // a lingering seed light. Fires once from endInteract.
-  function startDragonGift() {
-    if (!dragonRefs || dragonVfx) return;
-    dragonVfx = { t: 0, burst: null };
-    // White DOM flash.
-    whiteFlashEl = document.createElement('div');
-    whiteFlashEl.style.cssText =
-      'position:fixed;inset:0;z-index:21;pointer-events:none;background:#fff;opacity:0.9;';
-    document.body.appendChild(whiteFlashEl);
-    // Light-quad burst around the box.
-    const N = 120;
-    const qGeo = new THREE.PlaneGeometry(0.28, 0.28);
-    const qMat = new THREE.MeshBasicMaterial({
-      color: 0xfff0c0, transparent: true, opacity: 1, depthWrite: false,
-      blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-    });
-    const mesh = new THREE.InstancedMesh(qGeo, qMat, N);
-    const origin = new THREE.Vector3(0, -13.5, -58.4); // box in zone-local
-    const vel = [];
-    const rb = mulberry32(0x9e3d);
-    for (let i = 0; i < N; i++) {
-      const th = rb() * Math.PI * 2, ph = Math.acos(2 * rb() - 1);
-      const sp = 2 + rb() * 6;
-      vel.push(new THREE.Vector3(
-        Math.sin(ph) * Math.cos(th) * sp,
-        Math.cos(ph) * sp * 0.7 + 1,
-        Math.sin(ph) * Math.sin(th) * sp));
-    }
-    mesh.frustumCulled = false;
-    rec9AddBurst(mesh);
-    dragonVfx.burst = { mesh, vel, count: N, origin };
-    // Seed light left behind above the box.
-    const seed = new THREE.PointLight(0xfff0c0, 0.0, 20, 2.0);
-    seed.position.set(0, -12, -58.4);
-    zoneById['z9'].group.add(seed);
-    dragonRefs.seedLight = seed;
-    const surge = new THREE.PointLight(0xffffff, 3.0, 40, 2.0);
-    surge.position.set(0, -12.5, -58.4);
-    zoneById['z9'].group.add(surge);
-    dragonRefs.light = surge;
-    // fade the seed up gently
-    setTimeout(() => { if (seed) seed.intensity = 0.8; }, 400);
-  }
-  function rec9AddBurst(mesh) { zoneById['z9'].group.add(mesh); }
 
   /* ------------------------------------------------------------------
    * Ambient (non-dialogue) zones: Z1 Mind, Z2 Body, Z5 Order, Z6 Life,
@@ -1264,21 +1688,58 @@ export function createActuality(planet, worldUp, opts = {}) {
     const rec = zoneById['z1'];
     rec.group.add(new THREE.AmbientLight(0xffcf9a, 0.5));
     addDome(rec, 90, '#4a3422', '#d8974e');
-    // Graffiti alley near the entrance.
-    addZoneBox(rec, 0.5, 6, 14, -4.5, 3, -2, 0x53463a);
-    addZoneBox(rec, 0.5, 6, 14, 4.5, 3, -2, 0x604a3c);
-    // Park benches.
+
+    // Sidewalk slabs + city facades at the entrance (+Z end).
+    const walkMat = new THREE.MeshStandardMaterial({ color: 0x6a6660, roughness: 0.95 });
+    zoneMats.push(walkMat);
+    for (let z = 12; z >= 2; z -= 2) addZoneBox(rec, 6, 0.1, 2, 0, 0.05, z, walkMat);
+    const facRng = mulberry32(0x1a10);
+    for (const [fx, fz, fw] of [[-6, 9, 5], [6, 9, 5], [-7, 4, 4]]) {
+      const facTex = facadeTexture(facRng);
+      zoneTextures.push(facTex);
+      const fm = new THREE.MeshStandardMaterial({ map: facTex, roughness: 0.85 });
+      zoneMats.push(fm);
+      const fg = new THREE.BoxGeometry(fw, 12, 4);
+      const fmesh = new THREE.Mesh(fg, fm); fmesh.position.set(fx, 6, fz);
+      rec.group.add(fmesh); zoneGeos.push(fg);
+    }
+
+    // Graffiti alley: colorful spray-art on both walls (z ~ -1..-8).
+    for (const [gx, side] of [[-4.5, 1], [4.5, 2]]) {
+      const gTex = graffitiTexture(mulberry32(0x2b00 + side), null);
+      zoneTextures.push(gTex);
+      gTex.repeat.set(2, 1); gTex.wrapS = THREE.RepeatWrapping;
+      const gm = new THREE.MeshStandardMaterial({ map: gTex, roughness: 0.9, side: THREE.DoubleSide });
+      zoneMats.push(gm);
+      const gg = new THREE.PlaneGeometry(14, 6);
+      const gp = new THREE.Mesh(gg, gm);
+      gp.position.set(gx, 3, -4.5); gp.rotation.y = gx < 0 ? Math.PI / 2 : -Math.PI / 2;
+      rec.group.add(gp); zoneGeos.push(gg);
+      addZoneBox(rec, 0.5, 6, 14, gx, 3, -4.5, 0x2e2822); // wall behind the art
+    }
+
+    // Park: a grass patch, benches, and the lone "1" lamppost (glyph motif).
+    addZoneBox(rec, 26, 0.06, 18, 0, 0.03, -20, 0x3f5a30); // grass
     addZoneBox(rec, 2.0, 0.4, 0.6, -6, 0.5, -20, AC.COL_WOOD);
     addZoneBox(rec, 2.0, 0.4, 0.6, 6, 0.5, -22, AC.COL_WOOD);
-    // Autumn forest: trunks + warm canopies.
+    addZoneBox(rec, 0.22, 6.5, 0.22, 8, 3.25, -14, 0x2a2620); // lamppost = "1"
+    const lampMat = new THREE.MeshStandardMaterial({ color: 0xffe6b0, emissive: 0xffcf80, emissiveIntensity: 1.1, roughness: 0.5 });
+    zoneMats.push(lampMat);
+    const lampGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+    const lamp = new THREE.Mesh(lampGeo, lampMat); lamp.position.set(8, 6.6, -14);
+    rec.group.add(lamp); zoneGeos.push(lampGeo);
+    const lampLight = new THREE.PointLight(0xffcf80, 0.6, 18, 2.0);
+    lampLight.position.set(8, 6.4, -14); rec.group.add(lampLight);
+
+    // Autumn forest: denser trunks + warm canopies.
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3324, roughness: 0.95 });
     const leafMats = [0xd9772a, 0xe0a338, 0xc85a26].map((c) =>
       new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 }));
     zoneMats.push(trunkMat, ...leafMats);
     const treeRng = mulberry32(0x1111);
-    for (let i = 0; i < 30; i++) {
-      const tx = (treeRng() - 0.5) * 28;
-      const tz = -34 - treeRng() * 40;
+    for (let i = 0; i < 45; i++) {
+      const tx = (treeRng() - 0.5) * 30;
+      const tz = -32 - treeRng() * 42;
       const th = 4 + treeRng() * 3;
       const tG = new THREE.CylinderGeometry(0.25, 0.35, th, 6);
       const tm = new THREE.Mesh(tG, trunkMat); tm.position.set(tx, th / 2, tz);
@@ -1288,6 +1749,7 @@ export function createActuality(planet, worldUp, opts = {}) {
       cm.position.set(tx, th + 0.6, tz); cm.scale.y = 0.8;
       rec.group.add(cm); zoneGeos.push(cG);
     }
+
     // The woman standing in a shaft of light.
     const woman = makeFigure({ seated: false, skin: 0xe8cba0, cloth: 0xf2e6cc, seed: 11 });
     woman.group.position.set(0, 0, -58);
@@ -1304,8 +1766,30 @@ export function createActuality(planet, worldUp, opts = {}) {
     wlight.position.set(0, 5, -58); rec.group.add(wlight);
     interactables.push({ id: 'z1woman', zone: 'z1', pos: zoneToAnchor(rec, 0, 0, -55), talking: false });
 
-    // Falling leaves.
-    const N = 300;
+    // The bird — the PDD's core mechanic: it perches ahead of you and flits to
+    // the next waypoint (sidewalk → alley → park → forest → the woman) each time
+    // you close within ~6 m, leading you through the zone.
+    const bird = new THREE.Group();
+    const birdBody = new THREE.Mesh(new THREE.SphereGeometry(0.16, 6, 5),
+      new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness: 0.8 }));
+    birdBody.scale.set(1, 0.9, 1.4);
+    const wingMat = new THREE.MeshStandardMaterial({ color: 0x3a3a44, roughness: 0.8, side: THREE.DoubleSide });
+    const wingGeo = new THREE.PlaneGeometry(0.4, 0.2);
+    const wingL = new THREE.Mesh(wingGeo, wingMat); wingL.position.x = -0.2;
+    const wingR = new THREE.Mesh(wingGeo, wingMat); wingR.position.x = 0.2;
+    bird.add(birdBody, wingL, wingR);
+    bird.position.set(0, 1.6, 6);
+    rec.group.add(bird);
+    zoneGeos.push(birdBody.geometry, wingGeo); zoneMats.push(birdBody.material, wingMat);
+    const birdWays = [
+      new THREE.Vector3(0, 1.6, 6), new THREE.Vector3(0, 2.0, -1),
+      new THREE.Vector3(3, 2.2, -18), new THREE.Vector3(-2, 2.6, -40),
+      new THREE.Vector3(0, 2.0, -54),
+    ];
+    let birdWp = 0;
+
+    // Falling leaves (golden slow-motion).
+    const N = 220;
     const leafGeo = new THREE.PlaneGeometry(0.22, 0.22);
     const leafMat = new THREE.MeshBasicMaterial({
       color: 0xe0902e, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false,
@@ -1317,11 +1801,12 @@ export function createActuality(planet, worldUp, opts = {}) {
     const lr = mulberry32(0x2222);
     const base = [];
     for (let i = 0; i < N; i++) {
-      base.push({ x: (lr() - 0.5) * 30, y: lr() * 22, z: -30 - lr() * 46, ph: lr() * 6.28, sp: 0.6 + lr() * 0.8 });
+      base.push({ x: (lr() - 0.5) * 30, y: lr() * 22, z: -30 - lr() * 46, ph: lr() * 6.28, sp: 0.35 + lr() * 0.5 });
     }
     const _lm = new THREE.Matrix4();
-    zoneUpdaters.push((t) => {
-      if (activeZone !== 'z1') return;
+    zoneUpdaters.push((t, dt, playerPos) => {
+      if (activeZone !== 'z1') { birdAnchorPos = null; return; }
+      // Leaves.
       for (let i = 0; i < N; i++) {
         const b = base[i];
         let y = b.y - ((t * b.sp) % 24);
@@ -1332,32 +1817,96 @@ export function createActuality(planet, worldUp, opts = {}) {
         leaves.setMatrixAt(i, _lm);
       }
       leaves.instanceMatrix.needsUpdate = true;
+      // Bird: player in zone-local; advance when close; ease toward the perch.
+      _zLocal.copy(playerPos).applyQuaternion(anchorQ).add(anchorPos)
+        .sub(rec.frame.pos).applyQuaternion(rec.frame.qInv);
+      const target = birdWays[birdWp];
+      if (birdWp < birdWays.length - 1 && _zLocal.distanceTo(target) < 6) birdWp++;
+      const tgt = birdWays[birdWp];
+      birdDist = _zLocal.distanceTo(bird.position);
+      bird.position.lerp(tgt, Math.min(1, dt * 1.6));
+      bird.position.y += Math.sin(t * 3) * 0.02;
+      bird.rotation.y = Math.atan2(tgt.x - bird.position.x, tgt.z - bird.position.z);
+      const flap = Math.sin(t * 18) * 0.9;
+      wingL.rotation.z = flap; wingR.rotation.z = -flap;
+      // Expose the bird's anchor-local position for the chirp proximity gain.
+      if (!birdAnchorPos) birdAnchorPos = new THREE.Vector3();
+      birdAnchorPos.copy(bird.position).applyQuaternion(rec.frame.q).add(rec.frame.pos)
+        .sub(anchorPos).applyQuaternion(anchorQInv);
     });
   }
 
-  // Z2 Body — a warm room whose three walls + ceiling breathe outward.
+  // Z2 Body — a warm room whose surfaces breathe as a grid of panels extruding
+  // outward around the player (the chapter's "ceiling, walls, floor shoot off
+  // into extruding directions", kept abstract/tasteful).
   function buildZone2() {
     const rec = zoneById['z2'];
-    rec.group.add(new THREE.AmbientLight(0x3a2418, 0.45));
-    const light = new THREE.PointLight(0xffb070, 0.8, 34, 2.0);
-    light.position.set(0, 4, 2); rec.group.add(light);
-    // Enclosing walls on -Z, +X, -X (open toward +Z where the return arch is).
+    rec.group.add(new THREE.AmbientLight(0x4a3020, 0.5));
+    const breathLight = new THREE.PointLight(0xffb070, 0.8, 34, 2.0);
+    breathLight.position.set(0, 3.2, 0); rec.group.add(breathLight);
+
+    // "Shared reality" (Ch.2): two soul-lights — one warm rose, one amber —
+    // drift apart and draw back together, merging into a single glow at the
+    // room's centre ("connected as if we were one unit of creation"). Kept
+    // abstract: two auras of light, no figures. The room breathes on a heartbeat.
+    const soulGeo = new THREE.SphereGeometry(0.7, 16, 12);
+    zoneGeos.push(soulGeo);
+    const soulAMat = new THREE.MeshBasicMaterial({ color: 0xff7a9a, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false });
+    const soulBMat = new THREE.MeshBasicMaterial({ color: 0xffc070, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false });
+    zoneMats.push(soulAMat, soulBMat);
+    const soulA = new THREE.Mesh(soulGeo, soulAMat); soulA.scale.set(1, 1.9, 1);
+    const soulB = new THREE.Mesh(soulGeo, soulBMat); soulB.scale.set(1, 1.9, 1);
+    rec.group.add(soulA, soulB);
+    const soulLightA = new THREE.PointLight(0xff6a8a, 0.9, 16, 2.0);
+    const soulLightB = new THREE.PointLight(0xffb060, 0.9, 16, 2.0);
+    rec.group.add(soulLightA, soulLightB);
+    const mergeMat = new THREE.MeshBasicMaterial({ color: 0xfff0e0, transparent: true, opacity: 0.0, blending: THREE.AdditiveBlending, depthWrite: false });
+    zoneMats.push(mergeMat);
+    const mergeGlow = new THREE.Mesh(soulGeo, mergeMat); mergeGlow.scale.set(1.6, 2.4, 1.6); mergeGlow.position.set(0, 2.4, 0);
+    rec.group.add(mergeGlow);
     const R = 12, WH = 6.5;
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x7a4f38, roughness: 0.92, side: THREE.DoubleSide });
-    zoneMats.push(wallMat);
-    const mkPanel = (w, h, x, y, z, ry) => {
-      const g = new THREE.PlaneGeometry(w, h);
-      const m = new THREE.Mesh(g, wallMat); m.position.set(x, y, z); m.rotation.y = ry;
-      rec.group.add(m); zoneGeos.push(g); return m;
-    };
-    const back = mkPanel(R * 2, WH, 0, WH / 2, -R, 0);
-    const left = mkPanel(R * 2, WH, -R, WH / 2, 0, Math.PI / 2);
-    const right = mkPanel(R * 2, WH, R, WH / 2, 0, Math.PI / 2);
-    const ceilGeo = new THREE.PlaneGeometry(R * 2, R * 2);
-    const ceil = new THREE.Mesh(ceilGeo, wallMat);
-    ceil.position.set(0, WH, 0); ceil.rotation.x = Math.PI / 2;
-    rec.group.add(ceil); zoneGeos.push(ceilGeo);
-    // Collision: the three walls (open +Z).
+    const PER = 8;                         // 8×8 panels per surface
+    const cell = (R * 2) / PER;
+    const panelMat = new THREE.MeshStandardMaterial({ color: 0x7a4f38, roughness: 0.92, side: THREE.DoubleSide });
+    // A faint "2" traced in slightly discolored panels on the back wall (glyph).
+    const glyph2 = new Set(['1,1', '2,1', '3,1', '3,2', '2,3', '1,4', '1,5', '2,5', '3,5']);
+    zoneMats.push(panelMat);
+    // Five surfaces: back(-Z), left(-X), right(+X), ceiling(+Y), floor(y0).
+    // Each panel has a base position + outward normal; the grid extrudes.
+    const panelGeo = new THREE.PlaneGeometry(cell * 0.92, cell * 0.92);
+    zoneGeos.push(panelGeo);
+    const surfaces = [
+      { n: [0, 0, 1], o: [0, WH / 2, -R], u: [1, 0, 0], v: [0, 1, 0], rot: [0, 0, 0] },        // back
+      { n: [1, 0, 0], o: [-R, WH / 2, 0], u: [0, 0, 1], v: [0, 1, 0], rot: [0, Math.PI / 2, 0] }, // left
+      { n: [-1, 0, 0], o: [R, WH / 2, 0], u: [0, 0, 1], v: [0, 1, 0], rot: [0, Math.PI / 2, 0] }, // right
+      { n: [0, -1, 0], o: [0, WH, 0], u: [1, 0, 0], v: [0, 0, 1], rot: [Math.PI / 2, 0, 0] },    // ceiling
+      { n: [0, 1, 0], o: [0, 0.02, 0], u: [1, 0, 0], v: [0, 0, 1], rot: [Math.PI / 2, 0, 0] },   // floor
+    ];
+    const total = surfaces.length * PER * PER;
+    const panels = new THREE.InstancedMesh(panelGeo, panelMat, total);
+    panels.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(total * 3), 3);
+    rec.group.add(panels);
+    const cells = [];
+    let idx = 0;
+    const _pq = new THREE.Quaternion(), _pe = new THREE.Euler();
+    for (const s of surfaces) {
+      _pe.set(s.rot[0], s.rot[1], s.rot[2]); _pq.setFromEuler(_pe);
+      for (let iu = 0; iu < PER; iu++) {
+        for (let iv = 0; iv < PER; iv++) {
+          const cu = (iu - (PER - 1) / 2) * cell;
+          const cv = (iv - (PER - 1) / 2) * cell;
+          const bx = s.o[0] + s.u[0] * cu + s.v[0] * cv;
+          const by = s.o[1] + s.u[1] * cu + s.v[1] * cv;
+          const bz = s.o[2] + s.u[2] * cu + s.v[2] * cv;
+          const tinted = s === surfaces[0] && glyph2.has(`${iu},${iv}`);
+          cells.push({ bx, by, bz, n: s.n, q: _pq.clone(), ph: (iu + iv) * 0.4 });
+          panels.instanceColor.setXYZ(idx, tinted ? 1.25 : 1, tinted ? 1.1 : 1, tinted ? 0.85 : 1);
+          idx++;
+        }
+      }
+    }
+    panels.instanceColor.needsUpdate = true;
+    // Collision: solid room walls at the base extents (open +Z for the return).
     const wt = 0.4;
     rec.structure = makeStructure(0, 0, 0,
       [{ x0: -R, x1: R, z0: -R, z1: R, y: 0 }],
@@ -1367,14 +1916,38 @@ export function createActuality(planet, worldUp, opts = {}) {
         { x0: R, x1: R + wt, z0: -R, z1: R, y0: 0, y1: WH },
       ], R + 2);
     rec.r2 = (R + 12) ** 2;
-    // Breathing: walls/ceiling ease outward with a slow sine.
+    const _pm = new THREE.Matrix4(), _pv = new THREE.Vector3(), _ps = new THREE.Vector3(1, 1, 1);
     zoneUpdaters.push((t) => {
       if (activeZone !== 'z2') return;
-      const d = (Math.sin(t * 0.4) * 0.5 + 0.5) * 0.6; // 0..0.6 m
-      back.position.z = -R - d;
-      left.position.x = -R - d;
-      right.position.x = R + d;
-      ceil.position.y = WH + d;
+      // Heartbeat (a lub-dub every ~1.3 s) drives the breathing + the glow.
+      const x = (t / 1.3) % 1;
+      const g1 = ((x - 0.12) / 0.05) ** 2, g2 = ((x - 0.30) / 0.05) ** 2;
+      const heart = Math.exp(-g1) + 0.6 * Math.exp(-g2);
+      const breath = Math.sin(t * 0.4) * 0.5 + 0.5;
+      breathLight.intensity = 0.5 + breath * 0.5 + heart * 0.4;
+      // The two souls swing apart and back together (merge), on a slow cycle.
+      const near = Math.sin(t * 0.28) * 0.5 + 0.5;   // 1 = together, 0 = apart
+      const sep = 3.6 * (1 - near);
+      const bob = Math.sin(t * 1.1) * 0.15;
+      soulA.position.set(-sep, 2.4 + bob, 0.4 * (1 - near));
+      soulB.position.set(sep, 2.4 - bob, -0.4 * (1 - near));
+      soulLightA.position.copy(soulA.position);
+      soulLightB.position.copy(soulB.position);
+      const pulse = 0.45 + heart * 0.3;
+      soulAMat.opacity = pulse; soulBMat.opacity = pulse;
+      const merged = Math.max(0, near - 0.7) / 0.3; // ramps up as they close
+      mergeMat.opacity = merged * (0.5 + heart * 0.4);
+      mergeGlow.scale.setScalar(1.6 + heart * 0.3 * merged);
+      // Breathing panel grid extrudes on the heartbeat.
+      const amp = 0.28 + heart * 0.22;
+      for (let i = 0; i < cells.length; i++) {
+        const c = cells[i];
+        const d = Math.sin(t * 0.4 + c.ph) * breath * amp;
+        _pv.set(c.bx + c.n[0] * d, c.by + c.n[1] * d, c.bz + c.n[2] * d);
+        _pm.compose(_pv, c.q, _ps);
+        panels.setMatrixAt(i, _pm);
+      }
+      panels.instanceMatrix.needsUpdate = true;
     });
   }
 
@@ -1382,16 +1955,26 @@ export function createActuality(planet, worldUp, opts = {}) {
   function buildZone5() {
     const rec = zoneById['z5'];
     rec.group.add(new THREE.AmbientLight(0x202028, 0.4));
-    addDome(rec, 70, '#050507', '#0a0a12');
+    addDome(rec, 100, '#050507', '#0a0a12');
+    // A 4 m ribbon walkway extending 80 m into the void.
+    const ribMat = new THREE.MeshStandardMaterial({ color: 0x1a1a20, roughness: 0.9 });
+    zoneMats.push(ribMat);
+    addZoneBox2(rec, 4, 0.4, 88, 0, -0.2, -38, ribMat); // z from +6 to -82
+    rec.structure = makeStructure(0, 0, 0,
+      [{ x0: -2, x1: 2, z0: -82, z1: 6, y: 0 }], [], 90);
+    rec.r2 = (90) ** 2;
+    // ~20 floating frames staggered the full length; one forms the "5" glyph.
     const frames = [];
     const fr = mulberry32(0x5555);
-    for (let i = 0; i < 16; i++) {
+    const glyphFrame = 9; // this frame's art is arranged as a 5
+    for (let i = 0; i < 20; i++) {
       const side = i % 2 === 0 ? -1 : 1;
-      const z = -6 - i * 1.4;
-      const y = 1.6 + fr() * 2.2;
-      const x = side * (2.4 + fr() * 1.2);
-      const frameMesh = addZoneBox(rec, 1.7, 1.3, 0.12, x, y, z, 0x2a2622);
+      const z = -4 - i * 3.8;
+      const y = 1.6 + fr() * 2.4;
+      const x = side * (2.6 + fr() * 1.4);
+      addZoneBox(rec, 1.7, 1.3, 0.12, x, y, z, 0x2a2622);
       const imgTex = memoryTexture(fr);
+      if (i === glyphFrame) { const g = imgTex.image.getContext('2d'); drawGlyph(g, 5, 64, 64, 90, '#ffffff', 0.5); imgTex.needsUpdate = true; }
       const imgGeo = new THREE.PlaneGeometry(1.4, 1.0);
       const imgMat = new THREE.MeshStandardMaterial({
         map: imgTex, emissive: 0xffffff, emissiveMap: imgTex, emissiveIntensity: 0.15,
@@ -1403,6 +1986,17 @@ export function createActuality(planet, worldUp, opts = {}) {
       zoneGeos.push(imgGeo); zoneMats.push(imgMat); zoneTextures.push(imgTex);
       frames.push({ img, mat: imgMat, anchorPos: zoneToAnchor(rec, x, y, z), baseY: y, ph: fr() * 6.28 });
     }
+    // Sparse floating dust motes along the ribbon.
+    const M = 70;
+    const moteGeo = new THREE.PlaneGeometry(0.05, 0.05);
+    const moteMat = new THREE.MeshBasicMaterial({ color: 0x9aa0c0, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending });
+    const motes = new THREE.InstancedMesh(moteGeo, moteMat, M);
+    motes.frustumCulled = false; rec.group.add(motes);
+    zoneGeos.push(moteGeo); zoneMats.push(moteMat);
+    const mr = mulberry32(0x50fe);
+    const mb = [];
+    for (let i = 0; i < M; i++) mb.push({ x: (mr() - 0.5) * 8, y: 0.5 + mr() * 5, z: -mr() * 80, ph: mr() * 6.28 });
+    const _mm = new THREE.Matrix4();
     zoneUpdaters.push((t, dt, playerPos) => {
       if (activeZone !== 'z5') return;
       for (const f of frames) {
@@ -1412,6 +2006,12 @@ export function createActuality(planet, worldUp, opts = {}) {
         f.mat.emissiveIntensity += (target - f.mat.emissiveIntensity) * Math.min(1, dt * 3);
         if (near) f.mat.map.offset.x = (f.mat.map.offset.x + dt * 0.05) % 1;
       }
+      for (let i = 0; i < M; i++) {
+        const b = mb[i];
+        _mm.makeTranslation(b.x + Math.sin(t * 0.3 + b.ph) * 0.6, b.y + Math.sin(t * 0.2 + b.ph) * 0.4, b.z);
+        motes.setMatrixAt(i, _mm);
+      }
+      motes.instanceMatrix.needsUpdate = true;
     });
   }
 
@@ -1420,51 +2020,75 @@ export function createActuality(planet, worldUp, opts = {}) {
     const rec = zoneById['z6'];
     rec.group.add(new THREE.AmbientLight(0x30364a, 0.5));
     const dome = addDome(rec, 95, '#141a2e', '#5a4a6a');
-    // Skyline silhouette panel + crescent moon on the dome.
+    // Larger skyline + bridge silhouette on the dome.
     const skyTex = silhouetteTexture('skyline');
-    const skyGeo = new THREE.PlaneGeometry(70, 24);
+    const skyGeo = new THREE.PlaneGeometry(90, 30);
     const skyMat = new THREE.MeshBasicMaterial({ map: skyTex, transparent: true, depthWrite: false });
     const sky = new THREE.Mesh(skyGeo, skyMat);
-    sky.position.set(0, 8, -55); rec.group.add(sky);
+    sky.position.set(0, 10, -60); rec.group.add(sky);
     zoneGeos.push(skyGeo); zoneMats.push(skyMat); zoneTextures.push(skyTex);
-    const moonGeo = new THREE.CircleGeometry(3, 24);
-    const moonMat = new THREE.MeshBasicMaterial({ color: 0xf0ead0 });
-    const moon = new THREE.Mesh(moonGeo, moonMat);
-    moon.position.set(-22, 30, -50); rec.group.add(moon);
-    zoneGeos.push(moonGeo); zoneMats.push(moonMat);
-    // Lonesome tree at the overlook edge.
+    // Crescent moon high on the dome, and its dim flipped reflection down on the
+    // lake — together they close into a "6" (glyph motif).
+    const moonTex = crescentTexture(false);
+    zoneTextures.push(moonTex);
+    const moonMat = new THREE.MeshBasicMaterial({ map: moonTex, transparent: true, depthWrite: false });
+    const moonGeo = new THREE.PlaneGeometry(7, 7);
+    const moon = new THREE.Mesh(moonGeo, moonMat); moon.position.set(-8, 26, -52);
+    rec.group.add(moon); zoneGeos.push(moonGeo); zoneMats.push(moonMat);
+    const reflTex = crescentTexture(true);
+    zoneTextures.push(reflTex);
+    const reflMat = new THREE.MeshBasicMaterial({ map: reflTex, transparent: true, opacity: 0.28, depthWrite: false });
+    const refl = new THREE.Mesh(moonGeo, reflMat);
+    refl.position.set(-8, -1.85, -46); refl.rotation.x = -Math.PI / 2;
+    rec.group.add(refl); zoneMats.push(reflMat);
+    // Lonesome tree at the crag lip (up on the overlook).
     const trunkG = new THREE.CylinderGeometry(0.3, 0.4, 5, 6);
     const trunkM = new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 0.95 });
-    const trunk = new THREE.Mesh(trunkG, trunkM); trunk.position.set(9, 2.5, -8);
+    const trunk = new THREE.Mesh(trunkG, trunkM); trunk.position.set(9, 8.5, -10);
     rec.group.add(trunk); zoneGeos.push(trunkG); zoneMats.push(trunkM);
+    const canopy = new THREE.Mesh(new THREE.SphereGeometry(2.2, 8, 6), new THREE.MeshStandardMaterial({ color: 0x243026, roughness: 0.9 }));
+    canopy.position.set(9, 11.5, -10); canopy.scale.y = 0.7; rec.group.add(canopy);
+    zoneGeos.push(canopy.geometry); zoneMats.push(canopy.material);
 
-    // Lake sub-area: a descending path to a dark pool below grade.
+    // Crag: climb up from the arrival area to a raised overlook, then descend
+    // into the lake below.
     const surfaces = [
-      { x0: -30, x1: 30, z0: -6, z1: 30, y: 0 },                        // overlook
-      { ramp: true, x0: -3, x1: 3, z0: -26, z1: -6, zA: -6, zB: -26, yA: 0, yB: -8 },
-      { x0: -12, x1: 12, z0: -50, z1: -26, y: -8 },                     // pool floor
+      { x0: -30, x1: 30, z0: 6, z1: 30, y: 0 },                          // arrival
+      { ramp: true, x0: -5, x1: 5, z0: -4, z1: 6, zA: 6, zB: -4, yA: 0, yB: 8 },
+      { x0: -16, x1: 16, z0: -20, z1: -4, y: 8 },                        // overlook
+      { ramp: true, x0: -3, x1: 3, z0: -38, z1: -20, zA: -20, zB: -38, yA: 8, yB: -6 },
+      { x0: -12, x1: 12, z0: -56, z1: -38, y: -6 },                      // lake floor
     ];
-    const wh = { y0: -10, y1: 2 };
+    const wl = { y0: -8, y1: 10 };
     const walls = [
-      { x0: -3.4, x1: -3.0, z0: -26, z1: -6, ...wh },
-      { x0: 3.0, x1: 3.4, z0: -26, z1: -6, ...wh },
-      { x0: -12, x1: 12, z0: -50, z1: -49.5, ...wh },
-      { x0: -12, x1: -11.5, z0: -50, z1: -26, ...wh },
-      { x0: 11.5, x1: 12, z0: -50, z1: -26, ...wh },
+      { x0: -5.4, x1: -5.0, z0: -4, z1: 6, ...wl },        // climb ramp guards
+      { x0: 5.0, x1: 5.4, z0: -4, z1: 6, ...wl },
+      { x0: -3.4, x1: -3.0, z0: -38, z1: -20, ...wl },     // descent ramp guards
+      { x0: 3.0, x1: 3.4, z0: -38, z1: -20, ...wl },
+      { x0: -12, x1: 12, z0: -56, z1: -55.5, ...wl },      // lake basin
+      { x0: -12, x1: -11.5, z0: -56, z1: -38, ...wl },
+      { x0: 11.5, x1: 12, z0: -56, z1: -38, ...wl },
     ];
-    rec.structure = makeStructure(0, 0, 0, surfaces, walls, 55);
-    rec.r2 = (55 + 12) ** 2;
-    // Dark translucent water disc at the pool rim (y ~ -2).
+    rec.structure = makeStructure(0, 0, 0, surfaces, walls, 60);
+    rec.r2 = (60 + 12) ** 2;
+    // Overlook guard rail + a couple of crag rocks.
+    addZoneBox(rec, 20, 0.5, 0.2, 0, 8.9, -19.8, 0x3a3028);
+    for (const [rx, ry, rz] of [[-13, 8.4, -12], [13, 8.4, -14], [7, 8.3, -6]]) {
+      const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(1.4), new THREE.MeshStandardMaterial({ color: 0x40403c, roughness: 0.95 }));
+      rk.position.set(rx, ry, rz); rk.scale.set(1, 0.7, 1);
+      rec.group.add(rk); zoneGeos.push(rk.geometry); zoneMats.push(rk.material);
+    }
+    // Dark translucent water disc at the lake rim (y ~ -2).
     const waterGeo = new THREE.PlaneGeometry(24, 24);
     const waterMat = new THREE.MeshStandardMaterial({
       color: 0x0a1420, transparent: true, opacity: 0.72, roughness: 0.3, side: THREE.DoubleSide,
     });
     const water = new THREE.Mesh(waterGeo, waterMat);
-    water.position.set(0, -2, -38); water.rotation.x = -Math.PI / 2;
+    water.position.set(0, -2, -46); water.rotation.x = -Math.PI / 2;
     rec.group.add(water); zoneGeos.push(waterGeo); zoneMats.push(waterMat);
     // Rebirth vision: god-ray cones + a brightening light (fires once).
     const visionGrp = new THREE.Group();
-    visionGrp.position.set(0, -8, -38); visionGrp.visible = false;
+    visionGrp.position.set(0, -6, -46); visionGrp.visible = false;
     rec.group.add(visionGrp);
     const rayMat = new THREE.MeshBasicMaterial({
       color: 0xdfeaff, transparent: true, opacity: 0.0, depthWrite: false,
@@ -1523,28 +2147,51 @@ export function createActuality(planet, worldUp, opts = {}) {
     const rec = zoneById['z7'];
     rec.group.add(new THREE.AmbientLight(0x101018, 0.35));
     addDome(rec, 60, '#04040a', '#08080f');
-    // TV.
-    addZoneBox(rec, 2.6, 1.8, 1.6, 0, 1.1, -8, 0x1a1a1e);
+    // Enclose the dark room (walls + ceiling, door gap on +Z, window on +X).
+    const RX = 8, RZ = 10, WH = 3.6;
+    const roomMat = new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.95, side: THREE.DoubleSide });
+    zoneMats.push(roomMat);
+    const wall = (w, h, x, y, z, ry, rx = 0) => { const g = new THREE.PlaneGeometry(w, h); const m = new THREE.Mesh(g, roomMat); m.position.set(x, y, z); m.rotation.set(rx, ry, 0); rec.group.add(m); zoneGeos.push(g); };
+    wall(RX * 2, WH, 0, WH / 2, -RZ, 0);
+    wall(RZ * 2, WH, -RX, WH / 2, 0, Math.PI / 2);
+    wall(RZ * 2, WH, RX, WH / 2, 0, Math.PI / 2);
+    wall(RX * 2, RZ * 2, 0, WH, 0, 0, Math.PI / 2); // ceiling
+    // TV + cabinet.
+    addZoneBox(rec, 2.6, 1.8, 1.6, 0, 1.1, -8.5, 0x1a1a1e);
     const scr = tvStaticTexture(mulberry32(0x7777));
     const scrGeo = new THREE.PlaneGeometry(2.2, 1.4);
-    const scrMat = new THREE.MeshStandardMaterial({
-      map: scr, emissive: 0xafc8ff, emissiveMap: scr, emissiveIntensity: 0.9,
-    });
+    const scrMat = new THREE.MeshStandardMaterial({ map: scr, emissive: 0xafc8ff, emissiveMap: scr, emissiveIntensity: 0.9 });
     const screen = new THREE.Mesh(scrGeo, scrMat);
-    screen.position.set(0, 1.3, -7.18); rec.group.add(screen);
+    screen.position.set(0, 1.3, -7.68); rec.group.add(screen);
     zoneGeos.push(scrGeo); zoneMats.push(scrMat); zoneTextures.push(scr);
     const tvLight = new THREE.PointLight(0x8fb0ff, 0.8, 24, 2.0);
-    tvLight.position.set(0, 1.5, -5); rec.group.add(tvLight);
-    // Window with swing-set silhouette.
+    tvLight.position.set(0, 1.5, -5.5); rec.group.add(tvLight);
+    // A worn couch facing the TV.
+    addZoneBox(rec, 3.0, 0.5, 1.2, 0, 0.35, -1, 0x3a3238);
+    addZoneBox(rec, 3.0, 0.6, 0.3, 0, 0.7, -0.4, 0x443a40);
+    // Window with the swing-set silhouette ("7" glyph), + a moonlight pool on
+    // the floor beneath it.
     const swTex = silhouetteTexture('swing');
-    const swGeo = new THREE.PlaneGeometry(6, 3);
-    const swMat = new THREE.MeshStandardMaterial({
-      map: swTex, transparent: true, emissive: 0x2a3550, emissiveMap: swTex, emissiveIntensity: 0.5,
-    });
+    const swGeo = new THREE.PlaneGeometry(5, 3);
+    const swMat = new THREE.MeshStandardMaterial({ map: swTex, transparent: true, emissive: 0x2a3550, emissiveMap: swTex, emissiveIntensity: 0.5 });
     const window7 = new THREE.Mesh(swGeo, swMat);
-    window7.position.set(9, 3, -4); window7.rotation.y = -Math.PI / 2;
+    window7.position.set(RX - 0.1, 2.2, -3); window7.rotation.y = -Math.PI / 2;
     rec.group.add(window7); zoneGeos.push(swGeo); zoneMats.push(swMat); zoneTextures.push(swTex);
-    const tvPos = zoneToAnchor(rec, 0, 1, -6);
+    const poolGeo = new THREE.PlaneGeometry(3, 4);
+    const poolMat = new THREE.MeshBasicMaterial({ color: 0x2a3860, transparent: true, opacity: 0.25, depthWrite: false });
+    const pool = new THREE.Mesh(poolGeo, poolMat); pool.position.set(RX - 2.5, 0.02, -3); pool.rotation.x = -Math.PI / 2;
+    rec.group.add(pool); zoneGeos.push(poolGeo); zoneMats.push(poolMat);
+    // Collision: perimeter walls, door gap on +Z.
+    const wt = 0.4;
+    rec.structure = makeStructure(0, 0, 0,
+      [{ x0: -RX, x1: RX, z0: -RZ, z1: RZ, y: 0 }],
+      [
+        { x0: -RX, x1: RX, z0: -RZ - wt, z1: -RZ, y0: 0, y1: WH },
+        { x0: -RX - wt, x1: -RX, z0: -RZ, z1: RZ, y0: 0, y1: WH },
+        { x0: RX, x1: RX + wt, z0: -RZ, z1: RZ, y0: 0, y1: WH },
+      ], RZ + 2);
+    rec.r2 = (RZ + 12) ** 2;
+    const tvPos = zoneToAnchor(rec, 0, 1, -3.5); // in front of the TV / on the couch
     let flick = 0;
     zoneUpdaters.push((t, dt, playerPos) => {
       if (activeZone !== 'z7') { z7Sit = 0; return; }
@@ -1555,8 +2202,8 @@ export function createActuality(planet, worldUp, opts = {}) {
         tvLight.intensity = 0.4 + Math.abs(Math.sin(t * 47.0)) * 0.9;
         flick = 0.05;
       }
-      // Sit trigger: near the TV for > 1.5 s.
-      if (tvPos.distanceToSquared(playerPos) < 4) z7Sit += dt; else z7Sit = Math.max(0, z7Sit - dt);
+      // Sit trigger: seated in front of the TV for > 1.5 s.
+      if (tvPos.distanceToSquared(playerPos) < 12) z7Sit += dt; else z7Sit = Math.max(0, z7Sit - dt);
       if (z7Sit > 1.5 && !z7Caption && fade.phase === 'idle') {
         z7Caption = { i: 0, t: 0 };
       }
@@ -1600,6 +2247,35 @@ export function createActuality(planet, worldUp, opts = {}) {
     const dusk = addDome(rec, 92, '#2a1c26', '#c07a4a');
     const night = addDome(rec, 90, '#02030a', '#0a1428');
     night.mat.transparent = true; night.mat.opacity = 0; // crossfades in as the fire dies
+    // A ring of dark tree silhouettes around the clearing; they fade out with
+    // the burn-down to reveal the open field/starfield.
+    const treeMat = new THREE.MeshBasicMaterial({ color: 0x0a0c10, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false });
+    zoneMats.push(treeMat);
+    const treeGeo = new THREE.PlaneGeometry(4, 10);
+    zoneGeos.push(treeGeo);
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      const tr = new THREE.Mesh(treeGeo, treeMat);
+      tr.position.set(Math.sin(a) * 26, 5, -6 + Math.cos(a) * 26);
+      tr.rotation.y = -a; rec.group.add(tr);
+    }
+    // Two touching stone fire-rings — the lit one + a cold old one — form an "8".
+    const ringMat = new THREE.MeshStandardMaterial({ color: 0x50463a, roughness: 0.95 });
+    zoneMats.push(ringMat);
+    const stoneGeo = new THREE.DodecahedronGeometry(0.35);
+    zoneGeos.push(stoneGeo);
+    for (const [rcz, n] of [[-6, 10], [-9.4, 9]]) {
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        const st = new THREE.Mesh(stoneGeo, ringMat);
+        st.position.set(Math.sin(a) * 1.5, 0.2, rcz + Math.cos(a) * 1.5);
+        rec.group.add(st);
+      }
+    }
+    // Sitting logs around the fire.
+    for (const [lx, lz, lry] of [[-2.4, -4.4, 0.3], [2.4, -5, -0.4], [0, -8.2, 0]]) {
+      addZoneBox(rec, 1.8, 0.4, 0.45, lx, 0.2, lz, 0x4a3524, lry);
+    }
     // Campfire: logs + additive flame cones + embers + light.
     addZoneBox(rec, 2.4, 0.4, 0.5, 0, 0.2, -6, 0x3a2a1c);
     addZoneBox(rec, 0.5, 0.4, 2.4, 0, 0.2, -6, 0x3a2a1c);
@@ -1655,6 +2331,7 @@ export function createActuality(planet, worldUp, opts = {}) {
       night.mat.opacity = (1 - burn) * 0.9; // starfield fades in as the fire dies
       dusk.mat.opacity = 0.4 + burn * 0.6;
       dusk.mat.transparent = true;
+      treeMat.opacity = burn * 0.95; // the surrounding trees dissolve into open field
       for (let i = 0; i < N; i++) {
         const b = eb[i];
         const y = 0.6 + ((t * b.sp + b.ph) % 4) * burn;
@@ -1675,6 +2352,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     zg.name = 'actuality.mirror';
     zg.position.copy(frame.pos);
     zg.quaternion.copy(frame.q);
+    zg.visible = false; // visibility gating: rendered only while active
     group.add(zg);
 
     mirror = createMirrorRoom({ half: 4 });
@@ -1697,17 +2375,22 @@ export function createActuality(planet, worldUp, opts = {}) {
 
     zoneEnterCallbacks['mirror'] = () => {
       if (!flags.hyperHoloGridSeen) { flags.hyperHoloGridSeen = true; saveFlags(flags); }
+      mirrorTimer = 0; // the ~5 s experience begins on entry
     };
 
-    // Updater: drive the clone + billboard the lattice; wall-touch exits home.
+    // Updater: drive the clone + billboard the lattice. The hyper-holo-grid is
+    // the end: after ~5 s (the "0 = repeat program"), or on touching a wall,
+    // the program repeats and the host resets the player to the game start.
     zoneUpdaters.push((t, dt, playerPos) => {
       if (activeZone !== 'mirror') return;
       _surf.copy(playerPos).applyQuaternion(anchorQ).add(anchorPos);
       _z6Local.copy(_surf).sub(frame.pos).applyQuaternion(frame.qInv); // player in mirror-local
       _dbgMirror.copy(_z6Local);
       mirror.update(t, dt, _z6Local, 0);
-      if (fade.phase === 'idle' && (Math.abs(_z6Local.x) > H - 0.5 || Math.abs(_z6Local.z) > H - 0.5)) {
-        startTransition('hub');
+      mirrorTimer += dt;
+      const wall = Math.abs(_z6Local.x) > H - 0.5 || Math.abs(_z6Local.z) > H - 0.5;
+      if (!pendingReset && (mirrorTimer > AC.HOLOGRID_SECONDS || wall)) {
+        pendingReset = true; // consumed by the host → exitWalk + resetToStart
       }
     });
   }
@@ -1755,6 +2438,7 @@ export function createActuality(planet, worldUp, opts = {}) {
         z6Submerged, z7Sit, z8Burn, z7Caption: !!z7Caption, z6Vision: !!z6Vision,
         mirrorDoorOpen: mirrorDoor ? mirrorDoor.opened : null,
         mirrorLocal: [_dbgMirror.x, _dbgMirror.y, _dbgMirror.z],
+        mirrorTimer, pendingReset,
       },
     };
   }
@@ -1793,14 +2477,8 @@ export function createActuality(planet, worldUp, opts = {}) {
     });
     if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
     overlayEl = null;
-    // Clean up any in-flight dragon VFX (its burst mesh isn't tracked in bins).
-    if (dragonVfx && dragonVfx.burst) {
-      dragonVfx.burst.mesh.geometry.dispose();
-      dragonVfx.burst.mesh.material.dispose();
-    }
-    dragonVfx = null;
-    if (whiteFlashEl && whiteFlashEl.parentNode) whiteFlashEl.parentNode.removeChild(whiteFlashEl);
-    whiteFlashEl = null;
+    if (cityFallEl && cityFallEl.parentNode) cityFallEl.parentNode.removeChild(cityFallEl);
+    cityFallEl = null;
     if (z6Tint && z6Tint.parentNode) z6Tint.parentNode.removeChild(z6Tint);
     z6Tint = null;
     if (z7CaptionEl && z7CaptionEl.parentNode) z7CaptionEl.parentNode.removeChild(z7CaptionEl);
@@ -1825,6 +2503,8 @@ export function createActuality(planet, worldUp, opts = {}) {
     endInteract,
     onOutcome,
     consumeTeleport,
+    consumeReset,
+    pendingToast,
     preRender,
     debug,
     probeGround,

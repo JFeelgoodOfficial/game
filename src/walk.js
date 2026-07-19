@@ -961,6 +961,8 @@ export function updateWalkVisuals(dt, t) {
     playerLocalInto(actuality.anchor, _actualityInvQuat, _playerLocal);
     actuality.update(t, dt, _playerLocal, sunDot);
     scanModule(actuality, TALK_DIST_ACTUALITY);
+    const toast = actuality.pendingToast();
+    if (toast) showViewToast(toast.text, toast.seconds);
   }
   if (shadowreach) {
     // The module group sits at identity under planet.surface, so playerLocalInto
@@ -1152,6 +1154,13 @@ export function walkSite() {
 // module draw to its own render targets — only the actuality mirror room does.
 export function walkPreRender(renderer) {
   if (walk.active && actuality) actuality.preRender(renderer);
+}
+
+// The actuality world's hyper-holo-grid finale asks the host to loop the whole
+// game back to its start (0 = repeat program). Consumed once; game.js does the
+// exitWalk + resetToStart.
+export function walkPendingReset() {
+  return walk.active && actuality ? actuality.consumeReset() : false;
 }
 
 // Gravity scale of the world underfoot (1 = normal). For the walk-hint UI.
