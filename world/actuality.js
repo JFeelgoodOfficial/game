@@ -90,6 +90,7 @@ const _yAxis = new THREE.Vector3(0, 1, 0);
 const _burstMat4 = new THREE.Matrix4(); // scratch for the dragon burst instances
 const _z6Local = new THREE.Vector3();   // scratch: player in zone-6 local frame
 const _dbgMirror = new THREE.Vector3(); // last computed mirror-local player pos
+const _zLocal = new THREE.Vector3();    // scratch: player in an arbitrary zone frame
 
 // Full radial distance to terrain along a surface-local direction (a radius,
 // not a height) — same as wavemallprime.sampleGround.
@@ -792,6 +793,8 @@ export function createActuality(planet, worldUp, opts = {}) {
   let z7Caption = null;     // { i, t } running caption sequence
   let z7CaptionEl = null;   // DOM caption element
   let z8Burn = 0;           // seconds since entering zone 8 (fire burn-down)
+  let birdAnchorPos = null;  // zone-1 bird position in anchor-local (for chirp gain)
+  let birdDist = 999;        // player-to-bird distance (zone-1 local), for the chirp
   let mirror = null;        // createMirrorRoom handle (hyper-holo-grid)
   let mirrorRec = null;     // its zone record
   let mirrorDoor = null;    // { mesh, mat, opened } sealed hub door
@@ -915,8 +918,11 @@ export function createActuality(planet, worldUp, opts = {}) {
       g.value += (target - g.value) * k;
     }
     if (audio.chirpGain) {
+      // Chirp guides you: it pulses in zone 1, louder while the bird is still
+      // far ahead (calling you on), softer as you catch up to it.
+      const amp = 0.018 + Math.min(1, birdDist / 40) * 0.03;
       const on = activeZone === 'z1' && Math.sin(t * 7.0) > 0.7;
-      audio.chirpGain.gain.value += ((on ? 0.03 : 0) - audio.chirpGain.gain.value) * Math.min(1, dt * 8);
+      audio.chirpGain.gain.value += ((on ? amp : 0) - audio.chirpGain.gain.value) * Math.min(1, dt * 8);
     }
   }
 
@@ -1199,25 +1205,82 @@ export function createActuality(planet, worldUp, opts = {}) {
     return mesh;
   }
 
-  // Z3 — an ordinary daylight coffee shop. Andrei & Mikey at a table.
+  // Box with a caller-supplied material (already tracked in zoneMats).
+  function addZoneBox2(rec, w, h, d, x, y, z, mat) {
+    const g = new THREE.BoxGeometry(w, h, d);
+    const mesh = new THREE.Mesh(g, mat);
+    mesh.position.set(x, y, z);
+    rec.group.add(mesh);
+    zoneGeos.push(g);
+    return mesh;
+  }
+
+  // Z3 — an enclosed, ordinary daylight coffee shop. Andrei & Mikey at the
+  // window table, everyday clutter, an espresso counter and pastry case.
   function buildZone3() {
     const rec = zoneById['z3'];
-    // Bright daylight fill so it reads as an ordinary café.
-    const amb = new THREE.AmbientLight(0xfff4e0, 0.7);
-    rec.group.add(amb);
-    // A table + two chairs + a counter.
-    addZoneBox(rec, 1.4, 0.12, 1.4, 0, 0.78, -4, AC.COL_WOOD);
-    addZoneBox(rec, 0.16, 0.78, 0.16, 0, 0.39, -4, AC.COL_WOOD);
-    addZoneBox(rec, 10, 1.1, 1.0, 0, 0.55, -10, AC.COL_WOOD);
-    // Bright emissive "window" panels (gentle bloom for daylight).
+    rec.group.add(new THREE.AmbientLight(0xfff4e0, 0.7));
+    const fill = new THREE.PointLight(0xfff0da, 0.5, 40, 2.0);
+    fill.position.set(0, 3.5, -2); rec.group.add(fill);
+    // Walls + ceiling enclosing the shop (open +Z for the return arch).
+    const RX = 9, RZ = 12, WH = 4.2;
+    const shopMat = new THREE.MeshStandardMaterial({ color: 0xcfc3ac, roughness: 0.9, side: THREE.DoubleSide });
+    zoneMats.push(shopMat);
+    const wall = (w, h, x, y, z, ry) => {
+      const g = new THREE.PlaneGeometry(w, h);
+      const m = new THREE.Mesh(g, shopMat); m.position.set(x, y, z); m.rotation.y = ry;
+      rec.group.add(m); zoneGeos.push(g);
+    };
+    wall(RX * 2, WH, 0, WH / 2, -RZ, 0);       // back
+    wall(RZ * 2, WH, -RX, WH / 2, 0, Math.PI / 2); // left
+    wall(RZ * 2, WH, RX, WH / 2, 0, Math.PI / 2);  // right
+    const ceilG = new THREE.PlaneGeometry(RX * 2, RZ * 2);
+    const ceil = new THREE.Mesh(ceilG, shopMat); ceil.position.set(0, WH, 0); ceil.rotation.x = Math.PI / 2;
+    rec.group.add(ceil); zoneGeos.push(ceilG);
+    // Two big daylight windows.
     const winGeo = new THREE.PlaneGeometry(4, 2.4);
-    const winMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff, emissive: 0xfff2d8, emissiveIntensity: 1.0, side: THREE.DoubleSide,
-    });
-    const win = new THREE.Mesh(winGeo, winMat);
-    win.position.set(-8, 2.0, -4); win.rotation.y = Math.PI / 2;
-    rec.group.add(win);
-    zoneGeos.push(winGeo); zoneMats.push(winMat);
+    zoneGeos.push(winGeo);
+    const winMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2d8, emissiveIntensity: 1.0, side: THREE.DoubleSide });
+    zoneMats.push(winMat);
+    for (const [wx, wz, wry] of [[-RX + 0.1, -4, Math.PI / 2], [3, -RZ + 0.1, 0]]) {
+      const w = new THREE.Mesh(winGeo, winMat); w.position.set(wx, 2.0, wz); w.rotation.y = wry; rec.group.add(w);
+    }
+    // Counter, espresso machine, glass pastry case, chalk board ("3" glyph).
+    addZoneBox(rec, 10, 1.1, 1.0, 0, 0.55, -10.5, AC.COL_WOOD);
+    addZoneBox(rec, 1.3, 0.9, 0.8, 3, 1.55, -10.5, 0x8a8f96);
+    const caseMat = new THREE.MeshStandardMaterial({ color: 0xbfe0ff, transparent: true, opacity: 0.4, roughness: 0.2 });
+    zoneMats.push(caseMat);
+    addZoneBox2(rec, 2.4, 0.9, 0.9, -3, 1.05, -10.4, caseMat);
+    const boardTex = menuBoardTexture(3);
+    zoneTextures.push(boardTex);
+    const boardMat = new THREE.MeshStandardMaterial({ map: boardTex, roughness: 0.9 });
+    zoneMats.push(boardMat);
+    const boardGeo = new THREE.PlaneGeometry(1.4, 1.9);
+    const board = new THREE.Mesh(boardGeo, boardMat); board.position.set(-6, 2.4, -11.8); rec.group.add(board);
+    zoneGeos.push(boardGeo);
+    // Tables + chairs (Andrei & Mikey at the window table), plus clutter.
+    const chair = (x, z, ry) => { addZoneBox(rec, 0.5, 0.08, 0.5, x, 0.5, z, 0x6b4a34); addZoneBox(rec, 0.5, 0.6, 0.08, x - Math.sin(ry) * 0.22, 0.8, z - Math.cos(ry) * 0.22, 0x6b4a34); };
+    const table = (x, z) => { addZoneBox(rec, 1.3, 0.1, 1.3, x, 0.78, z, AC.COL_WOOD); addZoneBox(rec, 0.14, 0.78, 0.14, x, 0.39, z, AC.COL_WOOD); };
+    table(0, -4); chair(-1.3, -4, Math.PI / 2); chair(1.3, -4, -Math.PI / 2);
+    table(-5, -3); table(5, -5);
+    // Mugs on the tables.
+    const mugGeo = new THREE.CylinderGeometry(0.08, 0.07, 0.12, 8);
+    zoneGeos.push(mugGeo);
+    const mugMat = new THREE.MeshStandardMaterial({ color: 0xe8e0d0, roughness: 0.5 });
+    zoneMats.push(mugMat);
+    for (const [mx, mz] of [[-0.3, -3.7], [0.3, -4.3], [-5, -3], [5, -5]]) {
+      const mug = new THREE.Mesh(mugGeo, mugMat); mug.position.set(mx, 0.9, mz); rec.group.add(mug);
+    }
+    // Collision: perimeter walls, door gap on +Z.
+    const wt = 0.4;
+    rec.structure = makeStructure(0, 0, 0,
+      [{ x0: -RX, x1: RX, z0: -RZ, z1: RZ, y: 0 }],
+      [
+        { x0: -RX, x1: RX, z0: -RZ - wt, z1: -RZ, y0: 0, y1: WH },
+        { x0: -RX - wt, x1: -RX, z0: -RZ, z1: RZ, y0: 0, y1: WH },
+        { x0: RX, x1: RX + wt, z0: -RZ, z1: RZ, y0: 0, y1: WH },
+      ], RZ + 2);
+    rec.r2 = (RZ + 12) ** 2;
     // Figures.
     const andrei = makeFigure({ seated: true, skin: 0xc9a074, cloth: 0x4a5a6a, seed: 31 });
     andrei.group.position.set(-1.4, 0, -4); andrei.group.rotation.y = Math.PI / 2 + 0.2;
@@ -1228,50 +1291,111 @@ export function createActuality(planet, worldUp, opts = {}) {
     interactables.push({ id: 'andreiMikey', zone: 'z3', pos: zoneToAnchor(rec, 0, 0, -2.6), talking: false });
   }
 
-  // Z4 — cramped dorm fading into a warm apartment. Joshua & Caitlynn.
+  // Z4 — a cramped dorm joined by a short corridor to a spacious warm
+  // apartment. Joshua paces between the two until the scene fires.
   function buildZone4() {
     const rec = zoneById['z4'];
-    // Cool dorm light + warm apartment light (the corridor between them reads
-    // as the fade the chapter describes).
-    const dorm = new THREE.PointLight(0x8ea4c0, 0.7, 40, 2.0);
-    dorm.position.set(-8, 4, 6);
-    const apt = new THREE.PointLight(0xffcaa0, 1.1, 60, 2.0);
-    apt.position.set(2, 4, -6);
-    rec.group.add(dorm, apt);
-    // Couch (apartment) + a narrow dorm bed.
-    addZoneBox(rec, 3.0, 0.6, 1.2, -2, 0.4, -8, 0x8a6a5a);
-    addZoneBox(rec, 0.9, 0.4, 2.0, -8, 0.3, 6, 0x9aa0a8); // dorm bed
-    // Big warm apartment window.
+    // Dorm at +Z (cool, low), apartment at -Z (warm, tall), corridor between.
+    const dormLight = new THREE.PointLight(0x8ea4c0, 0.6, 26, 2.0);
+    dormLight.position.set(0, 2.0, 7); rec.group.add(dormLight);
+    const aptLight = new THREE.PointLight(0xffcaa0, 1.1, 60, 2.0);
+    aptLight.position.set(0, 3.5, -7); rec.group.add(aptLight);
+    rec.group.add(new THREE.AmbientLight(0x2a2c30, 0.35));
+
+    const dormMat = new THREE.MeshStandardMaterial({ color: 0x6a7078, roughness: 0.92, side: THREE.DoubleSide });
+    const aptMat = new THREE.MeshStandardMaterial({ color: 0xcaa583, roughness: 0.9, side: THREE.DoubleSide });
+    zoneMats.push(dormMat, aptMat);
+    const panel = (mat, w, h, x, y, z, ry, rx = 0) => {
+      const g = new THREE.PlaneGeometry(w, h);
+      const m = new THREE.Mesh(g, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, 0);
+      rec.group.add(m); zoneGeos.push(g);
+    };
+    // Dorm shell: 5m wide, 2.2m ceiling, z 4..9 (door gap on -Z toward corridor).
+    const DCH = 2.2;
+    panel(dormMat, 5, DCH, 0, DCH / 2, 9, 0);          // dorm back
+    panel(dormMat, 5, DCH, -2.5, DCH / 2, 6.5, Math.PI / 2);
+    panel(dormMat, 5, DCH, 2.5, DCH / 2, 6.5, Math.PI / 2);
+    panel(dormMat, 5, 5, 0, DCH, 6.5, 0, Math.PI / 2);  // dorm ceiling
+    // Corridor (z 1..4), cool→warm vertex tint via two short wall segments +
+    // ceiling beams that cross into a "4" (glyph).
+    panel(dormMat, 2.6, 2.6, -1.3, 1.3, 2.5, Math.PI / 2);
+    panel(aptMat, 2.6, 2.6, 1.3, 1.3, 2.5, Math.PI / 2);
+    addZoneBox(rec, 0.12, 0.12, 3, 0, 2.55, 2.5, 0x4a3a2a);         // beam along
+    addZoneBox(rec, 2.4, 0.12, 0.12, 0, 2.55, 1.8, 0x4a3a2a, 0.9);  // beam across = "4"
+    // Apartment shell: 9m, 3.6m ceiling, z -12..0 (door gap on +Z).
+    const ACH = 3.6;
+    panel(aptMat, 9, ACH, 0, ACH / 2, -12, 0);
+    panel(aptMat, 12, ACH, -4.5, ACH / 2, -6, Math.PI / 2);
+    panel(aptMat, 12, ACH, 4.5, ACH / 2, -6, Math.PI / 2);
+    panel(aptMat, 9, 12, 0, ACH, -6, 0, Math.PI / 2);   // apt ceiling
+
+    // Dorm furniture.
+    addZoneBox(rec, 0.9, 0.4, 2.0, -1.6, 0.3, 7, 0x9aa0a8);  // narrow bed
+    addZoneBox(rec, 1.4, 0.8, 0.6, 1.6, 0.4, 8.4, 0x7a6a58); // desk
+    addZoneBox(rec, 0.4, 0.4, 0.4, 1.6, 1.0, 8.4, 0x8a8f96); // clutter box
+    // Apartment furniture: couch, rug, plants, big warm window.
+    addZoneBox(rec, 3.2, 0.6, 1.2, -2.4, 0.4, -8, 0x8a5a6a); // couch
+    addZoneBox(rec, 3.2, 0.3, 0.5, -2.4, 0.85, -8.6, 0x9a6a7a); // couch back
+    addZoneBox(rec, 3.6, 0.04, 2.6, 0, 0.03, -7, 0x8a5040); // rug
+    for (const [px, pz] of [[3.6, -10.5], [-3.6, -2]]) { // plants
+      addZoneBox(rec, 0.5, 0.5, 0.5, px, 0.25, pz, 0x6b4a34);
+      const pot = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 6), new THREE.MeshStandardMaterial({ color: 0x3a6b3a, roughness: 0.85 }));
+      pot.position.set(px, 1.0, pz); pot.scale.y = 1.3; rec.group.add(pot);
+      zoneGeos.push(pot.geometry); zoneMats.push(pot.material);
+    }
     const winGeo = new THREE.PlaneGeometry(4, 2.6);
-    const winMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff, emissive: 0xffd9a8, emissiveIntensity: 0.9, side: THREE.DoubleSide,
-    });
-    const win = new THREE.Mesh(winGeo, winMat);
-    win.position.set(2, 2.1, -11.7);
-    rec.group.add(win);
+    const winMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffd9a8, emissiveIntensity: 0.9, side: THREE.DoubleSide });
+    const win = new THREE.Mesh(winGeo, winMat); win.position.set(0, 2.1, -11.8); rec.group.add(win);
     zoneGeos.push(winGeo); zoneMats.push(winMat);
+
+    // Collision: dorm box + apartment box (each with a corridor door gap).
+    rec.structure = makeStructure(0, 0, 0,
+      [{ x0: -4.5, x1: 4.5, z0: -12, z1: 9.5, y: 0 }],
+      [
+        // dorm walls (gap toward -Z corridor mouth at x∈[-1.3,1.3])
+        { x0: -2.5, x1: 2.5, z0: 9, z1: 9.4, y0: 0, y1: DCH },
+        { x0: -2.9, x1: -2.5, z0: 4, z1: 9.4, y0: 0, y1: DCH },
+        { x0: 2.5, x1: 2.9, z0: 4, z1: 9.4, y0: 0, y1: DCH },
+        { x0: -2.5, x1: -1.3, z0: 4, z1: 4.4, y0: 0, y1: DCH },
+        { x0: 1.3, x1: 2.5, z0: 4, z1: 4.4, y0: 0, y1: DCH },
+        // apartment walls (gap toward +Z corridor mouth)
+        { x0: -4.5, x1: 4.5, z0: -12.4, z1: -12, y0: 0, y1: ACH },
+        { x0: -4.9, x1: -4.5, z0: -12, z1: 0, y0: 0, y1: ACH },
+        { x0: 4.5, x1: 4.9, z0: -12, z1: 0, y0: 0, y1: ACH },
+        { x0: -4.5, x1: -1.3, z0: 0, z1: 0.4, y0: 0, y1: ACH },
+        { x0: 1.3, x1: 4.5, z0: 0, z1: 0.4, y0: 0, y1: ACH },
+      ], 14);
+    rec.r2 = (14 + 12) ** 2;
+
     // Figures.
     const caitlynn = makeFigure({ seated: true, skin: 0xe0c0a0, cloth: 0xb08090, seed: 41 });
-    caitlynn.group.position.set(-2, 0.5, -8); caitlynn.group.rotation.y = 0.2;
+    caitlynn.group.position.set(-2.4, 0.5, -8); caitlynn.group.rotation.y = 0.2;
     joshuaFig = makeFigure({ seated: false, skin: 0xc99a70, cloth: 0x33465a, seed: 42 });
-    joshuaFig.group.position.set(1.6, 0, -5); joshuaFig.group.rotation.y = -0.4;
+    joshuaFig.group.position.set(0, 0, -4); joshuaFig.group.rotation.y = 0;
     rec.group.add(caitlynn.group, joshuaFig.group);
     figures.push(caitlynn, joshuaFig);
     interactables.push({ id: 'joshuaCaitlynn', zone: 'z4', pos: zoneToAnchor(rec, 0, 0, -3.5), talking: false });
 
-    // Joshua's scripted departure (fires once, after the scene resolves).
+    // Joshua paces the corridor (dorm ↔ apartment) until the scene fires, then
+    // his scripted departure plays.
+    const paceA = new THREE.Vector3(0, 0, 7), paceB = new THREE.Vector3(-2, 0, -6);
     zoneUpdaters.push((t, dt) => {
-      if (!joshuaDep || !joshuaFig) return;
-      joshuaDep.t += dt;
-      const T = joshuaDep.t;
-      // Walk from the couch toward the door at (4, 0, 8) over ~8s.
-      const p = Math.min(1, T / 8);
-      const sx = 1.6, sz = -5, dx = 4, dz = 9;
-      joshuaFig.group.position.set(sx + (dx - sx) * p, 0, sz + (dz - sz) * p);
-      joshuaFig.group.rotation.y = Math.atan2(dx - sx, dz - sz);
-      // Fade out over the last 2s, then hide.
-      if (T > 8) joshuaFig.setOpacity(Math.max(0, 1 - (T - 8) / 2));
-      if (T > 10.2) { joshuaFig.group.visible = false; joshuaDep = null; }
+      if (activeZone !== 'z4' || !joshuaFig) return;
+      if (joshuaDep) {
+        joshuaDep.t += dt;
+        const T = joshuaDep.t, p = Math.min(1, T / 8);
+        const sx = -2, sz = -6, dx = 3, dz = 8.6; // toward the dorm door
+        joshuaFig.group.position.set(sx + (dx - sx) * p, 0, sz + (dz - sz) * p);
+        joshuaFig.group.rotation.y = Math.atan2(dx - sx, dz - sz);
+        if (T > 8) joshuaFig.setOpacity(Math.max(0, 1 - (T - 8) / 2));
+        if (T > 10.2) { joshuaFig.group.visible = false; joshuaDep = null; }
+        return;
+      }
+      if (flags.talkedJoshuaCaitlynn) return; // stays put after the scene
+      // Slow pace between the two rooms.
+      const phase = (Math.sin(t * 0.25) * 0.5 + 0.5);
+      joshuaFig.group.position.lerpVectors(paceA, paceB, phase);
+      joshuaFig.group.rotation.y = phase > 0.5 ? Math.PI : 0;
     });
   }
 
@@ -1473,21 +1597,58 @@ export function createActuality(planet, worldUp, opts = {}) {
     const rec = zoneById['z1'];
     rec.group.add(new THREE.AmbientLight(0xffcf9a, 0.5));
     addDome(rec, 90, '#4a3422', '#d8974e');
-    // Graffiti alley near the entrance.
-    addZoneBox(rec, 0.5, 6, 14, -4.5, 3, -2, 0x53463a);
-    addZoneBox(rec, 0.5, 6, 14, 4.5, 3, -2, 0x604a3c);
-    // Park benches.
+
+    // Sidewalk slabs + city facades at the entrance (+Z end).
+    const walkMat = new THREE.MeshStandardMaterial({ color: 0x6a6660, roughness: 0.95 });
+    zoneMats.push(walkMat);
+    for (let z = 12; z >= 2; z -= 2) addZoneBox(rec, 6, 0.1, 2, 0, 0.05, z, walkMat);
+    const facRng = mulberry32(0x1a10);
+    for (const [fx, fz, fw] of [[-6, 9, 5], [6, 9, 5], [-7, 4, 4]]) {
+      const facTex = facadeTexture(facRng);
+      zoneTextures.push(facTex);
+      const fm = new THREE.MeshStandardMaterial({ map: facTex, roughness: 0.85 });
+      zoneMats.push(fm);
+      const fg = new THREE.BoxGeometry(fw, 12, 4);
+      const fmesh = new THREE.Mesh(fg, fm); fmesh.position.set(fx, 6, fz);
+      rec.group.add(fmesh); zoneGeos.push(fg);
+    }
+
+    // Graffiti alley: colorful spray-art on both walls (z ~ -1..-8).
+    for (const [gx, side] of [[-4.5, 1], [4.5, 2]]) {
+      const gTex = graffitiTexture(mulberry32(0x2b00 + side), null);
+      zoneTextures.push(gTex);
+      gTex.repeat.set(2, 1); gTex.wrapS = THREE.RepeatWrapping;
+      const gm = new THREE.MeshStandardMaterial({ map: gTex, roughness: 0.9, side: THREE.DoubleSide });
+      zoneMats.push(gm);
+      const gg = new THREE.PlaneGeometry(14, 6);
+      const gp = new THREE.Mesh(gg, gm);
+      gp.position.set(gx, 3, -4.5); gp.rotation.y = gx < 0 ? Math.PI / 2 : -Math.PI / 2;
+      rec.group.add(gp); zoneGeos.push(gg);
+      addZoneBox(rec, 0.5, 6, 14, gx, 3, -4.5, 0x2e2822); // wall behind the art
+    }
+
+    // Park: a grass patch, benches, and the lone "1" lamppost (glyph motif).
+    addZoneBox(rec, 26, 0.06, 18, 0, 0.03, -20, 0x3f5a30); // grass
     addZoneBox(rec, 2.0, 0.4, 0.6, -6, 0.5, -20, AC.COL_WOOD);
     addZoneBox(rec, 2.0, 0.4, 0.6, 6, 0.5, -22, AC.COL_WOOD);
-    // Autumn forest: trunks + warm canopies.
+    addZoneBox(rec, 0.22, 6.5, 0.22, 8, 3.25, -14, 0x2a2620); // lamppost = "1"
+    const lampMat = new THREE.MeshStandardMaterial({ color: 0xffe6b0, emissive: 0xffcf80, emissiveIntensity: 1.1, roughness: 0.5 });
+    zoneMats.push(lampMat);
+    const lampGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+    const lamp = new THREE.Mesh(lampGeo, lampMat); lamp.position.set(8, 6.6, -14);
+    rec.group.add(lamp); zoneGeos.push(lampGeo);
+    const lampLight = new THREE.PointLight(0xffcf80, 0.6, 18, 2.0);
+    lampLight.position.set(8, 6.4, -14); rec.group.add(lampLight);
+
+    // Autumn forest: denser trunks + warm canopies.
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3324, roughness: 0.95 });
     const leafMats = [0xd9772a, 0xe0a338, 0xc85a26].map((c) =>
       new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 }));
     zoneMats.push(trunkMat, ...leafMats);
     const treeRng = mulberry32(0x1111);
-    for (let i = 0; i < 30; i++) {
-      const tx = (treeRng() - 0.5) * 28;
-      const tz = -34 - treeRng() * 40;
+    for (let i = 0; i < 45; i++) {
+      const tx = (treeRng() - 0.5) * 30;
+      const tz = -32 - treeRng() * 42;
       const th = 4 + treeRng() * 3;
       const tG = new THREE.CylinderGeometry(0.25, 0.35, th, 6);
       const tm = new THREE.Mesh(tG, trunkMat); tm.position.set(tx, th / 2, tz);
@@ -1497,6 +1658,7 @@ export function createActuality(planet, worldUp, opts = {}) {
       cm.position.set(tx, th + 0.6, tz); cm.scale.y = 0.8;
       rec.group.add(cm); zoneGeos.push(cG);
     }
+
     // The woman standing in a shaft of light.
     const woman = makeFigure({ seated: false, skin: 0xe8cba0, cloth: 0xf2e6cc, seed: 11 });
     woman.group.position.set(0, 0, -58);
@@ -1513,8 +1675,30 @@ export function createActuality(planet, worldUp, opts = {}) {
     wlight.position.set(0, 5, -58); rec.group.add(wlight);
     interactables.push({ id: 'z1woman', zone: 'z1', pos: zoneToAnchor(rec, 0, 0, -55), talking: false });
 
-    // Falling leaves.
-    const N = 300;
+    // The bird — the PDD's core mechanic: it perches ahead of you and flits to
+    // the next waypoint (sidewalk → alley → park → forest → the woman) each time
+    // you close within ~6 m, leading you through the zone.
+    const bird = new THREE.Group();
+    const birdBody = new THREE.Mesh(new THREE.SphereGeometry(0.16, 6, 5),
+      new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness: 0.8 }));
+    birdBody.scale.set(1, 0.9, 1.4);
+    const wingMat = new THREE.MeshStandardMaterial({ color: 0x3a3a44, roughness: 0.8, side: THREE.DoubleSide });
+    const wingGeo = new THREE.PlaneGeometry(0.4, 0.2);
+    const wingL = new THREE.Mesh(wingGeo, wingMat); wingL.position.x = -0.2;
+    const wingR = new THREE.Mesh(wingGeo, wingMat); wingR.position.x = 0.2;
+    bird.add(birdBody, wingL, wingR);
+    bird.position.set(0, 1.6, 6);
+    rec.group.add(bird);
+    zoneGeos.push(birdBody.geometry, wingGeo); zoneMats.push(birdBody.material, wingMat);
+    const birdWays = [
+      new THREE.Vector3(0, 1.6, 6), new THREE.Vector3(0, 2.0, -1),
+      new THREE.Vector3(3, 2.2, -18), new THREE.Vector3(-2, 2.6, -40),
+      new THREE.Vector3(0, 2.0, -54),
+    ];
+    let birdWp = 0;
+
+    // Falling leaves (golden slow-motion).
+    const N = 220;
     const leafGeo = new THREE.PlaneGeometry(0.22, 0.22);
     const leafMat = new THREE.MeshBasicMaterial({
       color: 0xe0902e, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false,
@@ -1526,11 +1710,12 @@ export function createActuality(planet, worldUp, opts = {}) {
     const lr = mulberry32(0x2222);
     const base = [];
     for (let i = 0; i < N; i++) {
-      base.push({ x: (lr() - 0.5) * 30, y: lr() * 22, z: -30 - lr() * 46, ph: lr() * 6.28, sp: 0.6 + lr() * 0.8 });
+      base.push({ x: (lr() - 0.5) * 30, y: lr() * 22, z: -30 - lr() * 46, ph: lr() * 6.28, sp: 0.35 + lr() * 0.5 });
     }
     const _lm = new THREE.Matrix4();
-    zoneUpdaters.push((t) => {
-      if (activeZone !== 'z1') return;
+    zoneUpdaters.push((t, dt, playerPos) => {
+      if (activeZone !== 'z1') { birdAnchorPos = null; return; }
+      // Leaves.
       for (let i = 0; i < N; i++) {
         const b = base[i];
         let y = b.y - ((t * b.sp) % 24);
@@ -1541,32 +1726,76 @@ export function createActuality(planet, worldUp, opts = {}) {
         leaves.setMatrixAt(i, _lm);
       }
       leaves.instanceMatrix.needsUpdate = true;
+      // Bird: player in zone-local; advance when close; ease toward the perch.
+      _zLocal.copy(playerPos).applyQuaternion(anchorQ).add(anchorPos)
+        .sub(rec.frame.pos).applyQuaternion(rec.frame.qInv);
+      const target = birdWays[birdWp];
+      if (birdWp < birdWays.length - 1 && _zLocal.distanceTo(target) < 6) birdWp++;
+      const tgt = birdWays[birdWp];
+      birdDist = _zLocal.distanceTo(bird.position);
+      bird.position.lerp(tgt, Math.min(1, dt * 1.6));
+      bird.position.y += Math.sin(t * 3) * 0.02;
+      bird.rotation.y = Math.atan2(tgt.x - bird.position.x, tgt.z - bird.position.z);
+      const flap = Math.sin(t * 18) * 0.9;
+      wingL.rotation.z = flap; wingR.rotation.z = -flap;
+      // Expose the bird's anchor-local position for the chirp proximity gain.
+      if (!birdAnchorPos) birdAnchorPos = new THREE.Vector3();
+      birdAnchorPos.copy(bird.position).applyQuaternion(rec.frame.q).add(rec.frame.pos)
+        .sub(anchorPos).applyQuaternion(anchorQInv);
     });
   }
 
-  // Z2 Body — a warm room whose three walls + ceiling breathe outward.
+  // Z2 Body — a warm room whose surfaces breathe as a grid of panels extruding
+  // outward around the player (the chapter's "ceiling, walls, floor shoot off
+  // into extruding directions", kept abstract/tasteful).
   function buildZone2() {
     const rec = zoneById['z2'];
     rec.group.add(new THREE.AmbientLight(0x3a2418, 0.45));
-    const light = new THREE.PointLight(0xffb070, 0.8, 34, 2.0);
-    light.position.set(0, 4, 2); rec.group.add(light);
-    // Enclosing walls on -Z, +X, -X (open toward +Z where the return arch is).
+    const breathLight = new THREE.PointLight(0xffb070, 0.8, 34, 2.0);
+    breathLight.position.set(0, 3.2, 0); rec.group.add(breathLight);
     const R = 12, WH = 6.5;
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x7a4f38, roughness: 0.92, side: THREE.DoubleSide });
-    zoneMats.push(wallMat);
-    const mkPanel = (w, h, x, y, z, ry) => {
-      const g = new THREE.PlaneGeometry(w, h);
-      const m = new THREE.Mesh(g, wallMat); m.position.set(x, y, z); m.rotation.y = ry;
-      rec.group.add(m); zoneGeos.push(g); return m;
-    };
-    const back = mkPanel(R * 2, WH, 0, WH / 2, -R, 0);
-    const left = mkPanel(R * 2, WH, -R, WH / 2, 0, Math.PI / 2);
-    const right = mkPanel(R * 2, WH, R, WH / 2, 0, Math.PI / 2);
-    const ceilGeo = new THREE.PlaneGeometry(R * 2, R * 2);
-    const ceil = new THREE.Mesh(ceilGeo, wallMat);
-    ceil.position.set(0, WH, 0); ceil.rotation.x = Math.PI / 2;
-    rec.group.add(ceil); zoneGeos.push(ceilGeo);
-    // Collision: the three walls (open +Z).
+    const PER = 8;                         // 8×8 panels per surface
+    const cell = (R * 2) / PER;
+    const panelMat = new THREE.MeshStandardMaterial({ color: 0x7a4f38, roughness: 0.92, side: THREE.DoubleSide });
+    // A faint "2" traced in slightly discolored panels on the back wall (glyph).
+    const glyph2 = new Set(['1,1', '2,1', '3,1', '3,2', '2,3', '1,4', '1,5', '2,5', '3,5']);
+    zoneMats.push(panelMat);
+    // Five surfaces: back(-Z), left(-X), right(+X), ceiling(+Y), floor(y0).
+    // Each panel has a base position + outward normal; the grid extrudes.
+    const panelGeo = new THREE.PlaneGeometry(cell * 0.92, cell * 0.92);
+    zoneGeos.push(panelGeo);
+    const surfaces = [
+      { n: [0, 0, 1], o: [0, WH / 2, -R], u: [1, 0, 0], v: [0, 1, 0], rot: [0, 0, 0] },        // back
+      { n: [1, 0, 0], o: [-R, WH / 2, 0], u: [0, 0, 1], v: [0, 1, 0], rot: [0, Math.PI / 2, 0] }, // left
+      { n: [-1, 0, 0], o: [R, WH / 2, 0], u: [0, 0, 1], v: [0, 1, 0], rot: [0, Math.PI / 2, 0] }, // right
+      { n: [0, -1, 0], o: [0, WH, 0], u: [1, 0, 0], v: [0, 0, 1], rot: [Math.PI / 2, 0, 0] },    // ceiling
+      { n: [0, 1, 0], o: [0, 0.02, 0], u: [1, 0, 0], v: [0, 0, 1], rot: [Math.PI / 2, 0, 0] },   // floor
+    ];
+    const total = surfaces.length * PER * PER;
+    const panels = new THREE.InstancedMesh(panelGeo, panelMat, total);
+    panels.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(total * 3), 3);
+    rec.group.add(panels);
+    const cells = [];
+    let idx = 0;
+    const _pq = new THREE.Quaternion(), _pe = new THREE.Euler();
+    for (const s of surfaces) {
+      _pe.set(s.rot[0], s.rot[1], s.rot[2]); _pq.setFromEuler(_pe);
+      for (let iu = 0; iu < PER; iu++) {
+        for (let iv = 0; iv < PER; iv++) {
+          const cu = (iu - (PER - 1) / 2) * cell;
+          const cv = (iv - (PER - 1) / 2) * cell;
+          const bx = s.o[0] + s.u[0] * cu + s.v[0] * cv;
+          const by = s.o[1] + s.u[1] * cu + s.v[1] * cv;
+          const bz = s.o[2] + s.u[2] * cu + s.v[2] * cv;
+          const tinted = s === surfaces[0] && glyph2.has(`${iu},${iv}`);
+          cells.push({ bx, by, bz, n: s.n, q: _pq.clone(), ph: (iu + iv) * 0.4 });
+          panels.instanceColor.setXYZ(idx, tinted ? 1.25 : 1, tinted ? 1.1 : 1, tinted ? 0.85 : 1);
+          idx++;
+        }
+      }
+    }
+    panels.instanceColor.needsUpdate = true;
+    // Collision: solid room walls at the base extents (open +Z for the return).
     const wt = 0.4;
     rec.structure = makeStructure(0, 0, 0,
       [{ x0: -R, x1: R, z0: -R, z1: R, y: 0 }],
@@ -1576,14 +1805,19 @@ export function createActuality(planet, worldUp, opts = {}) {
         { x0: R, x1: R + wt, z0: -R, z1: R, y0: 0, y1: WH },
       ], R + 2);
     rec.r2 = (R + 12) ** 2;
-    // Breathing: walls/ceiling ease outward with a slow sine.
+    const _pm = new THREE.Matrix4(), _pv = new THREE.Vector3(), _ps = new THREE.Vector3(1, 1, 1);
     zoneUpdaters.push((t) => {
       if (activeZone !== 'z2') return;
-      const d = (Math.sin(t * 0.4) * 0.5 + 0.5) * 0.6; // 0..0.6 m
-      back.position.z = -R - d;
-      left.position.x = -R - d;
-      right.position.x = R + d;
-      ceil.position.y = WH + d;
+      const breath = Math.sin(t * 0.4) * 0.5 + 0.5; // 0..1
+      breathLight.intensity = 0.5 + breath * 0.6;
+      for (let i = 0; i < cells.length; i++) {
+        const c = cells[i];
+        const d = Math.sin(t * 0.4 + c.ph) * breath * 0.4; // per-panel extrude
+        _pv.set(c.bx + c.n[0] * d, c.by + c.n[1] * d, c.bz + c.n[2] * d);
+        _pm.compose(_pv, c.q, _ps);
+        panels.setMatrixAt(i, _pm);
+      }
+      panels.instanceMatrix.needsUpdate = true;
     });
   }
 
