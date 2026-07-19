@@ -60,6 +60,9 @@ const C = {
   ANCHOR_DIST: 48,               // crystal centerpiece offset (opposite side)
   ANCHOR_CRYSTALS: 6,
 
+  // Moving walkways (travelators) — chevron scroll speed in texture-units/sec
+  WALKWAY_SPEED: 0.12,
+
   // Speaker orb landmark (district plaza center)
   SPEAKER_ORB_RADIUS: 3.2,
   SPEAKER_PULSE_SPEED: 0.6,
@@ -412,6 +415,35 @@ function makeCarpetTexture(baseHex, accentHex, size = 512) {
   const tex = canvasTexture(cnv);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(10, 10);
+  return tex;
+}
+
+// Moving-walkway lane: forward-pointing chevrons on a dark belt. RepeatWrapping
+// on T so the whole strip tiles; the shared material's map.offset.y scrolls it.
+function makeWalkwayTexture(accentHex) {
+  const w = 128, h = 256;
+  const cnv = document.createElement('canvas');
+  cnv.width = w; cnv.height = h;
+  const ctx = cnv.getContext('2d');
+  ctx.fillStyle = '#0d0a12';
+  ctx.fillRect(0, 0, w, h);
+  const accent = hexCss(accentHex);
+  // Two chevrons per tile, pointing toward -T (the concourse-inbound sense).
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 12;
+  ctx.lineCap = 'round';
+  ctx.shadowColor = accent;
+  ctx.shadowBlur = 10;
+  for (const cy of [h * 0.28, h * 0.78]) {
+    ctx.beginPath();
+    ctx.moveTo(16, cy + 26);
+    ctx.lineTo(w / 2, cy - 26);
+    ctx.lineTo(w - 16, cy + 26);
+    ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+  const tex = canvasTexture(cnv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   return tex;
 }
 
@@ -784,14 +816,25 @@ function buildDistrict(planet, worldUp, dept, index, rng, opts) {
     buckets.foliage.push(leaves);
   }
 
-  // Glowing runway strips guiding shoppers in from the entrance corridor.
+  // Moving walkways: two draped chevron lanes guiding shoppers in from the
+  // entrance corridor. All wings share one scrolling material (opts.walkwayMat);
+  // the chevrons animate via map.offset.y in the district update.
+  const LANE_Z0 = -33, LANE_Z1 = -69, LANE_HALF = 0.9, LANE_SEGS = 12;
   for (const sx of [-8, 8]) {
-    for (let seg = 0; seg < 3; seg++) {
-      const z = -36 - seg * 11;
-      const strip = new THREE.BoxGeometry(0.35, 0.14, 10);
-      strip.translate(sx, localGroundY(sx, z) + 0.13, z);
-      buckets.glow.push(strip);
+    const lane = new THREE.PlaneGeometry(LANE_HALF * 2, LANE_Z1 - LANE_Z0, 1, LANE_SEGS);
+    lane.rotateX(-Math.PI / 2); // lie flat; +Y up, length along Z
+    const lp = lane.attributes.position;
+    for (let i = 0; i < lp.count; i++) {
+      const x = lp.getX(i);
+      const z = lp.getZ(i) + (LANE_Z0 + LANE_Z1) / 2;
+      lp.setX(i, x + sx);
+      lp.setZ(i, z);
+      lp.setY(i, localGroundY(x + sx, z) + 0.09);
     }
+    lane.computeVertexNormals();
+    const laneMesh = new THREE.Mesh(lane, opts.walkwayMat);
+    laneMesh.frustumCulled = false;
+    group.add(laneMesh);
   }
 
   // Merge the buckets — one draw call per material per wing.
@@ -914,8 +957,18 @@ export function createDepartmentDistrict(planet, worldUp, opts = {}) {
   // One shell geometry shared by all 8 speaker-orb pulse shells (each wing
   // still owns its own ShaderMaterial for its accent colour + phase).
   const shellGeo = new THREE.IcosahedronGeometry(C.SPEAKER_ORB_RADIUS * 1.15, 2);
+
+  // One scrolling chevron material shared by every wing's two walkway lanes —
+  // animating its map.offset.y drives all 16 lanes at zero per-frame cost.
+  const walkwayTex = makeWalkwayTexture(C.COLORS.teal);
+  walkwayTex.repeat.set(1, 18); // ~2 m chevron tile over a 36 m lane
+  const walkwayMat = new THREE.MeshStandardMaterial({
+    map: walkwayTex, emissive: 0xffffff, emissiveMap: walkwayTex,
+    emissiveIntensity: 0.45, roughness: 0.5, // under bloom — floor never glares
+  });
+
   const districts = C.DEPARTMENTS.map((dept, i) =>
-    buildDistrict(planet, worldUp, dept, i, rng, { ...opts, shellGeo }));
+    buildDistrict(planet, worldUp, dept, i, rng, { ...opts, shellGeo, walkwayMat }));
   districts.forEach((d) => group.add(d.group));
 
   const boardingPad = districts[0].frame.pos.clone();
@@ -933,6 +986,9 @@ export function createDepartmentDistrict(planet, worldUp, opts = {}) {
     for (let i = 0; i < dimMats.length; i++) {
       dimMats[i].m.emissiveIntensity = dimMats[i].base * level;
     }
+    // Scroll the shared walkway belt toward the concourse (all 16 lanes);
+    // driven off elapsed t so it's frame-rate independent and zero-alloc.
+    walkwayTex.offset.y = -t * C.WALKWAY_SPEED;
     districts.forEach((d, i) => {
       const phase = t * C.SPEAKER_PULSE_SPEED + i * 0.7;
       d.orbMaterial.emissiveIntensity =
@@ -957,7 +1013,9 @@ export function createDepartmentDistrict(planet, worldUp, opts = {}) {
     group.traverse((obj) => {
       // shellGeo is shared across all 8 orb shells — dispose it once, below.
       if (obj.geometry && obj.geometry !== shellGeo) obj.geometry.dispose();
-      if (obj.material) {
+      // walkwayMat (+ its texture) is shared across all 16 lanes — skip here,
+      // dispose once below, so the traversal doesn't double-free the texture.
+      if (obj.material && obj.material !== walkwayMat) {
         if (obj.material.map) obj.material.map.dispose();
         if (obj.material.emissiveMap && obj.material.emissiveMap !== obj.material.map) {
           obj.material.emissiveMap.dispose();
@@ -966,6 +1024,8 @@ export function createDepartmentDistrict(planet, worldUp, opts = {}) {
       }
     });
     shellGeo.dispose();
+    walkwayTex.dispose();
+    walkwayMat.dispose();
   }
 
   return { group, update, sunDot: 1, dispose, groundHeightAt, boardingPad, districts };
