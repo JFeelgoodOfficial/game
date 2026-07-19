@@ -191,6 +191,7 @@ function glowText(ctx, text, x, y, px, colorCss, font = 'monospace') {
 function canvasTexture(cnv) {
   const tex = new THREE.CanvasTexture(cnv);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8; // driver clamps to hardware max
   tex.needsUpdate = true;
   return tex;
 }
@@ -362,17 +363,18 @@ function makeDirectoryTexture(deptName, tagline, storeNames, accentHex) {
 
 // Mall carpet: plum diamond lattice with accent medallion dots on a deep red
 // ground — the patterned-concourse look from the reference art.
-function makeCarpetTexture(baseHex, accentHex, size = 256) {
+function makeCarpetTexture(baseHex, accentHex, size = 512) {
   const cnv = document.createElement('canvas');
   cnv.width = size; cnv.height = size;
   const ctx = cnv.getContext('2d');
   ctx.fillStyle = hexCss(baseHex);
   ctx.fillRect(0, 0, size, size);
   const cell = size / 4;
+  const px = size / 256; // stroke/dot scale so 512 keeps the 256 design weight
   // Diamond lattice
   ctx.strokeStyle = '#8a3448';
   ctx.globalAlpha = 0.55;
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 3 * px;
   for (let i = -1; i <= 4; i++) {
     ctx.beginPath();
     ctx.moveTo(i * cell - size, 0); ctx.lineTo(i * cell + size, size * 2);
@@ -398,7 +400,7 @@ function makeCarpetTexture(baseHex, accentHex, size = 256) {
   for (let gx = 0; gx <= 4; gx++) {
     for (let gz = 0; gz <= 4; gz++) {
       ctx.beginPath();
-      ctx.arc(gx * cell, gz * cell, 5, 0, Math.PI * 2);
+      ctx.arc(gx * cell, gz * cell, 5 * px, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -1307,6 +1309,11 @@ export function createWonderField(planet, worldUp, opts = {}) {
 /* ----------------------------------------------------------------------
  * TASK C â€” Employees & wandering callers
  * ------------------------------------------------------------------- */
+// Frame-loop scratch — module scope so crowd/mote updates never allocate.
+const _toWp = new THREE.Vector3();
+const _m4 = new THREE.Matrix4();
+const _col = new THREE.Color();
+
 const DIALOGUE_BANK = {
   employeeGreeting: [
     'Your satisfaction is our directive.',
@@ -1469,15 +1476,16 @@ export function createCrowd(host, opts = {}) {
   function update(dt, playerPos, sunDot = 1) {
     simT += dt;
     let idx = 0;
-    citizens.forEach((c) => {
+    for (let ci = 0; ci < citizens.length; ci++) {
+      const c = citizens[ci];
       // A citizen in dialogue holds still so the speaker doesn't wander off.
       if (!c.talking) {
-        const toWaypoint = c.waypoint.clone().sub(c.pos);
-        const dist = toWaypoint.length();
+        _toWp.copy(c.waypoint).sub(c.pos);
+        const dist = _toWp.length();
         if (dist < 1) pickWaypoint(c);
         else {
-          toWaypoint.normalize().multiplyScalar(c.speed * dt);
-          c.pos.add(toWaypoint);
+          _toWp.normalize().multiplyScalar(c.speed * dt);
+          c.pos.add(_toWp);
         }
       }
 
@@ -1502,11 +1510,11 @@ export function createCrowd(host, opts = {}) {
       }
 
       if (distToPlayer < C.CULL_DIST) {
-        impostorMesh.setMatrixAt(idx, new THREE.Matrix4().setPosition(c.pos));
-        impostorMesh.setColorAt(idx, new THREE.Color(c.accent).multiplyScalar(Math.max(0.3, sunDot)));
+        impostorMesh.setMatrixAt(idx, _m4.setPosition(c.pos));
+        impostorMesh.setColorAt(idx, _col.set(c.accent).multiplyScalar(Math.max(0.3, sunDot)));
         idx++;
       }
-    });
+    }
     impostorMesh.count = idx;
     impostorMesh.instanceMatrix.needsUpdate = true;
     if (impostorMesh.instanceColor) impostorMesh.instanceColor.needsUpdate = true;
@@ -1611,13 +1619,13 @@ export function createHoldMusicField(planet, worldUp, opts = {}) {
   }
 
   function update(t, nearestDistrictIndex = 0) {
-    const matrix = new THREE.Matrix4();
-    moteData.forEach((m, i) => {
+    for (let i = 0; i < moteData.length; i++) {
+      const m = moteData[i];
       const y = m.basePos.y + ((t * C.MOTE_RISE_SPEED * m.speed + m.phase) % 8);
       const wobble = Math.sin(t * m.speed + m.phase) * C.MOTE_DRIFT_RADIUS;
-      matrix.setPosition(m.basePos.x + wobble, y, m.basePos.z);
-      motes.setMatrixAt(i, matrix);
-    });
+      _m4.setPosition(m.basePos.x + wobble, y, m.basePos.z);
+      motes.setMatrixAt(i, _m4);
+    }
     motes.instanceMatrix.needsUpdate = true;
 
     if (osc) {
