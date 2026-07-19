@@ -32,6 +32,25 @@ import marqueeFrag from '../src/shaders/wavemallmarquee.frag?raw';
 import orbPulseVert from '../src/shaders/orbpulse.vert?raw';
 import orbPulseFrag from '../src/shaders/orbpulse.frag?raw';
 
+// The owner's paintings (repo-root /artgallery, same pipeline as the Orbital
+// Art Gallery in src/stations.js and the shadowreach garden windowpane). We
+// hang the titled works down the GALLERIA colonnade; IMG_*/numeric filenames
+// (untitled phone captures) are filtered out. Asset URLs only — bytes load
+// asynchronously via TextureLoader when the world is built.
+const GALLERIA_ART = Object.entries(
+  import.meta.glob('/artgallery/*.{png,jpg,jpeg,webp}', {
+    eager: true,
+    query: '?url',
+    import: 'default',
+  })
+)
+  .sort(([a], [b]) => (a < b ? -1 : 1))
+  .filter(([path]) => {
+    const base = path.split('/').pop();
+    return !/^IMG_|^\d/i.test(base);
+  })
+  .map(([, url]) => url);
+
 /* ----------------------------------------------------------------------
  * Tunables â€” every magic number lives here.
  * ------------------------------------------------------------------- */
@@ -1275,6 +1294,159 @@ export function createAnchorStructure(planet, worldUp, opts = {}) {
 }
 
 /* ----------------------------------------------------------------------
+ * The Galleria â€” JFeelgood art colonnade on the entrance walk
+ * ------------------------------------------------------------------- */
+// A double row of lit frame stands lining the stretch between the landing
+// anchor and the grand entrance arch, each hanging one of the owner's
+// paintings. Loaders (async TextureLoader + LoadingManager) + fundamentals
+// (named group, LOD-friendly individual frustum-culled meshes, dispose race
+// guard) in one showcase.
+export function createGalleria(planet, worldUp, opts = {}) {
+  const group = new THREE.Group();
+  group.name = 'wavemall_galleria';
+
+  // Anchor the colonnade midway down the entrance walk (angle 0, the district-0
+  // bearing), yawed so local -Z looks back at the landing anchor.
+  const dirLocal = ringDir(planet, worldUp, 0, 33);
+  const frame = surfaceFrame(planet, worldUp, dirLocal);
+  group.position.copy(frame.pos);
+  group.quaternion.copy(frame.q);
+
+  const baseR = frame.pos.length();
+  const _dw = new THREE.Vector3();
+  const localGroundY = (x, z) => {
+    _dw.set(x, 0, z).applyQuaternion(frame.q).add(frame.pos).normalize();
+    const rr = sampleGround(planet, _dw);
+    return Math.sqrt(Math.max(rr * rr - (x * x + z * z), 0)) - baseR - 0.05;
+  };
+
+  const manager = new THREE.LoadingManager();
+  const loader = new THREE.TextureLoader(manager);
+  const textures = [];
+  let disposed = false;
+
+  // Stand slots: five per side along the corridor (local Z), lateral ±LANE.
+  const LANE = 6, ZSPAN = 18, PER_SIDE = 5;
+  const propGeos = [];
+  const structures = [];
+  const paintingMeshes = [];
+  const paintingMats = [];
+  const artCount = GALLERIA_ART.length;
+  let artIdx = 0;
+
+  const FRAME_W = 3.0, FRAME_H = 3.8, POST_H = 2.2;
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < PER_SIDE; i++) {
+      const z = -ZSPAN + (i / (PER_SIDE - 1)) * (ZSPAN * 2);
+      const x = side * LANE;
+      const gy = localGroundY(x, z);
+      const faceX = -side; // paintings face the walk centerline
+      const yaw = faceX > 0 ? Math.PI / 2 : -Math.PI / 2;
+
+      // Two support posts + a frame border, in the prop bucket (merged, dark).
+      for (const dz of [-FRAME_W / 2, FRAME_W / 2]) {
+        const post = new THREE.BoxGeometry(0.22, POST_H + gy + 1.2, 0.22);
+        post.translate(x, (POST_H) / 2 + gy - 0.6, z + dz);
+        propGeos.push(post);
+      }
+      // Frame slab behind the canvas (also the mounting board).
+      const board = new THREE.BoxGeometry(0.18, FRAME_H, FRAME_W);
+      board.translate(x + faceX * -0.02, POST_H + FRAME_H / 2 + gy, z);
+      propGeos.push(board);
+
+      // Collision: a thin wall AABB so the player can't clip through a stand.
+      structures.push(makeStructure(x, z, gy, [], [
+        { x0: x - 0.4, x1: x + 0.4, z0: z - FRAME_W / 2 - 0.3, z1: z + FRAME_W / 2 + 0.3,
+          y0: 0, y1: POST_H + FRAME_H },
+      ], FRAME_W));
+
+      // The painting: an individual plane (unique texture, can't merge). Starts
+      // dark; onLoad swaps the real work in. frustumCulled — small + localized.
+      const url = artCount ? GALLERIA_ART[artIdx % artCount] : null;
+      artIdx++;
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x140f18, roughness: 0.5,
+        emissive: 0xffffff, emissiveIntensity: 0.0,
+      });
+      const plane = new THREE.PlaneGeometry(FRAME_W - 0.5, FRAME_H - 0.6);
+      plane.rotateY(yaw);
+      const mesh = new THREE.Mesh(plane, mat);
+      mesh.position.set(x + faceX * 0.11, POST_H + FRAME_H / 2 + gy, z);
+      group.add(mesh);
+      paintingMeshes.push(mesh);
+      paintingMats.push(mat);
+
+      if (url) {
+        loader.load(url, (tex) => {
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.anisotropy = 8;
+          if (disposed) { tex.dispose(); return; } // race: dispose beat the load
+          textures.push(tex);
+          mat.map = tex;
+          mat.emissiveMap = tex;
+          mat.emissiveIntensity = 0.42; // shadowreach's proven self-lit value
+          mat.color.set(0xffffff);
+          mat.needsUpdate = true;
+        });
+      }
+    }
+  }
+
+  // Header sign spanning the colonnade mouth (toward the anchor).
+  const atlas = makeStorefrontSignAtlas(['WAVEMALL GALLERIA'], C.COLORS.teal);
+  const signMat = new THREE.MeshStandardMaterial({
+    map: atlas.tex, emissive: 0xffffff, emissiveMap: atlas.tex,
+    emissiveIntensity: C.SIGN_EMISSIVE, roughness: 0.5,
+  });
+  const headGy = localGroundY(0, -ZSPAN - 4);
+  const headGeo = new THREE.PlaneGeometry(10, 1.9);
+  const headMesh = new THREE.Mesh(headGeo, signMat);
+  headMesh.position.set(0, headGy + 6.2, -ZSPAN - 4);
+  headMesh.frustumCulled = false;
+  group.add(headMesh);
+  // Two gateway posts under the header.
+  for (const sx of [-5, 5]) {
+    const gy = localGroundY(sx, -ZSPAN - 4);
+    const post = new THREE.BoxGeometry(0.4, 7.2, 0.4);
+    post.translate(sx, gy + 3.6, -ZSPAN - 4);
+    propGeos.push(post);
+  }
+
+  // Merge all posts/boards into one prop mesh (one draw call).
+  const propMat = new THREE.MeshStandardMaterial({
+    color: 0x241e2c, roughness: 0.8, metalness: 0.15,
+  });
+  const propMesh = new THREE.Mesh(mergeGeometries(propGeos, false), propMat);
+  propMesh.frustumCulled = false;
+  group.add(propMesh);
+
+  const signBase = signMat.emissiveIntensity;
+  function update(sunDot = 1) {
+    // Match the wings: header dims below the bloom threshold by day.
+    const nightLift = THREE.MathUtils.clamp(1 - Math.max(sunDot, 0), 0, 1);
+    signMat.emissiveIntensity = signBase * THREE.MathUtils.lerp(0.55, 1, nightLift);
+  }
+
+  function dispose() {
+    disposed = true;
+    for (let i = 0; i < textures.length; i++) textures[i].dispose();
+    group.traverse((obj) => {
+      if (obj.geometry) obj.geometry.dispose();
+      if (obj.material) {
+        if (obj.material.map) obj.material.map.dispose();
+        if (obj.material.emissiveMap && obj.material.emissiveMap !== obj.material.map) {
+          obj.material.emissiveMap.dispose();
+        }
+        obj.material.dispose();
+      }
+    });
+  }
+
+  void opts;
+  return { group, frame, structures, update, dispose };
+}
+
+/* ----------------------------------------------------------------------
  * TASK B â€” Signature wonders
  * ------------------------------------------------------------------- */
 function buildWaveSpaceArch(rng) {
@@ -1852,6 +2024,7 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
   const wonders = createWonderField(planet, worldUp, { ...opts, seedKey });
   const entrance = createGrandEntrance(planet, worldUp, { ...opts, seedKey });
   const centerpiece = createAnchorStructure(planet, worldUp, { ...opts, seedKey });
+  const galleria = createGalleria(planet, worldUp, { ...opts, seedKey });
 
   // Landing-point anchor. Districts and wonders place each feature along its
   // own direction, but the crowd and hold-music motes are built around a local
@@ -1862,10 +2035,15 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
   const anchorQInv = anchorQ.clone().invert();
   const _gp = new THREE.Vector3();
 
-  // Crowd-local no-wander circles under the arch pylons + crystal dais.
-  const avoid = [entrance, centerpiece].map((f, i) => {
+  // Crowd-local no-wander circles under the arch pylons, crystal dais, and the
+  // Galleria colonnade so citizens don't wander through the frame stands.
+  const avoid = [
+    { f: entrance, r: 16 },
+    { f: centerpiece, r: 14 },
+    { f: galleria, r: 26 },
+  ].map(({ f, r }) => {
     const p = _gp.copy(f.frame.pos).sub(anchorPos).applyQuaternion(anchorQInv);
-    return { x: p.x, z: p.z, r: i === 0 ? 16 : 14 };
+    return { x: p.x, z: p.z, r };
   });
 
   const crowd = createCrowd(
@@ -1894,7 +2072,7 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
 
   group.add(
     districts.group, wonders.group, entrance.group, centerpiece.group,
-    crowd.group, holdMusic.group
+    galleria.group, crowd.group, holdMusic.group
   );
 
   // Per-lobby manifest for interior shopkeepers (walk.js): each entry carries
@@ -1912,6 +2090,7 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
     wonders.update(t, sunDot);
     entrance.update(t, sunDot);
     centerpiece.update(t, dt, sunDot);
+    galleria.update(sunDot);
     crowd.update(dt, playerPos, sunDot);
     holdMusic.update(t);
   }
@@ -1932,6 +2111,7 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
   }));
   zones.push({ frame: entrance.frame, structures: entrance.structures, r2: 30 ** 2 });
   zones.push({ frame: centerpiece.frame, structures: centerpiece.structures, r2: 30 ** 2 });
+  zones.push({ frame: galleria.frame, structures: galleria.structures, r2: 55 ** 2 });
 
   const _rcLocal = new THREE.Vector3();
   function resolveCollisions(surfaceLocalPos, playerRadius) {
@@ -1983,6 +2163,7 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
     wonders.dispose();
     entrance.dispose();
     centerpiece.dispose();
+    galleria.dispose();
     crowd.dispose();
     holdMusic.dispose();
   }
@@ -2004,6 +2185,7 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
     wonders,
     entrance,
     centerpiece,
+    galleria,
     crowd,
     holdMusic,
   };
