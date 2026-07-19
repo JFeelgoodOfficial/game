@@ -178,28 +178,33 @@ const CONFIGS = [
   {
     name: 'shadowreach', // bespoke linear narrative world (world/shadowreach.js)
     type: 'terra',
-    // Sun-facing so the whole narrative path (field → garden) reads in daylight
-    // rather than the night side (SUN ~ (0.85,0.30,0.43)); every zone sunDot ~0.9.
+    // Sun-facing landing bearing so the early story zones read in daylight
+    // (SUN ~ (0.85,0.30,0.43)); the module adds local lights for late zones.
     dir: new THREE.Vector3(0.7, 0.3, 0.2).normalize(),
     distance: () => 40000,
     radius: () => 900,
     mass: () => 6.9e5, // surface g ~= 30, like glacia
-    skyColor: () => 0xe9e9ee, // soft near-white dream sky
+    // Approach/orbit sky only: while walking, world/shadowreach.js installs a
+    // dynamic closure over cfg.skyColor that lerps the sky through each story
+    // zone's mood (meadow blue → dusk ochre → desert pale → storm → gold) and
+    // restores this default on dispose.
+    skyColor: () => 0xbfd0e0,
     spin: () => 0.006, // near-frozen dream-day: the sun barely moves in a walkthrough
-    atmoColor: 0xc9c9d2,
+    atmoColor: 0xcfc4ae,
     seaLevel: () => 0.02, // dry — the module owns all water as visual props
     terrainHeight: () => 6, // near-flat: the narrative path lies on level ground
     iceLat: 0.98,
-    // Greyscale terrain bands (black-and-white watercolor). The module supplies
-    // the only two accent colors (mask-blue, sprout-green) on its own props.
+    // Neutral warm parchment/olive base terrain, visible between and around the
+    // module's vividly colored per-zone ground carpets — chosen to fight none
+    // of the zone palettes.
     palette: {
-      deep: 0x141416, shallow: 0x2e2e30, sand: 0x8a8a8c,
-      low: 0x9c9c9e, mid: 0x6b6b6d, high: 0xf0f0f2,
+      deep: 0x4a4234, shallow: 0x6a5f4a, sand: 0xb9a77e,
+      low: 0x8a815f, mid: 0x7a7258, high: 0xd9d0b8,
     },
     water: null,
-    clouds: false,
-    // No dress block: createDressing returns null, so nothing colored spawns —
-    // world/shadowreach.js is a total conversion that owns 100% of the surface.
+    clouds: false, // the module owns its own storm — no global cloud layer
+    // No dress block: createDressing returns null — world/shadowreach.js is a
+    // total conversion that owns 100% of the surface content.
   },
   {
     name: 'saturnia',
