@@ -43,6 +43,8 @@ import { createMirrorRoom } from './actuality-mirrorroom.js';
 // statue behind, the glowing hologram (box removed) additively in front.
 import dragonHoloUrl from '../src/assets/actuality-dragon-nobox.png';
 import dragonGraniteUrl from '../src/assets/actuality-dragon-granite.png';
+// The owner's "Body" artwork (two souls becoming one) — the focal mural of Zone 2.
+import bodyImgUrl from '../src/assets/actuality-body.png';
 
 /* ----------------------------------------------------------------------
  * Tunables — every magic number lives here.
@@ -1929,9 +1931,13 @@ export function createActuality(planet, worldUp, opts = {}) {
   // into extruding directions", kept abstract/tasteful).
   function buildZone2() {
     const rec = zoneById['z2'];
-    rec.group.add(new THREE.AmbientLight(0x4a3020, 0.5));
-    const breathLight = new THREE.PointLight(0xffb070, 0.8, 34, 2.0);
-    breathLight.position.set(0, 3.2, 0); rec.group.add(breathLight);
+    // Warm molten-sunset room (the "Body" artwork palette): rose-gold ambient,
+    // a soft amber key, and a low warm fill so the whole space glows.
+    rec.group.add(new THREE.AmbientLight(0x6a3a2a, 0.75));
+    const breathLight = new THREE.PointLight(0xffb884, 1.1, 40, 2.0);
+    breathLight.position.set(0, 4.5, 0); rec.group.add(breathLight);
+    const warmFill = new THREE.PointLight(0xff9a5a, 0.7, 34, 2.0);
+    warmFill.position.set(0, 1.4, 6); rec.group.add(warmFill);
 
     // "Shared reality" (Ch.2): two soul-lights — one warm rose, one amber —
     // drift apart and draw back together, merging into a single glow at the
@@ -1952,10 +1958,10 @@ export function createActuality(planet, worldUp, opts = {}) {
     zoneMats.push(mergeMat);
     const mergeGlow = new THREE.Mesh(soulGeo, mergeMat); mergeGlow.scale.set(1.6, 2.4, 1.6); mergeGlow.position.set(0, 2.4, 0);
     rec.group.add(mergeGlow);
-    const R = 12, WH = 6.5;
+    const R = 12, WH = 11; // taller room so the "Body" mural has presence
     const PER = 8;                         // 8×8 panels per surface
     const cell = (R * 2) / PER;
-    const panelMat = new THREE.MeshStandardMaterial({ color: 0x7a4f38, roughness: 0.92, side: THREE.DoubleSide });
+    const panelMat = new THREE.MeshStandardMaterial({ color: 0x9a5a40, roughness: 0.9, side: THREE.DoubleSide, emissive: 0x2a1008, emissiveIntensity: 0.4 });
     // A faint "2" traced in slightly discolored panels on the back wall (glyph).
     const glyph2 = new Set(['1,1', '2,1', '3,1', '3,2', '2,3', '1,4', '1,5', '2,5', '3,5']);
     zoneMats.push(panelMat);
@@ -2004,6 +2010,36 @@ export function createActuality(planet, worldUp, opts = {}) {
         { x0: R, x1: R + wt, z0: -R, z1: R, y0: 0, y1: WH },
       ], R + 2);
     rec.r2 = (R + 12) ** 2;
+
+    // The "Body" mural — the owner's artwork of two lovers becoming one — mounted
+    // as a large luminous painting on the back wall, the room's focal point (the
+    // way the deep nebulae show the owner's paintings). A warm frame + backglow.
+    const MW = 7.0, MH = 10.5;             // portrait ~2:3
+    const bodyTex = new THREE.TextureLoader().load(bodyImgUrl);
+    bodyTex.colorSpace = THREE.SRGBColorSpace;
+    zoneTextures.push(bodyTex);
+    const bodyMat = new THREE.MeshBasicMaterial({ map: bodyTex, transparent: true, side: THREE.DoubleSide, depthWrite: false });
+    zoneMats.push(bodyMat);
+    const bodyGeo = new THREE.PlaneGeometry(MW, MH);
+    const bodyMural = new THREE.Mesh(bodyGeo, bodyMat);
+    bodyMural.position.set(0, WH / 2, -R + 0.8); rec.group.add(bodyMural);
+    zoneGeos.push(bodyGeo);
+    // Warm frame around it.
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x6a3a1e, roughness: 0.7, emissive: 0x3a1c0a, emissiveIntensity: 0.5, metalness: 0.3 });
+    zoneMats.push(frameMat);
+    for (const [w, h, x, y] of [[MW + 0.7, 0.35, 0, MH / 2 + 0.15], [MW + 0.7, 0.35, 0, -MH / 2 - 0.15], [0.35, MH + 0.7, MW / 2 + 0.15, 0], [0.35, MH + 0.7, -MW / 2 - 0.15, 0]]) {
+      const fg = new THREE.BoxGeometry(w, h, 0.3);
+      const fm = new THREE.Mesh(fg, frameMat); fm.position.set(x, WH / 2 + y, -R + 0.75); rec.group.add(fm); zoneGeos.push(fg);
+    }
+    // Soft warm backglow so the painting reads as lit from within.
+    const glowMat = new THREE.MeshBasicMaterial({ color: 0xffb070, transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    zoneMats.push(glowMat);
+    const glowGeo = new THREE.PlaneGeometry(MW + 4, MH + 4);
+    const bodyGlow = new THREE.Mesh(glowGeo, glowMat); bodyGlow.position.set(0, WH / 2, -R + 0.5); rec.group.add(bodyGlow);
+    zoneGeos.push(glowGeo);
+    const muralLight = new THREE.PointLight(0xffb884, 1.0, 26, 2.0);
+    muralLight.position.set(0, WH / 2, -R + 3.5); rec.group.add(muralLight);
+
     const _pm = new THREE.Matrix4(), _pv = new THREE.Vector3(), _ps = new THREE.Vector3(1, 1, 1);
     zoneUpdaters.push((t) => {
       if (activeZone !== 'z2') return;
