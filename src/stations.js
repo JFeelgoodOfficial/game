@@ -475,7 +475,19 @@ const galleryArtUrls = Object.entries(
   .sort(([a], [b]) => (a < b ? -1 : 1))
   .map(([, url]) => url);
 
-const artLoader = new THREE.TextureLoader();
+// Anisotropy for the art + signage: paintings are viewed at grazing angles
+// as you walk the decks, and 16 (clamped to the hardware max by three.js)
+// keeps them from smearing into mush. One knob for the whole gallery.
+const GALLERY_ANISO = 16;
+
+// A LoadingManager wraps the art loads so the gallery knows when its
+// collection is fully decoded — logged in dev, and a hook for a future
+// "gallery ready" cue. It coordinates only the exhibit textures.
+const artManager = new THREE.LoadingManager();
+if (import.meta.env.DEV) {
+  artManager.onLoad = () => console.log('[gallery] all artwork textures loaded');
+}
+const artLoader = new THREE.TextureLoader(artManager);
 // url -> { tex, size, pending[] }: slots share one load per image, and each
 // registers an onSize callback so its mesh can be scaled to the image's TRUE
 // aspect ratio once the pixels arrive (fires immediately on a cache hit).
@@ -487,11 +499,16 @@ function galleryTexture(url, onSize) {
     entry = { tex: null, size: null, pending: [] };
     galleryTexCache.set(url, entry);
     entry.tex = artLoader.load(url, (t) => {
+      // crisp at oblique angles, and mipmapped (three.js default) so distant
+      // pieces stay clean; sRGB set below at construction
+      t.anisotropy = GALLERY_ANISO;
+      t.needsUpdate = true;
       entry.size = { w: t.image.width, h: t.image.height };
       for (const cb of entry.pending) cb(entry.size.w, entry.size.h);
       entry.pending.length = 0;
     });
     entry.tex.colorSpace = THREE.SRGBColorSpace;
+    entry.tex.anisotropy = GALLERY_ANISO;
   }
   if (onSize) {
     if (entry.size) onSize(entry.size.w, entry.size.h);
@@ -568,7 +585,7 @@ function gallerySignTexture(line1, line2, wPx = 1024, hPx = 256) {
   }
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
+  tex.anisotropy = GALLERY_ANISO;
   return tex;
 }
 
@@ -586,6 +603,256 @@ const floorMat = new THREE.MeshStandardMaterial({
   metalness: 0.5,
   side: THREE.DoubleSide,
 });
+
+// ---- gallery atmosphere fx ----------------------------------------------
+// Animated shader materials register here; updateGalleryUniforms(t) writes
+// their uTime once per frame — driven from the gallery's anim(t) while flying
+// past and from stationWalk's updateStationVisuals while docked (the station
+// is frozen when docked, so anim(t) doesn't run). One uniform write each,
+// zero per-frame allocation (the mining-rig debris shader is the template).
+const galleryFx = [];
+export function updateGalleryUniforms(t) {
+  for (let i = 0; i < galleryFx.length; i++) galleryFx[i].uTime.value = t;
+}
+
+// A small procedural environment cube for the gallery's glass + metal to
+// reflect — six canvas faces: a dark-space vertical gradient, a faint
+// magenta/cyan horizon glow, and a few hash-placed star specks. Deterministic
+// and self-contained (no renderer / PMREM / global scene.environment), so it
+// touches nothing outside the gallery.
+function galleryEnvFace(dir) {
+  const s = 128;
+  const cv = document.createElement('canvas');
+  cv.width = s;
+  cv.height = s;
+  const ctx = cv.getContext('2d');
+  // vertical gradient: deep space at top, a warmer nebula floor at the bottom
+  const top = dir === 'py' ? '#0a0f1c' : dir === 'ny' ? '#161022' : '#0b101d';
+  const bot = dir === 'ny' ? '#241634' : '#0a0d16';
+  const grad = ctx.createLinearGradient(0, 0, 0, s);
+  grad.addColorStop(0, top);
+  grad.addColorStop(1, bot);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, s, s);
+  // a faint accent horizon glow on the side faces (magenta one side, cyan other)
+  if (dir === 'px' || dir === 'nz') {
+    const g2 = ctx.createRadialGradient(s * 0.5, s * 0.6, 4, s * 0.5, s * 0.6, s * 0.7);
+    g2.addColorStop(0, 'rgba(212,64,143,0.35)');
+    g2.addColorStop(1, 'rgba(212,64,143,0)');
+    ctx.fillStyle = g2;
+    ctx.fillRect(0, 0, s, s);
+  } else if (dir === 'nx' || dir === 'pz') {
+    const g2 = ctx.createRadialGradient(s * 0.5, s * 0.45, 4, s * 0.5, s * 0.45, s * 0.7);
+    g2.addColorStop(0, 'rgba(130,247,255,0.28)');
+    g2.addColorStop(1, 'rgba(130,247,255,0)');
+    ctx.fillStyle = g2;
+    ctx.fillRect(0, 0, s, s);
+  }
+  // deterministic star specks, seeded off the face name
+  const seed = dir.charCodeAt(0) * 131 + dir.charCodeAt(1) * 17;
+  ctx.fillStyle = '#cfe0ff';
+  for (let i = 0; i < 26; i++) {
+    const h = Math.sin(seed + i * 12.9898) * 43758.5453;
+    const h2 = Math.sin(seed + i * 78.233) * 24634.6345;
+    ctx.globalAlpha = 0.3 + ((h * 7) % 1) * 0.5;
+    ctx.fillRect((h - Math.floor(h)) * s, (h2 - Math.floor(h2)) * s, 1.3, 1.3);
+  }
+  ctx.globalAlpha = 1;
+  return cv;
+}
+const galleryEnv = new THREE.CubeTexture(
+  ['px', 'nx', 'py', 'ny', 'pz', 'nz'].map(galleryEnvFace)
+);
+galleryEnv.colorSpace = THREE.SRGBColorSpace;
+galleryEnv.needsUpdate = true;
+// give the gallery-local metal surfaces a subtle environment sheen (these
+// materials are used only by the gallery interior — hullMat, shared across
+// stations, is deliberately left untouched)
+deckMat.envMap = galleryEnv;
+deckMat.envMapIntensity = 0.35;
+floorMat.envMap = galleryEnv;
+floorMat.envMapIntensity = 0.3;
+
+// The antigrav lift beam: an upward-scrolling energy column. Bands rise, the
+// silhouette fresnel makes the cylinder edges glow, additive so it reads as
+// light. Registered in galleryFx for its uTime.
+function makeBeamMaterial() {
+  const uniforms = { uTime: { value: 0 }, uSpeed: { value: C.GALLERY_BEAM_SPEED } };
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      varying vec3 vNormalV;
+      varying vec3 vViewV;
+      void main() {
+        vUv = uv;
+        vNormalV = normalize(normalMatrix * normal);
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vViewV = -mv.xyz;
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform float uTime;
+      uniform float uSpeed;
+      varying vec2 vUv;
+      varying vec3 vNormalV;
+      varying vec3 vViewV;
+      void main() {
+        // rising energy bands + a slow base shimmer
+        float bands = 0.5 + 0.5 * sin(vUv.y * 46.0 - uTime * uSpeed * 6.0);
+        float pulse = 0.7 + 0.3 * sin(uTime * 2.0);
+        // fresnel: brightest at the cylinder silhouette
+        float fres = pow(1.0 - abs(dot(normalize(vViewV), normalize(vNormalV))), 1.6);
+        float a = (0.06 + 0.16 * bands) * (0.35 + fres) * pulse;
+        vec3 col = mix(vec3(0.42, 0.24, 0.85), vec3(0.7, 0.5, 1.0), bands);
+        gl_FragColor = vec4(col, a);
+      }
+    `,
+  });
+  galleryFx.push(uniforms);
+  return mat;
+}
+
+// The full-height window glass: mostly clear so terra reads through, with a
+// fresnel rim sheen and an env-cube reflection that strengthens toward the
+// grazing edges. A faint uTime shimmer keeps it alive.
+function makeGlassMaterial() {
+  const uniforms = { uTime: { value: 0 }, uEnv: { value: galleryEnv } };
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    vertexShader: /* glsl */ `
+      varying vec3 vNormalW;
+      varying vec3 vViewW;
+      varying float vY;
+      void main() {
+        vNormalW = mat3(modelMatrix) * normal;
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vViewW = cameraPosition - wp.xyz;
+        vY = uv.y;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform float uTime;
+      uniform samplerCube uEnv;
+      varying vec3 vNormalW;
+      varying vec3 vViewW;
+      varying float vY;
+      void main() {
+        vec3 n = normalize(vNormalW);
+        vec3 v = normalize(vViewW);
+        float fres = pow(1.0 - abs(dot(v, n)), 3.0);
+        vec3 refl = textureCube(uEnv, reflect(-v, n)).rgb;
+        vec3 glass = vec3(0.81, 0.93, 1.0);
+        // faint vertical shimmer so the pane isn't dead-flat
+        float shimmer = 0.04 * sin(vY * 40.0 + uTime * 1.5);
+        vec3 col = mix(glass, refl, fres * 0.5) + shimmer;
+        float a = mix(0.05, 0.42, fres);
+        gl_FragColor = vec4(col, a);
+      }
+    `,
+  });
+  galleryFx.push(uniforms);
+  return mat;
+}
+
+// The antigrav pad disc: a breathing purple glow with a travelling ring, so
+// the lift entrance reads as active. Kept bright (it's meant to bloom).
+function makePadMaterial() {
+  const uniforms = { uTime: { value: 0 } };
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    transparent: true,
+    depthWrite: false,
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform float uTime;
+      varying vec2 vUv;
+      void main() {
+        // the cylinder cap UVs run 0..1; radial distance from the centre
+        float r = length(vUv - 0.5) * 2.0;
+        float breathe = 0.55 + 0.45 * sin(uTime * 2.2);
+        // a ring that travels outward
+        float ring = smoothstep(0.08, 0.0, abs(r - fract(uTime * 0.5)));
+        vec3 col = mix(vec3(0.35, 0.18, 0.7), vec3(0.75, 0.55, 1.0), breathe);
+        col += ring * vec3(0.5, 0.4, 0.9);
+        float a = (1.0 - smoothstep(0.7, 1.0, r)) * (0.7 + 0.3 * breathe);
+        gl_FragColor = vec4(col, a);
+      }
+    `,
+  });
+  galleryFx.push(uniforms);
+  return mat;
+}
+
+// Floating light motes drifting up the atrium — one Points draw, advected in
+// the vertex shader (mining-rig discipline: zero CPU, one uniform write).
+function makeAtriumDust() {
+  const N = C.GALLERY_DUST;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3));
+  const offs = new Float32Array(N);
+  for (let i = 0; i < N; i++) offs[i] = i / N;
+  geo.setAttribute('aOffset', new THREE.BufferAttribute(offs, 1));
+  // atrium fills roughly r<=54, y 0..118 around the tower centre (0,50,150)
+  geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 50, 150), 130);
+  const uniforms = { uTime: { value: 0 }, uRise: { value: C.GALLERY_DUST_RISE } };
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: /* glsl */ `
+      uniform float uTime;
+      uniform float uRise;
+      attribute float aOffset;
+      varying float vFade;
+      float hash(float n) { return fract(sin(n * 127.1) * 43758.5453); }
+      void main() {
+        // each mote rises slowly and recycles; position hashed in the atrium
+        float f = fract(aOffset + uTime * uRise);
+        float h1 = hash(aOffset), h2 = hash(aOffset + 1.7), h3 = hash(aOffset + 3.1);
+        float ang = h1 * 6.2831853;
+        float rad = 6.0 + h2 * 46.0;
+        // tower centre is (0,50,150) in the station-group frame
+        vec3 p = vec3(cos(ang) * rad, f * 118.0, 150.0 + sin(ang) * rad);
+        // gentle horizontal sway
+        p.x += sin(uTime * 0.5 + h3 * 6.28) * 1.5;
+        p.z += cos(uTime * 0.4 + h1 * 6.28) * 1.5;
+        vFade = sin(f * 3.14159);
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_PointSize = clamp(90.0 / -mv.z, 0.6, 3.0);
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying float vFade;
+      void main() {
+        vec2 d = gl_PointCoord - 0.5;
+        if (dot(d, d) > 0.25) discard;
+        gl_FragColor = vec4(0.85, 0.82, 0.72, vFade * 0.32);
+      }
+    `,
+  });
+  galleryFx.push(uniforms);
+  const pts = new THREE.Points(geo, mat);
+  pts.frustumCulled = false;
+  return pts;
+}
 
 // Annular deck sector (flat ring slab with the ramp notch already cut).
 // Shape-space XY maps to world XZ under rotation.x = PI/2, with the extrude
@@ -662,8 +929,10 @@ function orbitalArtGalleryStation() {
     }
   });
 
-  // approach placard over the spine, facing back down the bore — you read
-  // the name as you line up your final approach through the ring trusses
+  // approach placard slung BELOW the spine, facing down the bore — you read
+  // the name as you line up your final approach. (It used to hang at y14,
+  // where its lower edge punched through the promenade ceiling and blocked
+  // the walk to the gallery; y-16 keeps it clear of every interior room.)
   const approachSign = new THREE.Mesh(
     new THREE.PlaneGeometry(48, 12),
     new THREE.MeshBasicMaterial({
@@ -671,7 +940,7 @@ function orbitalArtGalleryStation() {
       side: THREE.DoubleSide,
     })
   );
-  approachSign.position.set(0, 14, 78);
+  approachSign.position.set(0, -16, 78);
   g.add(approachSign);
 
   // Grand Hall tower: a tapered open-ended shell standing vertical at the
@@ -686,6 +955,8 @@ function orbitalArtGalleryStation() {
     roughness: 0.55,
     metalness: 0.75,
     side: THREE.DoubleSide,
+    envMap: galleryEnv, // subtle space sheen on the tower hull
+    envMapIntensity: 0.4,
   });
   // The shell has TWO openings: the floor-to-ceiling window (polar 90°±33,
   // facing +Z) and the entrance DOOR SLOT (polar 270°±6, toward the spine) —
@@ -725,18 +996,13 @@ function orbitalArtGalleryStation() {
   );
   doorFill.position.y = 26; // tower-local: spans group y 12..140
   tower.add(doorFill);
-  // the full-height window: a clear glass pane filling the open sector
-  const clearGlassMat = new THREE.MeshBasicMaterial({
-    color: 0xcfeeff,
-    transparent: true,
-    opacity: 0.12,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  });
+  // the full-height window: a clear glass pane filling the open sector —
+  // fresnel sheen + env reflection at the edges, clear through the centre so
+  // terra reads through it (shader; radial segments up for a smooth fresnel)
   const [wt0, wtl] = arc(P_WIN0, P_WIN1);
   const windowPane = new THREE.Mesh(
-    new THREE.CylinderGeometry(69.5, 54.5, 179, 8, 1, true, wt0, wtl),
-    clearGlassMat
+    new THREE.CylinderGeometry(69.5, 54.5, 179, 24, 1, true, wt0, wtl),
+    makeGlassMaterial()
   );
   tower.add(windowPane);
 
@@ -868,28 +1134,20 @@ function orbitalArtGalleryStation() {
     }
   }
 
-  // Central antigravity pad: a glowing purple disc at the middle of the
+  // Central antigravity pad: a breathing purple disc at the middle of the
   // atrium floor. Standing on it floats you straight up the shaft (physics in
-  // stationWalk.js); a faint light column marks the lift, and catwalks below
-  // reach out to each balcony. Purple pushes past the bloom threshold on
-  // purpose — the pad should glow.
-  const padMat = new THREE.MeshBasicMaterial({ color: 0x9a5cff });
+  // stationWalk.js); a scrolling energy column marks the lift, and catwalks
+  // reach out to each balcony. Both are animated shaders (updateGallery
+  // uniforms), meant to glow past the bloom threshold.
   const pad = new THREE.Mesh(
     new THREE.CylinderGeometry(GL.LIFT.r, GL.LIFT.r, 0.3, 24),
-    padMat
+    makePadMaterial()
   );
   pad.position.set(GL.LIFT.x, 0.16, GL.LIFT.z);
   g.add(pad);
   const beam = new THREE.Mesh(
     new THREE.CylinderGeometry(GL.LIFT.r * 0.9, GL.LIFT.r * 0.9, GL.LIFT.ceiling, 20, 1, true),
-    new THREE.MeshBasicMaterial({
-      color: 0x9a5cff,
-      transparent: true,
-      opacity: 0.1,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    })
+    makeBeamMaterial()
   );
   beam.position.set(GL.LIFT.x, GL.LIFT.ceiling / 2, GL.LIFT.z);
   g.add(beam);
@@ -1092,12 +1350,19 @@ function orbitalArtGalleryStation() {
   patrolB.rotation.set(-0.08, -0.7, 0.1);
   g.add(patrolB);
 
+  // floating light motes drifting up the Grand Hall atrium (positions are in
+  // the station-group frame, like the pad/beam, so parent to g not tower)
+  g.add(makeAtriumDust());
+
   // ring trusses roll independently of the hull spin, rates staggered so
-  // the spine reads alive on approach
+  // the spine reads alive on approach; the atmosphere shaders (beam, glass,
+  // pad, dust) advance here too — but this only runs while flying past (the
+  // station is frozen when docked, so stationWalk drives them then).
   function anim(t) {
     for (let i = 0; i < rings.length; i++) {
       rings[i].rotation.z = t * (0.02 + i * 0.005);
     }
+    updateGalleryUniforms(t);
   }
 
   return { group: g, anim };

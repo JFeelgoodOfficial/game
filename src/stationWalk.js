@@ -27,7 +27,7 @@ import * as THREE from 'three';
 import { C } from './constants.js';
 import { input } from './input.js';
 import { ship } from './ship.js';
-import { setStationFrozen } from './stations.js';
+import { setStationFrozen, updateGalleryUniforms } from './stations.js';
 import * as GL from './galleryLayout.js';
 import { makeStructure } from '../world/city.js';
 import { createCrowd } from '../world/aliens.js';
@@ -595,6 +595,10 @@ export function stepStationWalk(dt) {
 export function updateStationVisuals(dt, t) {
   if (!sWalk.active || !astronaut) return;
   const rotY = sWalk.station.group.rotation.y;
+
+  // The station is frozen while docked, so its anim(t) doesn't run — drive the
+  // gallery's atmosphere shaders (beam, glass, pad, dust) from here instead.
+  updateGalleryUniforms(t);
 
   astronaut.group.position.copy(ship.position);
   astronaut.group.quaternion.setFromAxisAngle(_yAxis, sWalk.facingYaw + rotY);
