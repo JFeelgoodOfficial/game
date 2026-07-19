@@ -43,8 +43,6 @@ import { createMirrorRoom } from './actuality-mirrorroom.js';
 // statue behind, the glowing hologram (box removed) additively in front.
 import dragonHoloUrl from '../src/assets/actuality-dragon-nobox.png';
 import dragonGraniteUrl from '../src/assets/actuality-dragon-granite.png';
-// The owner's "Body" artwork (two souls becoming one) — the focal mural of Zone 2.
-import bodyImgUrl from '../src/assets/actuality-body.png';
 
 /* ----------------------------------------------------------------------
  * Tunables — every magic number lives here.
@@ -1931,76 +1929,88 @@ export function createActuality(planet, worldUp, opts = {}) {
   // into extruding directions", kept abstract/tasteful).
   function buildZone2() {
     const rec = zoneById['z2'];
-    // Warm molten-sunset room (the "Body" artwork palette): rose-gold ambient,
-    // a soft amber key, and a low warm fill so the whole space glows.
-    rec.group.add(new THREE.AmbientLight(0x6a3a2a, 0.75));
-    const breathLight = new THREE.PointLight(0xffb884, 1.1, 40, 2.0);
-    breathLight.position.set(0, 4.5, 0); rec.group.add(breathLight);
-    const warmFill = new THREE.PointLight(0xff9a5a, 0.7, 34, 2.0);
-    warmFill.position.set(0, 1.4, 6); rec.group.add(warmFill);
+    const R = 12, WH = 11;
+    // Faceted red-crystal chamber (Ch.2 "Body"): two figures embrace at the
+    // centre, silhouetted against a rising burst of light, soul-gems beside them,
+    // a sunset window in one wall — "two drawn together as one unit of creation".
+    rec.group.add(new THREE.AmbientLight(0x5a2418, 0.5));
+    // Central burst — a hot core low between the figures + a rising light column.
+    const burstLight = new THREE.PointLight(0xff8a4a, 2.6, 46, 2.0);
+    burstLight.position.set(0, 2.6, -1.4); rec.group.add(burstLight);
+    const burstCore = new THREE.Mesh(new THREE.SphereGeometry(0.9, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffe6b0, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }));
+    burstCore.position.set(0, 2.2, -1.4); rec.group.add(burstCore);
+    zoneGeos.push(burstCore.geometry); zoneMats.push(burstCore.material);
+    const beamMat = new THREE.MeshBasicMaterial({ color: 0xffb060, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    zoneMats.push(beamMat);
+    const beamGeo = new THREE.ConeGeometry(2.6, WH + 2, 22, 1, true);
+    const beam = new THREE.Mesh(beamGeo, beamMat); beam.position.set(0, WH / 2 + 1, -1.4); rec.group.add(beam);
+    zoneGeos.push(beamGeo);
 
-    // "Shared reality" (Ch.2): two soul-lights — one warm rose, one amber —
-    // drift apart and draw back together, merging into a single glow at the
-    // room's centre ("connected as if we were one unit of creation"). Kept
-    // abstract: two auras of light, no figures. The room breathes on a heartbeat.
-    const soulGeo = new THREE.SphereGeometry(0.7, 16, 12);
-    zoneGeos.push(soulGeo);
-    const soulAMat = new THREE.MeshBasicMaterial({ color: 0xff7a9a, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false });
-    const soulBMat = new THREE.MeshBasicMaterial({ color: 0xffc070, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false });
-    zoneMats.push(soulAMat, soulBMat);
-    const soulA = new THREE.Mesh(soulGeo, soulAMat); soulA.scale.set(1, 1.9, 1);
-    const soulB = new THREE.Mesh(soulGeo, soulBMat); soulB.scale.set(1, 1.9, 1);
-    rec.group.add(soulA, soulB);
-    const soulLightA = new THREE.PointLight(0xff6a8a, 0.9, 16, 2.0);
-    const soulLightB = new THREE.PointLight(0xffb060, 0.9, 16, 2.0);
-    rec.group.add(soulLightA, soulLightB);
-    const mergeMat = new THREE.MeshBasicMaterial({ color: 0xfff0e0, transparent: true, opacity: 0.0, blending: THREE.AdditiveBlending, depthWrite: false });
-    zoneMats.push(mergeMat);
-    const mergeGlow = new THREE.Mesh(soulGeo, mergeMat); mergeGlow.scale.set(1.6, 2.4, 1.6); mergeGlow.position.set(0, 2.4, 0);
-    rec.group.add(mergeGlow);
-    const R = 12, WH = 11; // taller room so the "Body" mural has presence
-    const PER = 8;                         // 8×8 panels per surface
-    const cell = (R * 2) / PER;
-    const panelMat = new THREE.MeshStandardMaterial({ color: 0x9a5a40, roughness: 0.9, side: THREE.DoubleSide, emissive: 0x2a1008, emissiveIntensity: 0.4 });
-    // A faint "2" traced in slightly discolored panels on the back wall (glyph).
-    const glyph2 = new Set(['1,1', '2,1', '3,1', '3,2', '2,3', '1,4', '1,5', '2,5', '3,5']);
-    zoneMats.push(panelMat);
-    // Five surfaces: back(-Z), left(-X), right(+X), ceiling(+Y), floor(y0).
-    // Each panel has a base position + outward normal; the grid extrudes.
-    const panelGeo = new THREE.PlaneGeometry(cell * 0.92, cell * 0.92);
-    zoneGeos.push(panelGeo);
-    const surfaces = [
-      { n: [0, 0, 1], o: [0, WH / 2, -R], u: [1, 0, 0], v: [0, 1, 0], rot: [0, 0, 0] },        // back
-      { n: [1, 0, 0], o: [-R, WH / 2, 0], u: [0, 0, 1], v: [0, 1, 0], rot: [0, Math.PI / 2, 0] }, // left
-      { n: [-1, 0, 0], o: [R, WH / 2, 0], u: [0, 0, 1], v: [0, 1, 0], rot: [0, Math.PI / 2, 0] }, // right
-      { n: [0, -1, 0], o: [0, WH, 0], u: [1, 0, 0], v: [0, 0, 1], rot: [Math.PI / 2, 0, 0] },    // ceiling
-      { n: [0, 1, 0], o: [0, 0.02, 0], u: [1, 0, 0], v: [0, 0, 1], rot: [Math.PI / 2, 0, 0] },   // floor
-    ];
-    const total = surfaces.length * PER * PER;
-    const panels = new THREE.InstancedMesh(panelGeo, panelMat, total);
-    panels.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(total * 3), 3);
-    rec.group.add(panels);
-    const cells = [];
-    let idx = 0;
-    const _pq = new THREE.Quaternion(), _pe = new THREE.Euler();
-    for (const s of surfaces) {
-      _pe.set(s.rot[0], s.rot[1], s.rot[2]); _pq.setFromEuler(_pe);
-      for (let iu = 0; iu < PER; iu++) {
-        for (let iv = 0; iv < PER; iv++) {
-          const cu = (iu - (PER - 1) / 2) * cell;
-          const cv = (iv - (PER - 1) / 2) * cell;
-          const bx = s.o[0] + s.u[0] * cu + s.v[0] * cv;
-          const by = s.o[1] + s.u[1] * cu + s.v[1] * cv;
-          const bz = s.o[2] + s.u[2] * cu + s.v[2] * cv;
-          const tinted = s === surfaces[0] && glyph2.has(`${iu},${iv}`);
-          cells.push({ bx, by, bz, n: s.n, q: _pq.clone(), ph: (iu + iv) * 0.4 });
-          panels.instanceColor.setXYZ(idx, tinted ? 1.25 : 1, tinted ? 1.1 : 1, tinted ? 0.85 : 1);
-          idx++;
-        }
-      }
+    // Faceted crystal shell — a perturbed icosahedron, flat-shaded, inward-facing.
+    const crystalMat = new THREE.MeshStandardMaterial({ color: 0x7a2c1e, roughness: 0.5, metalness: 0.2, emissive: 0x3a0f06, emissiveIntensity: 0.6, flatShading: true, side: THREE.BackSide });
+    zoneMats.push(crystalMat);
+    const shellGeo = new THREE.IcosahedronGeometry(R * 1.15, 3);
+    {
+      const pos = shellGeo.attributes.position, cr = mulberry32(0x2b0b), v = new THREE.Vector3();
+      for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i); v.multiplyScalar(1 + (cr() - 0.5) * 0.16); pos.setXYZ(i, v.x, v.y * 0.85, v.z); }
     }
-    panels.instanceColor.needsUpdate = true;
-    // Collision: solid room walls at the base extents (open +Z for the return).
+    const shell = new THREE.Mesh(shellGeo, crystalMat); shell.position.set(0, WH / 2 - 1, 0); rec.group.add(shell);
+    zoneGeos.push(shellGeo);
+    // Faceted crystal floor (a perturbed plane, flat-shaded; edges kept at grade).
+    const floorGeo = new THREE.PlaneGeometry(R * 2.4, R * 2.4, 14, 14);
+    {
+      const pos = floorGeo.attributes.position, cr = mulberry32(0x77aa);
+      for (let i = 0; i < pos.count; i++) { const edge = Math.max(Math.abs(pos.getX(i)), Math.abs(pos.getY(i))) > R * 1.05; pos.setZ(i, edge ? 0 : (cr() - 0.5) * 0.4); }
+    }
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x6a2418, roughness: 0.55, metalness: 0.2, emissive: 0x2a0c06, emissiveIntensity: 0.5, flatShading: true, side: THREE.DoubleSide });
+    zoneMats.push(floorMat);
+    const floor = new THREE.Mesh(floorGeo, floorMat); floor.rotation.x = -Math.PI / 2; floor.position.y = 0.03; rec.group.add(floor);
+    zoneGeos.push(floorGeo);
+
+    // The embracing couple: two figures, close, facing each other, dark
+    // silhouettes against the burst.
+    const figA = makeFigure({ skin: 0x2a1a12, cloth: 0x1c0e0a, seed: 21 });
+    figA.group.position.set(-0.42, 0, 0.2); figA.group.rotation.y = Math.PI / 2 + 0.12; figA.group.scale.setScalar(1.08);
+    const figB = makeFigure({ skin: 0x2a1a12, cloth: 0x241210, seed: 22 });
+    figB.group.position.set(0.42, 0, 0.2); figB.group.rotation.y = -Math.PI / 2 - 0.12; figB.group.scale.setScalar(1.02);
+    rec.group.add(figA.group, figB.group); figures.push(figA, figB);
+
+    // Sunset window in the left wall (sun over water) — a warm view out.
+    const sc = document.createElement('canvas'); sc.width = 256; sc.height = 256;
+    { const cx = sc.getContext('2d');
+      const sky = cx.createLinearGradient(0, 0, 0, 150); sky.addColorStop(0, '#3a2440'); sky.addColorStop(0.55, '#c85a3a'); sky.addColorStop(1, '#ffcf7a');
+      cx.fillStyle = sky; cx.fillRect(0, 0, 256, 150);
+      cx.fillStyle = '#fff0c0'; cx.beginPath(); cx.arc(128, 122, 24, 0, 6.28); cx.fill();
+      cx.fillStyle = '#5a2a2e'; cx.beginPath(); cx.moveTo(0, 150); cx.lineTo(70, 112); cx.lineTo(130, 146); cx.lineTo(200, 106); cx.lineTo(256, 150); cx.closePath(); cx.fill();
+      const wat = cx.createLinearGradient(0, 150, 0, 256); wat.addColorStop(0, '#d07a4a'); wat.addColorStop(1, '#6a2a3a'); cx.fillStyle = wat; cx.fillRect(0, 150, 256, 106);
+      cx.fillStyle = 'rgba(255,220,150,0.5)'; cx.fillRect(118, 150, 20, 106);
+    }
+    const sunTex = new THREE.CanvasTexture(sc); sunTex.colorSpace = THREE.SRGBColorSpace; zoneTextures.push(sunTex);
+    const sunMat = new THREE.MeshBasicMaterial({ map: sunTex }); zoneMats.push(sunMat);
+    const sunGeo = new THREE.PlaneGeometry(7, 7);
+    const sunWin = new THREE.Mesh(sunGeo, sunMat); sunWin.position.set(-R + 0.4, 4.2, -1); sunWin.rotation.y = Math.PI / 2; rec.group.add(sunWin);
+    zoneGeos.push(sunGeo);
+    const winFrameMat = new THREE.MeshStandardMaterial({ color: 0x1a0c08, roughness: 0.8, emissive: 0x2a0e06, emissiveIntensity: 0.3 });
+    zoneMats.push(winFrameMat);
+    for (const [h, w, dy, dz] of [[0.4, 8, 3.9, 0], [0.4, 8, -3.9, 0], [8, 0.4, 0, 3.9], [8, 0.4, 0, -3.9]]) {
+      const fg = new THREE.BoxGeometry(0.3, h, w); const fm = new THREE.Mesh(fg, winFrameMat);
+      fm.position.set(-R + 0.35, 4.2 + dy, -1 + dz); rec.group.add(fm); zoneGeos.push(fg);
+    }
+
+    // Two soul-gems (rose + amber) beside the couple — they drift and draw close.
+    const soulGeo = new THREE.OctahedronGeometry(0.55); zoneGeos.push(soulGeo);
+    const soulAMat = new THREE.MeshBasicMaterial({ color: 0xff7a9a, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false });
+    const soulBMat = new THREE.MeshBasicMaterial({ color: 0xffc070, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false });
+    zoneMats.push(soulAMat, soulBMat);
+    const soulA = new THREE.Mesh(soulGeo, soulAMat); soulA.scale.set(1, 1.6, 1);
+    const soulB = new THREE.Mesh(soulGeo, soulBMat); soulB.scale.set(1, 1.6, 1);
+    rec.group.add(soulA, soulB);
+    const soulLightA = new THREE.PointLight(0xff6a8a, 0.8, 14, 2.0);
+    const soulLightB = new THREE.PointLight(0xffb060, 0.8, 14, 2.0);
+    rec.group.add(soulLightA, soulLightB);
+
+    // Collision: solid room walls (open +Z for the return).
     const wt = 0.4;
     rec.structure = makeStructure(0, 0, 0,
       [{ x0: -R, x1: R, z0: -R, z1: R, y: 0 }],
@@ -2011,130 +2021,61 @@ export function createActuality(planet, worldUp, opts = {}) {
       ], R + 2);
     rec.r2 = (R + 12) ** 2;
 
-    // The "Body" mural — the owner's artwork of two lovers becoming one — mounted
-    // as a large luminous painting on the back wall, the room's focal point (the
-    // way the deep nebulae show the owner's paintings). A warm frame + backglow.
-    const MW = 7.0, MH = 10.5;             // portrait ~2:3
-    const bodyTex = new THREE.TextureLoader().load(bodyImgUrl);
-    bodyTex.colorSpace = THREE.SRGBColorSpace;
-    zoneTextures.push(bodyTex);
-    const bodyMat = new THREE.MeshBasicMaterial({ map: bodyTex, transparent: true, side: THREE.DoubleSide, depthWrite: false });
-    zoneMats.push(bodyMat);
-    const bodyGeo = new THREE.PlaneGeometry(MW, MH);
-    const bodyMural = new THREE.Mesh(bodyGeo, bodyMat);
-    bodyMural.position.set(0, WH / 2, -R + 0.8); rec.group.add(bodyMural);
-    zoneGeos.push(bodyGeo);
-    // Warm frame around it.
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x6a3a1e, roughness: 0.7, emissive: 0x3a1c0a, emissiveIntensity: 0.5, metalness: 0.3 });
-    zoneMats.push(frameMat);
-    for (const [w, h, x, y] of [[MW + 0.7, 0.35, 0, MH / 2 + 0.15], [MW + 0.7, 0.35, 0, -MH / 2 - 0.15], [0.35, MH + 0.7, MW / 2 + 0.15, 0], [0.35, MH + 0.7, -MW / 2 - 0.15, 0]]) {
-      const fg = new THREE.BoxGeometry(w, h, 0.3);
-      const fm = new THREE.Mesh(fg, frameMat); fm.position.set(x, WH / 2 + y, -R + 0.75); rec.group.add(fm); zoneGeos.push(fg);
-    }
-    // Soft warm backglow so the painting reads as lit from within.
-    const glowMat = new THREE.MeshBasicMaterial({ color: 0xffb070, transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-    zoneMats.push(glowMat);
-    const glowGeo = new THREE.PlaneGeometry(MW + 4, MH + 4);
-    const bodyGlow = new THREE.Mesh(glowGeo, glowMat); bodyGlow.position.set(0, WH / 2, -R + 0.5); rec.group.add(bodyGlow);
-    zoneGeos.push(glowGeo);
-    const muralLight = new THREE.PointLight(0xffb884, 1.0, 26, 2.0);
-    muralLight.position.set(0, WH / 2, -R + 3.5); rec.group.add(muralLight);
-
-    // Rising sparkles → starfield (the painting's motif): a warm column of motes
-    // lifts from the merge point up to a field of stars gathered on the ceiling.
-    const sparkGeo = new THREE.PlaneGeometry(0.12, 0.12);
-    zoneGeos.push(sparkGeo);
-    const RISE = 130;
+    // Rising sparkles → starfield (the burst column): warm motes lift to a field
+    // of stars gathered overhead.
+    const sparkGeo = new THREE.PlaneGeometry(0.12, 0.12); zoneGeos.push(sparkGeo);
+    const RISE = 150;
     const riseMat = new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
     zoneMats.push(riseMat);
-    const rising = new THREE.InstancedMesh(sparkGeo, riseMat, RISE);
-    rising.frustumCulled = false; rec.group.add(rising);
-    const rr = mulberry32(0x2b0d);
-    const rb = [];
-    for (let i = 0; i < RISE; i++) rb.push({ a: rr() * 6.28, rad: rr() * rr() * 2.4, ph: rr(), sp: 0.10 + rr() * 0.14, sz: 0.5 + rr() * 1.1, wob: rr() * 6.28 });
-    // A twinkling starfield gathered high in the room / across the ceiling.
-    const STARS = 150;
+    const rising = new THREE.InstancedMesh(sparkGeo, riseMat, RISE); rising.frustumCulled = false; rec.group.add(rising);
+    const rr = mulberry32(0x2b0d), rb = [];
+    for (let i = 0; i < RISE; i++) rb.push({ a: rr() * 6.28, rad: rr() * rr() * 1.8, ph: rr(), sp: 0.12 + rr() * 0.16, sz: 0.5 + rr() * 1.2, wob: rr() * 6.28 });
+    const STARS = 160;
     const starMat = new THREE.MeshBasicMaterial({ color: 0xfff0d0, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
     zoneMats.push(starMat);
-    const starfield = new THREE.InstancedMesh(sparkGeo, starMat, STARS);
-    starfield.frustumCulled = false; rec.group.add(starfield);
-    const sr = mulberry32(0x5713);
-    const sb = [];
-    const _sm = new THREE.Matrix4(), _sq = new THREE.Quaternion(), _ssv = new THREE.Vector3();
-    for (let i = 0; i < STARS; i++) {
-      const x = (sr() - 0.5) * (R * 1.7), z = (sr() - 0.5) * (R * 1.7), y = WH - 0.2 - sr() * 3.2;
-      sb.push({ x, y, z, ph: sr() * 6.28, sz: 0.4 + sr() * 1.4 });
-    }
-    // Static stars placed once (they only twinkle in scale).
-    for (let i = 0; i < STARS; i++) {
-      _sm.compose(_ssv.set(sb[i].x, sb[i].y, sb[i].z), _sq, _ssv.clone().set(sb[i].sz, sb[i].sz, sb[i].sz));
-      // NB compose needs a separate scale vector; set below in the updater too.
-      starfield.setMatrixAt(i, _sm);
-    }
-    starfield.instanceMatrix.needsUpdate = true;
+    const starfield = new THREE.InstancedMesh(sparkGeo, starMat, STARS); starfield.frustumCulled = false; rec.group.add(starfield);
+    const sr = mulberry32(0x5713), sb = [];
+    for (let i = 0; i < STARS; i++) sb.push({ x: (sr() - 0.5) * (R * 1.7), y: WH - 0.4 - sr() * 3.6, z: (sr() - 0.5) * (R * 1.7), ph: sr() * 6.28, sz: 0.4 + sr() * 1.5 });
 
-    const _pm = new THREE.Matrix4(), _pv = new THREE.Vector3(), _ps = new THREE.Vector3(1, 1, 1);
-    const _idq = new THREE.Quaternion();
+    const _pm = new THREE.Matrix4(), _pv = new THREE.Vector3(), _ps = new THREE.Vector3(1, 1, 1), _idq = new THREE.Quaternion();
     zoneUpdaters.push((t) => {
       if (activeZone !== 'z2') return;
-      // Heartbeat (a lub-dub every ~1.3 s) drives the breathing + the glow.
       const x = (t / 1.3) % 1;
       const g1 = ((x - 0.12) / 0.05) ** 2, g2 = ((x - 0.30) / 0.05) ** 2;
       const heart = Math.exp(-g1) + 0.6 * Math.exp(-g2);
-      const breath = Math.sin(t * 0.4) * 0.5 + 0.5;
-      breathLight.intensity = 0.5 + breath * 0.5 + heart * 0.4;
-      // The two souls swing apart and back together (merge), on a slow cycle.
-      const near = Math.sin(t * 0.28) * 0.5 + 0.5;   // 1 = together, 0 = apart
-      const sep = 3.6 * (1 - near);
-      const bob = Math.sin(t * 1.1) * 0.15;
-      soulA.position.set(-sep, 2.4 + bob, 0.4 * (1 - near));
-      soulB.position.set(sep, 2.4 - bob, -0.4 * (1 - near));
-      soulLightA.position.copy(soulA.position);
-      soulLightB.position.copy(soulB.position);
-      const pulse = 0.45 + heart * 0.3;
-      soulAMat.opacity = pulse; soulBMat.opacity = pulse;
-      const merged = Math.max(0, near - 0.7) / 0.3; // ramps up as they close
-      mergeMat.opacity = merged * (0.5 + heart * 0.4);
-      mergeGlow.scale.setScalar(1.6 + heart * 0.3 * merged);
-      // Breathing panel grid extrudes on the heartbeat.
-      const amp = 0.28 + heart * 0.22;
-      for (let i = 0; i < cells.length; i++) {
-        const c = cells[i];
-        const d = Math.sin(t * 0.4 + c.ph) * breath * amp;
-        _pv.set(c.bx + c.n[0] * d, c.by + c.n[1] * d, c.bz + c.n[2] * d);
-        _pm.compose(_pv, c.q, _ps);
-        panels.setMatrixAt(i, _pm);
-      }
-      panels.instanceMatrix.needsUpdate = true;
-      // Rising sparkles lift from the merge point to the ceiling; brighter and
-      // denser as the two souls draw together (near → 1), pulsing on the heart.
-      const flow = 0.35 + near * 0.65;
+      const near = Math.sin(t * 0.28) * 0.5 + 0.5;
+      const merged = Math.max(0, near - 0.7) / 0.3;
+      // The burst pulses on the heartbeat; the crystal glows with it.
+      burstLight.intensity = 1.8 + heart * 1.2 + merged * 0.8;
+      burstCore.scale.setScalar(0.8 + heart * 0.3 + merged * 0.3);
+      burstCore.material.opacity = 0.6 + heart * 0.3;
+      beamMat.opacity = 0.12 + heart * 0.1 + merged * 0.1;
+      crystalMat.emissiveIntensity = 0.5 + heart * 0.25;
+      // Soul-gems drift apart and back together beside the couple.
+      const sep = 2.0 * (1 - near);
+      const bob = Math.sin(t * 1.1) * 0.12;
+      soulA.position.set(-1.5 - sep, 2.2 + bob, 0.7); soulA.rotation.y = t * 0.6;
+      soulB.position.set(1.5 + sep, 2.2 - bob, 0.7); soulB.rotation.y = -t * 0.6;
+      soulLightA.position.copy(soulA.position); soulLightB.position.copy(soulB.position);
+      soulAMat.opacity = 0.55 + heart * 0.3; soulBMat.opacity = 0.55 + heart * 0.3;
+      // Rising sparkles from the burst column.
+      const flow = 0.4 + near * 0.6;
       for (let i = 0; i < RISE; i++) {
-        const b = rb[i];
-        const prog = ((t * b.sp + b.ph) % 1);
-        const y = 1.8 + prog * (WH - 2.2);
-        const spread = 0.4 + prog * 2.6;                 // fans out as it rises
-        const wob = Math.sin(t * 1.3 + b.wob) * 0.3 * prog;
-        const rad = b.rad * (0.3 + prog * 0.9);
-        const fade = Math.sin(prog * Math.PI);           // fade in/out over the climb
+        const b = rb[i], prog = ((t * b.sp + b.ph) % 1);
+        const y = 2.0 + prog * (WH - 2.0), spread = 0.3 + prog * 2.4;
+        const wob = Math.sin(t * 1.3 + b.wob) * 0.3 * prog, rad = b.rad * (0.3 + prog * 0.9);
         _ps.set(b.sz, b.sz, b.sz);
-        _pv.set(Math.cos(b.a) * rad * spread + wob, y, Math.sin(b.a) * rad * spread);
-        _pm.compose(_pv, _idq, _ps);
-        rising.setMatrixAt(i, _pm);
+        _pv.set(Math.cos(b.a) * rad * spread + wob, y, -1.4 + Math.sin(b.a) * rad * spread);
+        _pm.compose(_pv, _idq, _ps); rising.setMatrixAt(i, _pm);
       }
-      riseMat.opacity = (0.35 + heart * 0.4) * flow;
-      rising.instanceMatrix.needsUpdate = true;
-      // Starfield twinkle (scale flicker), gathered brighter as the souls merge.
+      riseMat.opacity = (0.4 + heart * 0.4) * flow; rising.instanceMatrix.needsUpdate = true;
+      // Starfield twinkle, brighter as the two draw together.
       for (let i = 0; i < STARS; i++) {
-        const b = sb[i];
-        const tw = 0.6 + Math.sin(t * 2.4 + b.ph) * 0.4;
-        _ps.set(b.sz * tw, b.sz * tw, b.sz * tw);
-        _pv.set(b.x, b.y, b.z);
-        _pm.compose(_pv, _idq, _ps);
-        starfield.setMatrixAt(i, _pm);
+        const b = sb[i], tw = 0.6 + Math.sin(t * 2.4 + b.ph) * 0.4;
+        _ps.set(b.sz * tw, b.sz * tw, b.sz * tw); _pv.set(b.x, b.y, b.z);
+        _pm.compose(_pv, _idq, _ps); starfield.setMatrixAt(i, _pm);
       }
-      starMat.opacity = 0.55 + merged * 0.4;
-      starfield.instanceMatrix.needsUpdate = true;
+      starMat.opacity = 0.55 + merged * 0.4; starfield.instanceMatrix.needsUpdate = true;
     });
   }
 
