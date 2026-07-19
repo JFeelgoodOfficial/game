@@ -27,6 +27,10 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeStructure } from './city.js';
+import marqueeVert from '../src/shaders/wavemallmarquee.vert?raw';
+import marqueeFrag from '../src/shaders/wavemallmarquee.frag?raw';
+import orbPulseVert from '../src/shaders/orbpulse.vert?raw';
+import orbPulseFrag from '../src/shaders/orbpulse.frag?raw';
 
 /* ----------------------------------------------------------------------
  * Tunables â€” every magic number lives here.
@@ -411,6 +415,38 @@ function makeCarpetTexture(baseHex, accentHex, size = 512) {
   return tex;
 }
 
+// Seamlessly tiling ticker strip for the entrance marquee: one line of
+// glowing hold-queue copy, drawn twice a full text-width apart so the
+// shader's fract() scroll never shows a seam.
+function makeMarqueeStripTexture(text, accentHex) {
+  const w = 2048, h = 96;
+  const cnv = document.createElement('canvas');
+  cnv.width = w; cnv.height = h;
+  const ctx = cnv.getContext('2d');
+  ctx.fillStyle = '#000000'; // black = transparent under luminance alpha
+  ctx.fillRect(0, 0, w, h);
+  const accent = hexCss(accentHex);
+  const px = 52;
+  ctx.font = `bold ${px}px monospace`;
+  // N copies spaced w/N apart fill the canvas exactly: each copy is narrower
+  // than its slot, so none crosses the wrap edge and fract(u + t) is seamless.
+  const unit = ctx.measureText(text).width;
+  const n = Math.max(1, Math.floor(w / unit));
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = accent;
+  ctx.shadowBlur = px * 0.4;
+  ctx.fillStyle = accent;
+  for (let i = 0; i < n; i++) {
+    ctx.fillText(text, (i * w) / n, h / 2);
+    ctx.fillText(text, (i * w) / n, h / 2); // second pass thickens the halo
+  }
+  ctx.shadowBlur = 0;
+  const tex = canvasTexture(cnv);
+  tex.wrapS = THREE.RepeatWrapping;
+  return tex;
+}
+
 /* ----------------------------------------------------------------------
  * Placement helpers â€” unrotated object space on planet.surface
  * ------------------------------------------------------------------- */
@@ -605,7 +641,7 @@ function emitStore(o) {
 }
 
 function buildDistrict(planet, worldUp, dept, index, rng, opts) {
-  void opts;
+  const shellGeo = opts.shellGeo;
   const group = new THREE.Group();
   group.name = `district_${dept.name}`;
 
@@ -833,6 +869,25 @@ function buildDistrict(planet, worldUp, dept, index, rng, opts) {
   const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(C.SPEAKER_ORB_RADIUS, 2), orbMat);
   orb.position.set(0, daisY + 0.5 + C.SPEAKER_ORB_RADIUS * 1.3, 0);
   group.add(orb);
+  // Additive fresnel "sound ripple" shell — a custom ShaderMaterial pulsing in
+  // phase with the orb's emissive throb. Geometry is shared across all wings.
+  const shellMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uPhase: { value: index * 0.7 },
+      uLevel: { value: 1 },
+      uColor: { value: new THREE.Color(dept.accent) },
+    },
+    vertexShader: orbPulseVert,
+    fragmentShader: orbPulseFrag,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const shell = new THREE.Mesh(shellGeo, shellMat);
+  shell.position.copy(orb.position);
+  shell.frustumCulled = false;
+  group.add(shell);
   structures.push(makeStructure(0, 0, daisY, [
     { x0: -3.8, x1: 3.8, z0: -3.8, z1: 3.8, y: 0.5 },
   ], [], 5));
@@ -843,6 +898,7 @@ function buildDistrict(planet, worldUp, dept, index, rng, opts) {
     structures,
     lobbies,
     orbMaterial: orbMat,
+    shellMaterial: shellMat,
     dirLocal,
     accent: dept.accent,
     emissiveMats: [glowMat, signMat, windowMat, dirMat],
@@ -855,7 +911,11 @@ export function createDepartmentDistrict(planet, worldUp, opts = {}) {
   const group = new THREE.Group();
   group.name = 'wavemall_districts';
 
-  const districts = C.DEPARTMENTS.map((dept, i) => buildDistrict(planet, worldUp, dept, i, rng, opts));
+  // One shell geometry shared by all 8 speaker-orb pulse shells (each wing
+  // still owns its own ShaderMaterial for its accent colour + phase).
+  const shellGeo = new THREE.IcosahedronGeometry(C.SPEAKER_ORB_RADIUS * 1.15, 2);
+  const districts = C.DEPARTMENTS.map((dept, i) =>
+    buildDistrict(planet, worldUp, dept, i, rng, { ...opts, shellGeo }));
   districts.forEach((d) => group.add(d.group));
 
   const boardingPad = districts[0].frame.pos.clone();
@@ -877,6 +937,10 @@ export function createDepartmentDistrict(planet, worldUp, opts = {}) {
       const phase = t * C.SPEAKER_PULSE_SPEED + i * 0.7;
       d.orbMaterial.emissiveIntensity =
         C.SPEAKER_EMISSIVE_BASE + Math.sin(phase) * C.SPEAKER_EMISSIVE_RANGE * 0.5 + C.SPEAKER_EMISSIVE_RANGE * 0.5;
+      // Ripple shell shares the orb's clock; dim with day/night so it reads
+      // like the neon around it.
+      d.shellMaterial.uniforms.uTime.value = t;
+      d.shellMaterial.uniforms.uLevel.value = level;
     });
   }
 
@@ -891,7 +955,8 @@ export function createDepartmentDistrict(planet, worldUp, opts = {}) {
 
   function dispose() {
     group.traverse((obj) => {
-      if (obj.geometry) obj.geometry.dispose();
+      // shellGeo is shared across all 8 orb shells — dispose it once, below.
+      if (obj.geometry && obj.geometry !== shellGeo) obj.geometry.dispose();
       if (obj.material) {
         if (obj.material.map) obj.material.map.dispose();
         if (obj.material.emissiveMap && obj.material.emissiveMap !== obj.material.map) {
@@ -900,6 +965,7 @@ export function createDepartmentDistrict(planet, worldUp, opts = {}) {
         obj.material.dispose();
       }
     });
+    shellGeo.dispose();
   }
 
   return { group, update, sunDot: 1, dispose, groundHeightAt, boardingPad, districts };
@@ -966,12 +1032,44 @@ export function createGrandEntrance(planet, worldUp, opts = {}) {
   sign.frustumCulled = false;
   group.add(sign);
 
+  // "Please Hold" holographic marquee: a scrolling hold-queue ticker slung
+  // below the sign, driven by a custom ShaderMaterial (see wavemallmarquee.*).
+  const marqueeTex = makeMarqueeStripTexture(
+    'YOUR CALL IS IMPORTANT TO US ◆ CURRENT WAIT: ∞ ◆ THANK YOU FOR HOLDING ◆ ',
+    C.COLORS.teal
+  );
+  const marqueeMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTex: { value: marqueeTex },
+      uTime: { value: 0 },
+      uLevel: { value: 1 },
+    },
+    vertexShader: marqueeVert,
+    fragmentShader: marqueeFrag,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const marquee = new THREE.Mesh(new THREE.PlaneGeometry(S * 1.7, 1.1), marqueeMat);
+  marquee.position.set(0, H - 5.2, 0);
+  marquee.frustumCulled = false;
+  group.add(marquee);
+
   const structures = [makeStructure(0, 0, 0, [], [
     { x0: -S - 1.5, x1: -S + 1.5, z0: -1.5, z1: 1.5, y0: 0, y1: H },
     { x0: S - 1.5, x1: S + 1.5, z0: -1.5, z1: 1.5, y0: 0, y1: H },
   ], S + 3)];
 
+  function update(t, sunDot = 1) {
+    marqueeMat.uniforms.uTime.value = t;
+    // Match the wings' day/night dim so the ticker fades to a readable pale
+    // band by day and blooms after dark (0.55 .. 1.0).
+    const nightLift = THREE.MathUtils.clamp(1 - Math.max(sunDot, 0), 0, 1);
+    marqueeMat.uniforms.uLevel.value = THREE.MathUtils.lerp(0.55, 1, nightLift);
+  }
+
   function dispose() {
+    marqueeTex.dispose(); // held as a uniform, not .map — traversal misses it
     group.traverse((obj) => {
       if (obj.geometry) obj.geometry.dispose();
       if (obj.material) {
@@ -984,7 +1082,7 @@ export function createGrandEntrance(planet, worldUp, opts = {}) {
     });
   }
 
-  return { group, frame, structures, emissiveMats: [glowMat, signMat], dispose };
+  return { group, frame, structures, emissiveMats: [glowMat, signMat], update, dispose };
 }
 
 export function createAnchorStructure(planet, worldUp, opts = {}) {
@@ -1029,7 +1127,38 @@ export function createAnchorStructure(planet, worldUp, opts = {}) {
   });
   const crystals = new THREE.Mesh(mergeGeometries(crystalGeos, false), crystalMat);
   crystals.frustumCulled = false;
+  crystals.name = 'anchor_crystals';
   group.add(crystals);
+
+  // Showpiece keyframed clip: a slow authored sway + a heartbeat emissive
+  // swell (fast attack, long decay) driving the crystal — richer than a plain
+  // sine and the module's one AnimationMixer.
+  const q0 = new THREE.Quaternion();
+  const qL = new THREE.Quaternion().setFromAxisAngle(_yAxis, 0.13);
+  const qR = new THREE.Quaternion().setFromAxisAngle(_yAxis, -0.13);
+  const swayTrack = new THREE.QuaternionKeyframeTrack(
+    '.quaternion',
+    [0, 3, 6, 9, 12],
+    [
+      q0.x, q0.y, q0.z, q0.w,
+      qL.x, qL.y, qL.z, qL.w,
+      q0.x, q0.y, q0.z, q0.w,
+      qR.x, qR.y, qR.z, qR.w,
+      q0.x, q0.y, q0.z, q0.w,
+    ]
+  );
+  swayTrack.setInterpolation(THREE.InterpolateSmooth);
+  // Heartbeat: quick rise to 1.1 then a long ebb to 0.5 across the loop.
+  const beatTrack = new THREE.NumberKeyframeTrack(
+    '.material.emissiveIntensity',
+    [0, 1.2, 4, 6.5, 7.7, 12],
+    [0.5, 1.1, 0.55, 0.5, 1.05, 0.5]
+  );
+  const clip = new THREE.AnimationClip('anchorHeartbeat', 12, [swayTrack, beatTrack]);
+  const mixer = new THREE.AnimationMixer(crystals);
+  const action = mixer.clipAction(clip);
+  action.setLoop(THREE.LoopRepeat, Infinity);
+  action.play();
 
   // All-departments display board, facing the landing anchor.
   const boardTex = makeDirectoryTexture(
@@ -1058,13 +1187,18 @@ export function createAnchorStructure(planet, worldUp, opts = {}) {
     { x0: 7.9, x1: 9.1, z0: -8.4, z1: -7.5, y0: 0, y1: 8 }, // board post
   ], 12)];
 
-  function update(t, sunDot = 1) {
+  function update(t, dt, sunDot = 1) {
+    void t;
+    // The mixer authors emissiveIntensity; scale its result by day/night so
+    // the crystal still dims under daylight without fighting the clip.
+    mixer.update(dt);
     const nightLift = THREE.MathUtils.clamp(1 - Math.max(sunDot, 0), 0, 1);
-    const level = THREE.MathUtils.lerp(0.6, 1, nightLift);
-    crystalMat.emissiveIntensity = (0.7 + Math.sin(t * 0.7) * 0.3) * level;
+    crystalMat.emissiveIntensity *= THREE.MathUtils.lerp(0.6, 1, nightLift);
   }
 
   function dispose() {
+    mixer.stopAllAction();
+    mixer.uncacheClip(clip);
     group.traverse((obj) => {
       if (obj.geometry) obj.geometry.dispose();
       if (obj.material) {
@@ -1716,7 +1850,8 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
   function update(t, dt, playerPos, sunDot = 1) {
     districts.update(t, sunDot);
     wonders.update(t, sunDot);
-    centerpiece.update(t, sunDot);
+    entrance.update(t, sunDot);
+    centerpiece.update(t, dt, sunDot);
     crowd.update(dt, playerPos, sunDot);
     holdMusic.update(t);
   }
