@@ -1354,9 +1354,10 @@ export function createGalleria(planet, worldUp, opts = {}) {
       board.translate(x + faceX * -0.02, POST_H + FRAME_H / 2 + gy, z);
       propGeos.push(board);
 
-      // Collision: a thin wall AABB so the player can't clip through a stand.
+      // Collision: a thin wall AABB (stand-local, centered on the stand) so the
+      // player can't clip through a frame stand.
       structures.push(makeStructure(x, z, gy, [], [
-        { x0: x - 0.4, x1: x + 0.4, z0: z - FRAME_W / 2 - 0.3, z1: z + FRAME_W / 2 + 0.3,
+        { x0: -0.4, x1: 0.4, z0: -FRAME_W / 2 - 0.3, z1: FRAME_W / 2 + 0.3,
           y0: 0, y1: POST_H + FRAME_H },
       ], FRAME_W));
 
