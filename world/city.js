@@ -33,6 +33,13 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import basicVert from './shaders/basic.vert?raw';
+import cityWindowsVert from './shaders/cityWindows.vert?raw';
+import cityWindowsFrag from './shaders/cityWindows.frag?raw';
+import pulseGlowVert from './shaders/pulseGlow.vert?raw';
+import pulseGlowFrag from './shaders/pulseGlow.frag?raw';
+import cityAdsFrag from './shaders/cityAds.frag?raw';
+import cityHazeFrag from './shaders/cityHaze.frag?raw';
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -81,6 +88,7 @@ const C = {
   MOTE_RISE_SPEED: 0.6,
   MOTE_SPREAD: 140,
   MOTE_HEIGHT: 45,
+  TRAFFIC_COUNT: 26,                // grav-car streaks circling above rooftops
   MAX_TOWER_INSTANCES: 260,
   MAX_WINDOW_INSTANCES: 260,
   MAX_SIGN_INSTANCES: 90,
@@ -109,31 +117,9 @@ function seedFromDirection(dir, extra = 0) {
 }
 
 // ---------------------------------------------------------------------------
-// Small canvas texture helper (no external assets)
+// Small canvas texture helpers (no external assets — windows moved to a
+// fully procedural per-cell shader, world/shaders/cityWindows.frag)
 // ---------------------------------------------------------------------------
-function makeWindowStripTexture(rng, color = '#ffe9b0') {
-  const size = 64;
-  const canvas = document.createElement('canvas');
-  canvas.width = size; canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#0a0a12';
-  ctx.fillRect(0, 0, size, size);
-  const rows = 8;
-  for (let i = 0; i < rows; i++) {
-    if (rng() < 0.6) {
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.55 + rng() * 0.45;
-      const y = (i / rows) * size;
-      ctx.fillRect(0, y, size, size / rows - 2);
-    }
-  }
-  ctx.globalAlpha = 1;
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
 const cssColor = (hex) => `#${hex.toString(16).padStart(6, '0')}`;
 
 // Glowing alien advertising board: dark panel, neon border, rows of blocky
@@ -359,12 +345,19 @@ export function createCity(planet, worldUp, opts = {}) {
   group.name = 'City';
 
   // Fill light: the global scene ambient is very dim (built for the vacuum of
-  // space), so backlit building facades otherwise fall to near-black. This
-  // omni fill lifts the shadowed sides to a readable level. It lives on the
+  // space), so backlit building facades otherwise fall to near-black. A
+  // hemisphere fill (cool sky above, street-toned bounce below) models the
+  // facades better than a flat ambient at the same budget. It lives on the
   // city group, so it only affects the landing site and is torn down with the
   // city when the player boards (nothing else is in view on foot anyway).
-  const fillLight = new THREE.AmbientLight(0x6a7690, 0.6);
+  const fillLight = new THREE.HemisphereLight(0x7d8ab0, palette.plaza, 0.75);
   group.add(fillLight);
+
+  // Shared FX uniforms: every shader-driven element (windows, signs, ads,
+  // haze) reads time + night level from these two objects, so update()
+  // writes two numbers instead of walking material lists.
+  const fx = { uTime: { value: 0 }, uNight: { value: 0 } };
+  const ownedTextures = []; // textures held in shader uniforms (not .map)
   const structures = []; // enterable buildings: landmark tower + lobbies
   const lobbies = [];    // per-lobby manifest for interior occupants (walk.js)
   let balconySpot = null; // landmark balcony perch for a lone caretaker
@@ -599,21 +592,48 @@ export function createCity(planet, worldUp, opts = {}) {
   towerMesh.frustumCulled = false;
   const towerColor = new THREE.Color();
 
+  // Window shell: fully procedural per-cell window grid (cityWindows.frag).
+  // Each instance carries a seed so towers never share a lit pattern, and
+  // individual windows wink on/off over time at night.
   const windowGeo = new THREE.BoxGeometry(1, 1, 1);
-  const windowTex = makeWindowStripTexture(rng, palette.windowWarm);
-  const windowMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff, map: windowTex, emissive: 0xffcf8a, emissiveIntensity: C.NEON_BLOOM_INTENSITY,
-    roughness: 0.4,
+  const windowCap = Math.min(towerCount, C.MAX_WINDOW_INSTANCES);
+  const windowSeeds = new Float32Array(Math.max(windowCap, 1));
+  for (let i = 0; i < windowSeeds.length; i++) windowSeeds[i] = rng() * 100;
+  windowGeo.setAttribute('aSeed', new THREE.InstancedBufferAttribute(windowSeeds, 1));
+  const windowMat = new THREE.ShaderMaterial({
+    vertexShader: cityWindowsVert,
+    fragmentShader: cityWindowsFrag,
+    uniforms: {
+      uTime: fx.uTime,
+      uNight: fx.uNight,
+      uWarm: { value: new THREE.Color(palette.windowWarm) },
+      uFacade: { value: new THREE.Color(palette.hullB).multiplyScalar(0.55) },
+    },
   });
-  const windowMesh = new THREE.InstancedMesh(windowGeo, windowMat, Math.min(towerCount, C.MAX_WINDOW_INSTANCES));
+  const windowMesh = new THREE.InstancedMesh(windowGeo, windowMat, windowCap);
   windowMesh.frustumCulled = false;
 
+  // Rooftop signs: instanced pulse-glow shader — per-sign phase and accent
+  // tint attributes give every sign its own flicker clock and neon colour.
   const signGeo = new THREE.BoxGeometry(1, 1, 1);
-  const signMat = new THREE.MeshStandardMaterial({
-    color: 0x110511, emissive: new THREE.Color(palette.neonPrimary),
-    emissiveIntensity: C.NEON_BLOOM_INTENSITY, roughness: 0.3,
+  const signCap = Math.min(towerCount, C.MAX_SIGN_INSTANCES);
+  const signPhases = new Float32Array(Math.max(signCap, 1));
+  const signTints = new Float32Array(Math.max(signCap, 1) * 3);
+  signGeo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(signPhases, 1));
+  signGeo.setAttribute('aTint', new THREE.InstancedBufferAttribute(signTints, 3));
+  const signMat = new THREE.ShaderMaterial({
+    vertexShader: pulseGlowVert,
+    fragmentShader: pulseGlowFrag,
+    uniforms: {
+      uTime: fx.uTime,
+      uNight: fx.uNight,
+      uBase: { value: C.NEON_BLOOM_INTENSITY * 0.75 },
+      uAmp: { value: C.NEON_BLOOM_INTENSITY * 0.35 },
+      uSpeed: { value: 0.9 },
+      uFlicker: { value: flickerAmount * 2.5 },
+    },
   });
-  const signMesh = new THREE.InstancedMesh(signGeo, signMat, Math.min(towerCount, C.MAX_SIGN_INSTANCES));
+  const signMesh = new THREE.InstancedMesh(signGeo, signMat, signCap);
   signMesh.frustumCulled = false;
 
   const colliders = [];
@@ -683,6 +703,11 @@ export function createCity(planet, worldUp, opts = {}) {
       dummy.rotation.set(0, rng() * Math.PI * 2, 0);
       dummy.updateMatrix();
       signMesh.setMatrixAt(signIdx, dummy.matrix);
+      signPhases[signIdx] = rng() * Math.PI * 2;
+      towerColor.set(signAccentColors[Math.floor(rng() * signAccentColors.length)]);
+      signTints[signIdx * 3] = towerColor.r;
+      signTints[signIdx * 3 + 1] = towerColor.g;
+      signTints[signIdx * 3 + 2] = towerColor.b;
       signIdx++;
     }
 
@@ -796,13 +821,18 @@ export function createCity(planet, worldUp, opts = {}) {
       geo.applyMatrix4(adMatrix.compose(adPos, adQuat, adScale));
       perTexGeos[b.tex].push(geo);
     }
+    // Animated holo-boards (cityAds.frag): highlight sweep + scanlines +
+    // occasional glitch tear over the seeded glyph canvas. Day/night level
+    // rides the shared fx uniforms.
     for (let i = 0; i < adTexes.length; i++) {
       if (!perTexGeos[i].length) { adTexes[i].dispose(); continue; }
-      const mat = new THREE.MeshStandardMaterial({
-        color: 0x000000, emissive: 0xffffff, emissiveMap: adTexes[i],
-        emissiveIntensity: C.NEON_BLOOM_INTENSITY, roughness: 0.5, side: THREE.DoubleSide,
+      const mat = new THREE.ShaderMaterial({
+        vertexShader: basicVert,
+        fragmentShader: cityAdsFrag,
+        uniforms: { uMap: { value: adTexes[i] }, uTime: fx.uTime, uNight: fx.uNight },
+        side: THREE.DoubleSide,
       });
-      adMats.push(mat);
+      ownedTextures.push(adTexes[i]);
       const mesh = new THREE.Mesh(mergeGeometries(perTexGeos[i]), mat);
       mesh.frustumCulled = false;
       group.add(mesh);
@@ -1165,6 +1195,18 @@ export function createCity(planet, worldUp, opts = {}) {
   ringMesh.scale.set(C.PAD_LENGTH / C.PAD_WIDTH, 1, 1);
   ringMesh.position.set(padCenter.x, padY + 0.25, padCenter.y);
   padGroup.add(ringMesh);
+
+  // Arrival pulse: an expanding, fading ring that plays for a few seconds
+  // after the city spawns (i.e. right as the player lands), then hides.
+  const padPulseMat = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(palette.neonPrimary),
+    transparent: true, opacity: 0.6,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  });
+  const padPulse = new THREE.Mesh(new THREE.RingGeometry(0.92, 1.0, 48), padPulseMat);
+  padPulse.rotation.x = -Math.PI / 2;
+  padPulse.position.set(padCenter.x, padY + 0.35, padCenter.y);
+  padGroup.add(padPulse);
   group.add(padGroup);
 
   const boardingPadLocal = new THREE.Vector3(padCenter.x, padY + 0.3, padCenter.y);
@@ -1267,6 +1309,71 @@ export function createCity(planet, worldUp, opts = {}) {
   group.add(moteMesh);
 
   // -------------------------------------------------------------------------
+  // Aerial traffic — two counter-rotating lanes of emissive grav-car streaks
+  // circling well above the rooftops. Purely visual (no colliders), animated
+  // procedurally in update() with a reused dummy (zero allocs).
+  // -------------------------------------------------------------------------
+  const trafficMat = new THREE.MeshStandardMaterial({
+    color: 0x0a0a12, emissive: new THREE.Color(palette.neonSecondaryA),
+    emissiveIntensity: C.NEON_BLOOM_INTENSITY * 0.9, roughness: 0.4,
+  });
+  const trafficMesh = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(0.5, 0.18, 2.6), trafficMat, C.TRAFFIC_COUNT
+  );
+  trafficMesh.frustumCulled = false;
+  const laneAlt = C.BUILDING_MAX_H_CORE * heightScale; // clear of the tallest core tower
+  const trafficSeeds = [];
+  for (let i = 0; i < C.TRAFFIC_COUNT; i++) {
+    trafficSeeds.push({
+      lane: i % 2,
+      r: radius * (i % 2 ? 0.72 : 0.48) * (0.92 + rng() * 0.16),
+      alt: laneAlt + (i % 2 ? 26 : 10) + rng() * 6,
+      speed: 0.08 + rng() * 0.07, // radians/sec around the loop
+      phase: rng() * Math.PI * 2,
+    });
+  }
+  group.add(trafficMesh);
+
+  // -------------------------------------------------------------------------
+  // Rim haze — additive cards around the city edge merged into one mesh: a
+  // soft light-dome over the settlement, strongest at night (cityHaze.frag).
+  // -------------------------------------------------------------------------
+  {
+    const hazeGeos = [];
+    const hm = new THREE.Matrix4(), hq = new THREE.Quaternion();
+    const hp = new THREE.Vector3(), hs = new THREE.Vector3(1, 1, 1);
+    const cards = 8;
+    const hazeW = ((Math.PI * 2 * radius) / cards) * 1.15;
+    for (let i = 0; i < cards; i++) {
+      const ang = (i / cards) * Math.PI * 2;
+      const hx = Math.cos(ang) * radius * 1.02;
+      const hz = Math.sin(ang) * radius * 1.02;
+      const geo = new THREE.PlaneGeometry(hazeW, 46);
+      hp.set(hx, sampleGroundLocalY(hx, hz) + 20, hz);
+      hq.setFromAxisAngle(YAXIS, -ang + Math.PI / 2);
+      geo.applyMatrix4(hm.compose(hp, hq, hs));
+      hazeGeos.push(geo);
+    }
+    const hazeMat = new THREE.ShaderMaterial({
+      vertexShader: basicVert,
+      fragmentShader: cityHazeFrag,
+      uniforms: {
+        uNight: fx.uNight,
+        uColor: {
+          value: new THREE.Color(palette.neonPrimary)
+            .lerp(new THREE.Color(palette.windowWarm), 0.35),
+        },
+      },
+      transparent: true, depthWrite: false,
+      blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    });
+    const hazeMesh = new THREE.Mesh(mergeGeometries(hazeGeos), hazeMat);
+    hazeMesh.frustumCulled = false;
+    hazeMesh.renderOrder = 1;
+    group.add(hazeMesh);
+  }
+
+  // -------------------------------------------------------------------------
   // groundHeightAt(worldPos) -> world-space height, following street level
   // -------------------------------------------------------------------------
   const invQuat = quat.clone().invert();
@@ -1280,23 +1387,23 @@ export function createCity(planet, worldUp, opts = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // update(t, sunDot) — day/night neon, flicker, mote drift; zero per-frame allocs
+  // update(t, sunDot) — day/night neon, mote drift, traffic lanes, arrival
+  // pulse; zero per-frame allocs. Shader-driven elements (windows, signs,
+  // ads, haze) only need the two shared fx uniforms written.
   // -------------------------------------------------------------------------
-  const emissiveMeshes = [windowMesh.material, signMesh.material, ringMesh.material, lightHeadMat, moteMat, ...adMats];
+  const emissiveMeshes = [ringMesh.material, lightHeadMat, moteMat, trafficMat, ...adMats];
   const baseEmissive = emissiveMeshes.map((m) => m.emissiveIntensity);
-  const flickerPhases = signMesh.count
-    ? Array.from({ length: signMesh.count }, () => Math.random() * Math.PI * 2)
-    : [];
   const moteDummy = new THREE.Object3D();
+  let spawnT = null; // first update() timestamp — drives the arrival pulse
 
   function update(t, sunDot) {
     const nightLift = THREE.MathUtils.clamp(1 - Math.max(sunDot ?? 0, 0), 0, 1);
+    fx.uTime.value = t;
+    fx.uNight.value = nightLift;
     const level = THREE.MathUtils.lerp(C.NEON_DIM_INTENSITY, C.NEON_BLOOM_INTENSITY, nightLift);
     for (let i = 0; i < emissiveMeshes.length; i++) {
       emissiveMeshes[i].emissiveIntensity = level * (baseEmissive[i] / C.NEON_BLOOM_INTENSITY);
     }
-    const flicker = 1 + Math.sin(t * C.SIGN_FLICKER_SPEED) * flickerAmount * nightLift;
-    signMat.emissiveIntensity = level * flicker;
 
     for (let i = 0; i < C.MOTE_COUNT; i++) {
       const s = moteSeeds[i];
@@ -1307,6 +1414,33 @@ export function createCity(planet, worldUp, opts = {}) {
       moteMesh.setMatrixAt(i, moteDummy.matrix);
     }
     moteMesh.instanceMatrix.needsUpdate = true;
+
+    // grav-car lanes: even instances orbit one way, odd the other; a gentle
+    // vertical bob keeps them from reading as being on rails
+    for (let i = 0; i < trafficSeeds.length; i++) {
+      const s = trafficSeeds[i];
+      const dir = s.lane ? -1 : 1;
+      const a = s.phase + t * s.speed * dir;
+      const cos = Math.cos(a), sin = Math.sin(a);
+      moteDummy.position.set(cos * s.r, s.alt + Math.sin(t * 0.7 + s.phase) * 1.5, sin * s.r);
+      moteDummy.rotation.y = Math.atan2(-sin * dir, cos * dir);
+      moteDummy.updateMatrix();
+      trafficMesh.setMatrixAt(i, moteDummy.matrix);
+    }
+    moteDummy.rotation.y = 0; // motes reuse the dummy next frame
+    trafficMesh.instanceMatrix.needsUpdate = true;
+
+    // arrival pulse: a few expanding rings right after landing, then done
+    if (spawnT === null) spawnT = t;
+    const age = t - spawnT;
+    if (age < 6) {
+      const k = (age % 1.6) / 1.6;
+      const grow = 1 + k * C.PAD_LENGTH * 0.9;
+      padPulse.scale.set(grow, grow, 1);
+      padPulseMat.opacity = (1 - k) * 0.6;
+    } else if (padPulse.visible) {
+      padPulse.visible = false;
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -1319,12 +1453,14 @@ export function createCity(planet, worldUp, opts = {}) {
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
         for (const m of mats) {
           if (m.map) m.map.dispose();
-          if (m.emissiveMap) m.emissiveMap.dispose(); // ad billboards
+          if (m.emissiveMap) m.emissiveMap.dispose();
           m.dispose();
         }
       }
       if (obj.dispose && obj.isInstancedMesh) obj.dispose();
     });
+    // textures held in shader uniforms (ad boards) aren't reachable as .map
+    for (const t of ownedTextures) t.dispose();
     group.clear();
   }
 

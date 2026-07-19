@@ -27,6 +27,14 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import basicVert from './shaders/basic.vert?raw';
+import pulseGlowVert from './shaders/pulseGlow.vert?raw';
+import pulseGlowFrag from './shaders/pulseGlow.frag?raw';
+import ribbonFrag from './shaders/ribbon.frag?raw';
+import beamFrag from './shaders/beam.frag?raw';
+import gatefilmFrag from './shaders/gatefilm.frag?raw';
+import crystalVert from './shaders/crystal.vert?raw';
+import crystalFrag from './shaders/crystal.frag?raw';
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -75,6 +83,7 @@ const C = {
   GROVE_POD_COUNT_PER_TREE: 4,
   GROVE_SWAY_SPEED: 0.5,
   GROVE_SWAY_AMOUNT: 0.05,        // radians
+  GROVE_SPORE_COUNT: 110,         // drifting additive spore points
 
   // Floating monoliths
   MONOLITH_COUNT: 7,
@@ -209,6 +218,35 @@ function radialCollider(worldPos, radius, height) {
   return { type: 'cylinder', position: worldPos.clone(), radius, height };
 }
 
+/** Shared FX uniform pair: shader-driven parts of a wonder read time and
+ *  night level from these, so update() writes two numbers per wonder. */
+function makeFx() {
+  return { uTime: { value: 0 }, uNight: { value: 0 } };
+}
+
+function nightOf(sunDot) {
+  return Math.min(Math.max(1 - Math.max(sunDot, 0), 0), 1);
+}
+
+// Tiny shared radial-gradient sprite for spore/particle points. Module-level
+// singleton (a few KB) — survives wonder disposal on purpose.
+let sporeSprite = null;
+function getSporeSprite() {
+  if (sporeSprite) return sporeSprite;
+  const c = document.createElement('canvas');
+  c.width = c.height = 32;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.4, 'rgba(255,255,255,0.5)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 32, 32);
+  sporeSprite = new THREE.CanvasTexture(c);
+  sporeSprite.colorSpace = THREE.SRGBColorSpace;
+  return sporeSprite;
+}
+
 // ===========================================================================
 // TYPE 1 — Space elevator / orbital tether
 // ===========================================================================
@@ -260,12 +298,37 @@ function buildElevator(planet, localDir, seed, palette) {
     geo.translate(0, C.ELEVATOR_TOWER_HEIGHT + h * i + h / 2, 0);
     ribbonParts.push(geo);
   }
+  const fx = makeFx();
   const ribbonMerged = mergeGeometries(ribbonParts, false);
-  const ribbonMat = emissiveMat(magenta, 0.5, { baseColor: 0x1a1420, opacity: 0.85, transparent: true });
+  // Ribbon shader: base glow + bright cargo pulses racing up toward orbit.
+  const ribbonMat = new THREE.ShaderMaterial({
+    vertexShader: basicVert,
+    fragmentShader: ribbonFrag,
+    uniforms: {
+      uTime: fx.uTime,
+      uNight: fx.uNight,
+      uColor: { value: new THREE.Color(magenta) },
+      uHeight: { value: C.ELEVATOR_TOWER_HEIGHT + C.ELEVATOR_RIBBON_HEIGHT },
+    },
+    transparent: true,
+  });
   const ribbon = new THREE.Mesh(ribbonMerged, ribbonMat);
   ribbon.frustumCulled = false;
   ribbon.name = 'elevatorRibbon';
   group.add(ribbon);
+
+  // Climber cars riding the ribbon: eased ping-pong loops, phase-offset so
+  // there's always one in view somewhere along the lower span.
+  const climberMat = emissiveMat(magenta, 1.2, { baseColor: 0x241a2e });
+  const climbers = [];
+  for (let i = 0; i < 3; i++) {
+    const car = new THREE.Mesh(new THREE.BoxGeometry(5, 7, 1.8), climberMat);
+    car.userData.phase = i / 3;
+    car.userData.speed = 0.012 + i * 0.004; // loops per second
+    car.name = 'elevatorClimber';
+    group.add(car);
+    climbers.push(car);
+  }
 
   const worldPos = new THREE.Vector3();
   group.getWorldPosition(worldPos);
@@ -273,9 +336,17 @@ function buildElevator(planet, localDir, seed, palette) {
 
   function update(t, sunDot) {
     const night = Math.max(1 - Math.max(sunDot, 0), 0.15);
+    fx.uTime.value = t;
+    fx.uNight.value = nightOf(sunDot);
     const pulse = (Math.sin(t * C.ELEVATOR_PULSE_SPEED) * 0.5 + 0.5);
     ring.material.emissiveIntensity = (0.9 + pulse * 0.8) * night;
-    ribbon.material.emissiveIntensity = (0.35 + pulse * 0.3) * night;
+    for (let i = 0; i < climbers.length; i++) {
+      const car = climbers[i];
+      const p = (t * car.userData.speed + car.userData.phase) % 1;
+      const tri = p < 0.5 ? p * 2 : 2 - p * 2;
+      const e = tri * tri * (3 - 2 * tri); // ease both ends of the run
+      car.position.y = C.ELEVATOR_TOWER_HEIGHT + e * C.ELEVATOR_RIBBON_HEIGHT * 0.5;
+    }
   }
 
   return { group, update, dispose: () => disposeGroup(group), collider };
@@ -327,6 +398,27 @@ function buildArch(planet, localDir, seed, palette) {
   legStripL.name = legStripR.name = 'archLegStrip';
   group.add(legStripL, legStripR);
 
+  // Gate film: a rippling energy membrane spanning the opening. Additive and
+  // collider-free — walking through the world gate is the whole point.
+  const fx = makeFx();
+  const filmMat = new THREE.ShaderMaterial({
+    vertexShader: basicVert,
+    fragmentShader: gatefilmFrag,
+    uniforms: {
+      uTime: fx.uTime,
+      uNight: fx.uNight,
+      uColor: { value: new THREE.Color(magenta) },
+    },
+    transparent: true, depthWrite: false,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+  const film = new THREE.Mesh(
+    new THREE.PlaneGeometry(C.ARCH_SPAN, C.ARCH_LEG_H), filmMat
+  );
+  film.position.y = C.ARCH_LEG_H / 2;
+  film.name = 'archGateFilm';
+  group.add(film);
+
   const worldPosL = new THREE.Vector3(), worldPosR = new THREE.Vector3();
   legStripL.getWorldPosition(worldPosL);
   legStripR.getWorldPosition(worldPosR);
@@ -337,6 +429,8 @@ function buildArch(planet, localDir, seed, palette) {
 
   function update(t, sunDot) {
     const night = Math.max(1 - Math.max(sunDot, 0), 0.15);
+    fx.uTime.value = t;
+    fx.uNight.value = nightOf(sunDot);
     const pulse = 0.85 + Math.sin(t * 0.5) * 0.3;
     inlay.material.emissiveIntensity = pulse * night;
     legStripL.material.emissiveIntensity = pulse * night;
@@ -354,10 +448,16 @@ function buildCrystals(planet, localDir, seed, palette) {
   const group = placeOnSurface(planet, localDir, rng() * Math.PI * 2);
   const magenta = palette.accent ?? C.MAGENTA;
   const cyan = palette.secondary ?? C.CYAN;
+  const fx = makeFx();
 
-  const spires = [];
+  // All spires merged into ONE geometry/draw call. Per-vertex aPhase/aTint
+  // give each spire its own pulse clock and colour; the crystal shader adds
+  // a fresnel rim and a slow internal energy swirl (replaces 22 costly
+  // transmission materials).
+  const geos = [];
   const colliders = [];
   const worldPos = new THREE.Vector3();
+  group.updateMatrixWorld(true); // compose placement for collider positions
 
   for (let i = 0; i < C.CRYSTAL_COUNT; i++) {
     const ang = rng() * Math.PI * 2;
@@ -365,38 +465,38 @@ function buildCrystals(planet, localDir, seed, palette) {
     const h = THREE.MathUtils.lerp(C.CRYSTAL_MIN_H, C.CRYSTAL_MAX_H, rng());
     const r = THREE.MathUtils.lerp(C.CRYSTAL_MIN_R, C.CRYSTAL_MAX_R, rng());
     const geo = new THREE.ConeGeometry(r, h, 6, 1);
-    const useCyan = rng() > 0.6;
-    const mat = new THREE.MeshPhysicalMaterial({
-      color: 0x2a1e3a,
-      transmission: 0.75,
-      thickness: r,
-      roughness: 0.15,
-      metalness: 0,
-      emissive: useCyan ? cyan : magenta,
-      emissiveIntensity: 0.9,
-      transparent: true,
-      opacity: 0.85,
-      ior: 1.4,
-    });
-    const spire = new THREE.Mesh(geo, mat);
-    spire.position.set(Math.cos(ang) * dist, h / 2, Math.sin(ang) * dist);
-    spire.rotation.y = rng() * Math.PI * 2;
-    spire.userData.phase = rng() * Math.PI * 2;
-    spire.name = 'crystalSpire';
-    group.add(spire);
-    spires.push(spire);
+    geo.rotateY(rng() * Math.PI * 2);
+    geo.translate(Math.cos(ang) * dist, h / 2, Math.sin(ang) * dist);
+    const count = geo.attributes.position.count;
+    geo.setAttribute('aPhase',
+      new THREE.BufferAttribute(new Float32Array(count).fill(rng() * Math.PI * 2), 1));
+    geo.setAttribute('aTint',
+      new THREE.BufferAttribute(new Float32Array(count).fill(rng() > 0.6 ? 1 : 0), 1));
+    geos.push(geo);
 
-    spire.getWorldPosition(worldPos);
+    worldPos.set(Math.cos(ang) * dist, h / 2, Math.sin(ang) * dist)
+      .applyMatrix4(group.matrixWorld);
     colliders.push(radialCollider(worldPos.clone(), r * 0.8, h));
   }
 
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: crystalVert,
+    fragmentShader: crystalFrag,
+    uniforms: {
+      uTime: fx.uTime,
+      uNight: fx.uNight,
+      uColorA: { value: new THREE.Color(magenta) },
+      uColorB: { value: new THREE.Color(cyan) },
+    },
+    transparent: true,
+  });
+  const mesh = new THREE.Mesh(mergeGeometries(geos, false), mat);
+  mesh.name = 'crystalSpires';
+  group.add(mesh);
+
   function update(t, sunDot) {
-    const night = Math.max(1 - Math.max(sunDot, 0), 0.2);
-    for (let i = 0; i < spires.length; i++) {
-      const s = spires[i];
-      const pulse = 0.7 + Math.sin(t * C.CRYSTAL_GLOW_SPEED + s.userData.phase) * 0.35;
-      s.material.emissiveIntensity = pulse * night;
-    }
+    fx.uTime.value = t;
+    fx.uNight.value = nightOf(sunDot);
   }
 
   return { group, update, dispose: () => disposeGroup(group), collider: colliders };
@@ -409,13 +509,28 @@ function buildGrove(planet, localDir, seed, palette) {
   const rng = mulberry32(seed);
   const group = placeOnSurface(planet, localDir, rng() * Math.PI * 2);
   const magenta = palette.accent ?? C.MAGENTA;
+  const fx = makeFx();
 
-  const trunkGeos = [];
-  const frondGeos = [];
-  const trunks = []; // { root pivot group, phase }
-  const podMeshes = [];
+  const trunks = []; // sway pivots
   const colliders = [];
   const worldPos = new THREE.Vector3();
+  const magentaCol = new THREE.Color(magenta);
+
+  // One shared pulse-glow material for every lantern pod in the grove; pods
+  // are merged per tree (so they still sway with their trunk) and carry
+  // per-vertex phase/tint — 104 materials become 1.
+  const podMat = new THREE.ShaderMaterial({
+    vertexShader: pulseGlowVert,
+    fragmentShader: pulseGlowFrag,
+    uniforms: {
+      uTime: fx.uTime,
+      uNight: fx.uNight,
+      uBase: { value: 0.45 },
+      uAmp: { value: 0.55 },
+      uSpeed: { value: 0.8 },
+      uFlicker: { value: 0 },
+    },
+  });
 
   for (let i = 0; i < C.GROVE_TREE_COUNT; i++) {
     const ang = rng() * Math.PI * 2;
@@ -434,36 +549,76 @@ function buildGrove(planet, localDir, seed, palette) {
     const trunkMesh = new THREE.Mesh(trunkGeo, stoneMat(0x2f3a2a));
     pivot.add(trunkMesh);
 
-    // Lantern pods as small emissive spheres near the crown, merged per tree
-    // into the shared frond material via individual meshes (few enough to
-    // stay cheap; instancing not required at this count per field).
+    // Lantern pods near the crown, merged into one mesh per tree.
+    const podGeos = [];
     for (let p = 0; p < C.GROVE_POD_COUNT_PER_TREE; p++) {
       const podGeo = new THREE.IcosahedronGeometry(0.8 + rng() * 0.6, 0);
       const podAng = rng() * Math.PI * 2;
       const podR = 1.5 + rng() * 2;
-      const pod = new THREE.Mesh(podGeo, emissiveMat(magenta, 1.0));
-      pod.position.set(Math.cos(podAng) * podR, h * (0.7 + rng() * 0.25), Math.sin(podAng) * podR);
-      pod.userData.phase = rng() * Math.PI * 2;
-      pod.name = 'grovePod';
-      pivot.add(pod);
-      podMeshes.push(pod);
+      podGeo.translate(
+        Math.cos(podAng) * podR, h * (0.7 + rng() * 0.25), Math.sin(podAng) * podR
+      );
+      const count = podGeo.attributes.position.count;
+      podGeo.setAttribute('aPhase',
+        new THREE.BufferAttribute(new Float32Array(count).fill(rng() * Math.PI * 2), 1));
+      const tint = new Float32Array(count * 3);
+      for (let v = 0; v < count; v++) {
+        tint[v * 3] = magentaCol.r; tint[v * 3 + 1] = magentaCol.g; tint[v * 3 + 2] = magentaCol.b;
+      }
+      podGeo.setAttribute('aTint', new THREE.BufferAttribute(tint, 3));
+      podGeos.push(podGeo);
     }
+    const pods = new THREE.Mesh(mergeGeometries(podGeos, false), podMat);
+    pods.name = 'grovePods';
+    pivot.add(pods);
 
     pivot.getWorldPosition(worldPos);
     colliders.push(radialCollider(worldPos.clone(), 1.2, h));
   }
 
+  // Drifting spores: additive points rising and swirling through the grove.
+  const sporeSeeds = [];
+  const sporeGeo = new THREE.BufferGeometry();
+  const sporePos = new Float32Array(C.GROVE_SPORE_COUNT * 3);
+  for (let i = 0; i < C.GROVE_SPORE_COUNT; i++) {
+    const ang = rng() * Math.PI * 2;
+    const d = Math.sqrt(rng()) * C.GROVE_RADIUS;
+    sporeSeeds.push({
+      x: Math.cos(ang) * d, z: Math.sin(ang) * d,
+      phase: rng() * 30, speed: 0.5 + rng() * 0.8,
+    });
+  }
+  sporeGeo.setAttribute('position', new THREE.BufferAttribute(sporePos, 3));
+  const sporeMat = new THREE.PointsMaterial({
+    map: getSporeSprite(), color: magenta, size: 0.7,
+    transparent: true, opacity: 0.7, depthWrite: false,
+    blending: THREE.AdditiveBlending, sizeAttenuation: true,
+  });
+  const spores = new THREE.Points(sporeGeo, sporeMat);
+  spores.frustumCulled = false;
+  spores.name = 'groveSpores';
+  group.add(spores);
+
   function update(t, sunDot) {
-    const night = Math.max(1 - Math.max(sunDot, 0), 0.25);
+    fx.uTime.value = t;
+    fx.uNight.value = nightOf(sunDot);
     for (let i = 0; i < trunks.length; i++) {
       const p = trunks[i];
       p.rotation.z = Math.sin(t * C.GROVE_SWAY_SPEED + p.userData.phase) * C.GROVE_SWAY_AMOUNT;
     }
-    for (let i = 0; i < podMeshes.length; i++) {
-      const pod = podMeshes[i];
-      const pulse = 0.6 + Math.sin(t * 0.8 + pod.userData.phase) * 0.4;
-      pod.material.emissiveIntensity = pulse * night;
+    const pos = sporeGeo.attributes.position;
+    for (let i = 0; i < sporeSeeds.length; i++) {
+      const s = sporeSeeds[i];
+      const y = (t * s.speed + s.phase) % (C.GROVE_TRUNK_MAX_H + 4);
+      pos.setXYZ(
+        i,
+        s.x + Math.sin(t * 0.4 + s.phase) * 1.5,
+        y,
+        s.z + Math.cos(t * 0.33 + s.phase) * 1.5
+      );
     }
+    pos.needsUpdate = true;
+    sporeMat.opacity = 0.2 + fx.uNight.value * 0.55;
   }
 
   return { group, update, dispose: () => disposeGroup(group), collider: colliders };
@@ -476,6 +631,22 @@ function buildMonoliths(planet, localDir, seed, palette) {
   const rng = mulberry32(seed);
   const group = placeOnSurface(planet, localDir, rng() * Math.PI * 2);
   const magenta = palette.accent ?? C.MAGENTA;
+  const fx = makeFx();
+
+  // One shared anti-grav beam material: noise visibly streaming down the
+  // open cylinders under every slab (beam.frag).
+  const beamMat = new THREE.ShaderMaterial({
+    vertexShader: basicVert,
+    fragmentShader: beamFrag,
+    uniforms: {
+      uTime: fx.uTime,
+      uNight: fx.uNight,
+      uColor: { value: new THREE.Color(magenta) },
+      uFlow: { value: 0.9 },
+    },
+    transparent: true, depthWrite: false,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
 
   const slabs = [];
   const colliders = [];
@@ -495,13 +666,14 @@ function buildMonoliths(planet, localDir, seed, palette) {
     slab.userData.baseY = baseY;
     slab.userData.phase = rng() * Math.PI * 2;
     slab.userData.topY = h / 2; // local offset to reachable top pad
+    slab.userData.spinDir = i % 2 ? 1 : -1; // slow alternating yaw drift
     slab.name = 'monolithSlab';
     group.add(slab);
     slabs.push(slab);
 
     const underGlow = new THREE.Mesh(
       new THREE.CylinderGeometry(C.MONOLITH_SLAB_W * 0.45, C.MONOLITH_SLAB_W * 0.2, hover, 8, 1, true),
-      emissiveMat(magenta, 0.8, { transparent: true, opacity: 0.35 })
+      beamMat
     );
     underGlow.position.set(slab.position.x, hover / 2, slab.position.z);
     underGlow.name = 'monolithBeam';
@@ -527,11 +699,12 @@ function buildMonoliths(planet, localDir, seed, palette) {
   }
 
   function update(t, sunDot) {
-    const night = Math.max(1 - Math.max(sunDot, 0), 0.2);
+    fx.uTime.value = t;
+    fx.uNight.value = nightOf(sunDot);
     for (let i = 0; i < slabs.length; i++) {
       const s = slabs[i];
       s.position.y = s.userData.baseY + Math.sin(t * C.MONOLITH_BOB_SPEED + s.userData.phase) * C.MONOLITH_BOB_AMOUNT;
-      s.userData.beam.material.emissiveIntensity = (0.6 + Math.sin(t * 0.6 + s.userData.phase) * 0.3) * night;
+      s.rotation.y = s.userData.phase + t * 0.04 * s.userData.spinDir;
     }
   }
 
@@ -574,13 +747,80 @@ function buildTitan(planet, localDir, seed, palette) {
   gaze.name = 'titanGaze';
   group.add(gaze);
 
+  const fx = makeFx();
+
+  // Searchlight gaze: an additive noise-streamed cone sweeping slowly across
+  // the plain from the titan's eye (beam.frag, apex at the pivot).
+  const beamLen = 140;
+  const beamGeo = new THREE.ConeGeometry(16, beamLen, 20, 1, true);
+  beamGeo.rotateX(-Math.PI / 2);        // axis onto Z: apex at -Z, base at +Z
+  beamGeo.translate(0, 0, beamLen / 2); // apex at the pivot, base out along +Z
+  const beamMesh = new THREE.Mesh(beamGeo, new THREE.ShaderMaterial({
+    vertexShader: basicVert,
+    fragmentShader: beamFrag,
+    uniforms: {
+      uTime: fx.uTime,
+      uNight: fx.uNight,
+      uColor: { value: new THREE.Color(magenta) },
+      uFlow: { value: 0.5 },
+    },
+    transparent: true, depthWrite: false,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  }));
+  const beamPivot = new THREE.Group();
+  beamPivot.position.copy(gaze.position);
+  beamPivot.rotation.x = 0.3; // tilt the beam down toward the ground
+  beamPivot.add(beamMesh);
+  beamPivot.name = 'titanGazeBeam';
+  group.add(beamPivot);
+
+  // Plinth runes: eight glyph slabs around the seat pulsing in sequence
+  // (ordered aPhase → a chase running around the pedestal). One merged mesh.
+  {
+    const runeGeos = [];
+    const runeCol = new THREE.Color(magenta);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const geo = new THREE.BoxGeometry(3, 6, 0.6);
+      geo.rotateY(-a);
+      geo.translate(Math.cos(a) * 76, C.TITAN_SEAT_HEIGHT * 0.5, Math.sin(a) * 76);
+      const count = geo.attributes.position.count;
+      geo.setAttribute('aPhase',
+        new THREE.BufferAttribute(new Float32Array(count).fill((i / 8) * Math.PI * 2), 1));
+      const tint = new Float32Array(count * 3);
+      for (let v = 0; v < count; v++) {
+        tint[v * 3] = runeCol.r; tint[v * 3 + 1] = runeCol.g; tint[v * 3 + 2] = runeCol.b;
+      }
+      geo.setAttribute('aTint', new THREE.BufferAttribute(tint, 3));
+      runeGeos.push(geo);
+    }
+    const runeMat = new THREE.ShaderMaterial({
+      vertexShader: pulseGlowVert,
+      fragmentShader: pulseGlowFrag,
+      uniforms: {
+        uTime: fx.uTime,
+        uNight: fx.uNight,
+        uBase: { value: 0.3 },
+        uAmp: { value: 0.9 },
+        uSpeed: { value: 1.2 },
+        uFlicker: { value: 0 },
+      },
+    });
+    const runes = new THREE.Mesh(mergeGeometries(runeGeos, false), runeMat);
+    runes.name = 'titanRunes';
+    group.add(runes);
+  }
+
   const worldPos = new THREE.Vector3();
   seat.getWorldPosition(worldPos);
   const collider = radialCollider(worldPos, 80, C.TITAN_SEAT_HEIGHT);
 
   function update(t, sunDot) {
     const night = Math.max(1 - Math.max(sunDot, 0), 0.2);
+    fx.uTime.value = t;
+    fx.uNight.value = nightOf(sunDot);
     gaze.material.emissiveIntensity = (0.9 + Math.sin(t * C.TITAN_GAZE_PULSE_SPEED) * 0.4) * night;
+    beamPivot.rotation.y = Math.sin(t * 0.12) * 0.5; // slow searchlight sweep
   }
 
   return { group, update, dispose: () => disposeGroup(group), collider };
