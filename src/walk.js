@@ -491,6 +491,12 @@ function spawnWorldEntities(planet) {
   wonders = createWonderField(planet, _patchUp, {
     count: C.WONDER_COUNT,
     types: WONDER_TYPES[planet.cfg.name] ?? ['arch', 'crystals', 'monoliths'],
+    // Wonders share the city's neon identity: glacia goes ice-blue, rustia
+    // amber, oceana teal (wonders.js palette.accent/secondary hooks).
+    palette: {
+      accent: style.palette.neonPrimary,
+      secondary: style.palette.neonSecondaryA,
+    },
   }); // adds its group to planet.surface itself
 
   // --- creatures: scattered around the landing site itself ---
