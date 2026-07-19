@@ -296,42 +296,53 @@ function cityBelowTexture() {
 // projected in front of the sculpted dragon so the shape reads unmistakably as
 // a dragon. Chunky low-res canvas (nearest-sampled) + scanlines = hologram.
 function dragonHologramTexture() {
-  const W = 150, H = 200;
+  const W = 176, H = 190;
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const g = c.getContext('2d');
   g.clearRect(0, 0, W, H);
   const poly = (pts) => { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); g.closePath(); g.fill(); };
+  const ell = (x, y, rx, ry) => { g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, 6.28); g.fill(); };
   g.fillStyle = '#bfe6ff';
-  // Haunch + seated body mass.
-  g.beginPath(); g.ellipse(74, 138, 34, 40, 0, 0, 6.28); g.fill();
-  g.beginPath(); g.ellipse(96, 120, 26, 34, 0, 0, 6.28); g.fill();
-  // Chest rising to the neck.
-  poly([[92, 96], [116, 110], [118, 140], [96, 150], [80, 130]]);
-  // Neck curving up to the head (facing right).
-  poly([[104, 104], [118, 70], [130, 62], [128, 84], [112, 116]]);
-  // Head + snout (points up-right) + lower jaw.
-  poly([[122, 74], [150, 58], [150, 68], [132, 80], [126, 86]]);
-  poly([[124, 82], [146, 74], [140, 84], [126, 90]]);
-  // Back-swept horns / frill off the skull.
-  poly([[124, 66], [112, 44], [120, 52], [128, 68]]);
-  poly([[128, 64], [120, 40], [128, 48], [134, 62]]);
-  poly([[132, 64], [130, 38], [136, 46], [138, 62]]);
-  // Folded wing — a big triangular membrane with a clawed strut.
-  poly([[70, 96], [40, 60], [50, 96], [30, 92], [58, 122], [86, 118]]);
-  poly([[66, 100], [44, 74], [52, 104]]);
-  // Foreleg reaching to the ground + hind foot.
-  poly([[108, 138], [112, 176], [124, 178], [120, 138]]);
-  poly([[64, 170], [60, 186], [92, 186], [92, 168]]);
-  // Long spiked tail sweeping down and to the left.
-  poly([[46, 150], [20, 172], [10, 188], [24, 184], [40, 168], [60, 160]]);
-  for (const [tx, ty] of [[40, 158], [30, 168], [20, 178], [52, 154]]) poly([[tx, ty], [tx - 6, ty - 10], [tx + 2, ty - 4]]);
-  // Dorsal ridge spikes from nape to hip.
-  for (const [sx, sy, s] of [[112, 96, 7], [100, 100, 8], [88, 104, 9], [76, 108, 8], [64, 116, 7]]) poly([[sx, sy], [sx - s * 0.5, sy - s], [sx + 4, sy - 2]]);
+  // Seated in 3/4 profile, facing right (matching the reference pose): haunch on
+  // the left, chest and one foreleg forward on the right, folded wing raised
+  // behind the shoulder, long neck to a horned head, long spiked tail sweeping
+  // back to the lower left.
+  // Rear haunch + rump + lower belly (the seated mass).
+  ell(58, 132, 40, 42);
+  ell(92, 142, 30, 30);
+  // Raised folded wing behind the shoulder — a tall angular sail + top claw.
+  poly([[98, 112], [74, 58], [86, 34], [96, 60], [112, 52], [126, 104]]);
+  poly([[86, 40], [80, 12], [94, 34]]);          // wing-finger claw at the top
+  poly([[96, 104], [82, 60], [94, 92]]);          // inner wing strut (a darker fold-line reads as depth)
+  // Chest + shoulder rising to the neck.
+  poly([[86, 118], [116, 150], [130, 120], [126, 92], [104, 96]]);
+  // Neck curving up and forward (thick at the base).
+  poly([[108, 100], [122, 58], [142, 50], [150, 66], [128, 108]]);
+  // Head facing right: skull, back-swept horned frill, snout + jaw.
+  poly([[140, 52], [160, 48], [166, 58], [158, 68], [142, 66]]);
+  poly([[158, 60], [178, 62], [172, 72], [156, 70]]); // snout
+  poly([[152, 68], [170, 74], [162, 82], [150, 76]]); // jaw
+  poly([[142, 52], [128, 30], [136, 42], [148, 54]]); // horns / frill
+  poly([[148, 50], [138, 24], [148, 36], [154, 52]]);
+  poly([[154, 52], [152, 26], [160, 40], [160, 54]]);
+  // Dorsal ridge spikes from the nape over the back to the hip.
+  for (const [sx, sy, s] of [[118, 96, 8], [106, 100, 10], [92, 106, 11], [78, 114, 10], [64, 122, 9], [50, 130, 8]]) poly([[sx, sy], [sx - s * 0.5, sy - s], [sx + 5, sy - 2]]);
+  // Forelegs: one extended forward to a planted clawed foot, one tucked.
+  poly([[120, 122], [132, 152], [144, 152], [130, 118]]);
+  poly([[132, 150], [136, 178], [154, 180], [150, 156], [140, 150]]); // lower leg + foot
+  for (const cx of [136, 142, 148]) poly([[cx, 178], [cx - 3, 186], [cx + 2, 184]]); // toe claws
+  poly([[74, 150], [70, 176], [92, 178], [94, 152]]); // near hind foot
+  // Long spiked tail sweeping down and back to the lower-left, tapering.
+  poly([[34, 140], [16, 158], [4, 180], [16, 184], [30, 166], [50, 150], [60, 146]]);
+  for (const [tx, ty, s] of [[56, 144, 7], [46, 150, 7], [34, 160, 6], [22, 172, 5], [12, 180, 4]]) poly([[tx, ty], [tx - s * 0.5, ty - s], [tx + 3, ty - 2]]);
   // Glowing eye.
-  g.fillStyle = '#eaf6ff'; g.beginPath(); g.arc(134, 72, 2.2, 0, 6.28); g.fill();
-  // Scanlines for the holographic read.
+  g.fillStyle = '#eaf6ff'; g.beginPath(); g.arc(154, 58, 2.4, 0, 6.28); g.fill();
+  // Faint interior scale/fold lines (drawn as thin cutouts) add read at distance.
   g.globalCompositeOperation = 'destination-out';
+  g.lineWidth = 1; g.strokeStyle = '#000';
+  for (const [x0, y0, x1, y1] of [[104, 100, 120, 108], [96, 112, 118, 126], [90, 128, 116, 140]]) { g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); }
+  // Scanlines for the holographic read.
   for (let y = 0; y < H; y += 3) g.fillRect(0, y, W, 1);
   g.globalCompositeOperation = 'source-over';
   const tex = new THREE.CanvasTexture(c);
@@ -1740,23 +1751,29 @@ export function createActuality(planet, worldUp, opts = {}) {
     const holoTex = dragonHologramTexture();
     zoneTextures.push(holoTex);
     const holoMat = new THREE.MeshBasicMaterial({
-      map: holoTex, color: 0x9fd4ff, transparent: true, opacity: 0.72,
+      map: holoTex, color: 0x9fd4ff, transparent: true, opacity: 0.82,
       depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
     });
     zoneMats.push(holoMat);
-    const holoGeo = new THREE.PlaneGeometry(9, 12);
+    // A single profile plane facing the arriving player so the dragon silhouette
+    // reads clearly (crossed planes washed out under additive blend).
+    const holoGeo = new THREE.PlaneGeometry(10.5, 11.3);
     const holo = new THREE.Mesh(holoGeo, holoMat);
-    holo.position.set(0, -8.0, -58.5); rec.group.add(holo);
-    const holo2 = new THREE.Mesh(holoGeo, holoMat);
-    holo2.position.set(0, -8.0, -58.5); holo2.rotation.y = Math.PI / 2; rec.group.add(holo2);
+    holo.position.set(0, -7.6, -58.5); rec.group.add(holo);
     zoneGeos.push(holoGeo);
-    // A soft projector base + upward beam under the hologram.
-    const beamMat = new THREE.MeshBasicMaterial({ color: 0x4a8fd0, transparent: true, opacity: 0.14, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    // A faint projector base ring + a thin upward beam (kept subtle so it frames
+    // rather than drowns the silhouette).
+    const beamMat = new THREE.MeshBasicMaterial({ color: 0x4a8fd0, transparent: true, opacity: 0.07, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
     zoneMats.push(beamMat);
-    const beamGeo = new THREE.ConeGeometry(3.4, 12, 16, 1, true);
-    const beam = new THREE.Mesh(beamGeo, beamMat); beam.position.set(0, -8.5, -58.5); rec.group.add(beam);
+    const beamGeo = new THREE.ConeGeometry(2.6, 11, 20, 1, true);
+    const beam = new THREE.Mesh(beamGeo, beamMat); beam.position.set(0, -8.6, -58.5); rec.group.add(beam);
     zoneGeos.push(beamGeo);
-    const holoLight = new THREE.PointLight(0x7fc0ff, 1.4, 24, 2.0);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0x7fc0ff, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    zoneMats.push(ringMat);
+    const ringGeo = new THREE.RingGeometry(1.6, 2.4, 28);
+    const ring = new THREE.Mesh(ringGeo, ringMat); ring.position.set(0, -13.9, -58.5); ring.rotation.x = -Math.PI / 2; rec.group.add(ring);
+    zoneGeos.push(ringGeo);
+    const holoLight = new THREE.PointLight(0x7fc0ff, 1.2, 24, 2.0);
     holoLight.position.set(0, -6, -58.5); rec.group.add(holoLight);
     z9Holo = { mat: holoMat, mat2: beamMat, light: holoLight };
 
