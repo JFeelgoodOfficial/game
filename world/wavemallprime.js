@@ -27,6 +27,29 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeStructure } from './city.js';
+import marqueeVert from '../src/shaders/wavemallmarquee.vert?raw';
+import marqueeFrag from '../src/shaders/wavemallmarquee.frag?raw';
+import orbPulseVert from '../src/shaders/orbpulse.vert?raw';
+import orbPulseFrag from '../src/shaders/orbpulse.frag?raw';
+
+// The owner's paintings (repo-root /artgallery, same pipeline as the Orbital
+// Art Gallery in src/stations.js and the shadowreach garden windowpane). We
+// hang the titled works down the GALLERIA colonnade; IMG_*/numeric filenames
+// (untitled phone captures) are filtered out. Asset URLs only — bytes load
+// asynchronously via TextureLoader when the world is built.
+const GALLERIA_ART = Object.entries(
+  import.meta.glob('/artgallery/*.{png,jpg,jpeg,webp}', {
+    eager: true,
+    query: '?url',
+    import: 'default',
+  })
+)
+  .sort(([a], [b]) => (a < b ? -1 : 1))
+  .filter(([path]) => {
+    const base = path.split('/').pop();
+    return !/^IMG_|^\d/i.test(base);
+  })
+  .map(([, url]) => url);
 
 /* ----------------------------------------------------------------------
  * Tunables â€” every magic number lives here.
@@ -55,6 +78,9 @@ const C = {
   ENTRANCE_H: 13,                // beam height
   ANCHOR_DIST: 48,               // crystal centerpiece offset (opposite side)
   ANCHOR_CRYSTALS: 6,
+
+  // Moving walkways (travelators) — chevron scroll speed in texture-units/sec
+  WALKWAY_SPEED: 0.12,
 
   // Speaker orb landmark (district plaza center)
   SPEAKER_ORB_RADIUS: 3.2,
@@ -191,6 +217,7 @@ function glowText(ctx, text, x, y, px, colorCss, font = 'monospace') {
 function canvasTexture(cnv) {
   const tex = new THREE.CanvasTexture(cnv);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8; // driver clamps to hardware max
   tex.needsUpdate = true;
   return tex;
 }
@@ -362,17 +389,18 @@ function makeDirectoryTexture(deptName, tagline, storeNames, accentHex) {
 
 // Mall carpet: plum diamond lattice with accent medallion dots on a deep red
 // ground — the patterned-concourse look from the reference art.
-function makeCarpetTexture(baseHex, accentHex, size = 256) {
+function makeCarpetTexture(baseHex, accentHex, size = 512) {
   const cnv = document.createElement('canvas');
   cnv.width = size; cnv.height = size;
   const ctx = cnv.getContext('2d');
   ctx.fillStyle = hexCss(baseHex);
   ctx.fillRect(0, 0, size, size);
   const cell = size / 4;
+  const px = size / 256; // stroke/dot scale so 512 keeps the 256 design weight
   // Diamond lattice
   ctx.strokeStyle = '#8a3448';
   ctx.globalAlpha = 0.55;
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 3 * px;
   for (let i = -1; i <= 4; i++) {
     ctx.beginPath();
     ctx.moveTo(i * cell - size, 0); ctx.lineTo(i * cell + size, size * 2);
@@ -398,7 +426,7 @@ function makeCarpetTexture(baseHex, accentHex, size = 256) {
   for (let gx = 0; gx <= 4; gx++) {
     for (let gz = 0; gz <= 4; gz++) {
       ctx.beginPath();
-      ctx.arc(gx * cell, gz * cell, 5, 0, Math.PI * 2);
+      ctx.arc(gx * cell, gz * cell, 5 * px, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -406,6 +434,67 @@ function makeCarpetTexture(baseHex, accentHex, size = 256) {
   const tex = canvasTexture(cnv);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(10, 10);
+  return tex;
+}
+
+// Moving-walkway lane: forward-pointing chevrons on a dark belt. RepeatWrapping
+// on T so the whole strip tiles; the shared material's map.offset.y scrolls it.
+function makeWalkwayTexture(accentHex) {
+  const w = 128, h = 256;
+  const cnv = document.createElement('canvas');
+  cnv.width = w; cnv.height = h;
+  const ctx = cnv.getContext('2d');
+  ctx.fillStyle = '#0d0a12';
+  ctx.fillRect(0, 0, w, h);
+  const accent = hexCss(accentHex);
+  // Two chevrons per tile, pointing toward -T (the concourse-inbound sense).
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 12;
+  ctx.lineCap = 'round';
+  ctx.shadowColor = accent;
+  ctx.shadowBlur = 10;
+  for (const cy of [h * 0.28, h * 0.78]) {
+    ctx.beginPath();
+    ctx.moveTo(16, cy + 26);
+    ctx.lineTo(w / 2, cy - 26);
+    ctx.lineTo(w - 16, cy + 26);
+    ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+  const tex = canvasTexture(cnv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+// Seamlessly tiling ticker strip for the entrance marquee: one line of
+// glowing hold-queue copy, drawn twice a full text-width apart so the
+// shader's fract() scroll never shows a seam.
+function makeMarqueeStripTexture(text, accentHex) {
+  const w = 2048, h = 96;
+  const cnv = document.createElement('canvas');
+  cnv.width = w; cnv.height = h;
+  const ctx = cnv.getContext('2d');
+  ctx.fillStyle = '#000000'; // black = transparent under luminance alpha
+  ctx.fillRect(0, 0, w, h);
+  const accent = hexCss(accentHex);
+  const px = 52;
+  ctx.font = `bold ${px}px monospace`;
+  // N copies spaced w/N apart fill the canvas exactly: each copy is narrower
+  // than its slot, so none crosses the wrap edge and fract(u + t) is seamless.
+  const unit = ctx.measureText(text).width;
+  const n = Math.max(1, Math.floor(w / unit));
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = accent;
+  ctx.shadowBlur = px * 0.4;
+  ctx.fillStyle = accent;
+  for (let i = 0; i < n; i++) {
+    ctx.fillText(text, (i * w) / n, h / 2);
+    ctx.fillText(text, (i * w) / n, h / 2); // second pass thickens the halo
+  }
+  ctx.shadowBlur = 0;
+  const tex = canvasTexture(cnv);
+  tex.wrapS = THREE.RepeatWrapping;
   return tex;
 }
 
@@ -603,7 +692,7 @@ function emitStore(o) {
 }
 
 function buildDistrict(planet, worldUp, dept, index, rng, opts) {
-  void opts;
+  const shellGeo = opts.shellGeo;
   const group = new THREE.Group();
   group.name = `district_${dept.name}`;
 
@@ -746,14 +835,25 @@ function buildDistrict(planet, worldUp, dept, index, rng, opts) {
     buckets.foliage.push(leaves);
   }
 
-  // Glowing runway strips guiding shoppers in from the entrance corridor.
+  // Moving walkways: two draped chevron lanes guiding shoppers in from the
+  // entrance corridor. All wings share one scrolling material (opts.walkwayMat);
+  // the chevrons animate via map.offset.y in the district update.
+  const LANE_Z0 = -33, LANE_Z1 = -69, LANE_HALF = 0.9, LANE_SEGS = 12;
   for (const sx of [-8, 8]) {
-    for (let seg = 0; seg < 3; seg++) {
-      const z = -36 - seg * 11;
-      const strip = new THREE.BoxGeometry(0.35, 0.14, 10);
-      strip.translate(sx, localGroundY(sx, z) + 0.13, z);
-      buckets.glow.push(strip);
+    const lane = new THREE.PlaneGeometry(LANE_HALF * 2, LANE_Z1 - LANE_Z0, 1, LANE_SEGS);
+    lane.rotateX(-Math.PI / 2); // lie flat; +Y up, length along Z
+    const lp = lane.attributes.position;
+    for (let i = 0; i < lp.count; i++) {
+      const x = lp.getX(i);
+      const z = lp.getZ(i) + (LANE_Z0 + LANE_Z1) / 2;
+      lp.setX(i, x + sx);
+      lp.setZ(i, z);
+      lp.setY(i, localGroundY(x + sx, z) + 0.09);
     }
+    lane.computeVertexNormals();
+    const laneMesh = new THREE.Mesh(lane, opts.walkwayMat);
+    laneMesh.frustumCulled = false;
+    group.add(laneMesh);
   }
 
   // Merge the buckets — one draw call per material per wing.
@@ -831,6 +931,25 @@ function buildDistrict(planet, worldUp, dept, index, rng, opts) {
   const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(C.SPEAKER_ORB_RADIUS, 2), orbMat);
   orb.position.set(0, daisY + 0.5 + C.SPEAKER_ORB_RADIUS * 1.3, 0);
   group.add(orb);
+  // Additive fresnel "sound ripple" shell — a custom ShaderMaterial pulsing in
+  // phase with the orb's emissive throb. Geometry is shared across all wings.
+  const shellMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uPhase: { value: index * 0.7 },
+      uLevel: { value: 1 },
+      uColor: { value: new THREE.Color(dept.accent) },
+    },
+    vertexShader: orbPulseVert,
+    fragmentShader: orbPulseFrag,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const shell = new THREE.Mesh(shellGeo, shellMat);
+  shell.position.copy(orb.position);
+  shell.frustumCulled = false;
+  group.add(shell);
   structures.push(makeStructure(0, 0, daisY, [
     { x0: -3.8, x1: 3.8, z0: -3.8, z1: 3.8, y: 0.5 },
   ], [], 5));
@@ -841,6 +960,7 @@ function buildDistrict(planet, worldUp, dept, index, rng, opts) {
     structures,
     lobbies,
     orbMaterial: orbMat,
+    shellMaterial: shellMat,
     dirLocal,
     accent: dept.accent,
     emissiveMats: [glowMat, signMat, windowMat, dirMat],
@@ -853,7 +973,21 @@ export function createDepartmentDistrict(planet, worldUp, opts = {}) {
   const group = new THREE.Group();
   group.name = 'wavemall_districts';
 
-  const districts = C.DEPARTMENTS.map((dept, i) => buildDistrict(planet, worldUp, dept, i, rng, opts));
+  // One shell geometry shared by all 8 speaker-orb pulse shells (each wing
+  // still owns its own ShaderMaterial for its accent colour + phase).
+  const shellGeo = new THREE.IcosahedronGeometry(C.SPEAKER_ORB_RADIUS * 1.15, 2);
+
+  // One scrolling chevron material shared by every wing's two walkway lanes —
+  // animating its map.offset.y drives all 16 lanes at zero per-frame cost.
+  const walkwayTex = makeWalkwayTexture(C.COLORS.teal);
+  walkwayTex.repeat.set(1, 18); // ~2 m chevron tile over a 36 m lane
+  const walkwayMat = new THREE.MeshStandardMaterial({
+    map: walkwayTex, emissive: 0xffffff, emissiveMap: walkwayTex,
+    emissiveIntensity: 0.45, roughness: 0.5, // under bloom — floor never glares
+  });
+
+  const districts = C.DEPARTMENTS.map((dept, i) =>
+    buildDistrict(planet, worldUp, dept, i, rng, { ...opts, shellGeo, walkwayMat }));
   districts.forEach((d) => group.add(d.group));
 
   const boardingPad = districts[0].frame.pos.clone();
@@ -871,10 +1005,17 @@ export function createDepartmentDistrict(planet, worldUp, opts = {}) {
     for (let i = 0; i < dimMats.length; i++) {
       dimMats[i].m.emissiveIntensity = dimMats[i].base * level;
     }
+    // Scroll the shared walkway belt toward the concourse (all 16 lanes);
+    // driven off elapsed t so it's frame-rate independent and zero-alloc.
+    walkwayTex.offset.y = -t * C.WALKWAY_SPEED;
     districts.forEach((d, i) => {
       const phase = t * C.SPEAKER_PULSE_SPEED + i * 0.7;
       d.orbMaterial.emissiveIntensity =
         C.SPEAKER_EMISSIVE_BASE + Math.sin(phase) * C.SPEAKER_EMISSIVE_RANGE * 0.5 + C.SPEAKER_EMISSIVE_RANGE * 0.5;
+      // Ripple shell shares the orb's clock; dim with day/night so it reads
+      // like the neon around it.
+      d.shellMaterial.uniforms.uTime.value = t;
+      d.shellMaterial.uniforms.uLevel.value = level;
     });
   }
 
@@ -889,8 +1030,11 @@ export function createDepartmentDistrict(planet, worldUp, opts = {}) {
 
   function dispose() {
     group.traverse((obj) => {
-      if (obj.geometry) obj.geometry.dispose();
-      if (obj.material) {
+      // shellGeo is shared across all 8 orb shells — dispose it once, below.
+      if (obj.geometry && obj.geometry !== shellGeo) obj.geometry.dispose();
+      // walkwayMat (+ its texture) is shared across all 16 lanes — skip here,
+      // dispose once below, so the traversal doesn't double-free the texture.
+      if (obj.material && obj.material !== walkwayMat) {
         if (obj.material.map) obj.material.map.dispose();
         if (obj.material.emissiveMap && obj.material.emissiveMap !== obj.material.map) {
           obj.material.emissiveMap.dispose();
@@ -898,6 +1042,9 @@ export function createDepartmentDistrict(planet, worldUp, opts = {}) {
         obj.material.dispose();
       }
     });
+    shellGeo.dispose();
+    walkwayTex.dispose();
+    walkwayMat.dispose();
   }
 
   return { group, update, sunDot: 1, dispose, groundHeightAt, boardingPad, districts };
@@ -964,12 +1111,44 @@ export function createGrandEntrance(planet, worldUp, opts = {}) {
   sign.frustumCulled = false;
   group.add(sign);
 
+  // "Please Hold" holographic marquee: a scrolling hold-queue ticker slung
+  // below the sign, driven by a custom ShaderMaterial (see wavemallmarquee.*).
+  const marqueeTex = makeMarqueeStripTexture(
+    'YOUR CALL IS IMPORTANT TO US ◆ CURRENT WAIT: ∞ ◆ THANK YOU FOR HOLDING ◆ ',
+    C.COLORS.teal
+  );
+  const marqueeMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTex: { value: marqueeTex },
+      uTime: { value: 0 },
+      uLevel: { value: 1 },
+    },
+    vertexShader: marqueeVert,
+    fragmentShader: marqueeFrag,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const marquee = new THREE.Mesh(new THREE.PlaneGeometry(S * 1.7, 1.1), marqueeMat);
+  marquee.position.set(0, H - 5.2, 0);
+  marquee.frustumCulled = false;
+  group.add(marquee);
+
   const structures = [makeStructure(0, 0, 0, [], [
     { x0: -S - 1.5, x1: -S + 1.5, z0: -1.5, z1: 1.5, y0: 0, y1: H },
     { x0: S - 1.5, x1: S + 1.5, z0: -1.5, z1: 1.5, y0: 0, y1: H },
   ], S + 3)];
 
+  function update(t, sunDot = 1) {
+    marqueeMat.uniforms.uTime.value = t;
+    // Match the wings' day/night dim so the ticker fades to a readable pale
+    // band by day and blooms after dark (0.55 .. 1.0).
+    const nightLift = THREE.MathUtils.clamp(1 - Math.max(sunDot, 0), 0, 1);
+    marqueeMat.uniforms.uLevel.value = THREE.MathUtils.lerp(0.55, 1, nightLift);
+  }
+
   function dispose() {
+    marqueeTex.dispose(); // held as a uniform, not .map — traversal misses it
     group.traverse((obj) => {
       if (obj.geometry) obj.geometry.dispose();
       if (obj.material) {
@@ -982,7 +1161,7 @@ export function createGrandEntrance(planet, worldUp, opts = {}) {
     });
   }
 
-  return { group, frame, structures, emissiveMats: [glowMat, signMat], dispose };
+  return { group, frame, structures, emissiveMats: [glowMat, signMat], update, dispose };
 }
 
 export function createAnchorStructure(planet, worldUp, opts = {}) {
@@ -1027,7 +1206,38 @@ export function createAnchorStructure(planet, worldUp, opts = {}) {
   });
   const crystals = new THREE.Mesh(mergeGeometries(crystalGeos, false), crystalMat);
   crystals.frustumCulled = false;
+  crystals.name = 'anchor_crystals';
   group.add(crystals);
+
+  // Showpiece keyframed clip: a slow authored sway + a heartbeat emissive
+  // swell (fast attack, long decay) driving the crystal — richer than a plain
+  // sine and the module's one AnimationMixer.
+  const q0 = new THREE.Quaternion();
+  const qL = new THREE.Quaternion().setFromAxisAngle(_yAxis, 0.13);
+  const qR = new THREE.Quaternion().setFromAxisAngle(_yAxis, -0.13);
+  const swayTrack = new THREE.QuaternionKeyframeTrack(
+    '.quaternion',
+    [0, 3, 6, 9, 12],
+    [
+      q0.x, q0.y, q0.z, q0.w,
+      qL.x, qL.y, qL.z, qL.w,
+      q0.x, q0.y, q0.z, q0.w,
+      qR.x, qR.y, qR.z, qR.w,
+      q0.x, q0.y, q0.z, q0.w,
+    ]
+  );
+  swayTrack.setInterpolation(THREE.InterpolateSmooth);
+  // Heartbeat: quick rise to 1.1 then a long ebb to 0.5 across the loop.
+  const beatTrack = new THREE.NumberKeyframeTrack(
+    '.material.emissiveIntensity',
+    [0, 1.2, 4, 6.5, 7.7, 12],
+    [0.5, 1.1, 0.55, 0.5, 1.05, 0.5]
+  );
+  const clip = new THREE.AnimationClip('anchorHeartbeat', 12, [swayTrack, beatTrack]);
+  const mixer = new THREE.AnimationMixer(crystals);
+  const action = mixer.clipAction(clip);
+  action.setLoop(THREE.LoopRepeat, Infinity);
+  action.play();
 
   // All-departments display board, facing the landing anchor.
   const boardTex = makeDirectoryTexture(
@@ -1056,13 +1266,18 @@ export function createAnchorStructure(planet, worldUp, opts = {}) {
     { x0: 7.9, x1: 9.1, z0: -8.4, z1: -7.5, y0: 0, y1: 8 }, // board post
   ], 12)];
 
-  function update(t, sunDot = 1) {
+  function update(t, dt, sunDot = 1) {
+    void t;
+    // The mixer authors emissiveIntensity; scale its result by day/night so
+    // the crystal still dims under daylight without fighting the clip.
+    mixer.update(dt);
     const nightLift = THREE.MathUtils.clamp(1 - Math.max(sunDot, 0), 0, 1);
-    const level = THREE.MathUtils.lerp(0.6, 1, nightLift);
-    crystalMat.emissiveIntensity = (0.7 + Math.sin(t * 0.7) * 0.3) * level;
+    crystalMat.emissiveIntensity *= THREE.MathUtils.lerp(0.6, 1, nightLift);
   }
 
   function dispose() {
+    mixer.stopAllAction();
+    mixer.uncacheClip(clip);
     group.traverse((obj) => {
       if (obj.geometry) obj.geometry.dispose();
       if (obj.material) {
@@ -1076,6 +1291,160 @@ export function createAnchorStructure(planet, worldUp, opts = {}) {
   }
 
   return { group, frame, structures, emissiveMats: [boardMat], update, dispose };
+}
+
+/* ----------------------------------------------------------------------
+ * The Galleria â€” JFeelgood art colonnade on the entrance walk
+ * ------------------------------------------------------------------- */
+// A double row of lit frame stands lining the stretch between the landing
+// anchor and the grand entrance arch, each hanging one of the owner's
+// paintings. Loaders (async TextureLoader + LoadingManager) + fundamentals
+// (named group, LOD-friendly individual frustum-culled meshes, dispose race
+// guard) in one showcase.
+export function createGalleria(planet, worldUp, opts = {}) {
+  const group = new THREE.Group();
+  group.name = 'wavemall_galleria';
+
+  // Anchor the colonnade midway down the entrance walk (angle 0, the district-0
+  // bearing), yawed so local -Z looks back at the landing anchor.
+  const dirLocal = ringDir(planet, worldUp, 0, 33);
+  const frame = surfaceFrame(planet, worldUp, dirLocal);
+  group.position.copy(frame.pos);
+  group.quaternion.copy(frame.q);
+
+  const baseR = frame.pos.length();
+  const _dw = new THREE.Vector3();
+  const localGroundY = (x, z) => {
+    _dw.set(x, 0, z).applyQuaternion(frame.q).add(frame.pos).normalize();
+    const rr = sampleGround(planet, _dw);
+    return Math.sqrt(Math.max(rr * rr - (x * x + z * z), 0)) - baseR - 0.05;
+  };
+
+  const manager = new THREE.LoadingManager();
+  const loader = new THREE.TextureLoader(manager);
+  const textures = [];
+  let disposed = false;
+
+  // Stand slots: five per side along the corridor (local Z), lateral ±LANE.
+  const LANE = 6, ZSPAN = 18, PER_SIDE = 5;
+  const propGeos = [];
+  const structures = [];
+  const paintingMeshes = [];
+  const paintingMats = [];
+  const artCount = GALLERIA_ART.length;
+  let artIdx = 0;
+
+  const FRAME_W = 3.0, FRAME_H = 3.8, POST_H = 2.2;
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < PER_SIDE; i++) {
+      const z = -ZSPAN + (i / (PER_SIDE - 1)) * (ZSPAN * 2);
+      const x = side * LANE;
+      const gy = localGroundY(x, z);
+      const faceX = -side; // paintings face the walk centerline
+      const yaw = faceX > 0 ? Math.PI / 2 : -Math.PI / 2;
+
+      // Two support posts + a frame border, in the prop bucket (merged, dark).
+      for (const dz of [-FRAME_W / 2, FRAME_W / 2]) {
+        const post = new THREE.BoxGeometry(0.22, POST_H + gy + 1.2, 0.22);
+        post.translate(x, (POST_H) / 2 + gy - 0.6, z + dz);
+        propGeos.push(post);
+      }
+      // Frame slab behind the canvas (also the mounting board).
+      const board = new THREE.BoxGeometry(0.18, FRAME_H, FRAME_W);
+      board.translate(x + faceX * -0.02, POST_H + FRAME_H / 2 + gy, z);
+      propGeos.push(board);
+
+      // Collision: a thin wall AABB (stand-local, centered on the stand) so the
+      // player can't clip through a frame stand.
+      structures.push(makeStructure(x, z, gy, [], [
+        { x0: -0.4, x1: 0.4, z0: -FRAME_W / 2 - 0.3, z1: FRAME_W / 2 + 0.3,
+          y0: 0, y1: POST_H + FRAME_H },
+      ], FRAME_W));
+
+      // The painting: an individual plane (unique texture, can't merge). Starts
+      // dark; onLoad swaps the real work in. frustumCulled — small + localized.
+      const url = artCount ? GALLERIA_ART[artIdx % artCount] : null;
+      artIdx++;
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x140f18, roughness: 0.5,
+        emissive: 0xffffff, emissiveIntensity: 0.0,
+      });
+      const plane = new THREE.PlaneGeometry(FRAME_W - 0.5, FRAME_H - 0.6);
+      plane.rotateY(yaw);
+      const mesh = new THREE.Mesh(plane, mat);
+      mesh.position.set(x + faceX * 0.11, POST_H + FRAME_H / 2 + gy, z);
+      group.add(mesh);
+      paintingMeshes.push(mesh);
+      paintingMats.push(mat);
+
+      if (url) {
+        loader.load(url, (tex) => {
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.anisotropy = 8;
+          if (disposed) { tex.dispose(); return; } // race: dispose beat the load
+          textures.push(tex);
+          mat.map = tex;
+          mat.emissiveMap = tex;
+          mat.emissiveIntensity = 0.42; // shadowreach's proven self-lit value
+          mat.color.set(0xffffff);
+          mat.needsUpdate = true;
+        });
+      }
+    }
+  }
+
+  // Header sign spanning the colonnade mouth (toward the anchor).
+  const atlas = makeStorefrontSignAtlas(['WAVEMALL GALLERIA'], C.COLORS.teal);
+  const signMat = new THREE.MeshStandardMaterial({
+    map: atlas.tex, emissive: 0xffffff, emissiveMap: atlas.tex,
+    emissiveIntensity: C.SIGN_EMISSIVE, roughness: 0.5,
+  });
+  const headGy = localGroundY(0, -ZSPAN - 4);
+  const headGeo = new THREE.PlaneGeometry(10, 1.9);
+  const headMesh = new THREE.Mesh(headGeo, signMat);
+  headMesh.position.set(0, headGy + 6.2, -ZSPAN - 4);
+  headMesh.frustumCulled = false;
+  group.add(headMesh);
+  // Two gateway posts under the header.
+  for (const sx of [-5, 5]) {
+    const gy = localGroundY(sx, -ZSPAN - 4);
+    const post = new THREE.BoxGeometry(0.4, 7.2, 0.4);
+    post.translate(sx, gy + 3.6, -ZSPAN - 4);
+    propGeos.push(post);
+  }
+
+  // Merge all posts/boards into one prop mesh (one draw call).
+  const propMat = new THREE.MeshStandardMaterial({
+    color: 0x241e2c, roughness: 0.8, metalness: 0.15,
+  });
+  const propMesh = new THREE.Mesh(mergeGeometries(propGeos, false), propMat);
+  propMesh.frustumCulled = false;
+  group.add(propMesh);
+
+  const signBase = signMat.emissiveIntensity;
+  function update(sunDot = 1) {
+    // Match the wings: header dims below the bloom threshold by day.
+    const nightLift = THREE.MathUtils.clamp(1 - Math.max(sunDot, 0), 0, 1);
+    signMat.emissiveIntensity = signBase * THREE.MathUtils.lerp(0.55, 1, nightLift);
+  }
+
+  function dispose() {
+    disposed = true;
+    for (let i = 0; i < textures.length; i++) textures[i].dispose();
+    group.traverse((obj) => {
+      if (obj.geometry) obj.geometry.dispose();
+      if (obj.material) {
+        if (obj.material.map) obj.material.map.dispose();
+        if (obj.material.emissiveMap && obj.material.emissiveMap !== obj.material.map) {
+          obj.material.emissiveMap.dispose();
+        }
+        obj.material.dispose();
+      }
+    });
+  }
+
+  void opts;
+  return { group, frame, structures, update, dispose };
 }
 
 /* ----------------------------------------------------------------------
@@ -1307,6 +1676,11 @@ export function createWonderField(planet, worldUp, opts = {}) {
 /* ----------------------------------------------------------------------
  * TASK C â€” Employees & wandering callers
  * ------------------------------------------------------------------- */
+// Frame-loop scratch — module scope so crowd/mote updates never allocate.
+const _toWp = new THREE.Vector3();
+const _m4 = new THREE.Matrix4();
+const _col = new THREE.Color();
+
 const DIALOGUE_BANK = {
   employeeGreeting: [
     'Your satisfaction is our directive.',
@@ -1469,15 +1843,16 @@ export function createCrowd(host, opts = {}) {
   function update(dt, playerPos, sunDot = 1) {
     simT += dt;
     let idx = 0;
-    citizens.forEach((c) => {
+    for (let ci = 0; ci < citizens.length; ci++) {
+      const c = citizens[ci];
       // A citizen in dialogue holds still so the speaker doesn't wander off.
       if (!c.talking) {
-        const toWaypoint = c.waypoint.clone().sub(c.pos);
-        const dist = toWaypoint.length();
+        _toWp.copy(c.waypoint).sub(c.pos);
+        const dist = _toWp.length();
         if (dist < 1) pickWaypoint(c);
         else {
-          toWaypoint.normalize().multiplyScalar(c.speed * dt);
-          c.pos.add(toWaypoint);
+          _toWp.normalize().multiplyScalar(c.speed * dt);
+          c.pos.add(_toWp);
         }
       }
 
@@ -1502,11 +1877,11 @@ export function createCrowd(host, opts = {}) {
       }
 
       if (distToPlayer < C.CULL_DIST) {
-        impostorMesh.setMatrixAt(idx, new THREE.Matrix4().setPosition(c.pos));
-        impostorMesh.setColorAt(idx, new THREE.Color(c.accent).multiplyScalar(Math.max(0.3, sunDot)));
+        impostorMesh.setMatrixAt(idx, _m4.setPosition(c.pos));
+        impostorMesh.setColorAt(idx, _col.set(c.accent).multiplyScalar(Math.max(0.3, sunDot)));
         idx++;
       }
-    });
+    }
     impostorMesh.count = idx;
     impostorMesh.instanceMatrix.needsUpdate = true;
     if (impostorMesh.instanceColor) impostorMesh.instanceColor.needsUpdate = true;
@@ -1611,13 +1986,13 @@ export function createHoldMusicField(planet, worldUp, opts = {}) {
   }
 
   function update(t, nearestDistrictIndex = 0) {
-    const matrix = new THREE.Matrix4();
-    moteData.forEach((m, i) => {
+    for (let i = 0; i < moteData.length; i++) {
+      const m = moteData[i];
       const y = m.basePos.y + ((t * C.MOTE_RISE_SPEED * m.speed + m.phase) % 8);
       const wobble = Math.sin(t * m.speed + m.phase) * C.MOTE_DRIFT_RADIUS;
-      matrix.setPosition(m.basePos.x + wobble, y, m.basePos.z);
-      motes.setMatrixAt(i, matrix);
-    });
+      _m4.setPosition(m.basePos.x + wobble, y, m.basePos.z);
+      motes.setMatrixAt(i, _m4);
+    }
     motes.instanceMatrix.needsUpdate = true;
 
     if (osc) {
@@ -1650,6 +2025,7 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
   const wonders = createWonderField(planet, worldUp, { ...opts, seedKey });
   const entrance = createGrandEntrance(planet, worldUp, { ...opts, seedKey });
   const centerpiece = createAnchorStructure(planet, worldUp, { ...opts, seedKey });
+  const galleria = createGalleria(planet, worldUp, { ...opts, seedKey });
 
   // Landing-point anchor. Districts and wonders place each feature along its
   // own direction, but the crowd and hold-music motes are built around a local
@@ -1660,10 +2036,15 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
   const anchorQInv = anchorQ.clone().invert();
   const _gp = new THREE.Vector3();
 
-  // Crowd-local no-wander circles under the arch pylons + crystal dais.
-  const avoid = [entrance, centerpiece].map((f, i) => {
+  // Crowd-local no-wander circles under the arch pylons, crystal dais, and the
+  // Galleria colonnade so citizens don't wander through the frame stands.
+  const avoid = [
+    { f: entrance, r: 16 },
+    { f: centerpiece, r: 14 },
+    { f: galleria, r: 26 },
+  ].map(({ f, r }) => {
     const p = _gp.copy(f.frame.pos).sub(anchorPos).applyQuaternion(anchorQInv);
-    return { x: p.x, z: p.z, r: i === 0 ? 16 : 14 };
+    return { x: p.x, z: p.z, r };
   });
 
   const crowd = createCrowd(
@@ -1692,7 +2073,7 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
 
   group.add(
     districts.group, wonders.group, entrance.group, centerpiece.group,
-    crowd.group, holdMusic.group
+    galleria.group, crowd.group, holdMusic.group
   );
 
   // Per-lobby manifest for interior shopkeepers (walk.js): each entry carries
@@ -1708,7 +2089,9 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
   function update(t, dt, playerPos, sunDot = 1) {
     districts.update(t, sunDot);
     wonders.update(t, sunDot);
-    centerpiece.update(t, sunDot);
+    entrance.update(t, sunDot);
+    centerpiece.update(t, dt, sunDot);
+    galleria.update(sunDot);
     crowd.update(dt, playerPos, sunDot);
     holdMusic.update(t);
   }
@@ -1729,6 +2112,7 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
   }));
   zones.push({ frame: entrance.frame, structures: entrance.structures, r2: 30 ** 2 });
   zones.push({ frame: centerpiece.frame, structures: centerpiece.structures, r2: 30 ** 2 });
+  zones.push({ frame: galleria.frame, structures: galleria.structures, r2: 55 ** 2 });
 
   const _rcLocal = new THREE.Vector3();
   function resolveCollisions(surfaceLocalPos, playerRadius) {
@@ -1780,6 +2164,7 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
     wonders.dispose();
     entrance.dispose();
     centerpiece.dispose();
+    galleria.dispose();
     crowd.dispose();
     holdMusic.dispose();
   }
@@ -1801,6 +2186,7 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
     wonders,
     entrance,
     centerpiece,
+    galleria,
     crowd,
     holdMusic,
   };
