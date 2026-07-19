@@ -16,6 +16,12 @@
 
 import * as THREE from 'three';
 import { Astronaut } from '../src/astronaut.js';
+// GLSL (Vite ?raw, same mechanism as src/shaders): the lattice of selves and
+// the grid-glass walls are live shaders driven by uTime + the finale surge.
+import holoVert from './shaders/holo.vert?raw';
+import latticeVert from './shaders/lattice.vert?raw';
+import latticeFrag from './shaders/lattice.frag?raw';
+import gridGlassFrag from './shaders/gridglass.frag?raw';
 
 export function createMirrorRoom(opts = {}) {
   const HALF = opts.half ?? 4;      // interior half-extent (8 m cube)
@@ -47,9 +53,18 @@ export function createMirrorRoom(opts = {}) {
   gridTex.repeat.set(2, 2);
   texs.push(gridTex);
 
-  // --- Chamber shell: mirror-grid glass on the four walls + ceiling. ---
-  const glassMat = new THREE.MeshBasicMaterial({
-    map: gridTex, color: 0x3a5a80, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false,
+  // --- Chamber shell: mirror-grid glass on the four walls + ceiling. A live
+  // shader sends a luminous pulse climbing the grid lines; the finale surge
+  // (uSurge 0→1 over the ten seconds) speeds and brightens it. The canvas
+  // texture's 2×2 repeat is baked into the shader (ShaderMaterial ignores
+  // texture.repeat). ---
+  const glassMat = new THREE.ShaderMaterial({
+    vertexShader: holoVert, fragmentShader: gridGlassFrag,
+    uniforms: {
+      uMap: { value: gridTex }, uTime: { value: 0 }, uSurge: { value: 0 },
+      uTint: { value: new THREE.Color(0x3a5a80) },
+    },
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
   });
   mats.push(glassMat);
   const faceGeo = new THREE.PlaneGeometry(HALF * 2, HALF * 2);
@@ -177,9 +192,13 @@ export function createMirrorRoom(opts = {}) {
   cloneCam.lookAt(0, 0.85, 0);
 
   // --- Copies: a floor grid of the live clone texture, plus a dimmer mirrored
-  // set below the floor for the reflection. ---
-  const latMat = new THREE.MeshBasicMaterial({
-    map: rt.texture, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+  // set below the floor for the reflection. A live shader adds scanlines,
+  // per-copy flicker (aPhase) and rare dropouts; the finale surge accelerates
+  // all three toward the reset crescendo. ---
+  const latMat = new THREE.ShaderMaterial({
+    vertexShader: latticeVert, fragmentShader: latticeFrag,
+    uniforms: { uMap: { value: rt.texture }, uTime: { value: 0 }, uSurge: { value: 0 } },
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
   });
   mats.push(latMat);
   const latGeo = new THREE.PlaneGeometry(1.25, 2.3);
@@ -197,23 +216,35 @@ export function createMirrorRoom(opts = {}) {
   const lattice = new THREE.InstancedMesh(latGeo, latMat, cells.length);
   lattice.frustumCulled = false;
   lattice.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cells.length * 3), 3);
+  // Per-instance flicker phase for the shader (seeded, deterministic).
+  const phases = new Float32Array(cells.length);
+  let ps = 0x1eaf;
+  const prand = () => { ps = (ps * 1103515245 + 12345) & 0x7fffffff; return ps / 0x7fffffff; };
   for (let c = 0; c < cells.length; c++) {
     const d = cells[c].dim;
     lattice.instanceColor.setXYZ(c, d * 0.8, d * 0.9, d); // cool tint
+    phases[c] = prand();
   }
+  latGeo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phases, 1));
   lattice.instanceColor.needsUpdate = true;
   group.add(lattice);
 
-  // --- Update: pose the clone, billboard every copy toward the player. ---
+  // --- Update: pose the clone, billboard every copy toward the player.
+  // `surge` runs 0→1 across the ten-second finale: scanlines accelerate,
+  // dropouts multiply, the whole room brightens — the loop lands on a
+  // crescendo. ---
   const _m = new THREE.Matrix4();
   const _q = new THREE.Quaternion();
   const _e = new THREE.Euler();
   let cloneYaw = 0;
-  function update(t, dt, playerLocal, speed01 = 0) {
+  function update(t, dt, playerLocal, speed01 = 0, surge = 0) {
     clone.update(dt, 'idle', speed01);
     cloneYaw += dt * 0.1;
     clone.group.rotation.y = cloneYaw; // the selves regard you from their own angle
-    rim.material.emissiveIntensity = 1.0 + Math.sin(t * 1.5) * 0.3;
+    latMat.uniforms.uTime.value = t; latMat.uniforms.uSurge.value = surge;
+    glassMat.uniforms.uTime.value = t; glassMat.uniforms.uSurge.value = surge;
+    sparkMat.opacity = 0.6 + surge * 0.4;
+    rim.material.emissiveIntensity = 1.0 + Math.sin(t * 1.5) * 0.3 + surge * 0.8;
     const px = playerLocal ? playerLocal.x : 0;
     const pz = playerLocal ? playerLocal.z : 0;
     for (let c = 0; c < cells.length; c++) {

@@ -43,6 +43,12 @@ import { createMirrorRoom } from './actuality-mirrorroom.js';
 // statue behind, the glowing hologram (box removed) additively in front.
 import dragonHoloUrl from '../src/assets/actuality-dragon-nobox.png';
 import dragonGraniteUrl from '../src/assets/actuality-dragon-granite.png';
+// GLSL for the showpiece surfaces (Vite ?raw, same mechanism as src/shaders).
+import holoVert from './shaders/holo.vert?raw';
+import dragonHoloFrag from './shaders/dragonholo.frag?raw';
+import cityParallaxFrag from './shaders/cityparallax.frag?raw';
+import soulGemVert from './shaders/soulgem.vert?raw';
+import soulGemFrag from './shaders/soulgem.frag?raw';
 
 /* ----------------------------------------------------------------------
  * Tunables — every magic number lives here.
@@ -433,7 +439,8 @@ function buildPortalArch(digit, word, geos, mats) {
  * pose: 'seated' | 'standing'. All parts under one group; update(t) bobs it.
  * ------------------------------------------------------------------- */
 function makeFigure(opts = {}) {
-  const { seated = false, scale = 1, skin = 0xcaa583, cloth = 0x8a5a6a, seed = 1 } = opts;
+  const { seated = false, scale = 1, skin = 0xcaa583, cloth = 0x8a5a6a, seed = 1,
+          sway = 0, swayPhase = 0, headTilt = 0 } = opts;
   const rng = mulberry32(seed >>> 0);
   const group = new THREE.Group();
   const mats = [];
@@ -451,11 +458,12 @@ function makeFigure(opts = {}) {
   };
   const hipY = seated ? 0.55 : 0.95;
   // torso
-  box(0.42, 0.62, 0.26, 0, hipY + 0.45, 0, clothMat);
+  const torso = box(0.42, 0.62, 0.26, 0, hipY + 0.45, 0, clothMat);
   // head
   const head = box(0.24, 0.28, 0.24, 0, hipY + 0.95, 0, skinMat);
   // hair cap tint
   head.material = skinMat;
+  head.rotation.z = headTilt; // leaning (the Zone 2 couple lean together)
   // arms
   box(0.12, 0.5, 0.14, -0.3, hipY + 0.45, 0.02, clothMat);
   box(0.12, 0.5, 0.14, 0.3, hipY + 0.45, 0.02, clothMat);
@@ -475,6 +483,10 @@ function makeFigure(opts = {}) {
   function update(t) {
     group.position.y = baseY + Math.sin(t * 1.4 + phase) * 0.015;
     head.rotation.y = Math.sin(t * 0.5 + phase) * 0.18;
+    // Breathing on the torso mesh (never the group — callers own group scale),
+    // and an optional slow sway for figures built with one (the Z2 couple).
+    torso.scale.y = 1 + Math.sin(t * 0.9 + phase) * 0.01;
+    if (sway) group.rotation.z = Math.sin(t * 0.45 + swayPhase) * sway;
   }
   function setOpacity(o) {
     for (const m of mats) {
@@ -722,6 +734,7 @@ function buildHub(rng) {
     structure,
     lights,
     update,
+    paveTex, // exposed so the caller can register it for anisotropy
     shePos: new THREE.Vector3(-6, 0, 10.4),
     dispose() {
       for (const g of geos) g.dispose();
@@ -905,6 +918,12 @@ export function createActuality(planet, worldUp, opts = {}) {
   let mirror = null;        // createMirrorRoom handle (hyper-holo-grid)
   let mirrorRec = null;     // its zone record
   let mirrorDoor = null;    // { mesh, mat, opened } sealed hub door
+  // Textures viewed at grazing angles (paving, graffiti walls, the dragon
+  // billboards); sharpened once with the renderer's max anisotropy on the
+  // first preRender — the only place the world module can reach the renderer.
+  const anisoTextures = [];
+  let anisoApplied = false;
+  anisoTextures.push(hub.paveTex); // the terrace paving stretches to the horizon
   buildDialogueZones();
   buildAmbientZones();
   buildMirrorRoom();
@@ -1296,11 +1315,12 @@ export function createActuality(planet, worldUp, opts = {}) {
     if (mirrorDoor && mirrorDoor.opened && mirrorDoor.anim < 1) {
       mirrorDoor.anim = Math.min(1, mirrorDoor.anim + dt / 1.6);
       const a = mirrorDoor.anim;
-      mirrorDoor.mesh.position.y = 1.55 + a * 3.2;       // slab lifts up and away
+      const e = a * a * (3 - 2 * a);                     // smoothstep — no linear jolt
+      mirrorDoor.mesh.position.y = 1.55 + e * 3.2;       // slab lifts up and away
       mirrorDoor.mesh.visible = a < 0.98;
-      mirrorDoor.glowMat.opacity = a * 0.7;
-      mirrorDoor.doorLight.intensity = a * 1.6;
-      mirrorDoor.sign.opacity = 0.85 + a * 0.15;
+      mirrorDoor.glowMat.opacity = e * 0.7;
+      mirrorDoor.doorLight.intensity = e * 1.6;
+      mirrorDoor.sign.opacity = 0.85 + e * 0.15;
     }
     if (mirrorDoor && mirrorDoor.opened && mirrorDoor.anim >= 1) {
       mirrorDoor.glowMat.opacity = 0.55 + Math.sin(t * 1.6) * 0.15; // gentle pulse
@@ -1630,11 +1650,18 @@ export function createActuality(planet, worldUp, opts = {}) {
     const granite = new THREE.Mesh(dragonGeo, graniteMat);
     granite.position.set(0, -1.5, -64); rec.group.add(granite);
     // Front layer: the glowing hologram (box removed), additively blended so its
-    // dark ground vanishes and only the blue dragon glows over the granite.
+    // dark ground vanishes and only the blue dragon glows over the granite. A
+    // live shader adds projection artifacts — drifting scanlines, a rare glitch
+    // band with RGB split, and a slow projection sweep (its crest blooms).
     const dragonTex = loader.load(dragonHoloUrl);
     dragonTex.colorSpace = THREE.SRGBColorSpace;
     zoneTextures.push(dragonTex);
-    const dragonMat = new THREE.MeshBasicMaterial({ map: dragonTex, transparent: true, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
+    anisoTextures.push(graniteTex, dragonTex); // grazing-angle view down the descent
+    const dragonMat = new THREE.ShaderMaterial({
+      vertexShader: holoVert, fragmentShader: dragonHoloFrag,
+      uniforms: { uMap: { value: dragonTex }, uTime: { value: 0 } },
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    });
     zoneMats.push(dragonMat);
     const dragon = new THREE.Mesh(dragonGeo, dragonMat);
     dragon.position.set(0, -1.5, -63.2); rec.group.add(dragon);
@@ -1676,17 +1703,37 @@ export function createActuality(planet, worldUp, opts = {}) {
     const cityTex = cityBelowTexture();
     zoneTextures.push(cityTex);
     cityFallUrl = cityTex.image.toDataURL(); // reused by the fall overlay
-    const cityMat = new THREE.MeshBasicMaterial({ map: cityTex, side: THREE.DoubleSide });
+    // One shader plane does the depth work the old stacked pair did: the same
+    // city sampled twice (deep layer zoomed + dimmed through darker districts),
+    // with a slow bounded cloud drift and a faint heat shimmer.
+    const cityMat = new THREE.ShaderMaterial({
+      vertexShader: holoVert, fragmentShader: cityParallaxFrag,
+      uniforms: { uMap: { value: cityTex }, uTime: { value: 0 } },
+      side: THREE.DoubleSide,
+    });
     const cityGeo = new THREE.PlaneGeometry(4.2, 4.2); // fills the opening when you look in
     const cityPlane = new THREE.Mesh(cityGeo, cityMat);
     cityPlane.position.set(BX, -18.0, BZ); cityPlane.rotation.x = -Math.PI / 2;
     rec.group.add(cityPlane); zoneGeos.push(cityGeo); zoneMats.push(cityMat);
-    // A second, larger faint city layer deeper down for a sense of depth.
-    const cityFar = new THREE.Mesh(new THREE.PlaneGeometry(7, 7), new THREE.MeshBasicMaterial({ map: cityTex, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
-    cityFar.position.set(BX, -22.5, BZ); cityFar.rotation.x = -Math.PI / 2;
-    rec.group.add(cityFar); zoneGeos.push(cityFar.geometry); zoneMats.push(cityFar.material);
     const upGlow = new THREE.PointLight(0xffd9a0, 1.6, 18, 2.0);
     upGlow.position.set(BX, -15.5, BZ); rec.group.add(upGlow);
+
+    // Slow blue dust motes drifting through the chamber air — cheap atmosphere
+    // (one InstancedMesh, animated only while z9 is active).
+    const MOTES = 40;
+    const moteGeo = new THREE.PlaneGeometry(0.1, 0.1);
+    const moteMat = new THREE.MeshBasicMaterial({ color: 0x8fc0ff, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending });
+    const motes = new THREE.InstancedMesh(moteGeo, moteMat, MOTES);
+    motes.frustumCulled = false; rec.group.add(motes);
+    zoneGeos.push(moteGeo); zoneMats.push(moteMat);
+    const mr = mulberry32(0x9d09);
+    const mb = [];
+    for (let i = 0; i < MOTES; i++) {
+      mb.push({ x: -12 + mr() * 24, y: -14 + mr() * 11, z: -68 + mr() * 28, ph: mr() * 6.28, sp: 0.3 + mr() * 0.5 });
+    }
+    const _mm = new THREE.Matrix4(), _mq = new THREE.Quaternion(), _mv = new THREE.Vector3();
+    const _ms = new THREE.Vector3(1, 1, 1);
+    const _mEuler = new THREE.Euler();
 
     // Dragon dialogue (talk before you jump), placed clear of the box footprint.
     interactables.push({ id: 'dragon', zone: 'z9', pos: zoneToAnchor(rec, 0, -14, -50), talking: false });
@@ -1697,10 +1744,26 @@ export function createActuality(planet, worldUp, opts = {}) {
     const FALL_DUR = 1.2, FALL_OUT = 0.5;
     zoneUpdaters.push((t, dt, playerPos) => {
       if (activeZone === 'z9') upGlow.intensity = 1.1 + Math.sin(t * 2.0) * 0.3;
-      // The granite statue holds full presence; the hologram over it shimmers.
+      // The granite statue holds full presence; the hologram's shader shimmers
+      // (scanlines/glitch/sweep all derive from uTime in-shader).
       if (activeZone === 'z9' && z9Holo) {
-        z9Holo.mat.opacity = 0.86 + Math.sin(t * 2.2) * 0.12; // holographic shimmer
+        z9Holo.mat.uniforms.uTime.value = t;
+        cityMat.uniforms.uTime.value = t;
         z9Holo.light.intensity = 1.0 + Math.sin(t * 3.0) * 0.35;
+        // Drift the dust motes, each turned toward the player.
+        _zLocal.copy(playerPos).applyQuaternion(anchorQ).add(anchorPos)
+          .sub(rec.frame.pos).applyQuaternion(rec.frame.qInv);
+        for (let i = 0; i < MOTES; i++) {
+          const b = mb[i];
+          const mx = b.x + Math.sin(t * b.sp + b.ph) * 0.8;
+          const my = b.y + Math.sin(t * b.sp * 0.6 + b.ph * 2.0) * 0.5;
+          const mz = b.z + Math.cos(t * b.sp * 0.8 + b.ph) * 0.8;
+          _mEuler.set(0, Math.atan2(_zLocal.x - mx, _zLocal.z - mz), 0);
+          _mq.setFromEuler(_mEuler);
+          _mm.compose(_mv.set(mx, my, mz), _mq, _ms);
+          motes.setMatrixAt(i, _mm);
+        }
+        motes.instanceMatrix.needsUpdate = true;
       }
       // Arm the fall when the player stands over the opening.
       if (activeZone === 'z9' && fade.phase === 'idle' && !z9Fall) {
@@ -1796,6 +1859,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     for (const [gx, side] of [[-4.5, 1], [4.5, 2]]) {
       const gTex = graffitiTexture(mulberry32(0x2b00 + side), null);
       zoneTextures.push(gTex);
+      anisoTextures.push(gTex); // long walls walked past at grazing angles
       gTex.repeat.set(2, 1); gTex.wrapS = THREE.RepeatWrapping;
       const gm = new THREE.MeshStandardMaterial({ map: gTex, roughness: 0.9, side: THREE.DoubleSide });
       zoneMats.push(gm);
@@ -1968,11 +2032,31 @@ export function createActuality(planet, worldUp, opts = {}) {
     const floor = new THREE.Mesh(floorGeo, floorMat); floor.rotation.x = -Math.PI / 2; floor.position.y = 0.03; rec.group.add(floor);
     zoneGeos.push(floorGeo);
 
+    // Facet glint: a warm light sweeps across the crystal facet-by-facet on the
+    // heartbeat. Injected into both standard materials via onBeforeCompile —
+    // flatShading reconstructs per-face normals at the fragment stage, so the
+    // sweep catches one facet at a time (pow 24 keeps it to bloom sparkle, not
+    // halo soup). The uniform OBJECTS are shared, so one tick reaches both
+    // programs with no userData.shader plumbing.
+    const glintUniforms = { uTime: { value: 0 }, uHeart: { value: 0 } };
+    const injectGlint = (shader) => {
+      shader.uniforms.uTime = glintUniforms.uTime;
+      shader.uniforms.uHeart = glintUniforms.uHeart;
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', 'uniform float uTime; uniform float uHeart;\n#include <common>')
+        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        vec3 sweepDir = normalize(vec3(cos(uTime * 0.35), 0.4, sin(uTime * 0.35)));
+        float glint = pow(max(dot(normalize(normal), sweepDir), 0.0), 24.0);
+        totalEmissiveRadiance += vec3(1.0, 0.55, 0.3) * glint * (0.5 + uHeart * 1.1);`);
+    };
+    crystalMat.onBeforeCompile = injectGlint;
+    floorMat.onBeforeCompile = injectGlint;
+
     // The embracing couple: two figures, close, facing each other, dark
-    // silhouettes against the burst.
-    const figA = makeFigure({ skin: 0x2a1a12, cloth: 0x1c0e0a, seed: 21 });
+    // silhouettes against the burst — swaying slowly together, heads leaning in.
+    const figA = makeFigure({ skin: 0x2a1a12, cloth: 0x1c0e0a, seed: 21, sway: 0.035, swayPhase: 0, headTilt: 0.16 });
     figA.group.position.set(-0.42, 0, 0.2); figA.group.rotation.y = Math.PI / 2 + 0.12; figA.group.scale.setScalar(1.08);
-    const figB = makeFigure({ skin: 0x2a1a12, cloth: 0x241210, seed: 22 });
+    const figB = makeFigure({ skin: 0x2a1a12, cloth: 0x241210, seed: 22, sway: 0.035, swayPhase: Math.PI, headTilt: -0.16 });
     figB.group.position.set(0.42, 0, 0.2); figB.group.rotation.y = -Math.PI / 2 - 0.12; figB.group.scale.setScalar(1.02);
     rec.group.add(figA.group, figB.group); figures.push(figA, figB);
 
@@ -1998,10 +2082,18 @@ export function createActuality(planet, worldUp, opts = {}) {
       fm.position.set(-R + 0.35, 4.2 + dy, -1 + dz); rec.group.add(fm); zoneGeos.push(fg);
     }
 
-    // Two soul-gems (rose + amber) beside the couple — they drift and draw close.
+    // Two soul-gems (rose + amber) beside the couple — they drift and draw
+    // close. Fresnel rim shader: spherical-ized normals give the faceted
+    // octahedron a smooth view-angle glow that the heartbeat drives; the
+    // existing rotation animates the rim for free.
     const soulGeo = new THREE.OctahedronGeometry(0.55); zoneGeos.push(soulGeo);
-    const soulAMat = new THREE.MeshBasicMaterial({ color: 0xff7a9a, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false });
-    const soulBMat = new THREE.MeshBasicMaterial({ color: 0xffc070, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false });
+    const soulGemMat = (hex) => new THREE.ShaderMaterial({
+      vertexShader: soulGemVert, fragmentShader: soulGemFrag,
+      uniforms: { uColor: { value: new THREE.Color(hex) }, uHeart: { value: 0 } },
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const soulAMat = soulGemMat(0xff7a9a);
+    const soulBMat = soulGemMat(0xffc070);
     zoneMats.push(soulAMat, soulBMat);
     const soulA = new THREE.Mesh(soulGeo, soulAMat); soulA.scale.set(1, 1.6, 1);
     const soulB = new THREE.Mesh(soulGeo, soulBMat); soulB.scale.set(1, 1.6, 1);
@@ -2051,13 +2143,14 @@ export function createActuality(planet, worldUp, opts = {}) {
       burstCore.material.opacity = 0.6 + heart * 0.3;
       beamMat.opacity = 0.12 + heart * 0.1 + merged * 0.1;
       crystalMat.emissiveIntensity = 0.5 + heart * 0.25;
+      glintUniforms.uTime.value = t; glintUniforms.uHeart.value = heart; // facet sweep
       // Soul-gems drift apart and back together beside the couple.
       const sep = 2.0 * (1 - near);
       const bob = Math.sin(t * 1.1) * 0.12;
       soulA.position.set(-1.5 - sep, 2.2 + bob, 0.7); soulA.rotation.y = t * 0.6;
       soulB.position.set(1.5 + sep, 2.2 - bob, 0.7); soulB.rotation.y = -t * 0.6;
       soulLightA.position.copy(soulA.position); soulLightB.position.copy(soulB.position);
-      soulAMat.opacity = 0.55 + heart * 0.3; soulBMat.opacity = 0.55 + heart * 0.3;
+      soulAMat.uniforms.uHeart.value = heart; soulBMat.uniforms.uHeart.value = heart;
       // Rising sparkles from the burst column.
       const flow = 0.4 + near * 0.6;
       for (let i = 0; i < RISE; i++) {
@@ -2532,7 +2625,7 @@ export function createActuality(planet, worldUp, opts = {}) {
 
     zoneEnterCallbacks['mirror'] = () => {
       if (!flags.hyperHoloGridSeen) { flags.hyperHoloGridSeen = true; saveFlags(flags); }
-      mirrorTimer = 0; // the ~5 s experience begins on entry
+      mirrorTimer = 0; // the ~10 s experience begins on entry
     };
 
     // Updater: drive the clone + billboard the lattice. The hyper-holo-grid is
@@ -2543,7 +2636,10 @@ export function createActuality(planet, worldUp, opts = {}) {
       _surf.copy(playerPos).applyQuaternion(anchorQ).add(anchorPos);
       _z6Local.copy(_surf).sub(frame.pos).applyQuaternion(frame.qInv); // player in mirror-local
       _dbgMirror.copy(_z6Local);
-      mirror.update(t, dt, _z6Local, 0);
+      // Surge rides the same timer the reset consumes (read-only): 0→1 across
+      // the ten seconds, so the loop fires exactly at the visual crescendo.
+      const surge = Math.min(1, mirrorTimer / AC.HOLOGRID_SECONDS);
+      mirror.update(t, dt, _z6Local, 0, surge);
       mirrorTimer += dt;
       const wall = Math.abs(_z6Local.x) > H - 0.5 || Math.abs(_z6Local.z) > H - 0.5;
       if (!pendingReset && (mirrorTimer > AC.HOLOGRID_SECONDS || wall)) {
@@ -2598,9 +2694,16 @@ export function createActuality(planet, worldUp, opts = {}) {
     });
   }
 
-  // Pre-composer render hook: only the mirror room draws to a render target,
-  // and only while the player is inside it.
+  // Pre-composer render hook: the one place this module can reach the
+  // renderer. First call sharpens the grazing-angle textures with anisotropic
+  // filtering (one-time re-upload); every call forwards to the mirror room's
+  // render-to-texture while the player is inside it.
   function preRender(renderer) {
+    if (!anisoApplied) {
+      anisoApplied = true;
+      const a = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+      for (const tx of anisoTextures) { tx.anisotropy = a; tx.needsUpdate = true; }
+    }
     if (mirror && activeZone === 'mirror') mirror.preRender(renderer);
   }
 
