@@ -241,6 +241,20 @@ function facadeTexture(rng) {
   return tex;
 }
 
+// Crescent moon on transparent (full disc minus an offset disc).
+function crescentTexture(flip = false) {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#f0ead0';
+  g.beginPath(); g.arc(64, 64, 52, 0, 6.28); g.fill();
+  g.globalCompositeOperation = 'destination-out';
+  g.beginPath(); g.arc(flip ? 44 : 84, 64, 50, 0, 6.28); g.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 // Portal sign: the digit glyph + its word, glowing warm on dark. Used on the
 // hub arches (a quiet reward for players tracking the cipher).
 function signTexture(digit, word) {
@@ -1195,11 +1209,11 @@ export function createActuality(planet, worldUp, opts = {}) {
     buildZone9();
   }
 
-  function addZoneBox(rec, w, h, d, x, y, z, color, rough = 0.9) {
+  function addZoneBox(rec, w, h, d, x, y, z, color, ry = 0, rough = 0.9) {
     const g = new THREE.BoxGeometry(w, h, d);
     const m = new THREE.MeshStandardMaterial({ color, roughness: rough });
     const mesh = new THREE.Mesh(g, m);
-    mesh.position.set(x, y, z);
+    mesh.position.set(x, y, z); if (ry) mesh.rotation.y = ry;
     rec.group.add(mesh);
     zoneGeos.push(g); zoneMats.push(m);
     return mesh;
@@ -1321,7 +1335,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     panel(dormMat, 2.6, 2.6, -1.3, 1.3, 2.5, Math.PI / 2);
     panel(aptMat, 2.6, 2.6, 1.3, 1.3, 2.5, Math.PI / 2);
     addZoneBox(rec, 0.12, 0.12, 3, 0, 2.55, 2.5, 0x4a3a2a);         // beam along
-    addZoneBox(rec, 2.4, 0.12, 0.12, 0, 2.55, 1.8, 0x4a3a2a, 0.9);  // beam across = "4"
+    addZoneBox(rec, 2.4, 0.12, 0.12, 0, 2.55, 1.8, 0x4a3a2a);  // beam across = "4"
     // Apartment shell: 9m, 3.6m ceiling, z -12..0 (door gap on +Z).
     const ACH = 3.6;
     panel(aptMat, 9, ACH, 0, ACH / 2, -12, 0);
@@ -1399,68 +1413,101 @@ export function createActuality(planet, worldUp, opts = {}) {
     });
   }
 
-  // Z9 — vertical descent into a dark chamber with the granite dragon.
+  // Z9 — a monolith door opening onto a switchback shaft that descends to the
+  // granite dragon's chamber.
   function buildZone9() {
     const rec = zoneById['z9'];
-    // Rebuild the collision structure: top platform + descending ramp + chamber.
-    const surfaces = [
-      { x0: -30, x1: 30, z0: -6, z1: 30, y: 0 },               // arrival platform
-      { ramp: true, x0: -4, x1: 4, z0: -40, z1: -6, zA: -6, zB: -40, yA: 0, yB: -15 },
-      { x0: -16, x1: 16, z0: -72, z1: -40, y: -15 },           // chamber floor
-    ];
+    // Terraced switchback landings at y = 0,-3,-6,-9,-12,-15 down to the
+    // chamber, each a flat slab joined by a short ramp (along -Z).
+    const surfaces = [{ x0: -30, x1: 30, z0: -6, z1: 30, y: 0 }]; // arrival
+    const walls = [];
     const wallH = { y0: -17, y1: 2 };
-    const walls = [
-      { x0: -4.8, x1: -4.4, z0: -40, z1: -6, ...wallH },       // ramp guards
-      { x0: 4.4, x1: 4.8, z0: -40, z1: -6, ...wallH },
-      { x0: -16, x1: 16, z0: -72, z1: -71.5, ...wallH },       // chamber back
-      { x0: -16, x1: -15.5, z0: -72, z1: -40, ...wallH },      // chamber sides
-      { x0: 15.5, x1: 16, z0: -72, z1: -40, ...wallH },
-      { x0: -16, x1: -4.5, z0: -40, z1: -39.5, ...wallH },     // chamber front (door gap)
-      { x0: 4.5, x1: 16, z0: -40, z1: -39.5, ...wallH },
-    ];
+    for (let k = 0; k < 5; k++) {
+      const y = -3 * k, z0 = -6 - k * 6;
+      surfaces.push({ x0: -5, x1: 5, z0: z0 - 3, z1: z0, y });                 // landing
+      surfaces.push({ ramp: true, x0: -5, x1: 5, z0: z0 - 6, z1: z0 - 3, zA: z0 - 3, zB: z0 - 6, yA: y, yB: y - 3 }); // ramp down
+    }
+    surfaces.push({ x0: -16, x1: 16, z0: -72, z1: -36, y: -15 });             // chamber floor
+    // Shaft guard walls down both sides, + chamber shell (door gap at z=-36).
+    walls.push({ x0: -5.4, x1: -5.0, z0: -36, z1: -6, ...wallH });
+    walls.push({ x0: 5.0, x1: 5.4, z0: -36, z1: -6, ...wallH });
+    walls.push({ x0: -16, x1: 16, z0: -72, z1: -71.5, ...wallH });
+    walls.push({ x0: -16, x1: -15.5, z0: -72, z1: -36, ...wallH });
+    walls.push({ x0: 15.5, x1: 16, z0: -72, z1: -36, ...wallH });
+    walls.push({ x0: -16, x1: -5.5, z0: -36, z1: -35.5, ...wallH });
+    walls.push({ x0: 5.5, x1: 16, z0: -36, z1: -35.5, ...wallH });
     rec.structure = makeStructure(0, 0, 0, surfaces, walls, 78);
     rec.r2 = (78 + 12) ** 2;
 
-    // Dim descent lighting.
     const amb = new THREE.AmbientLight(0x30343c, 0.5);
     rec.group.add(amb);
-    // Visual geometry: ramp, chamber floor + walls (matte near-black).
     const dark = 0x14151a;
-    const ramp = addZoneBox(rec, 8, 0.4, 34.5, 0, -7.5, -23, dark); // spans the ramp band
-    ramp.rotation.x = Math.atan2(15, 34); // tilt to follow the descent
-    addZoneBox(rec, 32, 0.6, 32, 0, -15.3, -56, dark);             // chamber floor
-    addZoneBox(rec, 32, 18, 0.6, 0, -8, -71.7, dark);              // back wall
-    addZoneBox(rec, 0.6, 18, 32, -15.7, -8, -56, dark);            // side walls
-    addZoneBox(rec, 0.6, 18, 32, 15.7, -8, -56, dark);
+    // Monolith door framing the shaft mouth on the arrival platform.
+    const monoMat = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.9, emissive: 0x0a1420, emissiveIntensity: 0.2 });
+    zoneMats.push(monoMat);
+    addZoneBox2(rec, 1.4, 8, 1.4, -4, 4, -6, monoMat);
+    addZoneBox2(rec, 1.4, 8, 1.4, 4, 4, -6, monoMat);
+    addZoneBox2(rec, 10, 1.6, 1.4, 0, 8.2, -6, monoMat);
+    // Landing slabs + ramp fill + emissive vein strips down the shaft walls.
+    for (let k = 0; k < 5; k++) {
+      const y = -3 * k, z0 = -6 - k * 6;
+      addZoneBox(rec, 10, 0.4, 3, 0, y - 0.2, z0 - 1.5, dark);
+      const r = addZoneBox(rec, 10, 0.3, 3.4, 0, y - 1.5, z0 - 4.5, dark);
+      r.rotation.x = Math.atan2(3, 3);
+    }
+    const veinMat = new THREE.MeshStandardMaterial({ color: 0x2a3a4a, emissive: 0x2a5a7a, emissiveIntensity: 0.5, roughness: 0.6 });
+    zoneMats.push(veinMat);
+    for (let k = 0; k < 5; k++) {
+      addZoneBox2(rec, 0.1, 0.1, 2.4, -5.2, -3 * k - 1, -8 - k * 6, veinMat);
+      addZoneBox2(rec, 0.1, 0.1, 2.4, 5.2, -3 * k - 1, -8 - k * 6, veinMat);
+    }
+    // Chamber shell (matte near-black).
+    addZoneBox(rec, 32, 0.6, 36, 0, -15.3, -54, dark);
+    addZoneBox(rec, 32, 18, 0.6, 0, -8, -71.7, dark);
+    addZoneBox(rec, 0.6, 18, 36, -15.7, -8, -54, dark);
+    addZoneBox(rec, 0.6, 18, 36, 15.7, -8, -54, dark);
 
-    // The granite dragon (stacked spheres/cones), on the chamber's far side.
+    // The granite dragon on the chamber's far side — bigger, with horns, folded
+    // wings, and a tail that coils into a "9" (top-down glyph).
     const dragonGrp = new THREE.Group();
-    dragonGrp.position.set(0, -15, -60);
+    dragonGrp.position.set(0, -15, -62);
     rec.group.add(dragonGrp);
     const graniteMat = new THREE.MeshStandardMaterial({
       color: 0x6a6a72, roughness: 0.95, emissive: 0x1a2230, emissiveIntensity: 0.25,
     });
     zoneMats.push(graniteMat);
     const dragonMats = [graniteMat];
-    const dpart = (geo, x, y, z, rx = 0) => {
+    const dpart = (geo, x, y, z, rx = 0, rz = 0) => {
       const mesh = new THREE.Mesh(geo, graniteMat);
-      mesh.position.set(x, y, z); if (rx) mesh.rotation.x = rx;
+      mesh.position.set(x, y, z); if (rx) mesh.rotation.x = rx; if (rz) mesh.rotation.z = rz;
       dragonGrp.add(mesh); zoneGeos.push(geo); return mesh;
     };
-    dpart(new THREE.SphereGeometry(1.8, 12, 10), 0, 1.8, 0);          // lower body
-    dpart(new THREE.SphereGeometry(1.5, 12, 10), 0, 3.4, 0.4);        // chest
-    dpart(new THREE.CylinderGeometry(0.7, 1.1, 3.2, 10), 0, 5.4, 0.2, 0.5); // neck
-    dpart(new THREE.ConeGeometry(0.9, 1.8, 10), 0, 7.2, 0.9, 1.2);    // head
-    dpart(new THREE.ConeGeometry(0.5, 4.5, 8), 0, 1.4, -3.2, -0.8);   // tail
-    // folded wings (thin cones out to the sides)
-    const wingL = dpart(new THREE.ConeGeometry(0.6, 3.5, 6), -1.4, 3.6, -0.4, 0);
-    wingL.rotation.z = 0.9; const wingR = dpart(new THREE.ConeGeometry(0.6, 3.5, 6), 1.4, 3.6, -0.4, 0);
-    wingR.rotation.z = -0.9;
-    // Black box on the chest.
+    dpart(new THREE.SphereGeometry(2.0, 12, 10), 0, 2.0, 0);          // haunches
+    dpart(new THREE.SphereGeometry(1.8, 12, 10), 0, 2.6, 1.4);        // belly
+    dpart(new THREE.SphereGeometry(1.5, 12, 10), 0, 3.8, 0.6);        // chest
+    dpart(new THREE.CylinderGeometry(0.7, 1.1, 3.6, 10), 0, 6.0, 0.3, 0.5); // neck
+    const head = dpart(new THREE.ConeGeometry(0.95, 2.0, 10), 0, 8.0, 1.0, 1.2); // head
+    dpart(new THREE.ConeGeometry(0.22, 0.9, 6), -0.5, 8.7, 0.6, -0.4); // horn L
+    dpart(new THREE.ConeGeometry(0.22, 0.9, 6), 0.5, 8.7, 0.6, -0.4);  // horn R
+    // Folded wings.
+    dpart(new THREE.ConeGeometry(0.7, 4.0, 6), -1.7, 4.0, -0.6, 0, 0.9);
+    dpart(new THREE.ConeGeometry(0.7, 4.0, 6), 1.7, 4.0, -0.6, 0, -0.9);
+    // Tail coiled into a 9: a spiral of shrinking spheres (top-down).
+    const segGeo = new THREE.SphereGeometry(0.45, 8, 6);
+    zoneGeos.push(segGeo);
+    for (let i = 0; i < 14; i++) {
+      const a = i * 0.9;
+      const rad = 3.2 - i * 0.16;
+      const seg = new THREE.Mesh(segGeo, graniteMat);
+      seg.position.set(Math.cos(a) * rad, 0.5, -3.5 + Math.sin(a) * rad);
+      seg.scale.setScalar(1 - i * 0.045);
+      dragonGrp.add(seg);
+    }
+    // Black box on the chest with a thin emissive seam.
     const boxGeo = new THREE.BoxGeometry(1.0, 1.0, 0.7);
-    const boxMat = new THREE.MeshStandardMaterial({ color: 0x050506, roughness: 0.6, metalness: 0.3 });
+    const boxMat = new THREE.MeshStandardMaterial({ color: 0x050506, roughness: 0.6, metalness: 0.3, emissive: 0x203040, emissiveIntensity: 0.3 });
     const box = new THREE.Mesh(boxGeo, boxMat);
-    box.position.set(0, 3.4, 1.6);
+    box.position.set(0, 3.8, 1.7);
     dragonGrp.add(box); zoneGeos.push(boxGeo); zoneMats.push(boxMat);
 
     // A quiet return ring off to the side of the chamber (glows after the gift).
@@ -1479,8 +1526,11 @@ export function createActuality(planet, worldUp, opts = {}) {
 
     dragonRefs = { grp: dragonGrp, mats: dragonMats, box, ring, ringMat, seedLight: null, light: null };
 
-    // Transformation VFX updater.
+    // Transformation VFX updater (+ an idle box-seam pulse while in the zone).
     zoneUpdaters.push((t, dt) => {
+      if (activeZone === 'z9' && !flags.dragonGiftReceived) {
+        boxMat.emissiveIntensity = 0.25 + (Math.sin(t * 2.2) * 0.5 + 0.5) * 0.5;
+      }
       if (!dragonVfx) return;
       dragonVfx.t += dt;
       const T = dragonVfx.t;
@@ -1825,16 +1875,26 @@ export function createActuality(planet, worldUp, opts = {}) {
   function buildZone5() {
     const rec = zoneById['z5'];
     rec.group.add(new THREE.AmbientLight(0x202028, 0.4));
-    addDome(rec, 70, '#050507', '#0a0a12');
+    addDome(rec, 100, '#050507', '#0a0a12');
+    // A 4 m ribbon walkway extending 80 m into the void.
+    const ribMat = new THREE.MeshStandardMaterial({ color: 0x1a1a20, roughness: 0.9 });
+    zoneMats.push(ribMat);
+    addZoneBox2(rec, 4, 0.4, 88, 0, -0.2, -38, ribMat); // z from +6 to -82
+    rec.structure = makeStructure(0, 0, 0,
+      [{ x0: -2, x1: 2, z0: -82, z1: 6, y: 0 }], [], 90);
+    rec.r2 = (90) ** 2;
+    // ~20 floating frames staggered the full length; one forms the "5" glyph.
     const frames = [];
     const fr = mulberry32(0x5555);
-    for (let i = 0; i < 16; i++) {
+    const glyphFrame = 9; // this frame's art is arranged as a 5
+    for (let i = 0; i < 20; i++) {
       const side = i % 2 === 0 ? -1 : 1;
-      const z = -6 - i * 1.4;
-      const y = 1.6 + fr() * 2.2;
-      const x = side * (2.4 + fr() * 1.2);
-      const frameMesh = addZoneBox(rec, 1.7, 1.3, 0.12, x, y, z, 0x2a2622);
+      const z = -4 - i * 3.8;
+      const y = 1.6 + fr() * 2.4;
+      const x = side * (2.6 + fr() * 1.4);
+      addZoneBox(rec, 1.7, 1.3, 0.12, x, y, z, 0x2a2622);
       const imgTex = memoryTexture(fr);
+      if (i === glyphFrame) { const g = imgTex.image.getContext('2d'); drawGlyph(g, 5, 64, 64, 90, '#ffffff', 0.5); imgTex.needsUpdate = true; }
       const imgGeo = new THREE.PlaneGeometry(1.4, 1.0);
       const imgMat = new THREE.MeshStandardMaterial({
         map: imgTex, emissive: 0xffffff, emissiveMap: imgTex, emissiveIntensity: 0.15,
@@ -1846,6 +1906,17 @@ export function createActuality(planet, worldUp, opts = {}) {
       zoneGeos.push(imgGeo); zoneMats.push(imgMat); zoneTextures.push(imgTex);
       frames.push({ img, mat: imgMat, anchorPos: zoneToAnchor(rec, x, y, z), baseY: y, ph: fr() * 6.28 });
     }
+    // Sparse floating dust motes along the ribbon.
+    const M = 70;
+    const moteGeo = new THREE.PlaneGeometry(0.05, 0.05);
+    const moteMat = new THREE.MeshBasicMaterial({ color: 0x9aa0c0, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending });
+    const motes = new THREE.InstancedMesh(moteGeo, moteMat, M);
+    motes.frustumCulled = false; rec.group.add(motes);
+    zoneGeos.push(moteGeo); zoneMats.push(moteMat);
+    const mr = mulberry32(0x50fe);
+    const mb = [];
+    for (let i = 0; i < M; i++) mb.push({ x: (mr() - 0.5) * 8, y: 0.5 + mr() * 5, z: -mr() * 80, ph: mr() * 6.28 });
+    const _mm = new THREE.Matrix4();
     zoneUpdaters.push((t, dt, playerPos) => {
       if (activeZone !== 'z5') return;
       for (const f of frames) {
@@ -1855,6 +1926,12 @@ export function createActuality(planet, worldUp, opts = {}) {
         f.mat.emissiveIntensity += (target - f.mat.emissiveIntensity) * Math.min(1, dt * 3);
         if (near) f.mat.map.offset.x = (f.mat.map.offset.x + dt * 0.05) % 1;
       }
+      for (let i = 0; i < M; i++) {
+        const b = mb[i];
+        _mm.makeTranslation(b.x + Math.sin(t * 0.3 + b.ph) * 0.6, b.y + Math.sin(t * 0.2 + b.ph) * 0.4, b.z);
+        motes.setMatrixAt(i, _mm);
+      }
+      motes.instanceMatrix.needsUpdate = true;
     });
   }
 
@@ -1863,51 +1940,75 @@ export function createActuality(planet, worldUp, opts = {}) {
     const rec = zoneById['z6'];
     rec.group.add(new THREE.AmbientLight(0x30364a, 0.5));
     const dome = addDome(rec, 95, '#141a2e', '#5a4a6a');
-    // Skyline silhouette panel + crescent moon on the dome.
+    // Larger skyline + bridge silhouette on the dome.
     const skyTex = silhouetteTexture('skyline');
-    const skyGeo = new THREE.PlaneGeometry(70, 24);
+    const skyGeo = new THREE.PlaneGeometry(90, 30);
     const skyMat = new THREE.MeshBasicMaterial({ map: skyTex, transparent: true, depthWrite: false });
     const sky = new THREE.Mesh(skyGeo, skyMat);
-    sky.position.set(0, 8, -55); rec.group.add(sky);
+    sky.position.set(0, 10, -60); rec.group.add(sky);
     zoneGeos.push(skyGeo); zoneMats.push(skyMat); zoneTextures.push(skyTex);
-    const moonGeo = new THREE.CircleGeometry(3, 24);
-    const moonMat = new THREE.MeshBasicMaterial({ color: 0xf0ead0 });
-    const moon = new THREE.Mesh(moonGeo, moonMat);
-    moon.position.set(-22, 30, -50); rec.group.add(moon);
-    zoneGeos.push(moonGeo); zoneMats.push(moonMat);
-    // Lonesome tree at the overlook edge.
+    // Crescent moon high on the dome, and its dim flipped reflection down on the
+    // lake — together they close into a "6" (glyph motif).
+    const moonTex = crescentTexture(false);
+    zoneTextures.push(moonTex);
+    const moonMat = new THREE.MeshBasicMaterial({ map: moonTex, transparent: true, depthWrite: false });
+    const moonGeo = new THREE.PlaneGeometry(7, 7);
+    const moon = new THREE.Mesh(moonGeo, moonMat); moon.position.set(-8, 26, -52);
+    rec.group.add(moon); zoneGeos.push(moonGeo); zoneMats.push(moonMat);
+    const reflTex = crescentTexture(true);
+    zoneTextures.push(reflTex);
+    const reflMat = new THREE.MeshBasicMaterial({ map: reflTex, transparent: true, opacity: 0.28, depthWrite: false });
+    const refl = new THREE.Mesh(moonGeo, reflMat);
+    refl.position.set(-8, -1.85, -46); refl.rotation.x = -Math.PI / 2;
+    rec.group.add(refl); zoneMats.push(reflMat);
+    // Lonesome tree at the crag lip (up on the overlook).
     const trunkG = new THREE.CylinderGeometry(0.3, 0.4, 5, 6);
     const trunkM = new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 0.95 });
-    const trunk = new THREE.Mesh(trunkG, trunkM); trunk.position.set(9, 2.5, -8);
+    const trunk = new THREE.Mesh(trunkG, trunkM); trunk.position.set(9, 8.5, -10);
     rec.group.add(trunk); zoneGeos.push(trunkG); zoneMats.push(trunkM);
+    const canopy = new THREE.Mesh(new THREE.SphereGeometry(2.2, 8, 6), new THREE.MeshStandardMaterial({ color: 0x243026, roughness: 0.9 }));
+    canopy.position.set(9, 11.5, -10); canopy.scale.y = 0.7; rec.group.add(canopy);
+    zoneGeos.push(canopy.geometry); zoneMats.push(canopy.material);
 
-    // Lake sub-area: a descending path to a dark pool below grade.
+    // Crag: climb up from the arrival area to a raised overlook, then descend
+    // into the lake below.
     const surfaces = [
-      { x0: -30, x1: 30, z0: -6, z1: 30, y: 0 },                        // overlook
-      { ramp: true, x0: -3, x1: 3, z0: -26, z1: -6, zA: -6, zB: -26, yA: 0, yB: -8 },
-      { x0: -12, x1: 12, z0: -50, z1: -26, y: -8 },                     // pool floor
+      { x0: -30, x1: 30, z0: 6, z1: 30, y: 0 },                          // arrival
+      { ramp: true, x0: -5, x1: 5, z0: -4, z1: 6, zA: 6, zB: -4, yA: 0, yB: 8 },
+      { x0: -16, x1: 16, z0: -20, z1: -4, y: 8 },                        // overlook
+      { ramp: true, x0: -3, x1: 3, z0: -38, z1: -20, zA: -20, zB: -38, yA: 8, yB: -6 },
+      { x0: -12, x1: 12, z0: -56, z1: -38, y: -6 },                      // lake floor
     ];
-    const wh = { y0: -10, y1: 2 };
+    const wl = { y0: -8, y1: 10 };
     const walls = [
-      { x0: -3.4, x1: -3.0, z0: -26, z1: -6, ...wh },
-      { x0: 3.0, x1: 3.4, z0: -26, z1: -6, ...wh },
-      { x0: -12, x1: 12, z0: -50, z1: -49.5, ...wh },
-      { x0: -12, x1: -11.5, z0: -50, z1: -26, ...wh },
-      { x0: 11.5, x1: 12, z0: -50, z1: -26, ...wh },
+      { x0: -5.4, x1: -5.0, z0: -4, z1: 6, ...wl },        // climb ramp guards
+      { x0: 5.0, x1: 5.4, z0: -4, z1: 6, ...wl },
+      { x0: -3.4, x1: -3.0, z0: -38, z1: -20, ...wl },     // descent ramp guards
+      { x0: 3.0, x1: 3.4, z0: -38, z1: -20, ...wl },
+      { x0: -12, x1: 12, z0: -56, z1: -55.5, ...wl },      // lake basin
+      { x0: -12, x1: -11.5, z0: -56, z1: -38, ...wl },
+      { x0: 11.5, x1: 12, z0: -56, z1: -38, ...wl },
     ];
-    rec.structure = makeStructure(0, 0, 0, surfaces, walls, 55);
-    rec.r2 = (55 + 12) ** 2;
-    // Dark translucent water disc at the pool rim (y ~ -2).
+    rec.structure = makeStructure(0, 0, 0, surfaces, walls, 60);
+    rec.r2 = (60 + 12) ** 2;
+    // Overlook guard rail + a couple of crag rocks.
+    addZoneBox(rec, 20, 0.5, 0.2, 0, 8.9, -19.8, 0x3a3028);
+    for (const [rx, ry, rz] of [[-13, 8.4, -12], [13, 8.4, -14], [7, 8.3, -6]]) {
+      const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(1.4), new THREE.MeshStandardMaterial({ color: 0x40403c, roughness: 0.95 }));
+      rk.position.set(rx, ry, rz); rk.scale.set(1, 0.7, 1);
+      rec.group.add(rk); zoneGeos.push(rk.geometry); zoneMats.push(rk.material);
+    }
+    // Dark translucent water disc at the lake rim (y ~ -2).
     const waterGeo = new THREE.PlaneGeometry(24, 24);
     const waterMat = new THREE.MeshStandardMaterial({
       color: 0x0a1420, transparent: true, opacity: 0.72, roughness: 0.3, side: THREE.DoubleSide,
     });
     const water = new THREE.Mesh(waterGeo, waterMat);
-    water.position.set(0, -2, -38); water.rotation.x = -Math.PI / 2;
+    water.position.set(0, -2, -46); water.rotation.x = -Math.PI / 2;
     rec.group.add(water); zoneGeos.push(waterGeo); zoneMats.push(waterMat);
     // Rebirth vision: god-ray cones + a brightening light (fires once).
     const visionGrp = new THREE.Group();
-    visionGrp.position.set(0, -8, -38); visionGrp.visible = false;
+    visionGrp.position.set(0, -6, -46); visionGrp.visible = false;
     rec.group.add(visionGrp);
     const rayMat = new THREE.MeshBasicMaterial({
       color: 0xdfeaff, transparent: true, opacity: 0.0, depthWrite: false,
@@ -1966,28 +2067,51 @@ export function createActuality(planet, worldUp, opts = {}) {
     const rec = zoneById['z7'];
     rec.group.add(new THREE.AmbientLight(0x101018, 0.35));
     addDome(rec, 60, '#04040a', '#08080f');
-    // TV.
-    addZoneBox(rec, 2.6, 1.8, 1.6, 0, 1.1, -8, 0x1a1a1e);
+    // Enclose the dark room (walls + ceiling, door gap on +Z, window on +X).
+    const RX = 8, RZ = 10, WH = 3.6;
+    const roomMat = new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.95, side: THREE.DoubleSide });
+    zoneMats.push(roomMat);
+    const wall = (w, h, x, y, z, ry, rx = 0) => { const g = new THREE.PlaneGeometry(w, h); const m = new THREE.Mesh(g, roomMat); m.position.set(x, y, z); m.rotation.set(rx, ry, 0); rec.group.add(m); zoneGeos.push(g); };
+    wall(RX * 2, WH, 0, WH / 2, -RZ, 0);
+    wall(RZ * 2, WH, -RX, WH / 2, 0, Math.PI / 2);
+    wall(RZ * 2, WH, RX, WH / 2, 0, Math.PI / 2);
+    wall(RX * 2, RZ * 2, 0, WH, 0, 0, Math.PI / 2); // ceiling
+    // TV + cabinet.
+    addZoneBox(rec, 2.6, 1.8, 1.6, 0, 1.1, -8.5, 0x1a1a1e);
     const scr = tvStaticTexture(mulberry32(0x7777));
     const scrGeo = new THREE.PlaneGeometry(2.2, 1.4);
-    const scrMat = new THREE.MeshStandardMaterial({
-      map: scr, emissive: 0xafc8ff, emissiveMap: scr, emissiveIntensity: 0.9,
-    });
+    const scrMat = new THREE.MeshStandardMaterial({ map: scr, emissive: 0xafc8ff, emissiveMap: scr, emissiveIntensity: 0.9 });
     const screen = new THREE.Mesh(scrGeo, scrMat);
-    screen.position.set(0, 1.3, -7.18); rec.group.add(screen);
+    screen.position.set(0, 1.3, -7.68); rec.group.add(screen);
     zoneGeos.push(scrGeo); zoneMats.push(scrMat); zoneTextures.push(scr);
     const tvLight = new THREE.PointLight(0x8fb0ff, 0.8, 24, 2.0);
-    tvLight.position.set(0, 1.5, -5); rec.group.add(tvLight);
-    // Window with swing-set silhouette.
+    tvLight.position.set(0, 1.5, -5.5); rec.group.add(tvLight);
+    // A worn couch facing the TV.
+    addZoneBox(rec, 3.0, 0.5, 1.2, 0, 0.35, -1, 0x3a3238);
+    addZoneBox(rec, 3.0, 0.6, 0.3, 0, 0.7, -0.4, 0x443a40);
+    // Window with the swing-set silhouette ("7" glyph), + a moonlight pool on
+    // the floor beneath it.
     const swTex = silhouetteTexture('swing');
-    const swGeo = new THREE.PlaneGeometry(6, 3);
-    const swMat = new THREE.MeshStandardMaterial({
-      map: swTex, transparent: true, emissive: 0x2a3550, emissiveMap: swTex, emissiveIntensity: 0.5,
-    });
+    const swGeo = new THREE.PlaneGeometry(5, 3);
+    const swMat = new THREE.MeshStandardMaterial({ map: swTex, transparent: true, emissive: 0x2a3550, emissiveMap: swTex, emissiveIntensity: 0.5 });
     const window7 = new THREE.Mesh(swGeo, swMat);
-    window7.position.set(9, 3, -4); window7.rotation.y = -Math.PI / 2;
+    window7.position.set(RX - 0.1, 2.2, -3); window7.rotation.y = -Math.PI / 2;
     rec.group.add(window7); zoneGeos.push(swGeo); zoneMats.push(swMat); zoneTextures.push(swTex);
-    const tvPos = zoneToAnchor(rec, 0, 1, -6);
+    const poolGeo = new THREE.PlaneGeometry(3, 4);
+    const poolMat = new THREE.MeshBasicMaterial({ color: 0x2a3860, transparent: true, opacity: 0.25, depthWrite: false });
+    const pool = new THREE.Mesh(poolGeo, poolMat); pool.position.set(RX - 2.5, 0.02, -3); pool.rotation.x = -Math.PI / 2;
+    rec.group.add(pool); zoneGeos.push(poolGeo); zoneMats.push(poolMat);
+    // Collision: perimeter walls, door gap on +Z.
+    const wt = 0.4;
+    rec.structure = makeStructure(0, 0, 0,
+      [{ x0: -RX, x1: RX, z0: -RZ, z1: RZ, y: 0 }],
+      [
+        { x0: -RX, x1: RX, z0: -RZ - wt, z1: -RZ, y0: 0, y1: WH },
+        { x0: -RX - wt, x1: -RX, z0: -RZ, z1: RZ, y0: 0, y1: WH },
+        { x0: RX, x1: RX + wt, z0: -RZ, z1: RZ, y0: 0, y1: WH },
+      ], RZ + 2);
+    rec.r2 = (RZ + 12) ** 2;
+    const tvPos = zoneToAnchor(rec, 0, 1, -3.5); // in front of the TV / on the couch
     let flick = 0;
     zoneUpdaters.push((t, dt, playerPos) => {
       if (activeZone !== 'z7') { z7Sit = 0; return; }
@@ -1998,8 +2122,8 @@ export function createActuality(planet, worldUp, opts = {}) {
         tvLight.intensity = 0.4 + Math.abs(Math.sin(t * 47.0)) * 0.9;
         flick = 0.05;
       }
-      // Sit trigger: near the TV for > 1.5 s.
-      if (tvPos.distanceToSquared(playerPos) < 4) z7Sit += dt; else z7Sit = Math.max(0, z7Sit - dt);
+      // Sit trigger: seated in front of the TV for > 1.5 s.
+      if (tvPos.distanceToSquared(playerPos) < 12) z7Sit += dt; else z7Sit = Math.max(0, z7Sit - dt);
       if (z7Sit > 1.5 && !z7Caption && fade.phase === 'idle') {
         z7Caption = { i: 0, t: 0 };
       }
@@ -2043,6 +2167,35 @@ export function createActuality(planet, worldUp, opts = {}) {
     const dusk = addDome(rec, 92, '#2a1c26', '#c07a4a');
     const night = addDome(rec, 90, '#02030a', '#0a1428');
     night.mat.transparent = true; night.mat.opacity = 0; // crossfades in as the fire dies
+    // A ring of dark tree silhouettes around the clearing; they fade out with
+    // the burn-down to reveal the open field/starfield.
+    const treeMat = new THREE.MeshBasicMaterial({ color: 0x0a0c10, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false });
+    zoneMats.push(treeMat);
+    const treeGeo = new THREE.PlaneGeometry(4, 10);
+    zoneGeos.push(treeGeo);
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      const tr = new THREE.Mesh(treeGeo, treeMat);
+      tr.position.set(Math.sin(a) * 26, 5, -6 + Math.cos(a) * 26);
+      tr.rotation.y = -a; rec.group.add(tr);
+    }
+    // Two touching stone fire-rings — the lit one + a cold old one — form an "8".
+    const ringMat = new THREE.MeshStandardMaterial({ color: 0x50463a, roughness: 0.95 });
+    zoneMats.push(ringMat);
+    const stoneGeo = new THREE.DodecahedronGeometry(0.35);
+    zoneGeos.push(stoneGeo);
+    for (const [rcz, n] of [[-6, 10], [-9.4, 9]]) {
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        const st = new THREE.Mesh(stoneGeo, ringMat);
+        st.position.set(Math.sin(a) * 1.5, 0.2, rcz + Math.cos(a) * 1.5);
+        rec.group.add(st);
+      }
+    }
+    // Sitting logs around the fire.
+    for (const [lx, lz, lry] of [[-2.4, -4.4, 0.3], [2.4, -5, -0.4], [0, -8.2, 0]]) {
+      addZoneBox(rec, 1.8, 0.4, 0.45, lx, 0.2, lz, 0x4a3524, lry);
+    }
     // Campfire: logs + additive flame cones + embers + light.
     addZoneBox(rec, 2.4, 0.4, 0.5, 0, 0.2, -6, 0x3a2a1c);
     addZoneBox(rec, 0.5, 0.4, 2.4, 0, 0.2, -6, 0x3a2a1c);
@@ -2098,6 +2251,7 @@ export function createActuality(planet, worldUp, opts = {}) {
       night.mat.opacity = (1 - burn) * 0.9; // starfield fades in as the fire dies
       dusk.mat.opacity = 0.4 + burn * 0.6;
       dusk.mat.transparent = true;
+      treeMat.opacity = burn * 0.95; // the surrounding trees dissolve into open field
       for (let i = 0; i < N; i++) {
         const b = eb[i];
         const y = 0.6 + ((t * b.sp + b.ph) % 4) * burn;
