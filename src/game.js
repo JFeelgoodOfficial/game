@@ -29,6 +29,7 @@ import { initTuning } from './tuning.js';
 import { initStarfield, updateStarfield } from './starfield.js';
 import { initNebula, updateNebula } from './nebula.js';
 import { initDeepNebula, updateDeepNebula, deepNebulae } from './deepnebula.js';
+import { initPaintingNebulae, paintingNebulae } from './paintingnebula.js';
 import { cockpitScene, updateCockpit, cockpitGroup, CockpitOverlayPass } from './cockpit.js';
 import { initCockpitFrame, updateCockpitFrame } from './cockpitFrame.js';
 import {
@@ -113,6 +114,7 @@ initStarfield(scene);
 initSun(scene);
 initBlackHole(scene);
 initDeepNebula(scene); // second nebula — a flyable field out past the black hole
+initPaintingNebulae(scene); // the artgallery paintings, as outer-shell nebulae
 initStations(scene);
 
 // Initial layout of everything origin-registered (planets, sun, stations,
@@ -306,6 +308,7 @@ if (import.meta.env.DEV) {
     planets,
     blackhole,
     deepNebulae,
+    paintingNebulae,
     originOffset,
     paused: false,
     warpInfo: () => ({ phase, warp, heat }),
