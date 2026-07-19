@@ -39,8 +39,10 @@ import { makeStructure } from './city.js';
 import * as DLG from './actuality-dialogue.js';
 import { createMirrorRoom } from './actuality-mirrorroom.js';
 // The owner's dragon artwork, shown in Zone 9 the way the deep nebulae show the
-// owner's paintings — a large luminous billboard rather than a built sculpt.
-import dragonImgUrl from '../src/assets/actuality-dragon.png';
+// owner's paintings — layered billboards rather than a built sculpt: the granite
+// statue behind, the glowing hologram (box removed) additively in front.
+import dragonHoloUrl from '../src/assets/actuality-dragon-nobox.png';
+import dragonGraniteUrl from '../src/assets/actuality-dragon-granite.png';
 
 /* ----------------------------------------------------------------------
  * Tunables — every magic number lives here.
@@ -1616,25 +1618,30 @@ export function createActuality(planet, worldUp, opts = {}) {
     // player; the functional black box sits in front of it (built below). A soft
     // glow disc behind it lifts it off the black shell, and a faint edge light
     // keeps the surrounding stone from going flat.
-    const dragonTex = new THREE.TextureLoader().load(dragonImgUrl);
-    dragonTex.colorSpace = THREE.SRGBColorSpace;
-    zoneTextures.push(dragonTex);
-    const dragonMat = new THREE.MeshBasicMaterial({ map: dragonTex, transparent: true, side: THREE.DoubleSide, depthWrite: false });
-    zoneMats.push(dragonMat);
     const DW = 20, DH = 30; // portrait artwork (~2:3), towering over the chamber
     const dragonGeo = new THREE.PlaneGeometry(DW, DH);
+    const loader = new THREE.TextureLoader();
+    // Back layer: the granite statue (solid), lit by the chamber's key/rim/fill.
+    const graniteTex = loader.load(dragonGraniteUrl);
+    graniteTex.colorSpace = THREE.SRGBColorSpace;
+    zoneTextures.push(graniteTex);
+    const graniteMat = new THREE.MeshBasicMaterial({ map: graniteTex, transparent: true, side: THREE.DoubleSide, depthWrite: false });
+    zoneMats.push(graniteMat);
+    const granite = new THREE.Mesh(dragonGeo, graniteMat);
+    granite.position.set(0, -1.5, -64); rec.group.add(granite);
+    // Front layer: the glowing hologram (box removed), additively blended so its
+    // dark ground vanishes and only the blue dragon glows over the granite.
+    const dragonTex = loader.load(dragonHoloUrl);
+    dragonTex.colorSpace = THREE.SRGBColorSpace;
+    zoneTextures.push(dragonTex);
+    const dragonMat = new THREE.MeshBasicMaterial({ map: dragonTex, transparent: true, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
+    zoneMats.push(dragonMat);
     const dragon = new THREE.Mesh(dragonGeo, dragonMat);
-    dragon.position.set(0, -1.5, -63); // bottom ~ the chamber floor, rising well overhead
-    rec.group.add(dragon); zoneGeos.push(dragonGeo);
-    // A soft halo behind the artwork so it reads as a projected image in the dark.
-    const haloMat = new THREE.MeshBasicMaterial({ color: 0x2a4a80, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-    zoneMats.push(haloMat);
-    const haloGeo = new THREE.PlaneGeometry(DW + 8, DH + 8);
-    const halo = new THREE.Mesh(haloGeo, haloMat); halo.position.set(0, -1.5, -63.5); rec.group.add(halo);
-    zoneGeos.push(haloGeo);
-    const holoLight = new THREE.PointLight(0x7fc0ff, 1.2, 30, 2.0);
+    dragon.position.set(0, -1.5, -63.2); rec.group.add(dragon);
+    zoneGeos.push(dragonGeo);
+    const holoLight = new THREE.PointLight(0x7fc0ff, 1.0, 30, 2.0);
     holoLight.position.set(0, -4, -56); rec.group.add(holoLight);
-    z9Holo = { mat: dragonMat, mat2: haloMat, light: holoLight };
+    z9Holo = { mat: dragonMat, mat2: graniteMat, light: holoLight };
 
     // The open black box at the dragon's feet — an opening looking down onto a
     // city far below. Rim walls around a 4x4 hole; a luminous aerial-city plane
@@ -1690,11 +1697,10 @@ export function createActuality(planet, worldUp, opts = {}) {
     const FALL_DUR = 1.2, FALL_OUT = 0.5;
     zoneUpdaters.push((t, dt, playerPos) => {
       if (activeZone === 'z9') upGlow.intensity = 1.1 + Math.sin(t * 2.0) * 0.3;
-      // The dragon artwork holds full presence; only its halo + glow breathe.
+      // The granite statue holds full presence; the hologram over it shimmers.
       if (activeZone === 'z9' && z9Holo) {
-        z9Holo.mat.opacity = 0.94 + Math.sin(t * 2.2) * 0.06; // faint holographic shimmer
-        z9Holo.mat2.opacity = 0.3 + Math.sin(t * 1.5) * 0.08; // halo breathes
-        z9Holo.light.intensity = 1.1 + Math.sin(t * 3.0) * 0.35;
+        z9Holo.mat.opacity = 0.86 + Math.sin(t * 2.2) * 0.12; // holographic shimmer
+        z9Holo.light.intensity = 1.0 + Math.sin(t * 3.0) * 0.35;
       }
       // Arm the fall when the player stands over the opening.
       if (activeZone === 'z9' && fade.phase === 'idle' && !z9Fall) {
