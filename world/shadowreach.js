@@ -743,13 +743,25 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   // Same two-quaternion math as faceRig, but on a bare Group (no rig joints).
   const _hq0 = new THREE.Quaternion(), _hq1 = new THREE.Quaternion();
   const _hToL = new THREE.Vector3(), _hdir = new THREE.Vector3(), _hfwd = new THREE.Vector3();
+  // Hide/show a rig's visible meshes without touching group.visible, so the
+  // story logic (which reads group.visible as the NPC's presence) is untouched.
+  // The rig hangs entirely off group.children, so toggling those covers it all.
+  function setRigMeshesShown(rig, shown) {
+    for (const c of rig.group.children) c.visible = shown;
+  }
   function updateHolograms(t) {
     for (const h of holograms) {
       const on = h.rig.group.visible && (!h.activeFn || h.activeFn());
-      h.holder.visible = on;
-      if (!on) continue;
-      if (h.frameFn) h.show(h.frameFn());          // swap idle/running frame
-      if (!h.mat.map) continue;                    // texture still decoding
+      if (h.frameFn && on) h.show(h.frameFn());     // swap idle/running frame
+      // The portrait renders only once its texture has decoded; until then keep
+      // the 3D rig showing so the NPC is never invisible.
+      const showing = on && !!h.mat.map;
+      h.holder.visible = showing;
+      // While the portrait is up it replaces the figure entirely — hide the rig
+      // meshes so it's purely the owner's art from every angle; restore them
+      // whenever the portrait is down (e.g. the finale mask-lift + dissolve).
+      setRigMeshesShown(h.rig, !showing);
+      if (!showing) continue;
       _hdir.copy(h.rig.group.position).normalize(); // local up at the figure
       // Anchor the portrait's feet on the actual ground under the figure (robust
       // for seated/scaled rigs, where the rig pivot isn't at ground level).
