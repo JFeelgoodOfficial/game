@@ -29,6 +29,7 @@ import {
   updateTerraform,
   setViewGetter,
 } from './terraform.js';
+import { createDiamondRain } from './diamondrain.js';
 // World entities spawned around the landing site. All parented (directly or
 // via the city group) to planet.surface, so planet spin and floating-origin
 // rebases carry them — the world never moves without them. Aliased import:
@@ -120,6 +121,7 @@ let city = null; // procedural city (world/city.js)
 let crowd = null; // citizens inside the city (world/aliens.js)
 let wonders = null; // megastructure field (world/wonders.js)
 let creatures = null; // planet wildlife (world/creatures.js)
+let diamondRain = null; // walker-local diamond-rain volume (cfg.diamondRain)
 let wavemall = null; // total-conversion content for 'wavemall prime' only
 let actuality = null; // total-conversion content for 'actuality' only
 let shadowreach = null; // total-conversion narrative world for 'shadowreach' only
@@ -303,6 +305,12 @@ export function enterWalk(planet) {
 
   // Terrain manipulator (terra only): reticle, handheld prop, RAISE/LOWER UI.
   terraformEnter(planet, astronaut.group);
+
+  // Diamond rain (neptunia): a walker-local glitter volume, storm-scheduled.
+  if (planet.cfg.diamondRain) {
+    diamondRain = createDiamondRain();
+    astronaut.group.parent.add(diamondRain.group); // the scene
+  }
 }
 
 // Wonder types that suit each world's character (fallback for any new planet).
@@ -555,6 +563,10 @@ export function exitWalk(camera) {
   }
 
   terraformExit(); // hide the tool + UI before the site tears down
+  if (diamondRain) {
+    diamondRain.dispose();
+    diamondRain = null;
+  }
 
   if (dressing) {
     dressing.dispose();
@@ -969,6 +981,9 @@ export function updateWalkVisuals(dt, t) {
   const planet = walk.planet;
   _up.subVectors(ship.position, planet.body.position).normalize();
 
+  // Diamond rain rides the walker: one uniform write + a transform per frame.
+  if (diamondRain) diamondRain.update(t, ship.position, _up);
+
   astronaut.group.position.copy(ship.position);
   // Tangent basis with the model's +Z on the body facing and +Y on planet-up.
   _right.crossVectors(_up, walk.facing).normalize();
@@ -1224,6 +1239,7 @@ export function promptReturnToShip() {
 export function walkSite() {
   return {
     city, parked, crowd, dressing, wavemall, actuality, shadowreach, interiorCrowds,
+    creatures, diamondRain,
     station: stationWalk.stationSite(),
   };
 }
