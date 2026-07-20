@@ -177,7 +177,7 @@ function shapeParams(rng, R) {
     waveAmp: R * (0.02 + 0.02 * rng()),
     waveF: 3 + 3 * rng(),
     phase: rng() * Math.PI * 2,
-    dustOpacity: 0.35 + 0.25 * rng(),
+    dustOpacity: 0.22 + 0.16 * rng(), // near The Sisters' 0.25 — heavier crushed dark detail once the gas dimmed
     sizeMul: 0.85 + 0.35 * rng(),
   };
 }
@@ -280,7 +280,7 @@ function samplePainting(img) {
 
 function buildLayers(item, sample) {
   const { record, radius, P } = item;
-  const { G, L, colLin, mask, meanL, ax, ay } = sample;
+  const { G, L, colLin, mask } = sample;
   const N = G * G;
   const rng = mulberry32(item.seed ^ 0x9e3779b9); // fresh stream: sampling only
   const low = settings.quality === 'low';
@@ -312,7 +312,7 @@ function buildLayers(item, sample) {
     const jy = (rng() - 0.5) * radius * 0.05;
     const z = (rng() - 0.5) * P.depth + (L[k] / 255 - 0.5) * P.depth * P.relief;
     const wp = warpGentle(xAt(k) + jx, yAt(k) + jy, z, P);
-    const b = (0.035 + 0.07 * Math.sqrt(L[k] / 255)) * (0.7 + 0.6 * rng());
+    const b = (0.02 + 0.04 * Math.sqrt(L[k] / 255)) * (0.7 + 0.6 * rng());
     pos.push(wp[0], wp[1], wp[2]);
     col.push(colLin[k * 3] * b, colLin[k * 3 + 1] * b, colLin[k * 3 + 2] * b);
     siz.push(radius * (0.045 + 0.055 * rng()) * P.sizeMul);
@@ -329,7 +329,9 @@ function buildLayers(item, sample) {
     const z = (rng() - 0.5) * P.depth;
     const wp = warpGentle(xAt(k), yAt(k), z, P);
     const warm = rng() < 0.25;
-    const b = 0.9 + 0.7 * rng();
+    // Cubic tail like the hand-made nebulae: most stars stay under the bloom
+    // threshold, only the tail blooms — specks on highlights, not blanket glow.
+    const b = 0.35 + 0.85 * Math.pow(rng(), 3);
     pos.push(wp[0], wp[1], wp[2]);
     col.push((warm ? 1 : 0.85) * b, (warm ? 0.8 : 0.9) * b, (warm ? 0.6 : 1) * b);
     siz.push(radius * (0.006 + 0.006 * rng()));
@@ -350,18 +352,23 @@ function buildLayers(item, sample) {
   gasPts.frustumCulled = true;
   record.group.add(gasPts);
 
-  // Dust: only dark paintings get an occluding layer, from their darkest mass.
-  if (meanL < 165) {
+  // Dust: every painting's darkest mass becomes an occluding layer — the
+  // Sisters' dark-spine recipe. The count follows the dark mass itself (the
+  // rejection sampler normalizes by maxD, not mass), so a bright painting
+  // with one dark speck gets a wisp, not the full budget piled on it.
+  {
     const dW = new Float32Array(N);
     let maxD = 1e-6;
+    let dSum = 0;
     for (let k = 0; k < N; k++) {
       const w = mask[k] * (L[k] < 80 ? 1 - L[k] / 80 : 0);
       dW[k] = w;
+      dSum += w;
       if (w > maxD) maxD = w;
     }
-    if (maxD > 1e-3) {
+    const DUST_N = Math.min(low ? 1200 : 2000, Math.round((dSum / maxD) * 2));
+    if (maxD > 1e-3 && DUST_N > 20) {
       const dp = [], dc = [], ds = [];
-      const DUST_N = low ? 1200 : 2000;
       let dPlaced = 0, dTries = 0;
       while (dPlaced < DUST_N && dTries < DUST_N * 10) {
         dTries++;
@@ -449,6 +456,10 @@ export function initPaintingNebulae(scene) {
       logDist: C.NEBULA_LOG_DIST,
       mats: [], // live array — updateDeepNebula picks up clouds as they land
       intensity: 1.0,
+      // Painting front (+Z local) in world space: updateDeepNebula lifts the
+      // brightness toward full when the player views it from this side, so the
+      // painting reads perfectly face-on while every other angle stays hazy.
+      facing: new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion),
       coreFade: null,
       fadeStart: 0,
       fadeEnd: 0,
