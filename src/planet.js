@@ -14,7 +14,7 @@ import * as THREE from 'three';
 import { C } from './constants.js';
 import { addBody } from './gravity.js';
 import { addShiftable } from './origin.js';
-import { groundHeight, elevationAt } from './terrain.js';
+import { groundHeight, elevationAt, DEFAULT_SHAPE } from './terrain.js';
 import { settings } from './settings.js';
 import surfaceVert from './shaders/surface.vert?raw';
 import surfaceBakedVert from './shaders/surfaceBaked.vert?raw';
@@ -44,6 +44,11 @@ const CONFIGS = [
     atmoColor: 0x5a8cff,
     seaLevel: () => C.SEA_LEVEL,
     terrainHeight: () => C.TERRAIN_HEIGHT,
+    // Real alpine ranges: heavier ridged weight, slightly longer crest
+    // wavelength (stays above the ~16 u vertex spacing), carved drainage
+    // valleys. Terra also carries the handheld terrain manipulator.
+    shape: { ridge: 0.45, ridgeFreq: 3.1, valley: 0.1 },
+    terraform: true,
     iceLat: 0.72,
     palette: {
       deep: 0x040a24, shallow: 0x0d5285, sand: 0xc2b37a,
@@ -239,12 +244,29 @@ const CONFIGS = [
   },
 ];
 
+// surface.vert is shared by the water/cloud/gas/rings/atmosphere materials
+// (with uAmp 0 so displacement never runs), but three.js still uploads every
+// active uniform — so the terrain-shaping uniforms must exist on all of them.
+function shapeZeroUniforms() {
+  return {
+    uRidge: { value: 0 },
+    uRidgeFreq: { value: 1 },
+    uValley: { value: 0 },
+    uDeepAmp: { value: 0 },
+  };
+}
+
 function makeSurfaceUniforms(cfg, radius) {
   const p = cfg.palette;
+  const s = cfg.shape || DEFAULT_SHAPE;
   return {
     uSun: { value: SUN.clone() },
     uSeaLevel: { value: cfg.seaLevel() },
     uAmp: { value: cfg.terrainHeight() },
+    uRidge: { value: s.ridge },
+    uRidgeFreq: { value: s.ridgeFreq },
+    uValley: { value: s.valley },
+    uDeepAmp: { value: cfg.oceanDepth ? cfg.oceanDepth() : 0 },
     uRadius: { value: radius },
     uIceLat: { value: cfg.iceLat },
     uOct: { value: 6 },
@@ -289,6 +311,7 @@ export function initPlanets(scene) {
               uSun: { value: SUN.clone() },
               uSeaLevel: { value: 0 },
               uAmp: { value: 0 },
+              ...shapeZeroUniforms(),
               uWaterColor: { value: new THREE.Color(cfg.water.color) },
               uGloss: { value: cfg.water.gloss },
             },
@@ -306,6 +329,7 @@ export function initPlanets(scene) {
             uSun: { value: SUN.clone() },
             uSeaLevel: { value: 0 },
             uAmp: { value: 0 },
+            ...shapeZeroUniforms(),
             uTime: { value: 0 },
             uCover: { value: C.CLOUD_COVER },
           },
@@ -325,6 +349,7 @@ export function initPlanets(scene) {
           uSun: { value: SUN.clone() },
           uSeaLevel: { value: 0 },
           uAmp: { value: 0 },
+          ...shapeZeroUniforms(),
           uTime: { value: 0 },
           uBase: { value: new THREE.Color(cfg.gas.base) },
           uBandA: { value: new THREE.Color(cfg.gas.bandA) },
@@ -344,6 +369,7 @@ export function initPlanets(scene) {
           uniforms: {
             uSeaLevel: { value: 0 },
             uAmp: { value: 0 },
+            ...shapeZeroUniforms(),
             uSunObj: { value: new THREE.Vector3() },
             uInner: { value: radius * cfg.rings.inner },
             uOuter: { value: radius * cfg.rings.outer },
@@ -375,6 +401,7 @@ export function initPlanets(scene) {
         uSun: { value: SUN.clone() },
         uSeaLevel: { value: 0 },
         uAmp: { value: 0 },
+        ...shapeZeroUniforms(),
         uColor: { value: new THREE.Color(cfg.atmoColor) },
       },
       side: THREE.BackSide,
@@ -400,16 +427,30 @@ export function initPlanets(scene) {
     const body = { position: group.position, mass: cfg.mass(), radius };
     if (cfg.type === 'terra') {
       const _d = new THREE.Vector3();
-      body.groundAt = (dir) => {
+      const shape = cfg.shape || null;
+      const deepAmp = cfg.oceanDepth ? cfg.oceanDepth() : 0;
+      // Signed terrain height (negative in underwater trenches on divable
+      // worlds) plus any terraform edits — what the walker's feet, the dive
+      // system, and the walk camera follow. body.editHeightAt is installed
+      // by terraform.js on worlds with the manipulator.
+      const sample = (dx, dy, dz) => {
+        let h = groundHeight(dx, dy, dz, cfg.seaLevel(), cfg.terrainHeight(), shape, deepAmp);
+        if (body.editHeightAt) h += body.editHeightAt(dx, dy, dz);
+        return h;
+      };
+      body.terrainAt = (dir) => {
         const rot = surface.rotation.y;
         const cos = Math.cos(-rot), sin = Math.sin(-rot);
         _d.set(dir.x * cos + dir.z * sin, dir.y, -dir.x * sin + dir.z * cos);
-        return groundHeight(_d.x, _d.y, _d.z, cfg.seaLevel(), cfg.terrainHeight());
+        return sample(_d.x, _d.y, _d.z);
       };
       // Same sample for a direction already in the UNROTATED object frame —
       // the frame children of planet.surface live in. No un-rotation needed.
-      body.groundAtLocal = (dir) =>
-        groundHeight(dir.x, dir.y, dir.z, cfg.seaLevel(), cfg.terrainHeight());
+      body.terrainAtLocal = (dir) => sample(dir.x, dir.y, dir.z);
+      // Flight-side floor: clamped at the sea surface, so the altitude floor,
+      // hull heat, and landing checks never chase a trench below the water.
+      body.groundAt = (dir) => Math.max(body.terrainAt(dir), 0);
+      body.groundAtLocal = (dir) => Math.max(body.terrainAtLocal(dir), 0);
     }
     addBody(body);
     p.body = body;
@@ -445,13 +486,16 @@ export function startPlanetBake() {
       const pos = p.surface.geometry.attributes.position;
       const seaLevel = p.cfg.seaLevel();
       const amp = p.cfg.terrainHeight();
+      const shape = p.cfg.shape || null;
+      const deepAmp = p.cfg.oceanDepth ? p.cfg.oceanDepth() : 0;
       const inv = 1 / p.radius;
       for (; vi < pos.count; vi++) {
         const x = pos.getX(vi), y = pos.getY(vi), z = pos.getZ(vi);
         // sphere verts sit exactly at radius, so dir = pos / radius
         const dx = x * inv, dy = y * inv, dz = z * inv;
-        const disp = Math.max(elevationAt(dx, dy, dz) - seaLevel, 0) * amp;
-        if (disp > 0) pos.setXYZ(vi, x + dx * disp, y + dy * disp, z + dz * disp);
+        const e = elevationAt(dx, dy, dz, shape) - seaLevel;
+        const disp = e > 0 ? e * amp : e * deepAmp;
+        if (disp !== 0) pos.setXYZ(vi, x + dx * disp, y + dy * disp, z + dz * disp);
         if ((vi & 1023) === 1023 && performance.now() - t0 > BUDGET_MS) {
           vi++; // this vertex is done — resume at the next one
           setTimeout(slice, 0);
@@ -467,6 +511,9 @@ export function startPlanetBake() {
         uniforms: old.uniforms, // shared — updatePlanets keeps writing them
       });
       old.dispose();
+      // terraform.js replays persisted edits onto the baked geometry here
+      p.baked = true;
+      if (p.onBaked) p.onBaked();
       qi++;
       vi = 0;
     }

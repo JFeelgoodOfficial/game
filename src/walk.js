@@ -205,20 +205,21 @@ export function nearestTerraFloor(pos) {
   return best ? { planet: best, altitude: bestAlt } : null;
 }
 
-// Radial distance of the walkable floor: the terrain, or the ice sheet where
-// the sea is frozen (glacia — you stand on it, never swim under it).
+// Radial distance of the walkable floor: the terrain (signed — real seafloor
+// relief on divable worlds), or the ice sheet where the sea is frozen
+// (glacia — you stand on it, never swim under it).
 function floorRadius(planet, up) {
-  let r = planet.radius + planet.body.groundAt(up);
+  let r = planet.radius + planet.body.terrainAt(up);
   if (planet.water && planet.water.frozen && r < planet.water.r) r = planet.water.r;
   return r;
 }
 
-// Liquid water depth under this direction (0 on dry or frozen worlds). The
-// seabed is the base sphere (groundAt is 0 below sea level), so depth tops
-// out at WALK_WATER_LEVEL just offshore.
+// Liquid water depth under this direction (0 on dry or frozen worlds). On
+// ordinary worlds the seabed is the base sphere so depth tops out at
+// WALK_WATER_LEVEL just offshore; divable worlds carve real trenches below.
 function waterDepth(planet, up) {
   if (!planet.water || planet.water.frozen) return 0;
-  return Math.max(planet.water.r - (planet.radius + planet.body.groundAt(up)), 0);
+  return Math.max(planet.water.r - (planet.radius + planet.body.terrainAt(up)), 0);
 }
 
 // Drop out of the ship onto the given terra planet, directly below where the
@@ -1258,7 +1259,7 @@ export function updateWalkCamera(camera, delta = 0) {
   _camDir.subVectors(_desired, planet.body.position);
   const camR = _camDir.length();
   _camDir.multiplyScalar(1 / camR);
-  let minR = planet.radius + planet.body.groundAt(_camDir) + 1.15;
+  let minR = planet.radius + planet.body.terrainAt(_camDir) + 1.15;
   if (planet.water && minR < planet.water.r + 0.4) minR = planet.water.r + 0.4;
   // Actuality's Zone 9 descends into an open pit below the terrain. When the
   // walker is underground the terrain clamp would shove the third-person camera

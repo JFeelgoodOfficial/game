@@ -69,6 +69,8 @@ function makeSite(planet, worldUp) {
 
   const seaLevel = cfg.seaLevel();
   const amp = cfg.terrainHeight();
+  const shape = cfg.shape || null;
+  const deepAmp = cfg.oceanDepth ? cfg.oceanDepth() : 0;
   const radius = planet.radius;
   const frozen = !!cfg.frozenSea;
   const hasWater = !!cfg.water && !frozen;
@@ -90,7 +92,7 @@ function makeSite(planet, worldUp) {
       return out;
     },
     heightAt(dir) {
-      const h = groundHeight(dir.x, dir.y, dir.z, seaLevel, amp);
+      const h = groundHeight(dir.x, dir.y, dir.z, seaLevel, amp, shape, deepAmp);
       // Glacia: the frozen sea is walkable ground at the water sphere.
       return frozen ? Math.max(h, C.WALK_WATER_LEVEL) : h;
     },
