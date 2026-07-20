@@ -207,4 +207,19 @@ export const C = {
   MIN_ALTITUDE: 40.0, // the floor: you skim this low but can't land (drag holds you)
   FLOOR_DRAG_POWER: 2.5, // how sharply drag ramps from ATMOS_TOP down to the floor
   FLOOR_DRAG_MAX: 0.06, // speed bled per tick at the floor (air thickening)
+
+  // --- landing (NMS-style, all terra planets) ---
+  // Slow flight lowers the effective altitude floor from MIN_ALTITUDE down to
+  // TOUCHDOWN_CLEARANCE, so a gentle approach settles the ship onto the
+  // ground (or the sea). Arrive sinking faster than TOUCHDOWN_MAX_SINK and
+  // the air cushion bounces you instead — never a crash. G at low altitude
+  // flies an assisted auto-land arc to the flattest nearby spot.
+  LAND_REGIME_SPEED: 80.0, // below this speed the floor ramps down for touchdown
+  TOUCHDOWN_CLEARANCE: 3.0, // resting skids height above the local ground
+  TOUCHDOWN_MAX_SINK: 12.0, // radial sink faster than this bounces, not lands
+  LAND_BOUNCE: 0.35, // fraction of radial speed reflected on a hard arrival
+  AUTOLAND_TIME: 3.5, // seconds for the assisted G auto-land arc
+  AUTOLAND_ALTITUDE: 300.0, // max altitude above the floor to start auto-land
+  AUTOLAND_SPEED: 200.0, // max ship speed to start auto-land
+  TAKEOFF_KICK: 8.0, // upward velocity handed back on liftoff from a landing
 };

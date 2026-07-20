@@ -59,12 +59,23 @@ export function applyAltitudeFloor(pos, vel, dt) {
     const ground = b.groundAt ? b.groundAt(_up) : 0;
     const altitude = r - b.radius - ground;
 
+    // Landing regime (NMS-style): slow flight ramps the effective floor down
+    // from MIN_ALTITUDE to TOUCHDOWN_CLEARANCE, so a gentle approach settles
+    // the ship all the way onto the ground; fast flight keeps the classic
+    // no-land floor (and the classic hull-heat danger, see game.js).
+    const speed = vel.length();
+    const minAlt =
+      speed >= C.LAND_REGIME_SPEED
+        ? C.MIN_ALTITUDE
+        : C.TOUCHDOWN_CLEARANCE +
+          ((C.MIN_ALTITUDE - C.TOUCHDOWN_CLEARANCE) * speed) / C.LAND_REGIME_SPEED;
+
     // Anti-tunnel: at warp speed the drag band can't decelerate a dive in one
     // step, so cap the inward velocity to what still lands above a hard safety
     // floor this tick. Only bites when the soft floor is being overrun (normal
     // flight leaves plenty of margin, so this never fires).
     if (dt) {
-      const safety = C.MIN_ALTITUDE * 0.5; // hard floor, below the soft one
+      const safety = minAlt * 0.5; // hard floor, below the soft one
       const vInward = -vel.dot(_up);
       if (vInward > 0) {
         const room = Math.max(altitude - safety, 0);
@@ -76,7 +87,7 @@ export function applyAltitudeFloor(pos, vel, dt) {
     if (altitude >= C.ATMOS_TOP) continue;
     // t: 0 at the top of the atmosphere, ramping to 1 at the floor and below.
     const t = Math.min(
-      Math.max((C.ATMOS_TOP - altitude) / (C.ATMOS_TOP - C.MIN_ALTITUDE), 0),
+      Math.max((C.ATMOS_TOP - altitude) / (C.ATMOS_TOP - minAlt), 0),
       1
     );
     const k = Math.pow(t, C.FLOOR_DRAG_POWER);
