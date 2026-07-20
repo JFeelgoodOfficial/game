@@ -22,9 +22,15 @@ cleanly on the figure.
 | ------------------- | -------------------- | ------------------------------ |
 | `lady.png`          | The Lady in White    | Seated at the river's near bank |
 | `cloaked.png`       | The Cloaked Figure   | Far bank; follows you onward    |
-| `girl.png`          | The Girl             | Runs in and breaks the Line     |
+| `girl.png`          | The Girl — idle      | Runs in and breaks the Line     |
+| `girl-run.png`      | The Girl — running   | Shown while she sprints toward you |
 | `warrior.png`       | The Warrior          | The storm wasteland             |
 | `stranger.png`      | The Stranger         | Seated in the garden            |
+
+**The Girl has two frames.** `girl-run.png` is shown while she sprints in, and
+the system swaps to `girl.png` the moment she stops in front of you. Commit both
+for the effect; commit only `girl.png` and she'll simply use the idle frame the
+whole time.
 
 Notes:
 - The **Mirror-self** in the round room stays the reflective 3D rig on purpose —
