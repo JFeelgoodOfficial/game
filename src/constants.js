@@ -169,6 +169,12 @@ export const C = {
   WALK_WADE_DEPTH: 0.22, // deeper than this slows you to wade speed
   WALK_BUOYANCY: 0.55, // swimming, the body rides this far below the surface
 
+  // --- diving (divable worlds only — neptunia): C while swimming submerges;
+  // full 3D look-directed movement, no drowning, Space floats up, breach at
+  // the surface to pop back to a float ---
+  WALK_DIVE_SPEED: 6.5, // underwater swim speed, units/sec
+  WALK_DIVE_ACCEL: 8.0, // syrupy 3D approach rate toward the wish velocity
+
   // --- on-foot third-person camera ---
   WALK_CAM_DIST: 7.6, // default orbit distance behind the astronaut
   WALK_CAM_MIN: 4.5, // scroll-wheel zoom clamp

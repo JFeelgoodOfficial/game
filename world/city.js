@@ -257,6 +257,19 @@ export const CITY_STYLES = [
     },
   },
   {
+    name: 'tideLuminous', // neptunia's shore city — bioluminescent indigo/cyan
+    heightScale: 0.8,
+    density: 0.7,
+    signChance: 0.5,
+    adBillboards: false,
+    flickerAmount: 0.15,
+    palette: {
+      neonPrimary: 0x4adfff, neonSecondaryA: 0x9a6aff, neonSecondaryB: 0x6a8fff,
+      hullA: 0x1a1f4a, hullB: 0x252a5e, street: 0x101430, plaza: 0x161b3c,
+      windowWarm: '#9ab8ff',
+    },
+  },
+  {
     name: 'frostHaven', // cold-world settlement, ice blue/white with warm doors
     heightScale: 0.65,
     density: 0.8,

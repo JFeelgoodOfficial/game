@@ -228,18 +228,38 @@ const CONFIGS = [
     rings: { inner: 1.35, outer: 2.35, tilt: 0.47, color: 0xd8c49a },
   },
   {
+    // Once a flyby ice giant — now a landable deep-ocean world (GDD 5.7:
+    // ocean world = high sea level). Violet archipelagos over an indigo sea
+    // you can dive INTO: oceanDepth carves real trenches below the datum,
+    // divable unlocks underwater swimming, and diamond rain falls on shore.
+    // The balloon-whale sky ecology stays as high-altitude ambiance
+    // (world/creatures.js buildNeptunia).
     name: 'neptunia',
-    type: 'gas',
+    type: 'terra',
     dir: new THREE.Vector3(-0.15, 0.22, 0.96).normalize(),
     distance: () => 70000,
     radius: () => 1400,
     mass: () => 1.7e6, // surface g ~= 30
-    skyColor: () => 0x3450c8,
+    skyColor: () => 0x4050d8,
     spin: () => 0.03,
-    atmoColor: 0x4a6aff,
-    gas: {
-      base: 0x2646b0, bandA: 0x4a72e8, bandB: 0x18288a,
-      limb: 0x9ab8ff, bands: 16.0,
+    atmoColor: 0x5a6aff,
+    seaLevel: () => 0.68,
+    terrainHeight: () => 95,
+    oceanDepth: () => 70, // trenches to −70 u below the sea datum
+    shape: { ridge: 0.34, ridgeFreq: 3.5, valley: 0.05 },
+    divable: true,
+    diamondRain: true,
+    iceLat: 0.9,
+    palette: {
+      deep: 0x040824, shallow: 0x14329a, sand: 0x8a7fc4,
+      low: 0x54418f, mid: 0x342e72, high: 0xe0dcf6,
+    },
+    water: { color: 0x081c52, gloss: 1.0 },
+    clouds: true,
+    dress: {
+      grass: { root: 0x3a3f8a, tip: 0x7a8fe8, emissive: 0x5a6ac8 },
+      shrubs: true,
+      rocks: true,
     },
   },
 ];
@@ -315,6 +335,8 @@ export function initPlanets(scene) {
               uWaterColor: { value: new THREE.Color(cfg.water.color) },
               uGloss: { value: cfg.water.gloss },
             },
+            // Divable worlds: the sea surface must render from below too.
+            side: cfg.divable ? THREE.DoubleSide : THREE.FrontSide,
           })
         );
         spinning.push(water);
