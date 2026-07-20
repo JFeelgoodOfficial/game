@@ -697,6 +697,7 @@ export function initDeepNebula(scene) {
 }
 
 const _size = new THREE.Vector2();
+const _view = new THREE.Vector3();
 
 // Per frame: map a world sprite radius to pixels (uScale depends on live FOV,
 // which changes on boost/warp, and viewport). No geometry rebuild. For spiral
@@ -707,7 +708,15 @@ export function updateDeepNebula(renderer, camera) {
   const scale = 0.5 * _size.y / Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5);
   const pr = renderer.getPixelRatio();
   for (const n of deepNebulae) {
-    const intensity = n.intensity * C.NEBULA_FIELD_INTENSITY;
+    let intensity = n.intensity * C.NEBULA_FIELD_INTENSITY;
+    // Painting nebulae (records with `facing`): hazy from the side, full
+    // brightness when viewed from the painting's front, so the image reads
+    // perfectly from its intended vantage. Wide smoothstep band — no popping.
+    if (n.facing) {
+      _view.copy(n.group.position).sub(camera.position).normalize();
+      const align = -_view.dot(n.facing);
+      intensity *= 0.85 + 0.35 * smoothstep(0.55, 0.95, align);
+    }
     for (const m of n.mats) {
       m.uniforms.uScale.value = scale;
       m.uniforms.uPixelRatio.value = pr;
