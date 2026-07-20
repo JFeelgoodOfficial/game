@@ -58,19 +58,22 @@ const DREAM_ART_URL =
   (ART_ENTRIES.find(([path]) => /dream/i.test(path)) ?? ART_ENTRIES[0])?.[1] ?? null;
 
 // Owner-supplied character portraits (repo-root /shadowreach-characters). Each
-// file is keyed by name — lady / warrior / stranger / girl / cloaked — and, when
-// present, is pinned to the front of the matching NPC as a player-facing
-// hologram (see attachHologram). The folder can be empty: the glob then yields
-// [], every lookup returns null, and the NPCs simply stay their 3D figures.
+// file is keyed by its stem — lady / warrior / stranger / girl / cloaked, plus
+// girl-run for the girl's running frame — and, when present, is pinned to the
+// front of the matching NPC as a player-facing hologram (see attachHologram).
+// The folder can be empty: the glob then yields [], every lookup returns null,
+// and the NPCs simply stay their 3D figures.
 const CHAR_ART = Object.entries(
   import.meta.glob('/shadowreach-characters/*.{png,jpg,jpeg,webp}', {
     eager: true,
     query: '?url',
     import: 'default',
   })
-);
+).map(([path, url]) => [path.split('/').pop().replace(/\.[^.]+$/, '').toLowerCase(), url]);
+// Exact stem first (so 'girl' matches girl.png, never girl-run.png), then a
+// loose substring fallback for convenience.
 const charArtFor = (key) =>
-  CHAR_ART.find(([path]) => path.toLowerCase().includes(key))?.[1] ?? null;
+  (CHAR_ART.find(([stem]) => stem === key) ?? CHAR_ART.find(([stem]) => stem.includes(key)))?.[1] ?? null;
 
 /* ----------------------------------------------------------------------
  * Tunables + palette + authored text — every magic value lives here.
@@ -685,54 +688,84 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   // the player's view you see the real character; walking around reveals the 3D
   // figure. Keyed by filename — an NPC whose portrait hasn't been committed just
   // stays its procedural rig (charArtFor returns null and attachHologram bails).
-  const holograms = []; // { key, mesh, mat, holder, rig, height, drop, activeFn }
-  function attachHologram(rig, key, { height = 1.9, drop = 0, activeFn = null } = {}) {
+  const holograms = []; // { key, mesh, mat, holder, rig, height, drop, activeFn, ... }
+  // Load a portrait texture and, when it decodes, stash its aspect on `slot`.
+  function loadPortrait(url, slot, apply) {
+    new THREE.TextureLoader().load(url, (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+      disposables.push(tex);
+      const img = tex.image;
+      slot.tex = tex;
+      slot.aspect = (img && img.width && img.height) ? img.width / img.height : 0.5;
+      if (apply) apply();
+    });
+  }
+  // Attach a player-facing portrait to a rig. `frameFn` (optional) returns the
+  // stem of the frame to show right now — used for the Girl, who has a running
+  // frame (girl-run) and an idle frame (girl). Absent → single static portrait.
+  function attachHologram(rig, key, { height = 1.9, drop = 0, activeFn = null, altKey = null, frameFn = null } = {}) {
     const url = charArtFor(key);
     if (!url) return; // no art committed yet — keep the 3D figure
     const holder = new THREE.Group();
     group.add(holder);
-    const geo = keep(new THREE.PlaneGeometry(1.2, height));
+    // Base plane is 1 tall × `height` in world units; scale.x applies the aspect.
+    const geo = keep(new THREE.PlaneGeometry(1, height));
     const mat = keep(new THREE.MeshBasicMaterial({
+      // Unlit so the portrait self-shows in the dark zones, but multiplied down
+      // to ~0.8 so bright art (the Lady's white gown) stays under the bloom
+      // threshold and reads as a solid figure instead of a glowing blob.
+      color: 0xcccccc,
       transparent: true, depthWrite: false, side: THREE.DoubleSide,
-      opacity: 0.9, alphaTest: 0.02,
+      opacity: 0.96, alphaTest: 0.06,
     }));
     const mesh = new THREE.Mesh(geo, mat);
     mesh.renderOrder = 6;
     holder.add(mesh);
-    const h = { key, mesh, mat, holder, rig, height, drop, activeFn };
+    const frames = { [key]: {} }; // stem -> { tex, aspect }
+    const h = { key, mesh, mat, holder, rig, height, drop, activeFn, frameFn, frames, shown: null };
     holograms.push(h);
-    // Load async; apply the image's true aspect + colorspace when it decodes.
-    new THREE.TextureLoader().load(url, (tex) => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = 8;
-      mat.map = tex;
-      mat.needsUpdate = true;
-      disposables.push(tex);
-      const img = tex.image;
-      if (img && img.width && img.height) {
-        // Base plane is 1.2 wide × `height` tall; widen to the portrait's aspect.
-        mesh.scale.x = (img.width / img.height) * height / 1.2;
-      }
-    });
+    // Show a frame: bind its texture + true aspect (idempotent per frame).
+    const show = (stem) => {
+      const f = frames[stem];
+      if (!f || !f.tex || h.shown === stem) return;
+      h.shown = stem;
+      mat.map = f.tex; mat.needsUpdate = true;
+      mesh.scale.x = f.aspect * height;
+    };
+    h.show = show;
+    loadPortrait(url, frames[key], () => { if (!frameFn) show(key); });
+    const altUrl = altKey && charArtFor(altKey);
+    if (altUrl) { frames[altKey] = {}; loadPortrait(altUrl, frames[altKey]); }
   }
 
   // Yaw a holder Group upright on its local up and turn it to face the player.
   // Same two-quaternion math as faceRig, but on a bare Group (no rig joints).
   const _hq0 = new THREE.Quaternion(), _hq1 = new THREE.Quaternion();
-  const _hToL = new THREE.Vector3(), _hdir = new THREE.Vector3();
+  const _hToL = new THREE.Vector3(), _hdir = new THREE.Vector3(), _hfwd = new THREE.Vector3();
   function updateHolograms(t) {
     for (const h of holograms) {
       const on = h.rig.group.visible && (!h.activeFn || h.activeFn());
       h.holder.visible = on;
       if (!on) continue;
+      if (h.frameFn) h.show(h.frameFn());          // swap idle/running frame
+      if (!h.mat.map) continue;                    // texture still decoding
       _hdir.copy(h.rig.group.position).normalize(); // local up at the figure
-      h.holder.position.copy(h.rig.group.position)
-        .addScaledVector(_hdir, h.height * 0.5 + h.drop);
+      // Anchor the portrait's feet on the actual ground under the figure (robust
+      // for seated/scaled rigs, where the rig pivot isn't at ground level).
+      const groundLen = sampleGround(planet, _hdir);
+      h.holder.position.copy(_hdir).multiplyScalar(groundLen + h.height * 0.5 + h.drop);
+      // Push the plane out toward the player, clear of the solid 3D rig, so the
+      // figure's own body never occludes its portrait (tangent component only —
+      // stays at the same height). This keeps the portrait pinned to the front.
+      _hfwd.copy(_pl).sub(h.holder.position);
+      _hfwd.addScaledVector(_hdir, -_hfwd.dot(_hdir)); // drop the vertical part
+      if (_hfwd.lengthSq() > 1e-6) h.holder.position.addScaledVector(_hfwd.normalize(), 0.8);
       _hq0.setFromUnitVectors(_yAxis, _hdir);
       _hToL.copy(_pl).sub(h.holder.position).applyQuaternion(_hq1.copy(_hq0).invert());
       const yaw = Math.atan2(_hToL.x, _hToL.z);
       h.holder.quaternion.copy(_hq0).multiply(_hq1.setFromAxisAngle(_yAxis, yaw));
-      h.mat.opacity = 0.86 + Math.sin(t * 2.0 + h.key.length) * 0.06; // faint shimmer
+      h.mat.opacity = 0.94 + Math.sin(t * 2.0 + h.key.length) * 0.04; // faint shimmer
     }
   }
 
@@ -877,7 +910,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     placeRig(lady, pathDir(SR.LADY, 4), Math.PI); // faces the arriving player
     addLooker(lady); // her head follows you; she never rises
     g.add(lady.group);
-    attachHologram(lady, 'lady', { height: 1.5, drop: 0.15 }); // seated
+    attachHologram(lady, 'lady', { height: 1.7 }); // standing gown, feet at ground
 
     // (cloaked hologram attached below, once cloakedFigure is set)
     const flowerMat = stdMat(0xff5a7a, { emis: 0.4, emisColor: 0xff5a7a });
@@ -903,6 +936,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     // plays on the real 3D rig (a flat portrait would cover the climactic reveal).
     attachHologram(cloak.rig, 'cloaked',
       { height: 1.9, activeFn: () => cloak.rig.group.visible && !endingStarted });
+    // (girl / warrior / stranger holograms attached at their build sites)
 
     return { group: g };
   }
@@ -1328,7 +1362,11 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     };
     entities.push(girlEnt);
     girl._ent = girlEnt;
-    attachHologram(gr, 'girl', { height: 1.3, activeFn: () => girl.state !== 'hidden' });
+    attachHologram(gr, 'girl', {
+      height: 1.15, activeFn: () => girl.state !== 'hidden',
+      altKey: 'girl-run', // running frame while she sprints in, idle when she stops
+      frameFn: () => (girl.state === 'sprinting' ? 'girl-run' : 'girl'),
+    });
 
     // Girl motion + the line vanishing after the break.
     let fadeT = -1;
@@ -1563,7 +1601,9 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     addLooker(wr, () => !has('warrior_embraced'));
     g.add(wr.group);
     warrior = { rig: wr, talkedOnce: false };
-    attachHologram(wr, 'warrior', { height: 1.7, activeFn: () => !has('warrior_embraced') });
+    // Seated cross-legged on the raised stone; drop lifts the portrait's feet
+    // from the base terrain (sampleGround) up onto the platform he sits on.
+    attachHologram(wr, 'warrior', { height: 1.2, drop: 0.55, activeFn: () => !has('warrior_embraced') });
 
     // The planted greatsword — a strong silhouette beside the stone.
     const swordParts = [
@@ -1869,7 +1909,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     placeRig(st, pathDir(SR.GARDEN, 2), Math.PI);
     addLooker(st, () => !endingStarted);
     g.add(st.group);
-    attachHologram(st, 'stranger', { height: 1.6, activeFn: () => !endingStarted });
+    attachHologram(st, 'stranger', { height: 1.5, activeFn: () => !endingStarted }); // seated traveler
     // The staff, leaning beside him with a glowing gold finial.
     const staff = new THREE.Mesh(keep(mergeParts([
       coloredGeo(new THREE.CylinderGeometry(0.05, 0.06, 2.6, 6).translate(0, 1.3, 0), 0x6b4a30),
