@@ -48,7 +48,7 @@ export const C = {
   START_DISTANCE: 3500.0, // ship spawns this far from the planet (2500 up)
   SEA_LEVEL: 0.48, // terra's water threshold. lower = more land.
   PLANET_SPIN: 0.01, // radians/sec, slow rotation
-  TERRAIN_HEIGHT: 170.0, // terra's peak displacement above sea level
+  TERRAIN_HEIGHT: 220.0, // terra's peak displacement above sea level
   ATMO_SHELL: 1.25, // atmosphere radius, × planet radius (250 units thick)
   SKY_COLOR: 0x6ea0ff, // daytime sky the view washes to inside the atmosphere
   SKY_DENSITY: 0.6, // how thickly the atmosphere fogs the view

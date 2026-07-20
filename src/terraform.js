@@ -217,13 +217,15 @@ export function terraformExit() {
 }
 
 function buildVisuals() {
-  // Aim reticle: additive magenta ring, +Y aligned to the surface normal.
+  // Aim reticle: a thin additive magenta ring marking the brush edge. Kept
+  // dim and narrow — at 35 u radius anything brighter floods the view (and
+  // the bloom pass) when seen edge-on from the third-person camera.
   reticle = new THREE.Mesh(
-    new THREE.RingGeometry(C.TFORM_RADIUS * 0.82, C.TFORM_RADIUS, 40),
+    new THREE.RingGeometry(C.TFORM_RADIUS * 0.94, C.TFORM_RADIUS, 48),
     new THREE.MeshBasicMaterial({
-      color: 0xd4408f,
+      color: 0x8f2f6a,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.22,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -328,7 +330,7 @@ export function updateTerraform(camera, dt, t) {
       .addScaledVector(_t2.set(0, 1, 0).applyQuaternion(astronautGroup.quaternion), 1.1);
     device.quaternion.copy(camera.quaternion);
   }
-  deviceTip.emissiveIntensity = firing ? 1.6 + Math.sin(t * 30) * 0.6 : 0.6;
+  deviceTip.emissiveIntensity = firing ? 1.0 + Math.sin(t * 30) * 0.25 : 0.5;
 
   // --- stamping cadence (+ one bounding-sphere refresh per stroke end) ---
   if (!firing || !planet.baked) {
