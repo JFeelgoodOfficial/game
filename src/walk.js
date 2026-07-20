@@ -22,6 +22,13 @@ import { ship } from './ship.js';
 import { planets, SUN } from './planet.js';
 import { Astronaut } from './astronaut.js';
 import { createDressing } from './dressing.js';
+import {
+  initTerraform,
+  terraformEnter,
+  terraformExit,
+  updateTerraform,
+  setViewGetter,
+} from './terraform.js';
 // World entities spawned around the landing site. All parented (directly or
 // via the city group) to planet.surface, so planet spin and floating-origin
 // rebases carry them — the world never moves without them. Aliased import:
@@ -183,6 +190,10 @@ export function initWalk(scene) {
   astronaut.group.visible = false;
   scene.add(astronaut.group);
   stationWalk.initStationWalk(astronaut); // the station walker shares the body
+  // Terrain manipulator: installs each terraform planet's CPU edit field and
+  // replays persisted sculpting onto the baked geometry (visible from orbit).
+  initTerraform();
+  setViewGetter(() => walk.view);
 }
 
 // The nearest rocky (terra) planet you could stand on, and your altitude above
@@ -289,6 +300,9 @@ export function enterWalk(planet) {
   // Populate the site: parked ship, city + citizens, wonders, wildlife.
   // _up still holds the world-space landing dir here.
   spawnWorldEntities(planet);
+
+  // Terrain manipulator (terra only): reticle, handheld prop, RAISE/LOWER UI.
+  terraformEnter(planet, astronaut.group);
 }
 
 // Wonder types that suit each world's character (fallback for any new planet).
@@ -539,6 +553,8 @@ export function exitWalk(camera) {
     camera.up.set(0, 1, 0);
     camera.updateProjectionMatrix();
   }
+
+  terraformExit(); // hide the tool + UI before the site tears down
 
   if (dressing) {
     dressing.dispose();
@@ -1285,6 +1301,7 @@ export function updateWalkCamera(camera, delta = 0) {
       camera.fov = C.FOV;
       camera.updateProjectionMatrix();
     }
+    updateTerraform(camera, delta, performance.now() * 0.001);
     return;
   }
 
@@ -1345,6 +1362,7 @@ export function updateWalkCamera(camera, delta = 0) {
     camera.fov = fov;
     camera.updateProjectionMatrix();
   }
+  updateTerraform(camera, delta, performance.now() * 0.001);
 }
 
 // Remove v's component along the (unit) up vector, leaving it in the tangent

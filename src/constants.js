@@ -175,6 +175,14 @@ export const C = {
   WALK_DIVE_SPEED: 6.5, // underwater swim speed, units/sec
   WALK_DIVE_ACCEL: 8.0, // syrupy 3D approach rate toward the wish velocity
 
+  // --- handheld terrain manipulator (terra only — cfg.terraform) ---
+  // Brush radius sits well above terra's ~16 u vertex spacing so every stamp
+  // moves a visible patch of the mesh, not a sub-vertex bump.
+  TFORM_RADIUS: 35.0, // brush radius, surface units
+  TFORM_DELTA: 0.8, // height added/removed per stamp, units
+  TFORM_RATE: 7.5, // stamps per second while the trigger is held
+  TFORM_MAX_EDITS: 600, // per-planet edit budget (~27 KB in localStorage)
+
   // --- on-foot third-person camera ---
   WALK_CAM_DIST: 7.6, // default orbit distance behind the astronaut
   WALK_CAM_MIN: 4.5, // scroll-wheel zoom clamp
