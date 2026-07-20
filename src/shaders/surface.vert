@@ -11,6 +11,10 @@ varying vec3 vViewDir;
 
 uniform float uSeaLevel;
 uniform float uAmp; // terrain height, world units. 0 for gas giants.
+uniform float uRidge;    // ridged-mountain weight (default 0.28)
+uniform float uRidgeFreq;// ridged-mountain frequency (default 3.5)
+uniform float uValley;   // drainage-valley carving depth (default 0)
+uniform float uDeepAmp;  // below-sea displacement amp (divable worlds; else 0)
 
 float hash(vec3 p) {
   p = fract(p * 0.3183099 + 0.1);
@@ -53,14 +57,22 @@ float elevation(vec3 p, int oct) {
   float base = fbm(p * 1.8 + warp * 0.6, oct);
   // ridged mountains grow only out of already-high ground
   float mask = smoothstep(0.5, 0.62, base);
-  return base * 0.72 + ridged(p * 3.5, 4) * 0.28 * mask;
+  float e = base * (1.0 - uRidge) + ridged(p * uRidgeFreq, 4) * uRidge * mask;
+  if (uValley > 0.0) {
+    // ridged-inverse drainage lines carved only out of mid-high ground.
+    // valley octaves fixed at 3 on CPU and GPU alike — never tied to uOct.
+    e -= uValley * (1.0 - ridged(p * 2.2, 3)) * smoothstep(0.45, 0.62, base);
+  }
+  return e;
 }
 
 void main() {
   vec3 dir = normalize(position);
   float disp = 0.0;
   if (uAmp > 0.0) {
-    disp = max(elevation(dir, 6) - uSeaLevel, 0.0) * uAmp;
+    float e = elevation(dir, 6) - uSeaLevel;
+    // land rises by uAmp; on divable worlds the seafloor sinks by uDeepAmp
+    disp = e > 0.0 ? e * uAmp : e * uDeepAmp;
   }
   vec3 displaced = position + dir * disp;
   vObjPos = displaced;

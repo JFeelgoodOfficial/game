@@ -13,6 +13,9 @@ uniform float uSeaLevel;
 uniform float uAmp;
 uniform float uRadius;
 uniform int uOct; // planet.js lowers octaves with distance (audit fix)
+uniform float uRidge;    // ridged-mountain weight (default 0.28)
+uniform float uRidgeFreq;// ridged-mountain frequency (default 3.5)
+uniform float uValley;   // drainage-valley carving depth (default 0)
 uniform float uIceLat;    // latitude where polar ice begins (>1 disables)
 uniform vec3 uColDeep;    // deep water / lowest floor
 uniform vec3 uColShallow; // shallow water / low basin
@@ -60,7 +63,12 @@ float elevation(vec3 p, int oct) {
   vec3 warp = vec3(fbm(p * 1.3 + 4.1, 3), fbm(p * 1.3 + 8.7, 3), fbm(p * 1.3 + 1.9, 3));
   float base = fbm(p * 1.8 + warp * 0.6, oct);
   float mask = smoothstep(0.5, 0.62, base);
-  return base * 0.72 + ridged(p * 3.5, 4) * 0.28 * mask;
+  float e = base * (1.0 - uRidge) + ridged(p * uRidgeFreq, 4) * uRidge * mask;
+  if (uValley > 0.0) {
+    // must match surface.vert exactly — valley octaves fixed at 3, not uOct
+    e -= uValley * (1.0 - ridged(p * 2.2, 3)) * smoothstep(0.45, 0.62, base);
+  }
+  return e;
 }
 
 void main() {

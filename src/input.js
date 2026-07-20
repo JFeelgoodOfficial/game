@@ -25,6 +25,8 @@ export const input = {
   photo: false, // P edge-trigger: take a photo (capture.js). main.js reads and zeroes it.
   record: false, // R edge-trigger: start/stop screen recording. main.js reads and zeroes it.
   togglePause: false, // Backspace edge-trigger: pause/resume. game.js reads and zeroes it.
+  raise: false, // Z (or on-screen RAISE), held — terrain manipulator raises ground
+  lower: false, // X (or on-screen LOWER), held — terrain manipulator lowers ground
   mouseX: 0, // accumulated pixels since last consume
   mouseY: 0,
   wheel: 0, // accumulated scroll since last consume (third-person zoom)
@@ -79,5 +81,7 @@ function setKey(e, down) {
     case 'KeyP': if (down) input.photo = true; break; // take a photo
     case 'KeyR': if (down) input.record = true; break; // toggle screen recording
     case 'Backspace': if (down) input.togglePause = true; e.preventDefault(); break; // pause/resume
+    case 'KeyZ': input.raise = down; break; // terrain manipulator: raise (held)
+    case 'KeyX': input.lower = down; break; // terrain manipulator: lower (held)
   }
 }

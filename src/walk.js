@@ -22,6 +22,14 @@ import { ship } from './ship.js';
 import { planets, SUN } from './planet.js';
 import { Astronaut } from './astronaut.js';
 import { createDressing } from './dressing.js';
+import {
+  initTerraform,
+  terraformEnter,
+  terraformExit,
+  updateTerraform,
+  setViewGetter,
+} from './terraform.js';
+import { createDiamondRain } from './diamondrain.js';
 // World entities spawned around the landing site. All parented (directly or
 // via the city group) to planet.surface, so planet spin and floating-origin
 // rebases carry them — the world never moves without them. Aliased import:
@@ -95,6 +103,7 @@ export const walk = {
   speed01: 0, // horizontal speed / sprint speed, 0..1
   grounded: true,
   swimming: false,
+  diving: false, // underwater free-swim (divable worlds; C toggles)
   view: 'tp', // 'fp' | 'tp'
   camDist: 7.6, // third-person orbit distance (scroll wheel)
   facing: new THREE.Vector3(0, 0, -1), // astronaut body heading (follows vel)
@@ -112,6 +121,7 @@ let city = null; // procedural city (world/city.js)
 let crowd = null; // citizens inside the city (world/aliens.js)
 let wonders = null; // megastructure field (world/wonders.js)
 let creatures = null; // planet wildlife (world/creatures.js)
+let diamondRain = null; // walker-local diamond-rain volume (cfg.diamondRain)
 let wavemall = null; // total-conversion content for 'wavemall prime' only
 let actuality = null; // total-conversion content for 'actuality' only
 let shadowreach = null; // total-conversion narrative world for 'shadowreach' only
@@ -182,6 +192,10 @@ export function initWalk(scene) {
   astronaut.group.visible = false;
   scene.add(astronaut.group);
   stationWalk.initStationWalk(astronaut); // the station walker shares the body
+  // Terrain manipulator: installs each terraform planet's CPU edit field and
+  // replays persisted sculpting onto the baked geometry (visible from orbit).
+  initTerraform();
+  setViewGetter(() => walk.view);
 }
 
 // The nearest rocky (terra) planet you could stand on, and your altitude above
@@ -205,20 +219,21 @@ export function nearestTerraFloor(pos) {
   return best ? { planet: best, altitude: bestAlt } : null;
 }
 
-// Radial distance of the walkable floor: the terrain, or the ice sheet where
-// the sea is frozen (glacia — you stand on it, never swim under it).
+// Radial distance of the walkable floor: the terrain (signed — real seafloor
+// relief on divable worlds), or the ice sheet where the sea is frozen
+// (glacia — you stand on it, never swim under it).
 function floorRadius(planet, up) {
-  let r = planet.radius + planet.body.groundAt(up);
+  let r = planet.radius + planet.body.terrainAt(up);
   if (planet.water && planet.water.frozen && r < planet.water.r) r = planet.water.r;
   return r;
 }
 
-// Liquid water depth under this direction (0 on dry or frozen worlds). The
-// seabed is the base sphere (groundAt is 0 below sea level), so depth tops
-// out at WALK_WATER_LEVEL just offshore.
+// Liquid water depth under this direction (0 on dry or frozen worlds). On
+// ordinary worlds the seabed is the base sphere so depth tops out at
+// WALK_WATER_LEVEL just offshore; divable worlds carve real trenches below.
 function waterDepth(planet, up) {
   if (!planet.water || planet.water.frozen) return 0;
-  return Math.max(planet.water.r - (planet.radius + planet.body.groundAt(up)), 0);
+  return Math.max(planet.water.r - (planet.radius + planet.body.terrainAt(up)), 0);
 }
 
 // Drop out of the ship onto the given terra planet, directly below where the
@@ -235,6 +250,7 @@ export function enterWalk(planet) {
   walk.speed01 = 0;
   walk.grounded = true;
   walk.swimming = false;
+  walk.diving = false;
   walk.camDist = C.WALK_CAM_DIST;
   camSnap = true;
   // Seed the spin tracker so the first stepWalk delta is ~0 (no jump on entry).
@@ -286,6 +302,15 @@ export function enterWalk(planet) {
   // Populate the site: parked ship, city + citizens, wonders, wildlife.
   // _up still holds the world-space landing dir here.
   spawnWorldEntities(planet);
+
+  // Terrain manipulator (terra only): reticle, handheld prop, RAISE/LOWER UI.
+  terraformEnter(planet, astronaut.group);
+
+  // Diamond rain (neptunia): a walker-local glitter volume, storm-scheduled.
+  if (planet.cfg.diamondRain) {
+    diamondRain = createDiamondRain();
+    astronaut.group.parent.add(diamondRain.group); // the scene
+  }
 }
 
 // Wonder types that suit each world's character (fallback for any new planet).
@@ -294,6 +319,7 @@ const WONDER_TYPES = {
   oceana: ['crystals', 'titan', 'arch'],
   glacia: ['crystals', 'monoliths'],
   rustia: ['titan', 'arch', 'monoliths', 'ringworld'],
+  neptunia: ['crystals', 'arch', 'titan'],
 };
 
 // Spawn the landing-site world entities, all riding planet.surface so they
@@ -424,6 +450,7 @@ function spawnWorldEntities(planet) {
     oceana: 'verdantTerrace',
     glacia: 'frostHaven',
     rustia: 'dustOutpost',
+    neptunia: 'tideLuminous',
   };
   const terraWorlds = planets.filter((p) => p.cfg.type === 'terra');
   const styleIdx = Math.max(0, terraWorlds.indexOf(planet));
@@ -533,6 +560,12 @@ export function exitWalk(camera) {
     camera.fov = C.FOV;
     camera.up.set(0, 1, 0);
     camera.updateProjectionMatrix();
+  }
+
+  terraformExit(); // hide the tool + UI before the site tears down
+  if (diamondRain) {
+    diamondRain.dispose();
+    diamondRain = null;
   }
 
   if (dressing) {
@@ -670,32 +703,56 @@ export function stepWalk(dt) {
     depth > C.WALK_SWIM_DEPTH && planet.water && r <= planet.water.r + 0.05;
   const wading = !walk.swimming && depth > C.WALK_WADE_DEPTH;
 
+  // --- dive toggle (C): on divable worlds, submerge into free 3D swimming.
+  // Consumed here — the fly phase's C (stand up) never coexists with walk.
+  if (input.toggleInterior) {
+    input.toggleInterior = false;
+    if (walk.diving) walk.diving = false;
+    else if (walk.swimming && planet.cfg.divable) walk.diving = true;
+  }
+  if (!walk.swimming) walk.diving = false;
+  const diving = walk.diving;
+
   // --- planar movement: velocity approaches the wish direction ---
   _right.crossVectors(walk.heading, _up).normalize();
   const fwd = (input.forward ? 1 : 0) - (input.reverse ? 1 : 0);
   const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
   _wish.set(0, 0, 0);
-  _wish.addScaledVector(walk.heading, fwd);
-  _wish.addScaledVector(_right, strafe);
-  const targetSpeed = walk.swimming
-    ? C.WALK_SWIM_SPEED
-    : wading
-      ? C.WALK_WADE_SPEED
-      : input.boost
-        ? C.WALK_RUN_SPEED
-        : C.WALK_SPEED;
-  if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(targetSpeed);
+  if (diving) {
+    // Underwater: forward follows the pitched look direction — swim where
+    // you're looking. Space floats up; Shift is a faster stroke.
+    _look.copy(walk.heading).multiplyScalar(Math.cos(walk.pitch))
+      .addScaledVector(_up, Math.sin(walk.pitch));
+    _wish.addScaledVector(_look, fwd);
+    _wish.addScaledVector(_right, strafe);
+    if (input.brake) _wish.addScaledVector(_up, 0.7);
+    const diveSpeed = C.WALK_DIVE_SPEED * (input.boost ? 1.6 : 1);
+    if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(diveSpeed);
+  } else {
+    _wish.addScaledVector(walk.heading, fwd);
+    _wish.addScaledVector(_right, strafe);
+    const targetSpeed = walk.swimming
+      ? C.WALK_SWIM_SPEED
+      : wading
+        ? C.WALK_WADE_SPEED
+        : input.boost
+          ? C.WALK_RUN_SPEED
+          : C.WALK_SPEED;
+    if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(targetSpeed);
+  }
 
   // Keep the persistent velocity in the current tangent plane (the plane
   // tilts as you move around the sphere), then move it toward the wish at a
   // state-dependent acceleration: crisp on the ground, weak in the air,
-  // syrupy in the water.
-  projectTangent(walk.vel, _up);
-  const accel = walk.swimming
-    ? C.WALK_ACCEL_SWIM
-    : walk.grounded
-      ? C.WALK_ACCEL_GROUND
-      : C.WALK_ACCEL_AIR;
+  // syrupy in the water. Diving keeps the radial component — full 3D.
+  if (!diving) projectTangent(walk.vel, _up);
+  const accel = diving
+    ? C.WALK_DIVE_ACCEL
+    : walk.swimming
+      ? C.WALK_ACCEL_SWIM
+      : walk.grounded
+        ? C.WALK_ACCEL_GROUND
+        : C.WALK_ACCEL_AIR;
   _move.subVectors(_wish, walk.vel);
   const gap = _move.length();
   const step = accel * dt;
@@ -848,9 +905,21 @@ export function stepWalk(dt) {
   depth = waterDepth(planet, _up);
   walk.swimming =
     depth > C.WALK_SWIM_DEPTH && planet.water && r <= planet.water.r + 0.05;
+  if (!walk.swimming) walk.diving = false; // swam up a shoal — back on foot
 
-  // --- vertical: swim buoyancy / ground snap / jump-fall integration ---
-  if (walk.swimming) {
+  // --- vertical: dive / swim buoyancy / ground snap / jump-fall integration ---
+  if (walk.diving && walk.swimming) {
+    walk.grounded = false;
+    walk.vUp = 0;
+    // Free 3D swim between the real seafloor and just under the surface.
+    if (r < surfaceR + 0.5) r = surfaceR + 0.5;
+    const ceilR = planet.water.r - 0.05;
+    if (r >= ceilR) {
+      r = ceilR;
+      // Breach: pitched up (or floating on Space) pops back to a surface float.
+      if (walk.pitch > 0.2 || input.brake) walk.diving = false;
+    }
+  } else if (walk.swimming) {
     walk.grounded = false;
     walk.vUp = 0;
     // Buoyancy eases the body to its ride depth just under the surface.
@@ -911,6 +980,9 @@ export function updateWalkVisuals(dt, t) {
   if (!walk.active || !astronaut) return;
   const planet = walk.planet;
   _up.subVectors(ship.position, planet.body.position).normalize();
+
+  // Diamond rain rides the walker: one uniform write + a transform per frame.
+  if (diamondRain) diamondRain.update(t, ship.position, _up);
 
   astronaut.group.position.copy(ship.position);
   // Tangent basis with the model's +Z on the body facing and +Y on planet-up.
@@ -1167,6 +1239,7 @@ export function promptReturnToShip() {
 export function walkSite() {
   return {
     city, parked, crowd, dressing, wavemall, actuality, shadowreach, interiorCrowds,
+    creatures, diamondRain,
     station: stationWalk.stationSite(),
   };
 }
@@ -1230,6 +1303,13 @@ export function updateWalkCamera(camera, delta = 0) {
   if (walk.view === 'fp') {
     const eye = walk.swimming ? C.WALK_TP_SWIM_EYE : C.WALK_EYE_HEIGHT;
     camera.position.copy(ship.position).addScaledVector(_up, eye);
+    if (walk.diving && planet.water) {
+      // Submerged: the eye never pokes above the sea surface.
+      _camDir.subVectors(camera.position, planet.body.position);
+      const cr = _camDir.length();
+      const maxR = planet.water.r - 0.2;
+      if (cr > maxR) camera.position.addScaledVector(_up, maxR - cr);
+    }
     _target.copy(camera.position).add(_look);
     camera.up.copy(_up);
     camera.lookAt(_target);
@@ -1237,6 +1317,7 @@ export function updateWalkCamera(camera, delta = 0) {
       camera.fov = C.FOV;
       camera.updateProjectionMatrix();
     }
+    updateTerraform(camera, delta, performance.now() * 0.001);
     return;
   }
 
@@ -1258,8 +1339,9 @@ export function updateWalkCamera(camera, delta = 0) {
   _camDir.subVectors(_desired, planet.body.position);
   const camR = _camDir.length();
   _camDir.multiplyScalar(1 / camR);
-  let minR = planet.radius + planet.body.groundAt(_camDir) + 1.15;
-  if (planet.water && minR < planet.water.r + 0.4) minR = planet.water.r + 0.4;
+  let minR = planet.radius + planet.body.terrainAt(_camDir) + 1.15;
+  if (planet.water && !walk.diving && minR < planet.water.r + 0.4)
+    minR = planet.water.r + 0.4;
   // Actuality's Zone 9 descends into an open pit below the terrain. When the
   // walker is underground the terrain clamp would shove the third-person camera
   // back up to the surface — so the walkway down to the dragon was only visible
@@ -1269,7 +1351,11 @@ export function updateWalkCamera(camera, delta = 0) {
     const terraR = planet.radius + planet.body.groundAt(_up) + 1.15;
     if (wr < terraR - 1.5) minR = Math.min(minR, wr - 4);
   }
-  if (camR < minR) _desired.copy(planet.body.position).addScaledVector(_camDir, minR);
+  // Diving: the orbit camera stays submerged with the walker.
+  const maxR = walk.diving && planet.water ? planet.water.r - 0.2 : Infinity;
+  const clampedR = Math.min(Math.max(camR, minR), maxR);
+  if (clampedR !== camR)
+    _desired.copy(planet.body.position).addScaledVector(_camDir, clampedR);
 
   // Rebase-safe smoothing: ease the offset-from-walker, then re-anchor.
   _desired.sub(ship.position);
@@ -1292,6 +1378,7 @@ export function updateWalkCamera(camera, delta = 0) {
     camera.fov = fov;
     camera.updateProjectionMatrix();
   }
+  updateTerraform(camera, delta, performance.now() * 0.001);
 }
 
 // Remove v's component along the (unit) up vector, leaving it in the tangent

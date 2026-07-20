@@ -48,7 +48,7 @@ export const C = {
   START_DISTANCE: 3500.0, // ship spawns this far from the planet (2500 up)
   SEA_LEVEL: 0.48, // terra's water threshold. lower = more land.
   PLANET_SPIN: 0.01, // radians/sec, slow rotation
-  TERRAIN_HEIGHT: 70.0, // terra's peak displacement above sea level
+  TERRAIN_HEIGHT: 220.0, // terra's peak displacement above sea level
   ATMO_SHELL: 1.25, // atmosphere radius, × planet radius (250 units thick)
   SKY_COLOR: 0x6ea0ff, // daytime sky the view washes to inside the atmosphere
   SKY_DENSITY: 0.6, // how thickly the atmosphere fogs the view
@@ -169,6 +169,20 @@ export const C = {
   WALK_WADE_DEPTH: 0.22, // deeper than this slows you to wade speed
   WALK_BUOYANCY: 0.55, // swimming, the body rides this far below the surface
 
+  // --- diving (divable worlds only — neptunia): C while swimming submerges;
+  // full 3D look-directed movement, no drowning, Space floats up, breach at
+  // the surface to pop back to a float ---
+  WALK_DIVE_SPEED: 6.5, // underwater swim speed, units/sec
+  WALK_DIVE_ACCEL: 8.0, // syrupy 3D approach rate toward the wish velocity
+
+  // --- handheld terrain manipulator (terra only — cfg.terraform) ---
+  // Brush radius sits well above terra's ~16 u vertex spacing so every stamp
+  // moves a visible patch of the mesh, not a sub-vertex bump.
+  TFORM_RADIUS: 35.0, // brush radius, surface units
+  TFORM_DELTA: 0.8, // height added/removed per stamp, units
+  TFORM_RATE: 7.5, // stamps per second while the trigger is held
+  TFORM_MAX_EDITS: 600, // per-planet edit budget (~27 KB in localStorage)
+
   // --- on-foot third-person camera ---
   WALK_CAM_DIST: 7.6, // default orbit distance behind the astronaut
   WALK_CAM_MIN: 4.5, // scroll-wheel zoom clamp
@@ -201,4 +215,19 @@ export const C = {
   MIN_ALTITUDE: 40.0, // the floor: you skim this low but can't land (drag holds you)
   FLOOR_DRAG_POWER: 2.5, // how sharply drag ramps from ATMOS_TOP down to the floor
   FLOOR_DRAG_MAX: 0.06, // speed bled per tick at the floor (air thickening)
+
+  // --- landing (NMS-style, all terra planets) ---
+  // Slow flight lowers the effective altitude floor from MIN_ALTITUDE down to
+  // TOUCHDOWN_CLEARANCE, so a gentle approach settles the ship onto the
+  // ground (or the sea). Arrive sinking faster than TOUCHDOWN_MAX_SINK and
+  // the air cushion bounces you instead — never a crash. G at low altitude
+  // flies an assisted auto-land arc to the flattest nearby spot.
+  LAND_REGIME_SPEED: 80.0, // below this speed the floor ramps down for touchdown
+  TOUCHDOWN_CLEARANCE: 3.0, // resting skids height above the local ground
+  TOUCHDOWN_MAX_SINK: 12.0, // radial sink faster than this bounces, not lands
+  LAND_BOUNCE: 0.35, // fraction of radial speed reflected on a hard arrival
+  AUTOLAND_TIME: 3.5, // seconds for the assisted G auto-land arc
+  AUTOLAND_ALTITUDE: 300.0, // max altitude above the floor to start auto-land
+  AUTOLAND_SPEED: 200.0, // max ship speed to start auto-land
+  TAKEOFF_KICK: 8.0, // upward velocity handed back on liftoff from a landing
 };

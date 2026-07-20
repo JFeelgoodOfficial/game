@@ -53,22 +53,39 @@ function ridged(x, y, z, oct) {
   return v;
 }
 
+// Per-planet field shaping (mirrors uRidge/uRidgeFreq/uValley in the
+// shaders). The defaults reproduce the original hard-coded field exactly:
+// base*0.72 + ridged(p*3.5)*0.28*mask, no valley carving.
+export const DEFAULT_SHAPE = { ridge: 0.28, ridgeFreq: 3.5, valley: 0 };
+
 // Mirrors surface.frag/vert elevation() exactly.
-export function elevationAt(px, py, pz) {
+export function elevationAt(px, py, pz, shape) {
+  const s = shape || DEFAULT_SHAPE;
   const wx = fbm(px * 1.3 + 4.1, py * 1.3 + 4.1, pz * 1.3 + 4.1, 3);
   const wy = fbm(px * 1.3 + 8.7, py * 1.3 + 8.7, pz * 1.3 + 8.7, 3);
   const wz = fbm(px * 1.3 + 1.9, py * 1.3 + 1.9, pz * 1.3 + 1.9, 3);
   const base = fbm(px * 1.8 + wx * 0.6, py * 1.8 + wy * 0.6, pz * 1.8 + wz * 0.6, 6);
   const t = (base - 0.5) / 0.12;
   const mask = t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t); // smoothstep(0.5,0.62,base)
-  return base * 0.72 + ridged(px * 3.5, py * 3.5, pz * 3.5, 4) * 0.28 * mask;
+  const f = s.ridgeFreq;
+  let e = base * (1 - s.ridge) + ridged(px * f, py * f, pz * f, 4) * s.ridge * mask;
+  if (s.valley > 0) {
+    // Ridged-inverse drainage lines carved only out of mid-high ground.
+    // Octave count fixed at 3 on CPU and GPU alike — never tied to the LOD.
+    const tv = (base - 0.45) / 0.17;
+    const mv = tv <= 0 ? 0 : tv >= 1 ? 1 : tv * tv * (3 - 2 * tv); // smoothstep(0.45,0.62,base)
+    e -= s.valley * (1 - ridged(px * 2.2, py * 2.2, pz * 2.2, 3)) * mv;
+  }
+  return e;
 }
 
-// Ground height above the base sphere radius (0 over water) for a normalized
-// direction in the planet's UNROTATED object space, with that planet's sea
-// level and terrain amplitude. Callers undo the planet's spin first (see
-// planet.js groundAt).
-export function groundHeight(px, py, pz, seaLevel, amp) {
-  const e = elevationAt(px, py, pz);
-  return Math.max(e - seaLevel, 0) * amp;
+// Ground height above the base sphere radius for a normalized direction in
+// the planet's UNROTATED object space, with that planet's sea level and
+// terrain amplitude. Callers undo the planet's spin first (see planet.js
+// groundAt). With deepAmp > 0 (divable ocean worlds) the value goes SIGNED
+// below sea level — a real seafloor; with deepAmp 0 it clamps at 0 exactly
+// as before.
+export function groundHeight(px, py, pz, seaLevel, amp, shape, deepAmp = 0) {
+  const e = elevationAt(px, py, pz, shape) - seaLevel;
+  return e > 0 ? e * amp : e * deepAmp;
 }

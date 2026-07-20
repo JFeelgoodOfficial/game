@@ -187,6 +187,10 @@ const skyfogPass = new SkyfogPass({
 });
 skyfogPass.enabled = false;
 composer.addPass(skyfogPass);
+// Underwater tint targets (divable worlds) — scratch colors, never allocated
+// per frame. Shallow cyan-blue saturating to indigo-black by depth.
+const _uwShallow = new THREE.Color(0x2a4ab8);
+const _uwDeep = new THREE.Color(0x0a0830);
 
 const lensPass = new ShaderPass({
   uniforms: {
@@ -342,6 +346,10 @@ if (import.meta.env.DEV) {
     get walk() {
       return walkDebug()?.walk;
     },
+    // NMS-style landing sub-state, for headless verification.
+    get landState() {
+      return landState;
+    },
     walkHere() {
       const floor = nearestTerraFloor(ship.position);
       if (floor) {
@@ -449,6 +457,138 @@ let standing = false;
 let standBlend = 0; // seat <-> stand camera blend, 0..1
 let promptTimer = 0; // shows "C — STAND" briefly after each launch
 
+// NMS-style landing sub-mode within 'fly' (not a phase — heat UI, nav,
+// capture, skyfog all keep running): null = free flight, 'auto' = assisted
+// G auto-land arc, 'landed' = parked on the surface (G steps out, W lifts).
+let landState = null;
+let landedPlanet = null; // planets[] entry under the skids
+let autoT = 0; // auto-land arc progress 0..1
+let settleT = 0; // touchdown upright-settle progress 0..1
+const _landTargetDir = new THREE.Vector3(); // planet-center -> pad, world dir
+const _landStartOff = new THREE.Vector3(); // arc start, offset from planet center (rebase-safe)
+const _landStartQuat = new THREE.Quaternion();
+const _landUprightQuat = new THREE.Quaternion();
+const _lv0 = new THREE.Vector3();
+const _lv1 = new THREE.Vector3();
+const _lv2 = new THREE.Vector3();
+const _lm = new THREE.Matrix4();
+const _prevPos = new THREE.Vector3();
+
+// Upright landing pose: +Y radial, nose (-Z) along the current nose projected
+// onto the tangent plane.
+function landingUpright(up, quatOut) {
+  _lv0.set(0, 0, -1).applyQuaternion(ship.quaternion);
+  _lv0.addScaledVector(up, -_lv0.dot(up));
+  if (_lv0.lengthSq() < 1e-6) _lv0.crossVectors(up, _lv1.set(1, 0.01, 0));
+  _lv0.normalize(); // tangent nose
+  _lv2.copy(_lv0).multiplyScalar(-1); // back (+Z)
+  _lv1.crossVectors(up, _lv2).normalize(); // right (X = Y x Z)
+  _lm.makeBasis(_lv1, up, _lv2);
+  quatOut.setFromRotationMatrix(_lm);
+}
+
+// G at low altitude: pick the flattest cell of a 5x5 tangent grid under the
+// ship and fly a smooth assisted arc down to it. Spawn-time allocation only.
+function beginAutoLand(floor) {
+  const p = floor.planet;
+  landedPlanet = p;
+  const up = _lv0.subVectors(ship.position, p.body.position).normalize().clone();
+  const ref = Math.abs(up.y) < 0.94
+    ? _lv1.set(0, 1, 0)
+    : _lv1.set(1, 0, 0);
+  const t1 = _lv1.crossVectors(up, ref).normalize().clone();
+  const t2 = _lv2.crossVectors(up, t1).normalize().clone();
+  const R = p.radius;
+  let bestRough = Infinity;
+  const d = new THREE.Vector3();
+  const probe = new THREE.Vector3();
+  for (let i = -2; i <= 2; i++) {
+    for (let j = -2; j <= 2; j++) {
+      d.copy(up).addScaledVector(t1, (i * 20) / R).addScaledVector(t2, (j * 20) / R).normalize();
+      const h = p.body.groundAt(d);
+      const e = 4 / R;
+      const hx = p.body.groundAt(probe.copy(d).addScaledVector(t1, e).normalize());
+      const hz = p.body.groundAt(probe.copy(d).addScaledVector(t2, e).normalize());
+      const rough = Math.abs(hx - h) + Math.abs(hz - h);
+      if (rough < bestRough) {
+        bestRough = rough;
+        _landTargetDir.copy(d);
+      }
+    }
+  }
+  _landStartOff.subVectors(ship.position, p.body.position);
+  _landStartQuat.copy(ship.quaternion);
+  landingUpright(_landTargetDir, _landUprightQuat);
+  autoT = 0;
+  landState = 'auto';
+}
+
+function stepAutoLand(dt) {
+  const p = landedPlanet;
+  autoT = Math.min(autoT + dt / C.AUTOLAND_TIME, 1);
+  const k = autoT * autoT * (3 - 2 * autoT); // smoothstep ease
+  // Live pad target: clearance above the local ground (sea-clamped, so open
+  // water is a water landing).
+  const padR = p.radius + p.body.groundAt(_landTargetDir) + C.TOUCHDOWN_CLEARANCE;
+  _lv0.copy(p.body.position).addScaledVector(_landTargetDir, padR); // pad
+  _lv1.copy(p.body.position).add(_landStartOff); // arc start (rebase-safe)
+  _prevPos.copy(ship.position);
+  ship.position.lerpVectors(_lv1, _lv0, k);
+  // Velocity mirrors the finite difference so camera drift/skyfog stay sane.
+  ship.velocity.copy(ship.position).sub(_prevPos).divideScalar(dt);
+  ship.quaternion.slerpQuaternions(_landStartQuat, _landUprightQuat, k);
+  ship.angularVelocity.set(0, 0, 0);
+  if (autoT >= 1) {
+    landState = 'landed';
+    settleT = 1; // the arc already finished upright
+    ship.velocity.set(0, 0, 0);
+  }
+}
+
+// Parked on the surface: pinned to the pad (the planet spins under the sky),
+// easing upright after a manual touchdown. W/Space lifts off.
+function stepLanded(dt, piloted) {
+  const p = landedPlanet;
+  _lv0.subVectors(ship.position, p.body.position).normalize();
+  const padR = p.radius + p.body.groundAt(_lv0) + C.TOUCHDOWN_CLEARANCE;
+  ship.position.copy(p.body.position).addScaledVector(_lv0, padR);
+  ship.velocity.set(0, 0, 0);
+  ship.angularVelocity.set(0, 0, 0);
+  ship.properAccel.set(0, 0, 0);
+  if (settleT < 1) {
+    settleT = Math.min(settleT + dt / 0.6, 1);
+    const k = settleT * settleT * (3 - 2 * settleT);
+    ship.quaternion.slerpQuaternions(_landStartQuat, _landUprightQuat, k);
+  }
+  if (piloted && (input.forward || input.brake)) {
+    landState = null;
+    landedPlanet = null;
+    ship.velocity.copy(_lv0).multiplyScalar(C.TAKEOFF_KICK);
+  }
+}
+
+// Manual touchdown: skimming the ground slow enough simply sets the ship
+// down; arriving with too much sink bounces off the air cushion — never a
+// crash (GDD: feelgood).
+function checkTouchdown() {
+  const floor = nearestTerraFloor(ship.position);
+  if (!floor || floor.altitude > C.TOUCHDOWN_CLEARANCE + 3) return;
+  const p = floor.planet;
+  _lv0.subVectors(ship.position, p.body.position).normalize();
+  const vIn = -ship.velocity.dot(_lv0);
+  if (vIn > C.TOUCHDOWN_MAX_SINK) {
+    ship.velocity.addScaledVector(_lv0, vIn); // strip the inward component
+    ship.velocity.multiplyScalar(0.7); // bleed tangential speed
+    ship.velocity.addScaledVector(_lv0, vIn * C.LAND_BOUNCE); // bounce out
+  } else if (ship.velocity.length() < 6) {
+    landedPlanet = p;
+    landState = 'landed';
+    settleT = 0;
+    _landStartQuat.copy(ship.quaternion);
+    landingUpright(_lv0, _landUprightQuat);
+  }
+}
+
 // Backspace — real pause (audit fix: Escape only dropped pointer lock while
 // physics kept running, with no on-screen cue). Freezes the accumulator and
 // heat by zeroing delta; the scene keeps rendering under the overlay. (P/R
@@ -484,6 +624,8 @@ function resetToStart() {
   ship.properAccel.set(0, 0, 0);
   restoreShiftables(); // planets, sun, stations, black hole + origin offset
   heat = 0;
+  landState = null;
+  landedPlanet = null;
   standing = false;
   standBlend = 0;
   closeCredits();
@@ -570,7 +712,12 @@ function frame(now) {
     const piloted = standBlend < 0.2;
     accumulator += delta;
     while (accumulator >= DT) {
-      stepShip(DT, piloted);
+      if (landState === 'auto') stepAutoLand(DT);
+      else if (landState === 'landed') stepLanded(DT, piloted);
+      else {
+        stepShip(DT, piloted);
+        if (piloted) checkTouchdown();
+      }
       accumulator -= DT;
     }
     if (ship.position.distanceTo(blackhole.group.position) < C.HORIZON_CAPTURE) {
@@ -591,7 +738,12 @@ function frame(now) {
     if (nearSun) {
       if (piloted) heat += (delta / heatTotal) * C.SUN_BURN_MULT;
       deathReason = 'INCINERATED — FLEW INTO THE SUN';
-    } else if (overFloor < C.HEAT_ALTITUDE) {
+    } else if (
+      overFloor < C.HEAT_ALTITUDE &&
+      ship.velocity.length() > C.LAND_REGIME_SPEED
+    ) {
+      // Heat is a speed problem now: slow low flight is the landing regime
+      // (hover, touch down, lift off); fast re-entry still burns.
       if (piloted) heat += delta / heatTotal;
       deathReason = 'RE-ENTRY FAILURE — HULL DESTROYED';
     } else {
@@ -602,22 +754,28 @@ function frame(now) {
       phase = 'explode';
       warpT = 0;
     }
-    // Disembark onto a rocky planet (G) when flying low and slow enough —
-    // or dock at a dockable station's berth (Orbital Art Gallery). Only from
-    // the pilot seat — sit back down before stepping outside. The two gates
-    // can't collide: near the gallery, terra's floor is ~2400u below.
+    // G: landed — step out onto the surface. Auto-landing — abort. In free
+    // flight — dock at a berth (unchanged, checked first), else start the
+    // assisted auto-land toward the flattest nearby ground. Only from the
+    // pilot seat — sit back down before stepping outside.
     if (input.toggleWalk && !standing && standBlend < 0.05) {
-      const floor = nearestTerraFloor(ship.position);
-      if (
-        floor &&
-        floor.altitude < C.WALK_LAND_ALTITUDE &&
-        ship.velocity.length() < C.WALK_LAND_SPEED
-      ) {
-        enterWalk(floor.planet);
-        heat = 0;
-        phase = 'walk';
-        accumulator = 0;
-        setWarpButtonVisible(false); // no warping on foot
+      if (landState === 'landed') {
+        const floor = nearestTerraFloor(ship.position);
+        if (floor) {
+          landState = null;
+          landedPlanet = null;
+          enterWalk(floor.planet);
+          heat = 0;
+          phase = 'walk';
+          accumulator = 0;
+          setWarpButtonVisible(false); // no warping on foot
+        }
+      } else if (landState === 'auto') {
+        // Wave off: hand control back with a gentle outward drift.
+        landState = null;
+        _lv0.subVectors(ship.position, landedPlanet.body.position).normalize();
+        ship.velocity.copy(_lv0).multiplyScalar(C.TAKEOFF_KICK);
+        landedPlanet = null;
       } else {
         const dock = nearestDockableStation(ship.position);
         if (
@@ -630,6 +788,15 @@ function frame(now) {
           phase = 'walk';
           accumulator = 0;
           setWarpButtonVisible(false);
+        } else {
+          const floor = nearestTerraFloor(ship.position);
+          if (
+            floor &&
+            floor.altitude < C.AUTOLAND_ALTITUDE &&
+            ship.velocity.length() < C.AUTOLAND_SPEED
+          ) {
+            beginAutoLand(floor);
+          }
         }
       }
     }
@@ -773,14 +940,28 @@ function frame(now) {
               : null
         );
       } else {
-        // seated: offer the dock when the gallery berth is in range and the
-        // approach is slow enough (mirrors the G gate above)
+        // seated: landing prompts first, then the dock offer when the gallery
+        // berth is in range and the approach is slow (mirrors the G gates)
         const dock = nearestDockableStation(ship.position);
         const canDock =
           dock &&
           dock.dist < C.STATION_DOCK_RANGE &&
           ship.velocity.length() < C.WALK_LAND_SPEED;
-        setPrompt(canDock ? 'G — DOCK' : promptTimer > 0 ? 'C — STAND UP' : null);
+        let prompt = null;
+        if (landState === 'landed') prompt = 'G — STEP OUT · W — LIFT OFF';
+        else if (landState === 'auto') prompt = 'AUTO-LANDING · G — ABORT';
+        else if (canDock) prompt = 'G — DOCK';
+        else {
+          const floor = nearestTerraFloor(ship.position);
+          if (
+            floor &&
+            floor.altitude < C.AUTOLAND_ALTITUDE &&
+            ship.velocity.length() < C.AUTOLAND_SPEED
+          )
+            prompt = 'G — LAND';
+          else if (promptTimer > 0) prompt = 'C — STAND UP';
+        }
+        setPrompt(prompt);
         if (promptTimer > 0) promptTimer -= delta;
       }
     } else {
@@ -830,6 +1011,26 @@ function frame(now) {
     su.uUpView.value.copy(_up).applyQuaternion(_invQuat);
     su.uAspect.value = camera.aspect;
     su.uTanHalf.value = Math.tan((camera.fov * Math.PI) / 360);
+  }
+  // Diving below a divable world's sea surface: reuse the same depth-aware
+  // pass as seawater — dense, short sightlines, indigo saturating with depth.
+  // uDay stays sun-driven so night dives go properly dark. Zero new passes.
+  if (
+    phase === 'walk' &&
+    _atmo.p &&
+    _atmo.p.cfg.divable &&
+    _atmo.p.water &&
+    skyfogPass.enabled
+  ) {
+    const camDist = camera.position.distanceTo(_atmo.p.group.position);
+    if (camDist < _atmo.p.water.r) {
+      const depth01 = Math.min(Math.max((_atmo.p.water.r - camDist) / 80, 0), 1);
+      const su = skyfogPass.uniforms;
+      su.uAtmo.value = 1.0;
+      su.uDensity.value = 2.2;
+      su.uHazeDist.value = 60 - 42 * depth01;
+      su.uSkyDay.value.copy(_uwShallow).lerp(_uwDeep, depth01);
+    }
   }
 
   // live panel bindings (GDD 2.3): cheap scalar copies each frame

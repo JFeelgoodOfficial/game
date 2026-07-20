@@ -116,6 +116,18 @@ const C = {
     codexDwellTime: 6,           // seconds within band to flag discovery
   },
 
+  // --- Neptunia: dive-able ocean + kept sky whales ---
+  neptunia: {
+    density: 1.0,
+    schoolCount: 6,          // neon fish schools in the water column
+    fishPerSchool: 80,
+    jellyfishCount: 24,
+    whaleCount: 10,          // high-altitude balloon whales (kept sky ecology)
+    whaleBand: [180, 450],   // altitude band above the sea surface
+    leviathanLength: 18,     // one gentle giant patrolling the site
+    codexDwellTime: 6,
+  },
+
   // --- Generic fallback weird biology ---
   generic: {
     density: 1.0,
@@ -958,6 +970,262 @@ function buildSkyEcology(planet, worldUp, opts, seed) {
 }
 
 // ---------------------------------------------------------------------------
+// Recipe: NEPTUNIA — the dive-able ocean. Vibrant schools of neon fish,
+// pulsing jellyfish, and one gentle leviathan below the waves; the balloon
+// whales the world had as a gas giant stay on as high-altitude ambiance.
+// Group origin sits at the sea surface (walk.js clamps the anchor to
+// water.r), so negative local Y is underwater.
+// ---------------------------------------------------------------------------
+function buildNeptunia(planet, worldUp, opts, seed) {
+  const rand = mulberry32(seed);
+  const cfg = C.neptunia;
+  const group = new THREE.Group();
+  group.name = 'neptunia-creatures';
+
+  const density = opts.density ?? cfg.density;
+  const siteRadius = opts.radius ?? 200;
+
+  // --- Neon fish schools: one InstancedMesh per school, hue from a
+  // violet-cyan-magenta wheel, wandering a sine orbit in the water column ---
+  const fishGeo = new THREE.ConeGeometry(0.05, 0.22, 4);
+  const SCHOOL_HUES = [0.52, 0.58, 0.68, 0.78, 0.85, 0.93]; // cyan → violet → magenta
+  const schools = [];
+  const schoolCount = Math.round(cfg.schoolCount * density);
+  for (let i = 0; i < schoolCount; i++) {
+    const hue = SCHOOL_HUES[i % SCHOOL_HUES.length];
+    _color0.setHSL(hue, 0.95, 0.6);
+    const mat = new THREE.MeshStandardMaterial({
+      color: _color0.clone(),
+      emissive: _color0.clone(),
+      emissiveIntensity: 0.5,
+      metalness: 0.4,
+      roughness: 0.35,
+    });
+    const fish = new THREE.InstancedMesh(fishGeo, mat, cfg.fishPerSchool);
+    fish.frustumCulled = false;
+    group.add(fish);
+    const offsets = [];
+    for (let f = 0; f < cfg.fishPerSchool; f++) {
+      // Loose ellipsoid cloud around the school center.
+      const fa = rand() * Math.PI * 2;
+      const fr = Math.pow(rand(), 0.5) * 2.4;
+      offsets.push({
+        x: Math.cos(fa) * fr,
+        y: (rand() - 0.5) * 1.6,
+        z: Math.sin(fa) * fr,
+        phase: rand() * Math.PI * 2,
+        speed: 1.5 + rand() * 2,
+      });
+    }
+    const a = rand() * Math.PI * 2;
+    schools.push({
+      fish, mat, offsets,
+      baseA: a,
+      baseR: 18 + rand() * (siteRadius * 0.5),
+      depth: -(6 + rand() * 26), // school's home depth below the surface
+      orbitR: 6 + rand() * 12,   // wander-orbit radius around the home point
+      orbitSpeed: 0.08 + rand() * 0.1,
+      bob: 2 + rand() * 3,
+      phase: rand() * Math.PI * 2,
+    });
+  }
+
+  // --- Jellyfish: instanced half-spheres, emissive violet, pulsing, slowly
+  // rising and wrapping back down ---
+  const jellyCount = Math.round(cfg.jellyfishCount * density);
+  const jellyGeo = new THREE.SphereGeometry(0.55, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+  const jellyMat = new THREE.MeshStandardMaterial({
+    color: 0x9a6aff,
+    emissive: new THREE.Color(0x9a6aff),
+    emissiveIntensity: 0.6,
+    transparent: true,
+    opacity: 0.72,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const jellies = new THREE.InstancedMesh(jellyGeo, jellyMat, jellyCount);
+  jellies.frustumCulled = false;
+  group.add(jellies);
+  const jellyData = [];
+  for (let i = 0; i < jellyCount; i++) {
+    const a = rand() * Math.PI * 2;
+    jellyData.push({
+      x: Math.cos(a) * Math.sqrt(rand()) * siteRadius * 0.6,
+      z: Math.sin(a) * Math.sqrt(rand()) * siteRadius * 0.6,
+      y: -(4 + rand() * 34),
+      rise: 0.25 + rand() * 0.35,
+      pulse: 1.2 + rand() * 1.2,
+      phase: rand() * Math.PI * 2,
+      s: 0.7 + rand() * 1.1,
+    });
+  }
+
+  // --- The Meridian Leviathan: one gentle silhouette patrolling the site.
+  // Its orbit radius breathes between ~10 and ~90 u, so every couple of
+  // minutes it sweeps right through the landing site's water column — close
+  // enough (TALK_DIST_CREATURE) for an awed meeting while diving. ---
+  const levi = new THREE.Group();
+  const leviLen = cfg.leviathanLength;
+  const leviMat = new THREE.MeshStandardMaterial({
+    color: 0x1a1650,
+    emissive: new THREE.Color(0x4a3fb0),
+    emissiveIntensity: 0.35,
+    metalness: 0.2,
+    roughness: 0.6,
+  });
+  const leviBody = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), leviMat);
+  leviBody.scale.set(leviLen * 0.32, leviLen * 0.18, leviLen * 0.5);
+  levi.add(leviBody);
+  const leviTail = new THREE.Mesh(new THREE.ConeGeometry(leviLen * 0.14, leviLen * 0.55, 6), leviMat);
+  leviTail.rotation.x = Math.PI / 2; // cone +Y → -Z (behind the body)
+  leviTail.position.z = -leviLen * 0.68;
+  levi.add(leviTail);
+  group.add(levi);
+  const leviathan = {
+    id: 'meridian-leviathan',
+    pos: new THREE.Vector3(60, -15, 0), // updated every frame
+    seed: seed ^ 0x5eafa11,
+    species: 'Meridian Leviathan',
+    active: true,
+    _talking: false,
+  };
+
+  // --- Kept sky ecology: translucent balloon whales far above the sea ---
+  const whaleCount = Math.round(cfg.whaleCount * density);
+  const whaleGeo = new THREE.SphereGeometry(1, 10, 8);
+  const whaleMat = new THREE.MeshStandardMaterial({
+    color: 0x8a9aff,
+    transparent: true,
+    opacity: 0.28,
+    emissive: new THREE.Color(0x6a7dff),
+    emissiveIntensity: 0.15,
+    depthWrite: false,
+  });
+  const whales = new THREE.InstancedMesh(whaleGeo, whaleMat, whaleCount);
+  whales.frustumCulled = false;
+  group.add(whales);
+  const whaleData = [];
+  for (let i = 0; i < whaleCount; i++) {
+    whaleData.push({
+      a: rand() * Math.PI * 2,
+      dist: 250 + rand() * 500,
+      alt: THREE.MathUtils.lerp(cfg.whaleBand[0], cfg.whaleBand[1], rand()),
+      phase: rand() * Math.PI * 2,
+      s: 10 + rand() * 22,
+    });
+  }
+
+  let codexFlagged = false;
+  let dwell = 0;
+
+  function update(dt, playerPos, sunDot) {
+    const t = performance.now() * 0.001;
+    const night = 1 - Math.max(sunDot, 0);
+
+    // Fish schools — the deep glows brighter at night and at depth.
+    for (const s of schools) {
+      s.mat.emissiveIntensity = 0.5 + night * 0.5;
+      const oa = s.phase + t * s.orbitSpeed;
+      const cx = Math.cos(s.baseA) * s.baseR + Math.cos(oa) * s.orbitR;
+      const cz = Math.sin(s.baseA) * s.baseR + Math.sin(oa) * s.orbitR;
+      const cy = s.depth + Math.sin(t * 0.3 + s.phase) * s.bob;
+      // School heading = tangent of the wander orbit; every fish aligns to it.
+      _v2.set(-Math.sin(oa), 0, Math.cos(oa)).normalize();
+      _q0.setFromUnitVectors(_yAxis, _v2); // cone +Y → swim direction
+      for (let f = 0; f < s.offsets.length; f++) {
+        const o = s.offsets[f];
+        const wob = Math.sin(t * o.speed + o.phase) * 0.35;
+        _v1.set(cx + o.x + wob, cy + o.y + Math.sin(t * o.speed * 0.7 + o.phase) * 0.3, cz + o.z);
+        _m0.compose(_v1, _q0, _v0.set(1, 1, 1));
+        s.fish.setMatrixAt(f, _m0);
+      }
+      s.fish.instanceMatrix.needsUpdate = true;
+    }
+
+    // Jellyfish — pulse and rise, wrap back to the deep.
+    jellyMat.emissiveIntensity = 0.6 + night * 0.6;
+    for (let i = 0; i < jellyData.length; i++) {
+      const j = jellyData[i];
+      j.y += j.rise * dt;
+      if (j.y > -3) j.y = -40;
+      const pulse = 0.8 + 0.3 * Math.sin(t * j.pulse + j.phase);
+      _v1.set(j.x + Math.sin(t * 0.2 + j.phase) * 1.5, j.y, j.z);
+      _m0.compose(_v1, _q0.identity(), _v0.set(j.s, j.s * pulse, j.s));
+      jellies.setMatrixAt(i, _m0);
+    }
+    jellies.instanceMatrix.needsUpdate = true;
+
+    // Leviathan — breathing patrol orbit, nose along its motion.
+    const la = t * 0.045;
+    const lr = 50 + 40 * Math.sin(t * 0.05);
+    leviathan.pos.set(Math.cos(la) * lr, -15 + Math.sin(t * 0.11) * 6, Math.sin(la) * lr);
+    levi.position.copy(leviathan.pos);
+    _v2.set(-Math.sin(la), 0.12 * Math.cos(t * 0.11), Math.cos(la)).normalize();
+    // Matrix4.lookAt points +Z from target toward eye — eye=dir, target=origin
+    // leaves +Z (the nose; the tail sits at -Z) along the motion direction.
+    _m0.lookAt(_v2, _v0.set(0, 0, 0), _yAxis);
+    levi.quaternion.setFromRotationMatrix(_m0);
+    leviTail.rotation.y = Math.sin(t * 1.3) * 0.35; // slow undulation
+
+    // Sky whales — the old gas-giant arcs, lifted above the sea.
+    whaleMat.emissiveIntensity = 0.15 + night * 0.25;
+    for (let i = 0; i < whaleData.length; i++) {
+      const d = whaleData[i];
+      const a = d.a + t * 0.015;
+      _v1.set(Math.cos(a) * d.dist, d.alt + Math.sin(t * 0.25 + d.phase) * 8, Math.sin(a) * d.dist);
+      _m0.compose(_v1, _q0.identity(), _v0.set(d.s, d.s * 0.5, d.s));
+      whales.setMatrixAt(i, _m0);
+    }
+    whales.instanceMatrix.needsUpdate = true;
+
+    // Passive codex discovery: sustained time down among the sea life.
+    if (playerPos.y < -4) {
+      dwell += dt;
+      if (dwell > cfg.codexDwellTime) codexFlagged = true;
+    } else {
+      dwell = Math.max(0, dwell - dt * 2);
+    }
+  }
+
+  function nearestInteractable(playerPos, maxDist = C.interactRadius) {
+    const d2 = _v0.copy(leviathan.pos).sub(playerPos).lengthSq();
+    return d2 < maxDist * maxDist ? leviathan : null;
+  }
+
+  function interact(creature) {
+    creature._talking = true;
+    const rand2 = mulberry32(creature.seed);
+    const lines = [
+      'It slows beside you. An eye the size of a door considers you without hunger.',
+      pick(rand2, [
+        'A pressure wave rolls through your chest — long, patient, almost a word.',
+        'Diamond-light from the last storm still glitters along its back.',
+        'It has circled this sea since before the city\'s first light came on.',
+      ]),
+      'Then, unhurried, it banks away into the indigo.',
+    ];
+    return {
+      speaker: { name: 'The Meridian Leviathan', species: 'Meridian Leviathan', cityId: null },
+      lines,
+      offer: { kind: 'codex', subject: 'The Meridian Leviathan' },
+    };
+  }
+
+  function onCodexDiscovery() { return codexFlagged; }
+
+  function dispose() {
+    fishGeo.dispose();
+    for (const s of schools) s.mat.dispose();
+    jellyGeo.dispose(); jellyMat.dispose();
+    whaleGeo.dispose(); whaleMat.dispose();
+    leviBody.geometry.dispose(); leviTail.geometry.dispose(); leviMat.dispose();
+    group.clear();
+  }
+
+  return { group, update, dispose, nearestInteractable, interact, endInteract: endInteractShared, onCodexDiscovery };
+}
+
+// ---------------------------------------------------------------------------
 // Recipe: Generic fallback — weird biology for unknown worlds
 // ---------------------------------------------------------------------------
 function buildGeneric(planet, worldUp, opts, seed) {
@@ -1073,9 +1341,8 @@ export function createCreatures(planet, worldUp, opts = {}) {
     case 'oceana': return buildOceana(planet, worldUp, opts, seed);
     case 'glacia': return buildGlacia(planet, worldUp, opts, seed);
     case 'rustia': return buildRustia(planet, worldUp, opts, seed);
-    case 'saturnia':
-    case 'neptunia':
-      return buildSkyEcology(planet, worldUp, opts, seed);
+    case 'saturnia': return buildSkyEcology(planet, worldUp, opts, seed);
+    case 'neptunia': return buildNeptunia(planet, worldUp, opts, seed);
     default:
       return buildGeneric(planet, worldUp, opts, seed);
   }
