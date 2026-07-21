@@ -87,8 +87,7 @@ function buildWindow() {
   // side posts (frame edges, clear of the glass)
   box(mat, 0.18, fh + 0.4, 0.34, -fw / 2 - 0.08, fy, fz);
   box(mat, 0.18, fh + 0.4, 0.34, fw / 2 + 0.08, fy, fz);
-  // single thin center mullion
-  box(mat, 0.05, fh, 0.06, 0, fy, fz + 0.02);
+  // No center mullion: the window is a single clean pane, unobstructed.
 
   // overhead cross-brace, so the hold-V glance frames space rather than void
   box(mat, fw * 0.6, 0.04, 0.04, 0, fy + fh / 2 + 0.5, fz + 0.7, 0);
