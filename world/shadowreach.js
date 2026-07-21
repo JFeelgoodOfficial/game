@@ -43,6 +43,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildRig, poseRig } from './aliens.js';
+import { Astronaut } from '../src/astronaut.js';
 
 // The owner's paintings (repo-root /artgallery, same pipeline as the Orbital
 // Art Gallery in src/stations.js). One dream-themed piece appears faintly in
@@ -78,6 +79,11 @@ const charArtFor = (key) =>
 /* ----------------------------------------------------------------------
  * Tunables + palette + authored text — every magic value lives here.
  * ------------------------------------------------------------------- */
+// Global path-compression factor: every zone sits 25% closer than the original
+// layout. Zone-internal set dressing built from absolute path distances is
+// multiplied by the same K below so footprints stay registered to their zones.
+const K = 0.75;
+
 const SR = {
   // Signature story accents.
   MASK_BLUE: 0x4a6fa5,
@@ -87,40 +93,40 @@ const SR = {
   // Zone positions along the path (meters of arc from the landing anchor).
   // HARD CAP: pathCoords wraps at +/-2827 m (planet antipode) — keep all
   // placement below ~2740.
-  FIELD: 0,          // the Meadow spans 0-400
-  LADY: 340,         // riverbank — reachable before the crossing gate
-  RIVER: 360,        // water crossing + story gate
-  RIVER_FAR: 378,    // far bank (cloaked figure waits here)
-  RIVER_CROSS: 400,  // past the water — attaches the companion
-  CIRCLE: 700,       // confession circle (footprint ~610-790)
-  LINE_START: 1000,  // desert queue corridor 1000-1470
-  GIRL: 1400,
-  LINE_END: 1470,
-  DESERT: 1900,      // the Wasteland eye (storm + Thinking Stone)
-  ROOM: 2300,        // round room
-  GARDEN: 2620,      // garden (antipode margin ~110 m)
+  FIELD: 0,            // the Meadow spans 0-300
+  LADY: 340 * K,       // riverbank — reachable before the crossing gate
+  RIVER: 360 * K,      // water crossing + story gate
+  RIVER_FAR: 378 * K,  // far bank (cloaked figure waits here)
+  RIVER_CROSS: 400 * K, // past the water — attaches the companion
+  CIRCLE: 700 * K,     // confession circle
+  LINE_START: 1000 * K, // desert queue corridor
+  GIRL: 1400 * K,
+  LINE_END: 1470 * K,
+  DESERT: 1900 * K,    // the Wasteland eye (storm + Thinking Stone)
+  ROOM: 2300 * K,      // round room
+  GARDEN: 2620 * K,    // garden (antipode margin grows with K)
 
   ROOM_INNER_R: 26,
   ROOM_WALL_T: 1.4,
   ROOM_H: 12,
   ROOM_DOOR_HALF: 0.09, // radians — 0.09 * 26 ~ 2.3 m half-width doorway
 
-  FOLLOW_DIST: 3.0, // meters a companion trails behind the player
+  FOLLOW_DIST: 4.0, // meters a companion trails behind the player
 
   // Per-zone sky keyframes (path dist -> hex). Piecewise-lerped each frame.
   SKY_BANDS: [
-    [0, 0x7ec8ff],    // meadow: bright blue
-    [520, 0x7ec8ff],
-    [700, 0xd8934a],  // confession circle: dusk ochre
-    [860, 0xd8934a],
-    [1050, 0xf2e3b8], // desert line: harsh pale gold
-    [1500, 0xf2e3b8],
-    [1750, 0x4a5248], // wasteland: storm green-grey
-    [2050, 0x4a5248],
-    [2250, 0x23222c], // round room: near-black indigo
-    [2400, 0x23222c],
-    [2550, 0xd8a86a], // garden: deep warm amber (night side — lamps carry it)
-    [2820, 0xd8a86a],
+    [0, 0x7ec8ff],        // meadow: bright blue
+    [520 * K, 0x7ec8ff],
+    [700 * K, 0xd8934a],  // confession circle: dusk ochre
+    [860 * K, 0xd8934a],
+    [1050 * K, 0xf2e3b8], // desert line: harsh pale gold
+    [1500 * K, 0xf2e3b8],
+    [1750 * K, 0x4a5248], // wasteland: storm green-grey
+    [2050 * K, 0x4a5248],
+    [2250 * K, 0x23222c], // round room: near-black indigo
+    [2400 * K, 0x23222c],
+    [2550 * K, 0xd8a86a], // garden: deep warm amber (night side — lamps carry it)
+    [2820 * K, 0xd8a86a],
   ],
 };
 
@@ -579,6 +585,11 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     rig.materials.eyeMat.color.setHex(0xdedee2);
     rig.materials.eyeMat.emissive.setHex(0xb4b4b8);
     rig.materials.eyeMat.emissiveIntensity = 0.18;
+    // The story figures stand twice life-size — mythic, larger than the player.
+    // Attachments (robes, pauldrons, pigtails) are group-local and scale along;
+    // per-character overrides below compose on top via multiplyScalar.
+    rig.group.scale.multiplyScalar(2);
+    rig.params.groundOffset *= 2;
     return rig;
   }
 
@@ -589,7 +600,9 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     j.legL.hip.rotation.x = -1.45; j.legR.hip.rotation.x = -1.45;
     j.legL.knee.rotation.x = 1.5; j.legR.knee.rotation.x = 1.5;
     j.torso.rotation.x = 0.12;
-    rig._seatDrop = seatDrop + 0.35 * rig.params.scaleY;
+    // The proportional body-drop is in pre-scale rig units — multiply by the
+    // group scale so seated figures still meet their (world-unit) seats.
+    rig._seatDrop = seatDrop + 0.35 * rig.params.scaleY * rig.group.scale.y;
   }
 
   // Place a rig on the ground along a surface-local direction, facing `yaw`.
@@ -652,6 +665,17 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   const dissolves = [];  // live ash/dissolve puffs
   const zoneUpdaters = []; // per-frame zone hooks: fn(t, dt, pl, sunDot)
   const colliders = [];  // { frame, special, active?, r2, ... }
+  const eventLights = []; // marker lights that dim while the player stands in them
+
+  // Register an event's marker light: it fades toward `floor` as the player
+  // closes on the event (a bright light up close washes out the character art)
+  // and comes back as they walk away. `onFade` lets a visible shaft follow.
+  function addEventLight(light, dist, lat, { near = 4.5, far = 9, floor = 0.12, onFade = null } = {}) {
+    eventLights.push({
+      light, anchor: bodyPosAt(dist, lat), base: light.intensity,
+      near, far, floor, cur: 1, onFade,
+    });
+  }
 
   function addFollower(rig, slotX) {
     rig.group.visible = true;
@@ -772,7 +796,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       // stays at the same height). This keeps the portrait pinned to the front.
       _hfwd.copy(_pl).sub(h.holder.position);
       _hfwd.addScaledVector(_hdir, -_hfwd.dot(_hdir)); // drop the vertical part
-      if (_hfwd.lengthSq() > 1e-6) h.holder.position.addScaledVector(_hfwd.normalize(), 0.8);
+      if (_hfwd.lengthSq() > 1e-6) h.holder.position.addScaledVector(_hfwd.normalize(), 1.2);
       _hq0.setFromUnitVectors(_yAxis, _hdir);
       _hToL.copy(_pl).sub(h.holder.position).applyQuaternion(_hq1.copy(_hq0).invert());
       const yaw = Math.atan2(_hToL.x, _hToL.z);
@@ -838,8 +862,8 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const g = new THREE.Group();
 
     // Vivid green ground carpets under the grass.
-    g.add(drapeDisc(170, 150, { map: keep(makeMottleTexture(0x3fae4a, 0x2d8a38)) }));
-    g.add(drapeDisc(370, 60, { map: keep(makeMottleTexture(0x53b856, 0x3fae4a)) }));
+    g.add(drapeDisc(170 * K, 150 * K, { map: keep(makeMottleTexture(0x3fae4a, 0x2d8a38)) }));
+    g.add(drapeDisc(370 * K, 60 * K, { map: keep(makeMottleTexture(0x53b856, 0x3fae4a)) }));
 
     // Swaying grass — dressing.js blade with a rich green gradient. Bright
     // root→tip colors + a warm emissive floor keep backfaces from going black.
@@ -879,7 +903,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     g.add(scatterInstanced(treeGeo, treeMat, 28, () => {
       const nearRiver = rng() < 0.35;
       return {
-        d: nearRiver ? 250 + rng() * 200 : rng() * 300,
+        d: nearRiver ? (250 + rng() * 200) * K : rng() * 300 * K,
         lat: (rng() < 0.5 ? -1 : 1) * (45 + rng() * 90),
         yaw: rng() * Math.PI * 2,
         s: 0.8 + rng() * 0.9,
@@ -922,7 +946,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     placeRig(lady, pathDir(SR.LADY, 4), Math.PI); // faces the arriving player
     addLooker(lady); // her head follows you; she never rises
     g.add(lady.group);
-    attachHologram(lady, 'lady', { height: 1.7 }); // standing gown, feet at ground
+    attachHologram(lady, 'lady', { height: 3.4 }); // standing gown, feet at ground
 
     // (cloaked hologram attached below, once cloakedFigure is set)
     const flowerMat = stdMat(0xff5a7a, { emis: 0.4, emisColor: 0xff5a7a });
@@ -947,7 +971,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     // Hide the portrait once the finale starts so the mask-lift + dissolve beat
     // plays on the real 3D rig (a flat portrait would cover the climactic reveal).
     attachHologram(cloak.rig, 'cloaked',
-      { height: 1.9, activeFn: () => cloak.rig.group.visible && !endingStarted });
+      { height: 3.8, activeFn: () => cloak.rig.group.visible && !endingStarted });
     // (girl / warrior / stranger holograms attached at their build sites)
 
     return { group: g };
@@ -956,7 +980,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   // River centerline in path coords: enters the meadow at lateral +95, crosses
   // the walking path exactly at SR.RIVER (u = 0.5), exits at -95.
   function riverCenter(u, out) {
-    const d = SR.RIVER - 200 + u * 400;
+    const d = SR.RIVER - 200 * K + u * 400 * K;
     const lat = 95 * Math.cos(Math.PI * u) + 14 * Math.sin(2 * Math.PI * u);
     return pathDirInto(d, lat, out);
   }
@@ -1147,7 +1171,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const g = new THREE.Group();
 
     // Dry amber clearing.
-    g.add(drapeDisc(SR.CIRCLE, 85, { map: keep(makeMottleTexture(0x9a6a3c, 0x7d5430)) }));
+    g.add(drapeDisc(SR.CIRCLE, 85 * K, { map: keep(makeMottleTexture(0x9a6a3c, 0x7d5430)) }));
 
     // Ring of dark standing stones around the huddle.
     const stoneParts = [];
@@ -1169,7 +1193,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     // Dead trees scattered beyond the stones.
     g.add(scatterInstanced(deadTreeGeo(), stdMat(0x3a3028, { rough: 1.0 }), 10, () => ({
-      d: SR.CIRCLE - 70 + rng() * 140,
+      d: SR.CIRCLE - 70 * K + rng() * 140 * K,
       lat: (rng() < 0.5 ? -1 : 1) * (40 + rng() * 35),
       yaw: rng() * Math.PI * 2,
       s: 0.8 + rng() * 0.8,
@@ -1207,6 +1231,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const dusk = new THREE.PointLight(0xffb060, 3.5, 100, 2);
     placeAtDir(dusk, planet, pathDir(SR.CIRCLE, 0), 10);
     g.add(dusk);
+    addEventLight(dusk, SR.CIRCLE, 0);
 
     zoneUpdaters.push((t, dt) => {
       if (circleMesh.fade >= 0) {
@@ -1244,9 +1269,9 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     // Golden sand carpets along the corridor.
     const sandTex = keep(makeMottleTexture(0xd9b25f, 0xc39c4e));
-    g.add(drapeDisc(1080, 120, { map: sandTex }));
-    g.add(drapeDisc(1260, 120, { map: sandTex }));
-    g.add(drapeDisc(1440, 120, { map: sandTex }));
+    g.add(drapeDisc(1080 * K, 120 * K, { map: sandTex }));
+    g.add(drapeDisc(1260 * K, 120 * K, { map: sandTex }));
+    g.add(drapeDisc(1440 * K, 120 * K, { map: sandTex }));
 
     // Dune mounds flanking the corridor.
     const duneGeo = keep(new THREE.SphereGeometry(1, 12, 8));
@@ -1256,7 +1281,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       // Bury only the rim (the flattened sphere's half-height is ~0.3-0.5 sc,
       // so sinking more than that hides the dune entirely).
       return {
-        d: SR.LINE_START - 80 + rng() * 700,
+        d: SR.LINE_START - 80 * K + rng() * 700 * K,
         lat: (rng() < 0.5 ? -1 : 1) * (45 + rng() * 100),
         h: -ySc * 0.45,
         s: new THREE.Vector3(sc, ySc, sc),
@@ -1265,7 +1290,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     // The queue: ~120 sun-bleached figures winding through the dunes in a
     // serpentine, receding far past where the girl breaks the scene.
-    const queueLat = (d) => 40 * Math.sin(((d - SR.LINE_START) / 650) * 3 * Math.PI);
+    const queueLat = (d) => 40 * Math.sin(((d - SR.LINE_START) / (650 * K)) * 3 * Math.PI);
     const fig = keep(mergeParts([
       new THREE.CapsuleGeometry(0.22, 1.0, 3, 6).translate(0, 0.85, 0),
       new THREE.SphereGeometry(0.18, 6, 5).translate(0, 1.65, 0),
@@ -1275,7 +1300,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const QN = 120;
     const tanShades = [0xcbb391, 0xdcc9a8, 0xe8dcc4, 0xbfa27e];
     const queue = scatterInstanced(fig, qMat, QN, (i) => {
-      const d = SR.LINE_START + (i / QN) * 650; // 1000 → 1650, past the break
+      const d = SR.LINE_START + (i / QN) * 650 * K; // runs well past the break
       return {
         d,
         lat: queueLat(d) + (rng() - 0.5) * 1.2,
@@ -1293,7 +1318,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     let prevSet = false;
     const cf2 = frameAt((SR.LINE_START + SR.LINE_END) / 2);
     const invQ = cf2.qInv;
-    for (let d = SR.LINE_START; d <= SR.LINE_START + 640; d += 12) {
+    for (let d = SR.LINE_START; d <= SR.LINE_START + 640 * K; d += 12) {
       const dir = pathDir(d, queueLat(d) + 2.4);
       cur.copy(dir).multiplyScalar(sampleGround(planet, dir));
       // Frame-local coordinates so one merged mesh carries the whole run.
@@ -1330,7 +1355,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const bannerMat = makeSwayMaterial({ color: 0xffffff, ampX: 0.45, ampZ: 0.3, transparent: true });
     const bannerShades = [0xb85a4a, 0xd8cba8, 0x9a6a3c, 0xe0d6c0];
     const banners = scatterInstanced(bannerGeo, bannerMat, 10, (i) => {
-      const d = SR.LINE_START + 40 + i * 60;
+      const d = SR.LINE_START + (40 + i * 60) * K;
       return {
         d, lat: queueLat(d) + 2.4, h: 2.4, yaw: rng() * Math.PI,
         s: 0.8 + rng() * 0.5, color: bannerShades[i % bannerShades.length],
@@ -1344,7 +1369,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     });
     disposables.push(micaMat);
     const mica = scatterInstanced(keep(new THREE.OctahedronGeometry(0.12, 0)), micaMat, 40, () => ({
-      d: SR.LINE_END + 60 + rng() * 160,
+      d: SR.LINE_END + (60 + rng() * 160) * K,
       lat: (rng() - 0.5) * 60,
       h: 0.5 + rng() * 3,
       s: 0.6 + rng() * 0.8,
@@ -1359,7 +1384,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       meshOn(gr.joints.head, keep(new THREE.SphereGeometry(0.09 * gsc, 6, 5)), stdMat(0x6b4a30, { rough: 1 }),
         side * 0.16 * gsc, 0.14 * gsc, -0.02 * gsc); // pigtails
     }
-    gr.group.scale.setScalar(0.72);
+    gr.group.scale.multiplyScalar(0.72); // composes with the ×2 in tintRig
     gr.params.groundOffset *= 0.72;
     gr.group.visible = false;
     g.add(gr.group);
@@ -1375,7 +1400,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     entities.push(girlEnt);
     girl._ent = girlEnt;
     attachHologram(gr, 'girl', {
-      height: 1.15, activeFn: () => girl.state !== 'hidden',
+      height: 2.3, activeFn: () => girl.state !== 'hidden',
       altKey: 'girl-run', // running frame while she sprints in, idle when she stops
       frameFn: () => (girl.state === 'sprinting' ? 'girl-run' : 'girl'),
     });
@@ -1418,21 +1443,21 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const g = new THREE.Group();
 
     // Cracked near-black earth.
-    g.add(drapeDisc(SR.DESERT, 150, { map: keep(makeCrackTexture()) }));
+    g.add(drapeDisc(SR.DESERT, 150 * K, { map: keep(makeCrackTexture()) }));
 
     // Glowing molten fissures: a second draped disc using the crack pattern as
     // an emissive/alpha map so only the cracks light up orange — big color in
     // an otherwise black zone, and it pulses like embers.
     // Same fixed-seed crack pattern AND same tiling as the ground disc (r150),
     // so the orange glow stays registered to the visible cracks.
-    const crackTex = keep(tileTex(makeCrackTexture(), 150));
+    const crackTex = keep(tileTex(makeCrackTexture(), 150 * K));
     const lavaMat = new THREE.MeshBasicMaterial({
       color: 0xff5a1e, map: crackTex, alphaMap: crackTex,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
     disposables.push(lavaMat);
     const lavaF = frameAt(SR.DESERT);
-    const lavaGeo = keep(new THREE.RingGeometry(0.01, 150, 48, 8).rotateX(-Math.PI / 2));
+    const lavaGeo = keep(new THREE.RingGeometry(0.01, 150 * K, 48, 8).rotateX(-Math.PI / 2));
     // Drape it onto the terrain like the ground disc.
     {
       const baseR = lavaF.pos.length();
@@ -1463,7 +1488,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     {
       const dir = new THREE.Vector3(), pos = new THREE.Vector3();
       for (let i = 0; i < EMB; i++) {
-        pathDirInto(SR.DESERT - 120 + rng() * 240, (rng() - 0.5) * 220, dir);
+        pathDirInto(SR.DESERT - 120 * K + rng() * 240 * K, (rng() - 0.5) * 220 * K, dir);
         pos.copy(dir).multiplyScalar(sampleGround(planet, dir) + rng() * 18);
         emberPos[i * 3] = pos.x; emberPos[i * 3 + 1] = pos.y; emberPos[i * 3 + 2] = pos.z;
         emberBase.push({ up: dir.clone(), phase: rng() * 20, speed: 1 + rng() * 2, span: 16 + rng() * 8, gy: sampleGround(planet, dir) });
@@ -1476,14 +1501,14 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     // Dead black trees and ash-grey rock scatter.
     g.add(scatterInstanced(deadTreeGeo(), stdMat(0x141210, { rough: 1.0 }), 40, () => ({
-      d: SR.DESERT - 130 + rng() * 260,
-      lat: (rng() - 0.5) * 240,
+      d: SR.DESERT - 130 * K + rng() * 260 * K,
+      lat: (rng() - 0.5) * 240 * K,
       yaw: rng() * Math.PI * 2,
       s: 0.7 + rng() * 1.1,
     })));
     g.add(scatterInstanced(keep(new THREE.DodecahedronGeometry(0.3, 0)), stdMat(0x4a4644, { rough: 1.0 }), 150, () => ({
-      d: SR.DESERT - 120 + rng() * 240,
-      lat: (rng() - 0.5) * 220,
+      d: SR.DESERT - 120 * K + rng() * 240 * K,
+      lat: (rng() - 0.5) * 220 * K,
       h: 0.05,
       yaw: rng() * Math.PI,
       s: 0.5 + rng() * 1.6,
@@ -1594,6 +1619,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const eyeLight = new THREE.PointLight(0xffd9a8, 2.5, 50, 2);
     placeAtDir(eyeLight, planet, stoneDir, 5);
     g.add(eyeLight);
+    addEventLight(eyeLight, SR.DESERT, 0); // dims beside the Warrior
 
     // The Warrior: crimson-and-bronze armor, boxy pauldrons, a helmet crest,
     // and a great blade planted point-down in the stone beside him.
@@ -1606,7 +1632,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     meshOn(wr.joints.shoulders, pauldron, bronze, 0.3 * wsc, 0.02 * wsc, 0);
     meshOn(wr.joints.torso, keep(new THREE.BoxGeometry(0.5 * wsc, 0.5 * wsc, 0.32 * wsc)), crimson, 0, 0.28 * wsc, 0); // chest plate
     meshOn(wr.joints.head, keep(new THREE.ConeGeometry(0.07 * wsc, 0.34 * wsc, 4)), crimson, 0, 0.34 * wsc, 0, 0, Math.PI / 4); // crest
-    wr.group.scale.setScalar(1.15);
+    wr.group.scale.multiplyScalar(1.15); // composes with the ×2 in tintRig
     wr.params.groundOffset *= 1.15;
     seatRig(wr, 0.6);
     placeRig(wr, pathDir(SR.DESERT, 0), Math.PI);
@@ -1615,7 +1641,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     warrior = { rig: wr, talkedOnce: false };
     // Seated cross-legged on the raised stone; drop lifts the portrait's feet
     // from the base terrain (sampleGround) up onto the platform he sits on.
-    attachHologram(wr, 'warrior', { height: 1.2, drop: 0.55, activeFn: () => !has('warrior_embraced') });
+    attachHologram(wr, 'warrior', { height: 2.4, drop: 0.55, activeFn: () => !has('warrior_embraced') });
 
     // The planted greatsword — a strong silhouette beside the stone.
     const swordParts = [
@@ -1726,34 +1752,71 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     orientOnSurface(cone, roomCenterDir, 0);
     cone.renderOrder = 4;
     g.add(cone);
+    // Higher floor than the others: this is the only light in the room, and
+    // the monster's material reveal still has to read. The shaft fades along.
+    addEventLight(light, SR.ROOM, 0, {
+      floor: 0.25,
+      onFade: (f) => { coneMat.opacity = 0.03 * f; },
+    });
 
-    // The mirror-self: begins matte black, resolves as you approach. A fresnel
-    // rim (pale grey-blue outline) makes the shadow READ in the void before it
-    // is understood — fading out as the figure resolves.
-    const mr = tintRig('mirror', 0x050505, 0x050505);
-    mr.materials.skinMat.emissive = new THREE.Color(0x000000);
+    // The mirror-self: the player's own astronaut. It begins matte black and
+    // resolves into the real suit as you approach. A fresnel rim (pale
+    // grey-blue outline) makes the shadow READ in the void before it is
+    // understood — fading out as the figure resolves.
+    const astro = new Astronaut();
     const rimUniform = { value: 0.9 };
-    for (const m of [mr.materials.skinMat, mr.materials.clothMat]) {
-      m.onBeforeCompile = (shader) => {
-        shader.uniforms.uRim = rimUniform;
-        shader.fragmentShader = 'uniform float uRim;\n' + shader.fragmentShader.replace(
-          '#include <emissivemap_fragment>',
-          `#include <emissivemap_fragment>
-          {
-            vec3 rvDir = normalize(vViewPosition);
-            float rim = pow(1.0 - clamp(abs(dot(rvDir, normalize(vNormal))), 0.0, 1.0), 3.0);
-            totalEmissiveRadiance += vec3(0.55, 0.62, 0.78) * rim * uRim;
-          }`
-        );
-      };
+    const mirrorMats = [];
+    {
+      // astronaut.js materials are module-level and shared with the player's
+      // own model — clone every one before tinting so the reveal never
+      // darkens the player.
+      const cloned = new Map();
+      astro.group.traverse((o) => {
+        if (!o.isMesh) return;
+        disposables.push(o.geometry);
+        let mat = cloned.get(o.material);
+        if (!mat) {
+          mat = o.material.clone();
+          cloned.set(o.material, mat);
+          disposables.push(mat);
+          mirrorMats.push({
+            mat,
+            baseColor: mat.color.clone(),
+            baseEI: mat.emissiveIntensity ?? 0,
+          });
+          mat.onBeforeCompile = (shader) => {
+            shader.uniforms.uRim = rimUniform;
+            shader.fragmentShader = 'uniform float uRim;\n' + shader.fragmentShader.replace(
+              '#include <emissivemap_fragment>',
+              `#include <emissivemap_fragment>
+              {
+                vec3 rvDir = normalize(vViewPosition);
+                float rim = pow(1.0 - clamp(abs(dot(rvDir, normalize(vNormal))), 0.0, 1.0), 3.0);
+                totalEmissiveRadiance += vec3(0.55, 0.62, 0.78) * rim * uRim;
+              }`
+            );
+          };
+        }
+        o.material = mat;
+      });
     }
-    placeRig(mr, roomCenterDir, 0); // faces the entrance, where the player enters
-    g.add(mr.group);
-    mirror = { rig: mr, reveal: 0, rimUniform };
+    // Reveal k: 0 = pure shadow, 1 = the astronaut's true suit colors (and its
+    // own emissive accents — visor glow, chest display — coming back online).
+    const setReveal = (k) => {
+      for (const e of mirrorMats) {
+        e.mat.color.copy(e.baseColor).multiplyScalar(0.02 + 0.98 * k);
+        e.mat.emissiveIntensity = e.baseEI * k;
+      }
+      rimUniform.value = 0.9 * (1 - k) + 0.08;
+    };
+    setReveal(0);
+    placeAtDir(astro.group, planet, roomCenterDir, 0); // feet at y=0
+    orientOnSurface(astro.group, roomCenterDir, 0); // faces the entrance
+    g.add(astro.group);
+    mirror = { astro, group: astro.group, reveal: 0, rimUniform };
 
     entities.push({
       pos: bodyPosAt(SR.ROOM, 0),
-      rig: mr,
       active: () => has('warrior_embraced') && !has('monster_faced'),
       getPayload: () => ({ speaker: { name: 'The Monster', species: '—', cityId: '' }, lines: TXT.mirror }),
       onClose: () => advance('monster_faced'),
@@ -1771,28 +1834,29 @@ export function createShadowreach(planet, worldUp, opts = {}) {
         (angNear(theta, Math.PI, SR.ROOM_DOOR_HALF) && has('monster_faced')),
     });
 
-    // Mirror behaviour: darkness → grey by proximity; after facing, it mimics.
+    // Mirror behaviour: shadow → true suit by proximity; after facing, it mimics.
     const _mp = new THREE.Vector3(), _refl = new THREE.Vector3();
     zoneUpdaters.push((t, dt, pl) => {
-      const d = pl.distanceTo(mirror.rig.group.position);
+      const d = pl.distanceTo(mirror.group.position);
       if (!has('monster_faced')) {
         const target = THREE.MathUtils.clamp(1 - (d - 3) / 16, 0, 1);
         mirror.reveal += (target - mirror.reveal) * Math.min(1, 3 * dt);
-        const c = 0.02 + mirror.reveal * 0.62; // → astronaut grey
-        mr.materials.skinMat.color.setRGB(c, c, c);
-        mr.materials.clothMat.color.setRGB(c * 0.8, c * 0.8, c * 0.8);
-        // Ghost outline strong while it's still a shadow, gone once resolved.
-        mirror.rimUniform.value = 0.9 * (1 - mirror.reveal) + 0.08;
-        poseRig(mr, dt, t, 'idle', 0);
+        setReveal(mirror.reveal);
+        astro.update(dt, 'idle', 0);
       } else {
+        // Fully itself now — ease the last of the shadow off.
+        if (mirror.reveal < 1) {
+          mirror.reveal += (1 - mirror.reveal) * Math.min(1, 3 * dt);
+          setReveal(mirror.reveal);
+        }
         // Reflect the player across the room center in the room frame, mirror pose.
         _mp.copy(pl).sub(roomFrame.pos).applyQuaternion(roomFrame.qInv);
         _refl.set(-_mp.x, 0, -_mp.z);
         const dir2 = _refl.applyQuaternion(roomFrame.q).add(roomFrame.pos).normalize();
-        placeAtDir(mr.group, planet, dir2, mr.params.groundOffset);
-        faceRig(mr, dir2, pl); // face the player
+        placeAtDir(astro.group, planet, dir2, 0);
+        faceRig(mirror, dir2, pl); // face the player (faceRig reads .group)
         const spd = mirrorSpeed;
-        poseRig(mr, dt, t, spd > 0.6 ? 'walk' : 'idle', Math.min(spd / 8, 1));
+        astro.update(dt, spd > 0.6 ? 'run' : 'idle', Math.min(spd / 8, 1));
       }
     });
     return { group: g };
@@ -1807,7 +1871,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     // Deep green garden floor. Scatter is biased -120..+100 in dist to keep an
     // antipode margin (hard cap ~2740).
-    g.add(drapeDisc(SR.GARDEN, 110, { map: keep(makeMottleTexture(0x2f7a3a, 0x246330)) }));
+    g.add(drapeDisc(SR.GARDEN, 110 * K, { map: keep(makeMottleTexture(0x2f7a3a, 0x246330)) }));
 
     // Golden-hour light over the whole garden. The garden sits past the
     // terminator (night side) — the story's "warm gold light" radiates from
@@ -1815,6 +1879,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const gold = new THREE.PointLight(0xffdcae, 7.0, 220, 2);
     placeAtDir(gold, planet, pathDir(SR.GARDEN, 0), 12);
     g.add(gold);
+    addEventLight(gold, SR.GARDEN, 2); // dims at the Stranger's side
     const goldApproach = new THREE.PointLight(0xffcf90, 3.5, 110, 2);
     placeAtDir(goldApproach, planet, pathDir(SR.GARDEN - 70, 0), 8);
     g.add(goldApproach);
@@ -1826,7 +1891,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const bladeGeo = makeBladeGeo(0x2a7a34, 0x7cc85e, 0.3);
     const grassMat = makeSwayMaterial({ vertexColors: true, emis: 0.2, emisColor: 0x8a7a3a });
     g.add(scatterInstanced(bladeGeo, grassMat, 6000, () => ({
-      d: SR.GARDEN - 120 + rng() * 220,
+      d: SR.GARDEN - 120 * K + rng() * 220 * K,
       lat: (rng() - 0.5) * 110,
       yaw: rng() * Math.PI,
       s: 0.5 + rng() * 0.6,
@@ -1857,7 +1922,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const leaf = keep(new THREE.SphereGeometry(0.22, 5, 4));
     const leafMat = stdMat(0x9eb39a, { rough: 1.0, emis: 0.15 });
     g.add(scatterInstanced(leaf, leafMat, 1200, () => ({
-      d: SR.GARDEN - 35 + rng() * 90,
+      d: SR.GARDEN - 35 * K + rng() * 90 * K,
       lat: (rng() - 0.5) * 70,
       h: 0.1,
       s: new THREE.Vector3(1 + rng(), 0.4 + rng() * 0.3, 1 + rng()),
@@ -1873,7 +1938,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const treeMat = stdMat(0xffffff, { rough: 0.95, emis: 0.08 });
     treeMat.vertexColors = true;
     g.add(scatterInstanced(treeGeo, treeMat, 16, () => ({
-      d: SR.GARDEN - 90 + rng() * 190,
+      d: SR.GARDEN - 90 * K + rng() * 190 * K,
       lat: (rng() < 0.5 ? -1 : 1) * (50 + rng() * 45),
       yaw: rng() * Math.PI * 2,
       s: 0.9 + rng() * 0.8,
@@ -1921,7 +1986,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     placeRig(st, pathDir(SR.GARDEN, 2), Math.PI);
     addLooker(st, () => !endingStarted);
     g.add(st.group);
-    attachHologram(st, 'stranger', { height: 1.5, activeFn: () => !endingStarted }); // seated traveler
+    attachHologram(st, 'stranger', { height: 3.0, activeFn: () => !endingStarted }); // seated traveler
     // The staff, leaning beside him with a glowing gold finial.
     const staff = new THREE.Mesh(keep(mergeParts([
       coloredGeo(new THREE.CylinderGeometry(0.05, 0.06, 2.6, 6).translate(0, 1.3, 0), 0x6b4a30),
@@ -1975,7 +2040,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       const dir = new THREE.Vector3(), pos = new THREE.Vector3(), c = new THREE.Color();
       const hues = [0xfff0a0, 0xa8ff90, 0xffcf7a, 0xd0ffe0];
       for (let i = 0; i < FN; i++) {
-        pathDirInto(SR.GARDEN - 90 + rng() * 170, (rng() - 0.5) * 130, dir);
+        pathDirInto(SR.GARDEN - 90 * K + rng() * 170 * K, (rng() - 0.5) * 130, dir);
         const gy = sampleGround(planet, dir);
         pos.copy(dir).multiplyScalar(gy + 0.6 + rng() * 2.4);
         firePos[i * 3] = pos.x; firePos[i * 3 + 1] = pos.y; firePos[i * 3 + 2] = pos.z;
@@ -1992,7 +2057,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     // Pale glowing moths circling the night garden's lamps.
     g.add(makeFlutter(24, {
-      d0: SR.GARDEN - 90, dSpan: 160, latSpan: 110,
+      d0: SR.GARDEN - 90 * K, dSpan: 160 * K, latSpan: 110,
       colors: [0xfff0c0, 0xd0ffe0, 0xffd0f0],
       emis: 0.5, emisColor: 0xfff0c0,
     }));
@@ -2291,6 +2356,17 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     // Zone hooks (girl motion, fades, storm, mirror, sprout growth).
     for (const zu of zoneUpdaters) zu(t, dt, _pl, sunDot);
 
+    // Event lights dim out while the player stands in them (up close they wash
+    // out the character art) and come back as the player leaves.
+    for (const el of eventLights) {
+      const d = _pl.distanceTo(el.anchor);
+      const k = THREE.MathUtils.smoothstep(d, el.near, el.far);
+      const f = el.floor + (1 - el.floor) * k;
+      el.cur += (f - el.cur) * Math.min(1, 5 * dt);
+      el.light.intensity = el.base * el.cur;
+      if (el.onFade) el.onFade(el.cur);
+    }
+
     // Move the objective beacon to the current goal.
     updateBeacon(t);
 
@@ -2390,7 +2466,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   /* -------------------------------------------------------------------
    * Interaction contract (walk.js scanModule / walkInteract)
    * ----------------------------------------------------------------- */
-  function nearestInteractable(playerLocal, maxDist = 2.6) {
+  function nearestInteractable(playerLocal, maxDist = 5.2) {
     let best = null, bestD2 = maxDist * maxDist;
     for (const e of entities) {
       if (e.active && !e.active()) continue;

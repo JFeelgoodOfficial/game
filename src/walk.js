@@ -19,7 +19,7 @@ import * as THREE from 'three';
 import { C } from './constants.js';
 import { input } from './input.js';
 import { ship } from './ship.js';
-import { planets, SUN } from './planet.js';
+import { planets, SUN, setPlanetSpinFrozen } from './planet.js';
 import { Astronaut } from './astronaut.js';
 import { createDressing } from './dressing.js';
 import {
@@ -142,7 +142,8 @@ let beaconParent = null;
 let beaconGeo = null; // shared, built on first use, disposed on exitWalk
 const TALK_DIST_CROWD = 2.6; // ~ aliens talkTriggerDist
 const TALK_DIST_CREATURE = 6; // ~ creatures interactRadius
-const TALK_DIST_ACTUALITY = 3.2; // seated NPCs behind tables / the dragon box
+const TALK_DIST_ACTUALITY = 6.4; // seated NPCs behind tables / the dragon box
+const TALK_DIST_SHADOWREACH = 5.2; // story figures read from further back
 const TALK_BREAK_DIST = 8; // walk-away hangup (inside demote/deactivate radii)
 const PLAYER_RADIUS = 0.7; // body radius for building push-out
 
@@ -253,6 +254,11 @@ export function enterWalk(planet) {
   walk.diving = false;
   walk.camDist = C.WALK_CAM_DIST;
   camSnap = true;
+  // The story worlds hold still while you walk them — no spin means no
+  // co-rotation compensation, which is what caused surface clipping there.
+  if (planet.cfg.name === 'shadowreach' || planet.cfg.name === 'actuality') {
+    setPlanetSpinFrozen(planet, true);
+  }
   // Seed the spin tracker so the first stepWalk delta is ~0 (no jump on entry).
   lastSpinAngle = planet.surface.rotation.y;
 
@@ -639,6 +645,7 @@ export function exitWalk(camera) {
   hideViewUI();
   fovKick = 0;
 
+  setPlanetSpinFrozen(planet, false); // resume the day (no-op if never frozen)
   walk.active = false;
   walk.planet = null;
 }
@@ -1063,7 +1070,7 @@ export function updateWalkVisuals(dt, t) {
     // exactly the frame the module's triggers, followers and collision expect.
     playerLocalInto(shadowreach.group, _identityQuat, _playerLocal);
     shadowreach.update(t, dt, _playerLocal, sunDot);
-    scanModule(shadowreach, TALK_DIST_CROWD);
+    scanModule(shadowreach, TALK_DIST_SHADOWREACH);
     const toast = shadowreach.pendingToast();
     if (toast) showViewToast(toast.text, toast.seconds);
   }
@@ -1085,8 +1092,11 @@ function entityDistSq(entity) {
 // bids the module's nearest interactable for this frame's focus.
 function scanModule(module, maxDist) {
   if (isDialogueOpen()) {
+    // Hang up past 2× the module's talk range (never inside it), so long-reach
+    // worlds keep a sensible walk-away hysteresis gap.
+    const breakDist = Math.max(TALK_BREAK_DIST, maxDist * 2);
     if (talkModule === module && talkEntity &&
-        entityDistSq(talkEntity) > TALK_BREAK_DIST * TALK_BREAK_DIST) {
+        entityDistSq(talkEntity) > breakDist * breakDist) {
       closeDialogue(); // onClose fires endInteract and clears the talk refs
     }
     return;
