@@ -1,8 +1,9 @@
 // Ship radio (user mechanic — a deliberate override of GDD 1.2's "no sound
 // beyond, at most, engine tone"). Four Wave Collector tracks play in
 // sequence, starting from the LAUNCH click (a real gesture, so autoplay is
-// permitted). The radio console (radio.js) switches tracks and shows the
-// title; the sequential auto-advance is the user's own playlist logic.
+// permitted). The radio pop-up (radioPopup.js) switches/pauses tracks and
+// shows the title; the sequential auto-advance is the user's own playlist
+// logic.
 
 import { settings, onSettingsChange } from './settings.js';
 
@@ -27,9 +28,18 @@ const TRACKS = [
 let audio = null;
 let currentIndex = 0;
 const listeners = [];
+const playListeners = [];
 
 export function currentTitle() {
   return TRACKS[currentIndex].title;
+}
+
+export function trackTitles() {
+  return TRACKS.map((t) => t.title);
+}
+
+export function getCurrentIndex() {
+  return currentIndex;
 }
 
 // The radio console subscribes here to refresh its readout on any track
@@ -40,6 +50,22 @@ export function onTrackChange(cb) {
 
 function emit() {
   for (const cb of listeners) cb(currentTitle(), currentIndex);
+}
+
+// The radio pop-up subscribes here to keep its play/pause glyph honest: the
+// events come from the Audio element itself, so a play() blocked by the
+// browser (no gesture yet) never shows as "playing".
+export function onPlayStateChange(cb) {
+  playListeners.push(cb);
+}
+
+function emitPlayState() {
+  const playing = !!audio && !audio.paused;
+  for (const cb of playListeners) cb(playing);
+}
+
+export function isMusicPlaying() {
+  return !!audio && !audio.paused;
 }
 
 // If the browser refuses playback (no gesture registered yet), retry on the
@@ -79,6 +105,8 @@ function ensureAudio() {
     setTrack(currentIndex + 1);
     play();
   });
+  audio.addEventListener('play', emitPlayState);
+  audio.addEventListener('pause', emitPlayState);
 }
 
 export function nextTrack() {
@@ -93,12 +121,31 @@ export function prevTrack() {
   play();
 }
 
+export function playTrackAt(index) {
+  ensureAudio();
+  setTrack(index);
+  play();
+}
+
+// User-facing play/pause (radio pop-up). Clearing pausedByGame keeps a
+// deliberate user pause from being undone by a later game unpause, and a
+// user resume from leaving a stale "resume me" flag around.
+export function toggleMusicPlayback() {
+  ensureAudio();
+  pausedByGame = false;
+  if (audio.paused) play();
+  else audio.pause();
+}
+
 export function startMusic() {
   ensureAudio();
   if (audio.paused) play();
 }
 
-// Game pause (main.js): the radio stops with the rest of the ship.
+// Game pause (game.js): the radio stops with the rest of the ship. The flag
+// is only set when pauseMusic actually paused something, so a track the user
+// paused themselves (toggleMusicPlayback) stays paused across a game
+// pause/resume cycle.
 let pausedByGame = false;
 
 export function pauseMusic() {

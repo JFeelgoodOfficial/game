@@ -57,6 +57,50 @@
       transition: opacity 0.3s;
     }
     #hint.hidden, #hint.off { opacity: 0; }
+    /* Mobile is landscape-only: the 3D dashboard spans too wide for a phone
+       held upright. Pure CSS so it paints instantly and follows rotation with
+       no JS. Gated to touch devices so a narrow desktop window isn't blocked. */
+    #rotate { display: none; }
+    @media (pointer: coarse) and (orientation: portrait) {
+      #rotate {
+        position: fixed; inset: 0; z-index: 60;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 20px; background: #04000a; text-align: center; padding: 0 24px;
+        font-family: 'Courier New', ui-monospace, monospace; color: #a9f7ff;
+        user-select: none;
+      }
+      /* game/menu must not bleed through or keep running visibly under it */
+      #menu, #hint { display: none !important; }
+    }
+    #rotate .rot-icon {
+      font-size: 56px; line-height: 1;
+      animation: rot-turn 2.4s ease-in-out infinite;
+    }
+    #rotate .rot-msg {
+      font-size: 15px; letter-spacing: 0.34em; color: #ffc9ec;
+      text-shadow: 0 0 16px rgba(212,64,143,0.8);
+    }
+    #rotate .rot-sub {
+      font-size: 11px; letter-spacing: 0.3em; color: #7ad7e0;
+      text-shadow: 0 0 8px rgba(130,247,255,0.5);
+    }
+    @keyframes rot-turn {
+      0%, 40% { transform: rotate(0deg); }
+      60%, 100% { transform: rotate(-90deg); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #rotate .rot-icon { animation: none; transform: rotate(-90deg); }
+    }
+    @media (max-width: 640px) {
+      #hint {
+        max-width: 92vw; box-sizing: border-box; white-space: normal;
+        text-align: center; font-size: 10px; letter-spacing: 0.14em;
+      }
+    }
+    /* the hint teaches pointer lock; touch never locks, so it's just noise */
+    @media (pointer: coarse) {
+      #hint { display: none; }
+    }
   </style>
 </head>
 <body>
@@ -66,6 +110,11 @@
     <button disabled>LOADING…</button>
   </div>
   <div id="hint" class="hidden off">MOUSE FREE — CLICK VIEW TO STEER · BACKSPACE — PAUSE</div>
+  <div id="rotate">
+    <div class="rot-icon">📱</div>
+    <div class="rot-msg">ROTATE YOUR DEVICE</div>
+    <div class="rot-sub">LANDSCAPE ONLY</div>
+  </div>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

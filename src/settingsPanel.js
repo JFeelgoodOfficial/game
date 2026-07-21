@@ -32,7 +32,9 @@ const CSS = `
 #settingsPanel {
   position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
   z-index: 34; display: none; flex-direction: column; gap: 14px;
-  min-width: 340px; padding: 20px 26px 16px; border-radius: 6px;
+  width: min(360px, 92vw); box-sizing: border-box;
+  max-height: 86vh; overflow-y: auto;
+  padding: 20px 26px 16px; border-radius: 6px;
   font-family: 'Courier New', ui-monospace, monospace; color: #a9f7ff;
   background: rgba(4,12,20,0.92); border: 1px solid rgba(130,247,255,0.55);
   box-shadow: 0 0 44px rgba(130,247,255,0.3), inset 0 0 30px rgba(130,247,255,0.06);
@@ -61,6 +63,15 @@ const CSS = `
 #settingsPanel .s-foot {
   font-size: 10px; letter-spacing: 0.26em; color: #5da8b3;
   margin-top: 4px; text-align: center;
+}
+@media (max-width: 640px) {
+  #settingsPanel { padding: 16px 16px 12px; gap: 11px; }
+  #settingsPanel .s-row { flex-wrap: wrap; }
+  #settingsPanel .s-row input[type="range"] { width: min(150px, 42vw); }
+}
+@media (pointer: coarse) {
+  #settingsPanel .s-row input[type="checkbox"] { width: 22px; height: 22px; }
+  #settingsPanel .s-quality button { padding: 12px 16px; }
 }
 `;
 

@@ -21,7 +21,7 @@ import { input } from './input.js';
 import { settings } from './settings.js';
 import { camera } from './camera.js';
 import { cockpitScene } from './cockpit.js';
-import { nextTrack, prevTrack } from './music.js';
+import { toggleRadioPopup } from './radioPopup.js';
 import { toggleHolo, isHoloOpen, holoPick } from './holonav.js';
 import { label } from './holoLabel.js';
 
@@ -305,13 +305,11 @@ function buildButtons() {
     d.z = 0.05;
   });
 
-  // lower tier: radio prev/next on the left pod, blank system buttons on the
-  // right pod, flanking the holo projector at centre
+  // lower tier: the radio pop-up trigger on the left pod, a blank system
+  // button on the right pod, flanking the holo projector at centre
   const aux = [
-    { name: '◀', key: ',', color: 0x9fd8e8, mode: 'fn', fn: prevTrack, code: 'Comma', x: -1.12, y: 0.55, z: 0.16 },
-    { name: '▶', key: '.', color: 0x9fd8e8, mode: 'fn', fn: nextTrack, code: 'Period', x: -0.82, y: 0.55, z: 0.16 },
-    { name: 'SHIELDS', key: '', color: 0xbfe8ff, mode: 'blank', x: 0.82, y: 0.55, z: 0.16 },
-    { name: 'COMMS', key: '', color: 0xff5aa8, mode: 'blank', x: 1.12, y: 0.55, z: 0.16 },
+    { name: 'RADIO', key: ', .', color: 0x9fd8e8, mode: 'fn', fn: toggleRadioPopup, x: -0.97, y: 0.55, z: 0.16 },
+    { name: 'SHIELDS', key: '', color: 0xbfe8ff, mode: 'blank', x: 0.97, y: 0.55, z: 0.16 },
   ];
 
   buttons = [];
@@ -446,7 +444,7 @@ export function initCockpit3d(domElement) {
   window.addEventListener('pointerup', onPointerUp);
   window.addEventListener('pointercancel', onPointerUp);
 
-  // keyboard flashes: the key already drives the control (input.js / radio.js);
+  // keyboard flashes: the key already drives the control (input.js / radioPopup.js);
   // this only lights the matching dash button so touch and keys look alike.
   window.addEventListener('keydown', function (e) {
     if (e.repeat) return;

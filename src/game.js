@@ -84,8 +84,18 @@ import { initJournal, journalState } from './journal.js';
 import { initSun, sunAltitude } from './sun.js';
 import { initStations, updateStations, nearestDockableStation } from './stations.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
-import { startMusic, nextTrack, prevTrack, currentTitle, pauseMusic, resumeMusic } from './music.js';
-import { initRadio, updateRadio } from './radio.js';
+import {
+  startMusic,
+  nextTrack,
+  prevTrack,
+  currentTitle,
+  pauseMusic,
+  resumeMusic,
+  playTrackAt,
+  isMusicPlaying,
+  trackTitles,
+} from './music.js';
+import { initRadioPopup, openRadioPopup, closeRadioPopup, isRadioPopupOpen } from './radioPopup.js';
 import { initNav, updateNav, navState, showNavToast, getBodies } from './nav.js';
 import { settings, onSettingsChange } from './settings.js';
 import {
@@ -134,7 +144,7 @@ initInput(renderer.domElement);
 initTuning();
 initCockpit3d(renderer.domElement);
 initInterior();
-initRadio();
+initRadioPopup();
 initNav();
 initHolonav(cockpitShell);
 setPointerLockGate(cockpitPointerGate);
@@ -335,7 +345,17 @@ if (import.meta.env.DEV) {
       stand: () => { if (phase === 'fly' && !input.warp) standing = true; },
       sit: () => { standing = false; },
     },
-    radio: { nextTrack, prevTrack, currentTitle },
+    radio: {
+      nextTrack,
+      prevTrack,
+      currentTitle,
+      open: openRadioPopup,
+      close: closeRadioPopup,
+      isOpen: isRadioPopupOpen,
+      playTrackAt,
+      isMusicPlaying,
+      trackTitles,
+    },
     navState,
     cockpit: cockpitDebug(),
     holo: holonavDebug(),
@@ -613,6 +633,7 @@ function setPaused(v) {
   if (v === paused) return;
   paused = v;
   if (paused) {
+    closeRadioPopup(); // settings opened from the overlay must not stack under it
     showPauseOverlay(() => setPaused(false));
     pauseMusic();
   } else {
@@ -645,6 +666,7 @@ function resetToStart() {
   standing = false;
   standBlend = 0;
   closeCredits();
+  closeRadioPopup();
   promptTimer = 6; // remind the pilot the corridor exists
   resetPlayer();
   input.toggleInterior = false;
@@ -924,15 +946,15 @@ function frame(now) {
   updateCockpit3d(ship, delta, phase);
   // The 3D cockpit is the resting view; boost/warp lean the camera forward so
   // the dashboard sinks out of frame for the clear window. dashBlend() (1 at
-  // rest, 0 at full-window) drives the DOM dash panels (radio, capture) the
-  // way the frame image's blend used to. On foot on a planet the whole ship
-  // overlay hides; standing in the ship swaps the cockpit for the interior.
+  // rest, 0 at full-window) drives the DOM dash panels (capture) the way the
+  // frame image's blend used to. On foot on a planet the whole ship overlay
+  // hides; standing in the ship swaps the cockpit for the interior.
   const dash = dashBlend();
   if (phase === 'walk') {
     cockpitRig.visible = false;
     cockpitPass.enabled = false;
     interiorPass.enabled = false;
-    updateRadio(0, false);
+    closeRadioPopup(); // a flight dialog has no business over the walk HUD
     // "E — TALK" while an alien/creature is in range (dialogue hints are on
     // the dialogue panel itself). Reuses the interior prompt element.
     setPrompt(walkPromptText());
@@ -940,7 +962,6 @@ function frame(now) {
     interiorPass.enabled = standBlend > 0.001;
     cockpitPass.enabled = !interiorPass.enabled;
     cockpitRig.visible = true; // the camera zoom handles the full-window view
-    updateRadio(dash, phase === 'fly');
     // the C prompt: a launch reminder while seated, "SIT" back at the chair;
     // standing, "E — READ" in front of the plaque (E handled in the fly block)
     if (phase === 'fly') {
