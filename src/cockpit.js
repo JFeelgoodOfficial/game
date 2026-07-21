@@ -1,26 +1,18 @@
-// Cockpit (GDD 4.3). Just the canopy frame — two A-pillar struts, a top
-// brace, and lower sill rails — with one interior light so a highlight
-// travels the struts as the ship rotates. The dashboard/console furniture
-// was removed: camera drift under thrust used to lift it into the forward
-// view (the "black plate"), and the full instrument cockpit is the boost
-// image (cockpitFrame.js) now. Keep it minimal: no instruments, no HUD.
+// Cockpit shell (GDD 4.3). This module owns the cockpit overlay SCENE and the
+// pass that composites it, plus the shared canopy-frame skeleton. The flyable
+// 3D cockpit itself — window, console, dashboard buttons, steering wheel —
+// is built in cockpit3d.js and added to cockpitScene from there.
 //
-// Lives in its own scene, composited over the lensed world by
-// CockpitOverlayPass so gravitational lensing never warps the interior.
-// Posed every frame from the SHIP's transform — the camera lags the ship
-// (camera.js), and that gap is what makes the cockpit read as a vehicle
-// you sit inside rather than an overlay.
+// The scene is composited over the lensed world by CockpitOverlayPass so
+// gravitational lensing never warps the interior. cockpit3d poses its rig
+// every frame from the SHIP's transform — the camera lags the ship
+// (camera.js), and that gap is what makes the cockpit read as a vehicle you
+// sit inside rather than an overlay.
 
 import * as THREE from 'three';
 import { Pass } from 'three/addons/postprocessing/Pass.js';
 
 export const cockpitScene = new THREE.Scene();
-
-const frameMat = new THREE.MeshStandardMaterial({
-  color: 0x2b313b,
-  roughness: 0.42,
-  metalness: 0.6,
-});
 
 // The canopy skeleton, factored so the walkable interior (interior.js) can
 // build the identical frame around its pilot seat — the forward view must
@@ -78,28 +70,6 @@ export function buildCanopyFrame(mat) {
   g.add(oh);
 
   return g;
-}
-
-const group = buildCanopyFrame(frameMat);
-
-// One interior light, low and to the side, so glints travel along the
-// struts during rotation. The moving highlight sells the interior
-// (GDD 4.3) — bright enough to read, dim enough to stay under the bloom
-// threshold (GDD 4.4).
-const light = new THREE.PointLight(0xffe8d0, 3.2, 8.0, 2.0);
-light.position.set(0.3, -0.35, -0.15);
-group.add(light);
-
-cockpitScene.add(group);
-cockpitScene.add(new THREE.AmbientLight(0x5a6480, 2.0));
-
-// Exposed so main.js can hide the 3D interior while the boost cockpit
-// image (cockpitFrame.js) is up.
-export const cockpitGroup = group;
-
-export function updateCockpit(ship) {
-  group.position.copy(ship.position);
-  group.quaternion.copy(ship.quaternion);
 }
 
 // Renders the cockpit scene on top of the current composer buffer (depth
