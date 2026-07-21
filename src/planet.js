@@ -545,10 +545,27 @@ export function startPlanetBake() {
 
 const _tmp = new THREE.Vector3();
 
+// Freeze/unfreeze a planet's day rotation (walk mode pins the story worlds so
+// the ground never turns underfoot). Rotation is written as an absolute
+// t * spin each frame, so freezing latches the current angle and resuming
+// re-anchors the phase to it — no snap in either direction.
+export function setPlanetSpinFrozen(planet, frozen) {
+  planet.spinFrozen = frozen;
+}
+
 export function updatePlanets(t, camPos) {
   for (const p of planets) {
-    const spin = p.cfg.spin();
-    for (const m of p.spinning) m.rotation.y = t * spin;
+    if (p.spinFrozen) {
+      p.spinNeedsResync = true; // rotation.y stays latched
+    } else {
+      const spin = p.cfg.spin();
+      if (p.spinNeedsResync) {
+        p.spinPhase = (p.spinning[0]?.rotation.y ?? 0) - t * spin;
+        p.spinNeedsResync = false;
+      }
+      const ang = t * spin + (p.spinPhase || 0);
+      for (const m of p.spinning) m.rotation.y = ang;
+    }
     if (p.cfg.type === 'terra') {
       // terra's thresholds stay live-tunable from the panel
       p.surface.material.uniforms.uSeaLevel.value = p.cfg.seaLevel();

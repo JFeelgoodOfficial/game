@@ -49,10 +49,10 @@ import dragonGraniteUrl from '../src/assets/actuality-dragon-granite.png';
  * ------------------------------------------------------------------- */
 const AC = {
   HUB_FLOOR_HALF: 18,        // terrace half-extent (m)
-  HUB_WALL_H: 3.0,           // café nook wall height
+  HUB_WALL_H: 9.0,           // café nook wall height (tripled for the 2× figures)
   CAFE_BACK_Z: 14.0,         // back wall plane (anchor-local +Z)
   DOME_RADIUS: 140,          // hub sky dome
-  ZONE_DIST: 420,            // zones sit this far from the hub along ring bearings
+  ZONE_DIST: 315,            // zones sit this far from the hub along ring bearings (was 420; −25%)
   ZONE_FLOOR_HALF: 30,       // zone landing-pad half-extent
   ARCH_RING: 15,             // hub portal arches this far from the anchor
   ARCH_ARC: 2.6,             // arc (radians) the nine arches span, front of terrace
@@ -63,7 +63,7 @@ const AC = {
   BLOOM_THRESHOLD: 0.85,     // emissive above this blooms
   STRING_LIGHT_EMISSIVE: 1.1,
   TRIM_EMISSIVE: 0.4,        // stays under threshold (no bloom)
-  TALK_REACH: 3.2,           // interaction radius (matches TALK_DIST_ACTUALITY)
+  TALK_REACH: 6.4,           // interaction radius (matches TALK_DIST_ACTUALITY)
   ZONE_COUNT: 9,
   STORE_KEY: 'fgsf.actuality',
   // dawn palette
@@ -469,7 +469,9 @@ function makeFigure(opts = {}) {
     box(0.16, 0.9, 0.16, -0.12, hipY - 0.45, 0, clothMat);
     box(0.16, 0.9, 0.16, 0.12, hipY - 0.45, 0, clothMat);
   }
-  group.scale.setScalar(scale);
+  // All Actuality figures stand twice life-size; the `scale` opt still allows
+  // per-figure trims on top.
+  group.scale.setScalar(scale * 2);
   const phase = rng() * 6.28;
   const baseY = group.position.y;
   function update(t) {
@@ -534,7 +536,7 @@ function buildHub(rng) {
   // it; it opens once every zone is seen — buildMirrorDoor owns the door itself).
   addBox(7.4, WH, 0.5, -6.3, WH / 2, BZ, wallMat);     // back — left of doorway
   addBox(7.4, WH, 0.5, 6.3, WH / 2, BZ, wallMat);      // back — right of doorway
-  addBox(3.2, WH - 2.6, 0.5, 0, WH - (WH - 2.6) / 2, BZ, wallMat); // lintel over the doorway
+  addBox(3.2, WH - 5.2, 0.5, 0, WH - (WH - 5.2) / 2, BZ, wallMat); // lintel — 5.2 m doorway opening
   addBox(0.5, WH, 6.5, -10, WH / 2, BZ - 3.25, wallMat); // left return
   addBox(0.5, WH, 6.5, 10, WH / 2, BZ - 3.25, wallMat);  // right return
   // Awning over the nook — striped canopy over wood beams.
@@ -721,6 +723,8 @@ function buildHub(rng) {
     group,
     structure,
     lights,
+    keyLight: key,
+    fillLight: fill,
     update,
     shePos: new THREE.Vector3(-6, 0, 10.4),
     dispose() {
@@ -797,11 +801,22 @@ export function createActuality(planet, worldUp, opts = {}) {
   // Zone tag 'hub' is always active; zone interactables (added later) filter on
   // the current activeZone.
   const interactables = [];
+
+  // Event lights dim toward `floor` while the player stands in them (a bright
+  // marker light up close washes out the character) and recover on leaving.
+  // Anchors are anchor-local, the same frame update() resolves the player into.
+  const eventLights = [];
+  function addEventLight(light, anchorPos, { near = 4.5, far = 9, floor = 0.12, onFade = null } = {}) {
+    eventLights.push({ light, anchor: anchorPos, base: light.intensity, near, far, floor, cur: 1, onFade });
+  }
+
   const she = {
     id: 'she', zone: 'hub', pos: hub.shePos.clone(),
     talking: false,
   };
   interactables.push(she);
+  addEventLight(hub.keyLight, she.pos);
+  addEventLight(hub.fillLight, she.pos);
 
   // She figure at her table.
   const sheFig = makeFigure({ seated: true, scale: 1, skin: 0xd8b48f, cloth: 0x9a6b7a, seed: 7 });
@@ -845,6 +860,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     const zlight = new THREE.PointLight(meta.tint, 1.1, 90, 2.0);
     zlight.position.set(0, 6, 0);
     zg.add(zlight);
+    // (registered against the zone's interactable below, once zones are built)
 
     // Return portal at zone-local (0,0,14), facing back toward the pad center.
     const retArch = buildPortalArch('0', 'CAFÉ', zoneGeos, zoneMats);
@@ -853,7 +869,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     zg.add(retArch);
 
     const rec = {
-      id: meta.id, frame, group: zg, retArch,
+      id: meta.id, frame, group: zg, retArch, zlight,
       structure: makeStructure(0, 0, 0,
         [{ x0: -ZH, x1: ZH, z0: -ZH, z1: ZH, y: 0 }], [], ZH + 1),
       r2: (ZH + 12) ** 2,
@@ -908,6 +924,14 @@ export function createActuality(planet, worldUp, opts = {}) {
   buildDialogueZones();
   buildAmbientZones();
   buildMirrorRoom();
+
+  // Dim each zone's tint light while the player stands with that zone's
+  // character, so the pad glow never washes out the figure they came to meet.
+  for (const it of interactables) {
+    if (it.zone === 'hub') continue; // hub key/fill registered above
+    const rec = zoneById[it.zone];
+    if (rec && rec.zlight) addEventLight(rec.zlight, it.pos);
+  }
 
   // --- Hub portal arches: nine, in a front arc on the terrace, one per zone.
   const hubPortals = [];
@@ -1275,6 +1299,17 @@ export function createActuality(planet, worldUp, opts = {}) {
   function update(t, dt, playerPos, sunDot = 1) {
     for (let i = 0; i < figures.length; i++) figures[i].update(t);
     hub.update(t); // hub breeze (always visible)
+
+    // Event lights dim out while the player stands in them (up close they wash
+    // out the figure they mark) and come back as the player leaves.
+    for (const el of eventLights) {
+      const d = playerPos.distanceTo(el.anchor);
+      const k = THREE.MathUtils.smoothstep(d, el.near, el.far);
+      const f = el.floor + (1 - el.floor) * k;
+      el.cur += (f - el.cur) * Math.min(1, 5 * dt);
+      el.light.intensity = el.base * el.cur;
+      if (el.onFade) el.onFade(el.cur);
+    }
     // Per-zone animation (only the active zone runs; the rest hold still).
     for (let i = 0; i < zoneUpdaters.length; i++) zoneUpdaters[i](t, dt, playerPos);
     audioUpdate(t, dt);
@@ -1374,7 +1409,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     const fill = new THREE.PointLight(0xfff0da, 0.5, 40, 2.0);
     fill.position.set(0, 3.5, -2); rec.group.add(fill);
     // Walls + ceiling enclosing the shop (open +Z for the return arch).
-    const RX = 9, RZ = 12, WH = 4.2;
+    const RX = 9, RZ = 12, WH = 12.6; // ceiling tripled for the 2× figures
     const shopMat = new THREE.MeshStandardMaterial({ color: 0xcfc3ac, roughness: 0.9, side: THREE.DoubleSide });
     zoneMats.push(shopMat);
     const wall = (w, h, x, y, z, ry) => {
@@ -1461,20 +1496,20 @@ export function createActuality(planet, worldUp, opts = {}) {
       const m = new THREE.Mesh(g, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, 0);
       rec.group.add(m); zoneGeos.push(g);
     };
-    // Dorm shell: 5m wide, 2.2m ceiling, z 4..9 (door gap on -Z toward corridor).
-    const DCH = 2.2;
+    // Dorm shell: 5m wide, 6.6m ceiling (tripled), z 4..9 (door gap on -Z toward corridor).
+    const DCH = 6.6;
     panel(dormMat, 5, DCH, 0, DCH / 2, 9, 0);          // dorm back
     panel(dormMat, 5, DCH, -2.5, DCH / 2, 6.5, Math.PI / 2);
     panel(dormMat, 5, DCH, 2.5, DCH / 2, 6.5, Math.PI / 2);
     panel(dormMat, 5, 5, 0, DCH, 6.5, 0, Math.PI / 2);  // dorm ceiling
     // Corridor (z 1..4), cool→warm vertex tint via two short wall segments +
     // ceiling beams that cross into a "4" (glyph).
-    panel(dormMat, 2.6, 2.6, -1.3, 1.3, 2.5, Math.PI / 2);
-    panel(aptMat, 2.6, 2.6, 1.3, 1.3, 2.5, Math.PI / 2);
-    addZoneBox(rec, 0.12, 0.12, 3, 0, 2.55, 2.5, 0x4a3a2a);         // beam along
-    addZoneBox(rec, 2.4, 0.12, 0.12, 0, 2.55, 1.8, 0x4a3a2a);  // beam across = "4"
-    // Apartment shell: 9m, 3.6m ceiling, z -12..0 (door gap on +Z).
-    const ACH = 3.6;
+    panel(dormMat, 2.6, 7.8, -1.3, 3.9, 2.5, Math.PI / 2);
+    panel(aptMat, 2.6, 7.8, 1.3, 3.9, 2.5, Math.PI / 2);
+    addZoneBox(rec, 0.12, 0.12, 3, 0, 7.65, 2.5, 0x4a3a2a);         // beam along
+    addZoneBox(rec, 2.4, 0.12, 0.12, 0, 7.65, 1.8, 0x4a3a2a);  // beam across = "4"
+    // Apartment shell: 9m, 10.8m ceiling (tripled), z -12..0 (door gap on +Z).
+    const ACH = 10.8;
     panel(aptMat, 9, ACH, 0, ACH / 2, -12, 0);
     panel(aptMat, 12, ACH, -4.5, ACH / 2, -6, Math.PI / 2);
     panel(aptMat, 12, ACH, 4.5, ACH / 2, -6, Math.PI / 2);
@@ -1525,7 +1560,9 @@ export function createActuality(planet, worldUp, opts = {}) {
     joshuaFig.group.position.set(0, 0, -4); joshuaFig.group.rotation.y = 0;
     rec.group.add(caitlynn.group, joshuaFig.group);
     figures.push(caitlynn, joshuaFig);
-    interactables.push({ id: 'joshuaCaitlynn', zone: 'z4', pos: zoneToAnchor(rec, 0, 0, -3.5), talking: false });
+    const coupleP = zoneToAnchor(rec, 0, 0, -3.5);
+    interactables.push({ id: 'joshuaCaitlynn', zone: 'z4', pos: coupleP, talking: false });
+    addEventLight(aptLight, coupleP);
 
     // Joshua paces the corridor (dorm ↔ apartment) until the scene fires, then
     // his scripted departure plays.
@@ -1852,7 +1889,11 @@ export function createActuality(planet, worldUp, opts = {}) {
     zoneGeos.push(coneGeo); zoneMats.push(coneMat);
     const wlight = new THREE.PointLight(0xffe6c0, 1.4, 34, 2.0);
     wlight.position.set(0, 5, -58); rec.group.add(wlight);
-    interactables.push({ id: 'z1woman', zone: 'z1', pos: zoneToAnchor(rec, 0, 0, -55), talking: false });
+    const womanPos = zoneToAnchor(rec, 0, 0, -55);
+    interactables.push({ id: 'z1woman', zone: 'z1', pos: womanPos, talking: false });
+    // Her shaft of light steps aside while you stand with her (the visible
+    // cone fades with the point light).
+    addEventLight(wlight, womanPos, { onFade: (f) => { coneMat.opacity = 0.1 * f; } });
 
     // The bird — the PDD's core mechanic: it perches ahead of you and flits to
     // the next waypoint (sidewalk → alley → park → forest → the woman) each time
@@ -1929,7 +1970,7 @@ export function createActuality(planet, worldUp, opts = {}) {
   // into extruding directions", kept abstract/tasteful).
   function buildZone2() {
     const rec = zoneById['z2'];
-    const R = 12, WH = 11;
+    const R = 12, WH = 33; // chamber height tripled; the shell stretches with it
     // Faceted red-crystal chamber (Ch.2 "Body"): two figures embrace at the
     // centre, silhouetted against a rising burst of light, soul-gems beside them,
     // a sunset window in one wall — "two drawn together as one unit of creation".
@@ -1953,7 +1994,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     const shellGeo = new THREE.IcosahedronGeometry(R * 1.15, 3);
     {
       const pos = shellGeo.attributes.position, cr = mulberry32(0x2b0b), v = new THREE.Vector3();
-      for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i); v.multiplyScalar(1 + (cr() - 0.5) * 0.16); pos.setXYZ(i, v.x, v.y * 0.85, v.z); }
+      for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i); v.multiplyScalar(1 + (cr() - 0.5) * 0.16); pos.setXYZ(i, v.x, v.y * 0.85 * (WH / 11), v.z); }
     }
     const shell = new THREE.Mesh(shellGeo, crystalMat); shell.position.set(0, WH / 2 - 1, 0); rec.group.add(shell);
     zoneGeos.push(shellGeo);
@@ -2276,7 +2317,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     rec.group.add(new THREE.AmbientLight(0x101018, 0.35));
     addDome(rec, 60, '#04040a', '#08080f');
     // Enclose the dark room (walls + ceiling, door gap on +Z, window on +X).
-    const RX = 8, RZ = 10, WH = 7.2; // room made twice as tall
+    const RX = 8, RZ = 10, WH = 21.6; // ceiling tripled for the 2× figures
     const roomMat = new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.95, side: THREE.DoubleSide });
     zoneMats.push(roomMat);
     const wall = (w, h, x, y, z, ry, rx = 0) => { const g = new THREE.PlaneGeometry(w, h); const m = new THREE.Mesh(g, roomMat); m.position.set(x, y, z); m.rotation.set(rx, ry, 0); rec.group.add(m); zoneGeos.push(g); };
@@ -2420,6 +2461,9 @@ export function createActuality(planet, worldUp, opts = {}) {
     }
     const fireLight = new THREE.PointLight(0xff9040, 1.6, 30, 2.0);
     fireLight.position.set(0, 1.5, -6); rec.group.add(fireLight);
+    // Its intensity is burn-driven each frame, so the stand-in-the-light fade
+    // is multiplied into that writer below instead of registering it here.
+    const fireAnchor = zoneToAnchor(rec, 0, 1, -6);
     // Embers.
     const N = 60;
     const eGeo = new THREE.PlaneGeometry(0.06, 0.06);
@@ -2442,7 +2486,9 @@ export function createActuality(planet, worldUp, opts = {}) {
     const gran = makeFigure({ seated: true, skin: 0xd8c0a8, cloth: 0xa0a0b0, seed: 81 });
     gran.group.position.set(15, 0.4, -4); gran.group.rotation.y = -Math.PI / 2;
     rec.group.add(gran.group); figures.push(gran);
-    interactables.push({ id: 'grandmother', zone: 'z8', pos: zoneToAnchor(rec, 13.2, 0, -4), talking: false });
+    const granPos = zoneToAnchor(rec, 13.2, 0, -4);
+    interactables.push({ id: 'grandmother', zone: 'z8', pos: granPos, talking: false });
+    addEventLight(candle, granPos);
 
     // The eternal star — a bright pole star high overhead that kindles as the
     // fire dies (the finite flame giving way to the endless sky). A soft halo +
@@ -2462,7 +2508,7 @@ export function createActuality(planet, worldUp, opts = {}) {
 
     // Reset the burn-down timer each time the player enters zone 8.
     zoneEnterCallbacks['z8'] = () => { z8Burn = 0; };
-    zoneUpdaters.push((t, dt) => {
+    zoneUpdaters.push((t, dt, playerPos) => {
       if (activeZone !== 'z8') return;
       z8Burn += dt;
       const burn = Math.max(0.12, 1 - z8Burn / 90); // 1 → embers over ~90 s
@@ -2483,7 +2529,9 @@ export function createActuality(planet, worldUp, opts = {}) {
         const s = burn * (0.9 + Math.sin(t * 8 + i) * 0.12);
         flames[i].scale.set(s, s + Math.sin(t * 6 + i) * 0.1, s);
       }
-      fireLight.intensity = 0.3 + burn * 1.6;
+      // Standing in the firelight dims it, same contract as the event lights.
+      const fireK = THREE.MathUtils.smoothstep(playerPos.distanceTo(fireAnchor), 4.5, 9);
+      fireLight.intensity = (0.3 + burn * 1.6) * (0.12 + 0.88 * fireK);
       flameMat.opacity = 0.3 + burn * 0.5;
       night.mat.opacity = (1 - burn) * 0.9; // starfield fades in as the fire dies
       dusk.mat.opacity = 0.4 + burn * 0.6;
