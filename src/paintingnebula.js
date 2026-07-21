@@ -1,20 +1,21 @@
 // Painting nebulae (owner feature) — every titled painting in /artgallery
 // becomes a flyable nebula in the OUTER SHELL of the universe (beyond all the
-// planets, inside the sun and the NAV chart edge). Unlike the hand-authored
-// configs in deepnebula.js, these are built by pixel-sampling the painting
-// itself: seen front-on (they face the inner system, so you approach them
-// face-first flying outward) the original painting reads as the whole nebula;
-// flown around or through, the depth scatter and per-nebula shaping make it
-// just a beautiful cloud in the painting's colors.
+// planets, inside the sun and the NAV chart edge). Each painting contributes
+// only its COLORS (a handful of extracted palette swatches) and its NAV name;
+// the SHAPE comes from one of five real nebula morphologies — Emission,
+// Reflection, Dark, Planetary, Supernova Remnant (see nebulatypes.js). An
+// earlier design laid the painting's pixels face-on like a billboard, but from
+// 95k-140k out that collapsed into a smooth glowing oval indistinguishable from
+// a distant lit planet; the volumetric types give each nebula an irregular
+// silhouette and internal structure that survives at range.
 //
-// Recognizability rules the shaping: per-nebula variation lives almost
-// entirely in DEPTH (slab thickness, dome/ripple/shear z-profiles, luminance
-// relief), which is invisible from the front vantage. In-plane distortion is
-// tiny and edge-weighted so the painting's center stays pinned.
+// The type is picked deterministically from the painting itself: very dark art
+// becomes a Dark nebula, a few titles are pinned (TYPE_OVERRIDES), and a seeded
+// wheel spreads the rest so all five types appear.
 //
-// Placement, shape, and sampling are all seeded from the painting's filename,
-// so the layout is stable across sessions and adding a new painting later
-// never moves the existing ones.
+// Placement, palette, type, and shape are all seeded from the painting's
+// filename, so the layout is stable across sessions and adding a new painting
+// later never moves or reclassifies the existing ones.
 //
 // Registration is synchronous (before snapshotShiftables/nav), but the pixels
 // load and build asynchronously after boot — the game starts instantly and
@@ -24,14 +25,13 @@ import * as THREE from 'three';
 import { C } from './constants.js';
 import { addShiftable } from './origin.js';
 import { addBody } from './gravity.js';
-import { settings } from './settings.js';
 import { SUN } from './planet.js';
-import { deepNebulae, makeCloud } from './deepnebula.js';
-import gasFrag from './shaders/deepnebula.frag?raw';
-import dustFrag from './shaders/deepnebulaDust.frag?raw';
+import { deepNebulae } from './deepnebula.js';
+import { buildNebulaOfType } from './nebulatypes.js';
 
 // Built painting nebulae, for debug/verification. Each: { record, file, url,
-// dir, distance, radius, P } where `record` is the shared deepNebulae entry.
+// seed, dir, distance, radius } where `record` is the shared deepNebulae entry
+// and `record.type` is the assigned nebula morphology once built.
 export const paintingNebulae = [];
 
 // Hand-crafted nebulae already exist for these paintings (deepnebula.js) —
@@ -162,62 +162,65 @@ function computePlacement(seed, takenDirs) {
   return { rng, dir, distance, radius, mass, quaternion: q };
 }
 
-// --- per-nebula shape: "each one a little different", painting preserved ---
+// --- nebula type assignment (deterministic per painting) ---
 
-function shapeParams(rng, R) {
-  return {
-    R,
-    depth: R * (0.45 + 0.4 * rng()), // slab thickness (z scatter)
-    zProfile: ['dome', 'ripple', 'shear'][(rng() * 3) | 0],
-    zAmp: R * (0.1 + 0.15 * rng()),
-    relief: (rng() < 0.5 ? -1 : 1) * (0.2 + 0.3 * rng()), // luminance -> z push
-    swirl: (rng() - 0.5) * 0.5, // |swirl| <= 0.25 rad, edge-weighted
-    arms: 2 + ((rng() * 4) | 0),
-    filAmp: R * (0.03 + 0.05 * rng()),
-    waveAmp: R * (0.02 + 0.02 * rng()),
-    waveF: 3 + 3 * rng(),
-    phase: rng() * Math.PI * 2,
-    dustOpacity: 0.22 + 0.16 * rng(), // near The Sisters' 0.25 — heavier crushed dark detail once the gas dimmed
-    sizeMul: 0.85 + 0.35 * rng(),
-  };
+// A few paintings are pinned to an evocative type; everything else is chosen
+// from the art's own statistics + a seeded wheel. Filenames as they appear in
+// /artgallery. Extend this to rebalance the distribution.
+const TYPE_OVERRIDES = {
+  'Supernova.webp': 'remnant',
+  'icarus.webp': 'planetary',
+  'transcend.webp': 'planetary',
+  'Ancestors.webp': 'dark',
+  'poetry of solace.webp': 'dark',
+  'sweet dreams.webp': 'reflection',
+  'dream mountain.webp': 'reflection',
+};
+
+// Weighted wheel for the unpinned majority. Emission is the workhorse; dark is
+// rare because very-dark paintings already route there by luminance below.
+const TYPE_WHEEL = [
+  ['emission', 0.30],
+  ['reflection', 0.25],
+  ['remnant', 0.20],
+  ['planetary', 0.15],
+  ['dark', 0.10],
+];
+
+function classifyNebula(file, seed, stats) {
+  if (TYPE_OVERRIDES[file]) return TYPE_OVERRIDES[file];
+  // Genuinely dark art reads best as a light-blocking Dark nebula.
+  if (stats.meanL < 55 && stats.darkFrac > 0.4) return 'dark';
+  // Fresh seeded stream (xor keeps it independent of placement/build streams).
+  let r = mulberry32(seed ^ 0x51ed270b)();
+  for (const [type, w] of TYPE_WHEEL) {
+    if (r < w) return type;
+    r -= w;
+  }
+  return 'emission';
 }
 
-// Local frame: painting flat in XY, +Z toward the viewer at the origin.
-// Almost all the character goes into z, which the front vantage can't see;
-// in-plane displacement is weighted by (r/R)^2 so the center stays pinned.
-function warpGentle(x, y, z, P) {
-  const R = P.R;
-  const r = Math.hypot(x, y);
-  if (P.zProfile === 'dome') z += P.zAmp * (1 - (r / R) * (r / R));
-  else if (P.zProfile === 'ripple') z += P.zAmp * Math.sin(2.2 * x / R + P.phase) * Math.cos(1.7 * y / R);
-  else z += P.zAmp * (x / R); // shear
+// --- palette extraction ---
 
-  const w = Math.min(1, (r / R) * (r / R));
-  let a = Math.atan2(y, x) + P.swirl * w;
-  const r2 = r + Math.sin(a * P.arms + P.phase) * P.filAmp * w;
-  x = r2 * Math.cos(a);
-  y = r2 * Math.sin(a);
-  x += Math.sin(y * P.waveF / R) * P.waveAmp * w;
-  y += Math.cos(x * P.waveF / R) * P.waveAmp * w;
-  return [x, y, z];
-}
-
-// --- pixel sampling ---
-
-const GRID = 128;
+const GRID = 64; // palette + stats only — no per-pixel layout, so coarse is fine
 
 function smooth01(a, b, x) {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
 }
 
-// Draw the painting CONTAINED (aspect kept — portrait paintings become
-// portrait nebulae) into a GRID^2 canvas and read every pixel. Colors are
-// converted sRGB -> linear for the vertex attributes (the renderer runs ACES
-// + color management; raw sRGB would wash out). The elliptical mask feathers
-// the painting's edges into space and gates every layer, so nothing samples
-// the empty canvas border.
-function samplePainting(img) {
+// Linear-space RGB (the vertex colours feed a raw shader, no tone mapping) from
+// an sRGB byte triple.
+function toLinear(r, g, b) {
+  return [Math.pow(r / 255, 2.2), Math.pow(g / 255, 2.2), Math.pow(b / 255, 2.2)];
+}
+
+// Draw the painting CONTAINED (aspect kept) into a GRID^2 canvas and reduce it
+// to a small palette + a couple of statistics. The type builders in
+// nebulatypes.js consume the palette; classifyNebula consumes the stats. The
+// elliptical mask feathers out the empty canvas border so it never pollutes the
+// colours. Returns { palette:{primary,secondary,accent,bright,dark}, stats, navColor }.
+function extractPalette(img) {
   const G = GRID;
   const ar = img.width / img.height;
   const ax = ar >= 1 ? 1 : ar; // half-extent fractions, long side = 1
@@ -230,173 +233,125 @@ function samplePainting(img) {
   const px = cx.getImageData(0, 0, G, G).data;
 
   const N = G * G;
-  const L = new Float32Array(N);
-  const colLin = new Float32Array(N * 3);
-  const mask = new Float32Array(N);
-  let meanL = 0;
-  let maskSum = 0;
+  const BINS = 12;
+  const binW = new Float64Array(BINS);
+  const binR = new Float64Array(BINS), binG = new Float64Array(BINS), binB = new Float64Array(BINS);
+  const binSat = new Float64Array(BINS); // for the accent's mean-saturation pick
+  // bright / dark accumulators (linear, mask-weighted)
+  let brW = 0, brR = 0, brG = 0, brB = 0;
+  let dkW = 0, dkR = 0, dkG = 0, dkB = 0;
+  let meanL = 0, maskSum = 0, darkMask = 0;
+  // primary fallback: overall mask-weighted linear mean
+  let mR = 0, mG = 0, mB = 0;
   let nr = 0, ng = 0, nb = 0, nw = 0; // navColor accumulator (stays sRGB)
+
   for (let k = 0; k < N; k++) {
     const i = k % G;
     const j = (k / G) | 0;
     const u = (i + 0.5) / G - 0.5;
     const v = (j + 0.5) / G - 0.5;
-    const re = Math.hypot(u / (0.5 * ax), v / (0.5 * ay)); // 1 at the ellipse edge
-    mask[k] = 1 - smooth01(0.75, 1.0, re);
+    const re = Math.hypot(u / (0.5 * ax), v / (0.5 * ay));
+    const mask = 1 - smooth01(0.75, 1.0, re);
+    if (mask <= 0.01) continue;
 
     const p = k * 4;
     const r = px[p], g = px[p + 1], b = px[p + 2];
     const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-    L[k] = lum;
-    colLin[k * 3] = Math.pow(r / 255, 2.2);
-    colLin[k * 3 + 1] = Math.pow(g / 255, 2.2);
-    colLin[k * 3 + 2] = Math.pow(b / 255, 2.2);
-    meanL += lum * mask[k];
-    maskSum += mask[k];
+    const lin = toLinear(r, g, b);
+    meanL += lum * mask;
+    maskSum += mask;
+    if (lum < 50) darkMask += mask;
+    mR += lin[0] * mask; mG += lin[1] * mask; mB += lin[2] * mask;
 
-    const mx = Math.max(r, g, b);
-    const sat = mx > 0 ? (mx - Math.min(r, g, b)) / mx : 0;
-    if (mask[k] > 0.5 && sat > 0.25 && lum > 60 && lum < 220) {
-      const w = sat * mask[k];
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    const sat = mx > 0 ? d / mx : 0;
+
+    // hue bin, weighted by saturation × mask so grey pixels don't smear the bins
+    if (sat > 0.2 && lum > 40 && lum < 220) {
+      let hue = 0;
+      if (d > 0) {
+        if (mx === r) hue = ((g - b) / d) % 6;
+        else if (mx === g) hue = (b - r) / d + 2;
+        else hue = (r - g) / d + 4;
+      }
+      let bin = Math.floor(((hue + 6) % 6) * 2) % BINS; // 6 hue sextants → 12 bins
+      const w = sat * mask;
+      binW[bin] += w;
+      binR[bin] += lin[0] * w; binG[bin] += lin[1] * w; binB[bin] += lin[2] * w;
+      binSat[bin] += sat * w;
+    }
+
+    if (lum > 200) { brW += mask; brR += lin[0] * mask; brG += lin[1] * mask; brB += lin[2] * mask; }
+    if (lum < 60) { dkW += mask; dkR += lin[0] * mask; dkG += lin[1] * mask; dkB += lin[2] * mask; }
+
+    // NAV dot: saturation-weighted mid-tone mean (kept in sRGB, unchanged).
+    if (mask > 0.5 && sat > 0.25 && lum > 60 && lum < 220) {
+      const w = sat * mask;
       nr += r * w; ng += g * w; nb += b * w; nw += w;
     }
   }
-  meanL /= Math.max(1e-6, maskSum);
+
+  maskSum = Math.max(1e-6, maskSum);
+  meanL /= maskSum;
+  const meanLin = [mR / maskSum, mG / maskSum, mB / maskSum];
+
+  const binMean = (bi) => (binW[bi] > 1e-6 ? [binR[bi] / binW[bi], binG[bi] / binW[bi], binB[bi] / binW[bi]] : meanLin);
+  // rank bins by weight
+  const order = [...Array(BINS).keys()].sort((a, b) => binW[b] - binW[a]);
+  const heaviest = binW[order[0]] > 1e-6 ? order[0] : -1;
+  const primary = heaviest >= 0 ? binMean(heaviest) : meanLin;
+
+  // secondary: heaviest bin at least 3 hue-bins away (circular) from primary.
+  let secBin = -1;
+  if (heaviest >= 0) {
+    for (const bi of order) {
+      const dist = Math.min((bi - heaviest + BINS) % BINS, (heaviest - bi + BINS) % BINS);
+      if (dist >= 3 && binW[bi] > 1e-6) { secBin = bi; break; }
+    }
+  }
+  const secondary = secBin >= 0 ? binMean(secBin) : (order[1] !== undefined && binW[order[1]] > 1e-6 ? binMean(order[1]) : primary);
+
+  // accent: remaining bin with the highest mean saturation.
+  let accBin = -1, accScore = -Infinity;
+  for (let bi = 0; bi < BINS; bi++) {
+    if (bi === heaviest || bi === secBin || binW[bi] < 1e-6) continue;
+    const ms = binSat[bi] / binW[bi];
+    if (ms > accScore) { accScore = ms; accBin = bi; }
+  }
+  const accent = accBin >= 0 ? binMean(accBin) : secondary;
+
+  const lift = (c, to) => [Math.max(c[0], to), Math.max(c[1], to), Math.max(c[2], to)];
+  const bright = brW > 1e-6 ? [brR / brW, brG / brW, brB / brW] : lift(primary, 0.85);
+  const dark = dkW > 1e-6
+    ? [(dkR / dkW) * 0.4, (dkG / dkW) * 0.4, (dkB / dkW) * 0.4]
+    : [primary[0] * 0.15, primary[1] * 0.15, primary[2] * 0.15];
 
   // NAV dot color: saturation-weighted mean, lifted so it reads on the chart.
   let navColor = '#8fa0c8';
   if (nw > 0) {
     let r = nr / nw, g = ng / nw, b = nb / nw;
     const mx = Math.max(r, g, b, 1);
-    const lift = 225 / mx;
-    r = Math.min(255, r * lift); g = Math.min(255, g * lift); b = Math.min(255, b * lift);
+    const l = 225 / mx;
+    r = Math.min(255, r * l); g = Math.min(255, g * l); b = Math.min(255, b * l);
     navColor = '#' + [r, g, b].map((c) => Math.round(c).toString(16).padStart(2, '0')).join('');
   }
 
-  return { G, L, colLin, mask, meanL, ax, ay, navColor };
+  const stats = { meanL, darkFrac: darkMask / maskSum };
+  return { palette: { primary, secondary, accent, bright, dark }, stats, navColor };
 }
 
-// --- geometry: one additive Points (gas + stars) and maybe one dust Points ---
+// --- build: pick a type from the art, then hand off to the type builder ---
 
-function buildLayers(item, sample) {
-  const { record, radius, P } = item;
-  const { G, L, colLin, mask } = sample;
-  const N = G * G;
-  const rng = mulberry32(item.seed ^ 0x9e3779b9); // fresh stream: sampling only
-  const low = settings.quality === 'low';
-
-  const xAt = (k) => (((k % G) + 0.5) / G - 0.5) * 2 * radius; // local, painting frame
-  const yAt = (k) => (0.5 - (((k / G) | 0) + 0.5) / G) * 2 * radius;
-
-  // Gas: presence from luminance (shadows thin, highlights slightly restrained
-  // so the additive pile-up doesn't torch them), gated by the elliptical mask.
-  const gasW = new Float32Array(N);
-  let maxG = 1e-6;
-  for (let k = 0; k < N; k++) {
-    const w = mask[k] * smooth01(12, 72, L[k]) * (1 - 0.5 * smooth01(205, 255, L[k]));
-    gasW[k] = w;
-    if (w > maxG) maxG = w;
-  }
-
-  const pos = [], col = [], siz = [];
-  // Density scales with the painting's area so a big nebula reads as filled,
-  // not sparse — matched to The Sisters' points-per-area and capped for perf.
-  const areaScale = Math.min(2.4, (radius / RADIUS_MIN) ** 2);
-  const GAS_N = Math.round((low ? 6500 : 10500) * areaScale);
-  let placed = 0, tries = 0;
-  while (placed < GAS_N && tries < GAS_N * 10) {
-    tries++;
-    const k = (rng() * N) | 0;
-    if (rng() > gasW[k] / maxG) continue;
-    const jx = (rng() - 0.5) * radius * 0.05;
-    const jy = (rng() - 0.5) * radius * 0.05;
-    const z = (rng() - 0.5) * P.depth + (L[k] / 255 - 0.5) * P.depth * P.relief;
-    const wp = warpGentle(xAt(k) + jx, yAt(k) + jy, z, P);
-    const b = (0.02 + 0.04 * Math.sqrt(L[k] / 255)) * (0.7 + 0.6 * rng());
-    pos.push(wp[0], wp[1], wp[2]);
-    col.push(colLin[k * 3] * b, colLin[k * 3 + 1] * b, colLin[k * 3 + 2] * b);
-    siz.push(radius * (0.045 + 0.055 * rng()) * P.sizeMul);
-    placed++;
-  }
-
-  // Stars: the painting's bright specks, embedded at painting positions so
-  // they land where the highlights are. A few cross the bloom threshold.
-  const bright = [];
-  for (let k = 0; k < N; k++) if (L[k] > 208 && mask[k] > 0.3) bright.push(k);
-  const SN = bright.length ? Math.min(low ? 300 : 500, 90 + bright.length) : 0;
-  for (let s = 0; s < SN; s++) {
-    const k = bright[(rng() * bright.length) | 0];
-    const z = (rng() - 0.5) * P.depth;
-    const wp = warpGentle(xAt(k), yAt(k), z, P);
-    const warm = rng() < 0.25;
-    // Cubic tail like the hand-made nebulae: most stars stay under the bloom
-    // threshold, only the tail blooms — specks on highlights, not blanket glow.
-    const b = 0.35 + 0.85 * Math.pow(rng(), 3);
-    pos.push(wp[0], wp[1], wp[2]);
-    col.push((warm ? 1 : 0.85) * b, (warm ? 0.8 : 0.9) * b, (warm ? 0.6 : 1) * b);
-    siz.push(radius * (0.006 + 0.006 * rng()));
-  }
-
-  const margin = radius * 1.45; // warp + max sprite radius stays inside
-  const gasPts = makeCloud(record.mats, record.intensity, {
-    positions: new Float32Array(pos),
-    colors: new Float32Array(col),
-    sizes: new Float32Array(siz),
-    frag: gasFrag,
-    blending: THREE.AdditiveBlending,
-    renderOrder: -3,
-  });
-  // Unlike the two hand-made nebulae these are 24 distant bodies — give them a
-  // real bounding sphere and let the frustum cull whole nebulae behind you.
-  gasPts.geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), margin);
-  gasPts.frustumCulled = true;
-  record.group.add(gasPts);
-
-  // Dust: every painting's darkest mass becomes an occluding layer — the
-  // Sisters' dark-spine recipe. The count follows the dark mass itself (the
-  // rejection sampler normalizes by maxD, not mass), so a bright painting
-  // with one dark speck gets a wisp, not the full budget piled on it.
-  {
-    const dW = new Float32Array(N);
-    let maxD = 1e-6;
-    let dSum = 0;
-    for (let k = 0; k < N; k++) {
-      const w = mask[k] * (L[k] < 80 ? 1 - L[k] / 80 : 0);
-      dW[k] = w;
-      dSum += w;
-      if (w > maxD) maxD = w;
-    }
-    const DUST_N = Math.min(low ? 1200 : 2000, Math.round((dSum / maxD) * 2));
-    if (maxD > 1e-3 && DUST_N > 20) {
-      const dp = [], dc = [], ds = [];
-      let dPlaced = 0, dTries = 0;
-      while (dPlaced < DUST_N && dTries < DUST_N * 10) {
-        dTries++;
-        const k = (rng() * N) | 0;
-        if (rng() > dW[k] / maxD) continue;
-        const z = (rng() - 0.5) * P.depth * 0.8;
-        const wp = warpGentle(xAt(k), yAt(k), z, P);
-        dp.push(wp[0], wp[1], wp[2]);
-        dc.push(colLin[k * 3] * 0.5, colLin[k * 3 + 1] * 0.5, colLin[k * 3 + 2] * 0.55);
-        ds.push(radius * (0.08 + 0.08 * rng()));
-        dPlaced++;
-      }
-      const dustPts = makeCloud(record.mats, record.intensity, {
-        positions: new Float32Array(dp),
-        colors: new Float32Array(dc),
-        sizes: new Float32Array(ds),
-        frag: dustFrag,
-        blending: THREE.NormalBlending,
-        renderOrder: -1,
-        opacity: P.dustOpacity,
-      });
-      dustPts.geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), margin);
-      dustPts.frustumCulled = true;
-      record.group.add(dustPts);
-    }
-  }
-
-  record.navColor = sample.navColor;
+function buildLayers(item, extracted) {
+  const { record, seed, radius } = item;
+  const { palette, stats, navColor } = extracted;
+  const type = classifyNebula(item.file, seed, stats);
+  // Build stream: independent of the placement stream (computePlacement) so the
+  // geometry is stable and adding a painting never disturbs the others.
+  const rng = mulberry32(seed ^ 0x9e3779b9);
+  buildNebulaOfType(type, { record, radius, rng, palette });
+  record.navColor = navColor;
+  record.type = type;
   record.built = true;
 }
 
@@ -410,7 +365,7 @@ function startBuildQueue() {
     const img = new Image();
     img.onload = () => {
       try {
-        buildLayers(item, samplePainting(img));
+        buildLayers(item, extractPalette(img));
       } catch (e) {
         console.warn('painting nebula build failed:', item.file, e);
       }
@@ -438,7 +393,7 @@ export function initPaintingNebulae(scene) {
   const takenDirs = [];
   for (const { file, url } of entries) {
     const seed = hashStr(file);
-    const { rng, dir, distance, radius, mass, quaternion } = computePlacement(seed, takenDirs);
+    const { dir, distance, radius, mass, quaternion } = computePlacement(seed, takenDirs);
     takenDirs.push(dir);
 
     const group = new THREE.Group();
@@ -456,17 +411,18 @@ export function initPaintingNebulae(scene) {
       logDist: C.NEBULA_LOG_DIST,
       mats: [], // live array — updateDeepNebula picks up clouds as they land
       intensity: 1.0,
-      // Painting front (+Z local) in world space: updateDeepNebula lifts the
-      // brightness toward full when the player views it from this side, so the
-      // painting reads perfectly face-on while every other angle stays hazy.
-      facing: new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion),
+      // No `facing`: the old billboard design brightened when viewed face-on
+      // (a uniform lit disc — the "planet" read). Volumetric types have real
+      // silhouettes, so updateDeepNebula's facing boost is deliberately skipped
+      // (its `if (n.facing)` guard). Planetary nebulae set coreFade at build.
+      facing: null,
       coreFade: null,
       fadeStart: 0,
       fadeEnd: 0,
       built: false,
     };
     deepNebulae.push(record);
-    paintingNebulae.push({ record, file, url, seed, dir, distance, radius, P: shapeParams(rng, radius) });
+    paintingNebulae.push({ record, file, url, seed, dir, distance, radius });
   }
 
   startBuildQueue();
