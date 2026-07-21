@@ -114,3 +114,17 @@ export function makeStarburst(cfg) {
   const s = (cfg.spiral.flareScale || 6) * core.coreR;
   return makeSprite(makeStarburstTexture(core.coreColor), s, 1, 2);
 }
+
+// Generalized versions for any nebula (the painting nebulae's planetary /
+// remnant cores). `color` is any THREE.Color arg (hex number, string, Color).
+// `worldRadius` is the halo's on-screen radius in world units; the sprite is
+// scaled to a diameter with the same soft-edge headroom makeGlow uses.
+export function makeGlowSprite(color, worldRadius, opacity = 0.5) {
+  return makeSprite(makeGlowTexture(color), worldRadius * 2.2, opacity, 1);
+}
+
+// A four-point flare sized directly in world units (unlike makeStarburst,
+// which multiplies a config coreR). For hot central stars of dying-star nebulae.
+export function makeStarburstSprite(color, worldSize, opacity = 1) {
+  return makeSprite(makeStarburstTexture(color), worldSize, opacity, 2);
+}
