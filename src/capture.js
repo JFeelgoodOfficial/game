@@ -10,6 +10,15 @@
 // buttons) is layered on afterwards via an SVG <foreignObject> snapshot, with
 // the cockpit-frame <img> layers drawn in between. Anything tagged
 // data-nocapture (the shutter flash, the REC dot) is excluded.
+//
+// Video: rather than record the full-resolution WebGL canvas directly (a large
+// surface + software VP9 encode that made gameplay choppy, and which can't see
+// the DOM dialogue), we composite each frame onto a small 720p offscreen 2D
+// canvas — the scaled scene plus the current dialogue drawn with 2D text APIs —
+// and record that. updateRecordingFrame runs from the frame loop in the same
+// task as composer.render(), for the same preserveDrawingBuffer reason.
+
+import { getDialogueDisplay } from './dialogue.js';
 
 const CSS = `
 #capBtn {
@@ -96,6 +105,17 @@ let recChunks = [];
 let recording = false;
 let recSeconds = 0;
 const REC_MAX = 180; // auto-stop, seconds — bounds in-memory blob size
+
+// video is composited onto a small offscreen canvas (scene + dialogue), and
+// that canvas is what MediaRecorder captures — these exist only while recording
+let recCanvas = null; // offscreen 2D compositing canvas
+let recCtx = null;
+let recStream = null;
+let recTrack = null; // CanvasCaptureMediaStreamTrack (for requestFrame), may be null
+let recNextFrame = 0; // ms timestamp accumulator for the fps throttle
+const REC_HEIGHT = 720; // capture height; width follows the window aspect
+const REC_FPS = 30;
+const REC_BPS = 8_000_000; // 8 Mbps — starfield/noise content is bitrate-hungry
 
 let galleryOpen = false;
 
@@ -236,7 +256,11 @@ function flashShutter() {
 // --- recording ------------------------------------------------------------
 
 function pickMimeType() {
-  const opts = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  // VP8 first: canvas MediaRecorder encoding is software libvpx in practice, and
+  // realtime VP8 is much cheaper per frame than VP9. At a fixed 8 Mbps for
+  // 720p30 VP9's better compression buys nothing, while its CPU cost is exactly
+  // what dropped frames. Only recording uses this — photos are unaffected.
+  const opts = ['video/webm;codecs=vp8', 'video/webm;codecs=vp9', 'video/webm'];
   for (const t of opts) {
     if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
   }
@@ -245,14 +269,44 @@ function pickMimeType() {
 
 export function toggleRecording() {
   if (recording) { stopRecording(); return; }
-  if (!renderer || !renderer.domElement.captureStream || !window.MediaRecorder) {
+  if (!renderer || !window.MediaRecorder) {
     showToast('RECORDING NOT SUPPORTED');
     return;
   }
   try {
-    const stream = renderer.domElement.captureStream(30); // silent — video only
+    const gl = renderer.domElement;
+    // fixed-size offscreen canvas: aspect of the current window, capped at 720
+    // tall, even width (encoders reject odd dimensions). Size stays fixed for
+    // the whole recording — resizing a captured canvas mid-stream glitches
+    // encoders — so mid-recording resizes are letterboxed instead.
+    const aspect = gl.width / gl.height;
+    recCanvas = document.createElement('canvas');
+    recCanvas.height = REC_HEIGHT;
+    recCanvas.width = Math.round((REC_HEIGHT * aspect) / 2) * 2;
+    recCtx = recCanvas.getContext('2d', { alpha: false });
+    if (!recCtx || !recCanvas.captureStream) throw new Error('unsupported');
+
+    // Prefer explicit frame control: captureStream(0) + requestFrame() emits
+    // exactly one encoded frame per composite draw — no duplicate-frame encoding
+    // and no reliance on the browser's dirty-canvas heuristics. Fall back to
+    // auto mode where requestFrame is unavailable.
+    recStream = recCanvas.captureStream(0);
+    recTrack = recStream.getVideoTracks()[0];
+    if (!recTrack || typeof recTrack.requestFrame !== 'function') {
+      if (typeof recStream.requestFrame === 'function') {
+        recTrack = recStream; // old Firefox: requestFrame lives on the stream
+      } else {
+        recTrack = null;
+        recStream.getTracks().forEach((t) => t.stop());
+        recStream = recCanvas.captureStream(REC_FPS); // auto mode fallback
+      }
+    }
+
     const mimeType = pickMimeType();
-    mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    mediaRecorder = new MediaRecorder(recStream, {
+      ...(mimeType ? { mimeType } : {}),
+      videoBitsPerSecond: REC_BPS,
+    });
     recChunks = [];
     mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
     mediaRecorder.onstop = () => {
@@ -261,12 +315,14 @@ export function toggleRecording() {
       if (blob.size) addItem('video', blob);
       showToast('CLIP SAVED — PICS');
     };
-    mediaRecorder.start();
+    mediaRecorder.start(1000); // 1s timeslice: bounds chunk memory, less lost on failure
     recording = true;
     recSeconds = 0;
+    recNextFrame = 0;
     recDot.classList.add('on');
     recDotTime.textContent = 'REC 0:00';
   } catch {
+    releaseRecordingSurface();
     showToast('RECORDING FAILED');
   }
 }
@@ -276,6 +332,158 @@ function stopRecording() {
   recording = false;
   recDot.classList.remove('on');
   try { mediaRecorder.stop(); } catch { /* already stopped */ }
+  // safe to tear down now: the recorder already holds its data; onstop fires
+  // async and only touches recChunks
+  releaseRecordingSurface();
+}
+
+function releaseRecordingSurface() {
+  if (recStream) recStream.getTracks().forEach((t) => t.stop());
+  recStream = null;
+  recTrack = null;
+  recCtx = null;
+  recCanvas = null;
+}
+
+// Composite one video frame: scaled scene + dialogue. Must run in the same task
+// as composer.render() — the WebGL canvas has no preserveDrawingBuffer, so its
+// pixels are only readable before this task ends (same as capturePendingPhoto).
+export function updateRecordingFrame(now) {
+  if (!recording || !recCtx) return;
+  // throttle to REC_FPS; rAF runs at the display refresh (often 60/120hz)
+  if (now < recNextFrame) return;
+  // drift-free accumulator, but never queue a burst of catch-up frames after a
+  // stall (rAF also pauses on tab blur)
+  recNextFrame = Math.max(recNextFrame + 1000 / REC_FPS, now - 1000 / REC_FPS);
+
+  const gl = renderer.domElement;
+  const w = recCanvas.width, h = recCanvas.height;
+  const scale = Math.min(w / gl.width, h / gl.height);
+  const dw = gl.width * scale, dh = gl.height * scale;
+  recCtx.fillStyle = '#000';
+  recCtx.fillRect(0, 0, w, h);
+  try { recCtx.drawImage(gl, (w - dw) / 2, (h - dh) / 2, dw, dh); } catch { return; }
+
+  drawDialogueOverlay(recCtx, w, h);
+  if (recTrack) recTrack.requestFrame();
+}
+
+const DLG_FONT = "'Courier New', ui-monospace, monospace";
+
+// Wrap `text` to lines no wider than maxWidth, using ctx's current font.
+function wrapText(ctx, text, maxWidth) {
+  const words = String(text).split(' ');
+  const lines = [];
+  let cur = '';
+  for (const word of words) {
+    const next = cur ? cur + ' ' + word : word;
+    if (cur && ctx.measureText(next).width > maxWidth) {
+      lines.push(cur);
+      cur = word;
+    } else {
+      cur = next;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [''];
+}
+
+// Mirror the #dlgPanel DOM overlay (dialogue.js CSS) onto the video frame with
+// 2D canvas drawing. captureStream sees only canvas pixels, so the DOM panel is
+// invisible in recordings — this reproduces it. Its opacity fade isn't mirrored;
+// the panel pops in/out on video.
+function drawDialogueOverlay(ctx, w, h) {
+  const d = getDialogueDisplay();
+  if (!d) return;
+
+  const PAD_X = 22, PAD_TOP = 14, PAD_BOT = 12;
+  const MAXW = 620, MINW = 340;
+  const textMax = MAXW - PAD_X * 2; // 576, matches the DOM max-width minus padding
+
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+
+  // Measure everything first to size the panel.
+  const rows = []; // { text, font, color, glow, lh, gapBefore }
+  rows.push({
+    text: null, // speaker is name + meta, drawn specially
+    speaker: d.speaker, meta: d.meta,
+    font: `12px ${DLG_FONT}`, lh: 16, gapBefore: 0,
+  });
+  ctx.font = `14px ${DLG_FONT}`;
+  const lineRows = wrapText(ctx, d.line, textMax);
+  lineRows.forEach((t, i) => rows.push({
+    text: t, font: `14px ${DLG_FONT}`, color: '#a9f7ff',
+    glow: 'rgba(130,247,255,0.5)', lh: 21, gapBefore: i === 0 ? 8 : 0,
+  }));
+  if (d.options) {
+    d.options.forEach((t, i) => rows.push({
+      text: t, font: `13px ${DLG_FONT}`, color: '#ffc9ec',
+      glow: 'rgba(212,64,143,0.7)', lh: 22, gapBefore: i === 0 ? 8 : 0,
+    }));
+  }
+  rows.push({
+    text: d.hint, font: `10px ${DLG_FONT}`, color: '#7ad7e0',
+    glow: 'rgba(130,247,255,0.4)', lh: 14, gapBefore: 10,
+  });
+
+  // widest row → panel width
+  let widest = 0;
+  for (const r of rows) {
+    ctx.font = r.font;
+    const measure = r.speaker != null
+      ? ctx.measureText(r.speaker + r.meta).width
+      : ctx.measureText(r.text).width;
+    if (measure > widest) widest = measure;
+  }
+  const panelW = Math.max(MINW, Math.min(MAXW, widest + PAD_X * 2));
+  let contentH = 0;
+  for (const r of rows) contentH += r.gapBefore + r.lh;
+  const panelH = PAD_TOP + contentH + PAD_BOT;
+
+  const panelX = (w - panelW) / 2;
+  const panelBottom = h * 0.88; // CSS bottom: 12%
+  const panelY = panelBottom - panelH;
+
+  // panel background + border
+  ctx.save();
+  ctx.beginPath();
+  const r = 4;
+  if (ctx.roundRect) ctx.roundRect(panelX, panelY, panelW, panelH, r);
+  else ctx.rect(panelX, panelY, panelW, panelH);
+  ctx.fillStyle = 'rgba(4,10,16,0.72)';
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(130,247,255,0.45)';
+  ctx.stroke();
+  ctx.restore();
+
+  // rows, top-down
+  const textX = panelX + PAD_X;
+  let y = panelY + PAD_TOP;
+  for (const row of rows) {
+    y += row.gapBefore;
+    ctx.font = row.font;
+    if (row.speaker != null) {
+      // name in pink, meta suffix in teal, each with its own glow
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = 'rgba(212,64,143,0.8)';
+      ctx.fillStyle = '#ffc9ec';
+      ctx.fillText(row.speaker, textX, y);
+      const nameW = ctx.measureText(row.speaker).width;
+      ctx.shadowColor = 'rgba(130,247,255,0.5)';
+      ctx.fillStyle = '#7ad7e0';
+      ctx.fillText(row.meta, textX + nameW, y);
+    } else {
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = row.glow;
+      ctx.fillStyle = row.color;
+      ctx.fillText(row.text, textX, y);
+    }
+    y += row.lh;
+  }
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = 'transparent';
 }
 
 // --- gallery UI -----------------------------------------------------------

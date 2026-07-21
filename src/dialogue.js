@@ -120,6 +120,25 @@ export function isDialogueOpen() {
   return payload !== null;
 }
 
+// Snapshot of what #dlgPanel is showing, for the video compositor
+// (capture.js). null when no dialogue is open.
+export function getDialogueDisplay() {
+  if (!payload) return null;
+  const s = payload.speaker;
+  const last = lineIndex >= payload.lines.length - 1;
+  return {
+    speaker: s.name.toUpperCase(),
+    meta: ' · ' + s.species + (s.cityId ? ' · ' + s.cityId : ''),
+    line: choosing ? payload.offer.prompt : (payload.lines[lineIndex] ?? ''),
+    options: choosing
+      ? payload.offer.options.map((opt, i) => `[${i + 1}] ${opt.label}`)
+      : null,
+    hint: choosing
+      ? `1–${payload.offer.options.length} — CHOOSE · X — LEAVE`
+      : (last ? 'E — CLOSE · X — LEAVE' : 'E — CONTINUE · X — LEAVE'),
+  };
+}
+
 export function openDialogue(p, callbacks = {}) {
   if (!p || !p.lines || !p.lines.length) return;
   closeDialogue(); // one dialogue at a time; also fires the previous onClose

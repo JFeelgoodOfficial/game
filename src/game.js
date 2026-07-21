@@ -86,7 +86,7 @@ import {
 } from './settingsPanel.js';
 import { initCompass, updateCompass } from './compass.js';
 import { initControls, updateControls } from './controls.js';
-import { initCapture, capturePendingPhoto, updateCapture, requestPhoto, toggleRecording, isGalleryOpen } from './capture.js';
+import { initCapture, capturePendingPhoto, updateCapture, updateRecordingFrame, requestPhoto, toggleRecording, isGalleryOpen } from './capture.js';
 import { initCredits, openCredits, closeCredits, isCreditsOpen } from './credits.js';
 import lensingFrag from './shaders/lensing.frag?raw';
 import aberrationFrag from './shaders/aberration.frag?raw';
@@ -1043,6 +1043,8 @@ function frame(now) {
   composer.render();
   // Photo grab must be in this task — the canvas has no preserveDrawingBuffer.
   capturePendingPhoto();
+  // Same constraint: composite the video frame while the backbuffer is intact.
+  updateRecordingFrame(now);
 }
 requestAnimationFrame(frame);
 // Bake terra vertex displacement into the geometry in background time
