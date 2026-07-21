@@ -30,14 +30,23 @@ export const C = {
   FOV: 70,
   LOOK_UP_ANGLE: 1.15, // rad (~66°): head pitch at full hold-V overhead glance
   LOOK_UP_EASE: 0.1, // per-frame ease toward/away from the look-up pose
-  BOOST_PULLBACK: 0.08, // tiny sink-back on boost — you stay in the seat, not pulled out
   BOOST_FOV: 13.0, // extra FOV on boost: widens to reveal the cockpit while first-person
-  FRAME_FADE: 0.12, // per-frame ease of the boost cockpit image fading in/out
+
+  // --- 3D cockpit (cockpit3d.js) + its camera zoom states (camera.js) ---
+  // The camera leans forward in the seat by these ship-local offsets: a small
+  // nudge on W (dashboard stays visible), a full push past the console on
+  // boost/warp (full-window view). World units.
+  COCKPIT_SCALE: 0.5, // rig scale from prototype units to world units
+  COCKPIT_FWD_Z: -0.14, // forward lean while holding W
+  COCKPIT_FULL_Y: 0.06, // rise over the wheel at full-window zoom
+  COCKPIT_FULL_Z: -1.25, // forward push past the console at full-window zoom
+  WHEEL_DRAG_GAIN: 2.0, // touch-drag on the wheel -> mouse-equivalent steer travel
 
   // --- warp (user mechanic): hold F for boost x100, release to stop dead ---
   WARP_SPEED: 10000.0, // units/sec at full warp (~Saturn in a few seconds)
   WARP_RAMP: 0.08, // per-tick slew toward warp speed
   WARP_FOV: 26.0, // extra FOV at warp — the speed rush / star streaks
+  AUTOPILOT_TURN_RATE: 1.2, // rad/s the nav auto-warp turns the ship toward a target
 
   // --- the planet (test mass, now with a procedural surface) ---
   // Bigger than a toy sphere so its atmosphere is a place you can fly into

@@ -48,24 +48,6 @@ const CSS = `
   position: fixed; inset: 0; z-index: 28; pointer-events: none; opacity: 0;
   background: radial-gradient(ellipse at center, #fff7e8 0%, #ffb347 45%, rgba(255,80,20,0.9) 100%);
 }
-#warpBtn {
-  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
-  z-index: 12; padding: 11px 40px; cursor: pointer; user-select: none;
-  font-family: 'Courier New', ui-monospace, monospace; font-size: 14px;
-  letter-spacing: 0.34em; color: #a9f7ff;
-  background: rgba(130,247,255,0.06); border: 1px solid rgba(130,247,255,0.5);
-  border-radius: 4px; text-shadow: 0 0 8px rgba(130,247,255,0.7);
-  box-shadow: 0 0 20px rgba(130,247,255,0.22), inset 0 0 16px rgba(130,247,255,0.06);
-  transition: opacity 0.3s, background 0.15s, box-shadow 0.15s;
-  touch-action: none;
-}
-#warpBtn:hover { background: rgba(130,247,255,0.16); }
-#warpBtn.active {
-  background: rgba(212,64,143,0.35); color: #ffd0ee;
-  border-color: rgba(212,64,143,0.8);
-  box-shadow: 0 0 34px rgba(212,64,143,0.7), inset 0 0 22px rgba(212,64,143,0.25);
-}
-#warpBtn.hidden { opacity: 0; pointer-events: none; }
 #heatWarn {
   position: fixed; top: 12%; left: 50%; transform: translateX(-50%);
   z-index: 11; pointer-events: none; opacity: 0; transition: opacity 0.25s;
@@ -116,7 +98,7 @@ const CSS = `
 }
 `;
 
-let menu, title, sub, sub2, button, settingsBtn, vignette, cracks, flash, warpBtn;
+let menu, title, sub, sub2, button, settingsBtn, vignette, cracks, flash;
 let heatWarn, countdown, countdownDigit;
 let onLaunch = null;
 
@@ -221,20 +203,6 @@ export function initMenu(launchCallback) {
   settingsBtn.addEventListener('click', () => openSettings());
   button.insertAdjacentElement('afterend', settingsBtn);
 
-  // hold-to-warp button (also bound to F on the keyboard, see input.js)
-  warpBtn = el('div', 'warpBtn');
-  warpBtn.textContent = 'WARP';
-  const setWarp = (v) => (e) => {
-    e.preventDefault();
-    input.warp = v;
-    warpBtn.classList.toggle('active', v);
-  };
-  warpBtn.addEventListener('mousedown', setWarp(true));
-  warpBtn.addEventListener('touchstart', setWarp(true), { passive: false });
-  window.addEventListener('mouseup', setWarp(false));
-  warpBtn.addEventListener('touchend', setWarp(false));
-  warpBtn.addEventListener('mouseleave', setWarp(false));
-
   showMenu('start');
 }
 
@@ -252,25 +220,12 @@ export function showMenu(mode, reason) {
   }
   button.disabled = false;
   menu.classList.remove('hidden');
-  warpBtn.classList.add('hidden');
-  input.warp = false;
-  warpBtn.classList.remove('active');
+  input.warp = false; // release any held warp when the menu comes up
   document.exitPointerLock?.();
 }
 
 export function hideMenu() {
   menu.classList.add('hidden');
-  warpBtn.classList.remove('hidden');
-}
-
-// On foot the warp drive is out of reach — hide the button (and release a
-// held warp) until the player is back in the pilot seat.
-export function setWarpButtonVisible(v) {
-  warpBtn.classList.toggle('hidden', !v);
-  if (!v) {
-    input.warp = false;
-    warpBtn.classList.remove('active');
-  }
 }
 
 // heat 0..1 (0..0.5 = warning phase, 0.5..1 = countdown), crackAt threshold,

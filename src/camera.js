@@ -1,8 +1,9 @@
 // Cockpit camera (GDD 3.4, 4.3). The camera chases the ship's orientation
 // with a slerp lag — the gap between input and response is where "heavy"
 // comes from — and offsets slightly against proper acceleration so burns
-// are felt. Cockpit geometry arrives in Phase 2; the camera IS the cockpit
-// for now.
+// are felt. It also leans forward in the seat as the ship accelerates
+// (dashBlend below), sinking the 3D cockpit (cockpit3d.js) out of view for
+// the full-window boost/warp rush.
 //
 // The lag lives in _lagQuat, not in camera.quaternion directly, so extra
 // view rotations (the hold-V glance at the overhead window) compose on top
@@ -26,20 +27,32 @@ const _lookQ = new THREE.Quaternion();
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 const _driftTarget = new THREE.Vector3();
 const _drift = new THREE.Vector3();
-const _back = new THREE.Vector3();
+const _zoom = new THREE.Vector3();
 
-// Boost pulls the camera back and widens the FOV, so you sink into the seat
-// and see more of the cockpit as the ship surges forward. Smoothed so it
-// eases in and out rather than snapping.
+// The camera leans forward in the seat as the ship accelerates, so the
+// dashboard drops out of view and the window fills the frame. Two eased
+// blends: a small forward nudge while holding W (buttons stay visible), and a
+// full push past the console on boost/warp. Both smoothed so they ease rather
+// than snap.
+let fwdBlend = 0;
 let boostBlend = 0;
 // Glance up at the overhead window (hold V), eased so the head turns
 // rather than snaps.
 let lookBlend = 0;
 
+// The dashboard-visibility signal (was the frame image's blend): 1 at rest,
+// falling to 0 as the camera pushes into the full-window view. The DOM dash
+// panels (radio, capture) ride this the way they used to ride the frame fade.
+export function dashBlend() {
+  return 1 - boostBlend;
+}
+
 export function updateCamera(ship) {
-  const boosting = input.boost && (input.forward || input.reverse);
-  const target = input.warp || boosting ? 1 : 0;
-  boostBlend += (target - boostBlend) * 0.06;
+  const full = input.warp || (input.boost && (input.forward || input.reverse)) ? 1 : 0;
+  boostBlend += (full - boostBlend) * 0.06;
+  // forward nudge only when it isn't already going full-window
+  const fwdTarget = input.forward && !full ? 1 : 0;
+  fwdBlend += (fwdTarget - fwdBlend) * 0.06;
 
   // warp gets a bigger FOV kick than boost — the speed rush
   const fovKick = input.warp ? C.WARP_FOV : C.BOOST_FOV;
@@ -56,16 +69,26 @@ export function updateCamera(ship) {
   _lookQ.setFromAxisAngle(X_AXIS, C.LOOK_UP_ANGLE * lookBlend);
   camera.quaternion.copy(_lagQuat).multiply(_lookQ);
 
-  // Positional drift under acceleration, smoothed with the same lag factor.
-  _driftTarget.copy(ship.properAccel).multiplyScalar(-C.CAMERA_DRIFT);
+  // Positional drift under acceleration (the burn you feel as the seat pushes
+  // back), smoothed with the same lag factor. Cut the instant a boost/warp
+  // burn begins — otherwise the backward burn (huge under boost) fights the
+  // forward zoom and reveals more cabin exactly when the window should fill
+  // the frame. Under plain thrust it's only trimmed, keeping the felt burn.
+  const driftLean = full ? 1 : input.forward || input.reverse ? 0.6 : 0;
+  _driftTarget.copy(ship.properAccel).multiplyScalar(-C.CAMERA_DRIFT * (1 - driftLean));
   const m = _driftTarget.length();
   if (m > MAX_DRIFT) _driftTarget.multiplyScalar(MAX_DRIFT / m);
   _drift.lerp(_driftTarget, C.CAMERA_LAG);
 
-  // Pull back along the ship's local +z (behind the pilot) on boost.
-  _back.set(0, 0, 1).applyQuaternion(ship.quaternion).multiplyScalar(boostBlend * C.BOOST_PULLBACK);
+  // Lean-forward zoom, in ship-local space (rises over the wheel at full).
+  _zoom.set(
+    0,
+    boostBlend * C.COCKPIT_FULL_Y,
+    fwdBlend * (1 - boostBlend) * C.COCKPIT_FWD_Z + boostBlend * C.COCKPIT_FULL_Z
+  );
+  _zoom.applyQuaternion(ship.quaternion);
 
-  camera.position.copy(ship.position).add(_drift).add(_back);
+  camera.position.copy(ship.position).add(_drift).add(_zoom);
 }
 
 // Hard-set the camera to the ship's pose (resets/respawns), so the lag

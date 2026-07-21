@@ -20,18 +20,27 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { C } from './constants.js';
-import { initInput, input } from './input.js';
+import { initInput, input, setPointerLockGate } from './input.js';
 import { ship, stepShip } from './ship.js';
 import { altitudeAboveFloor } from './gravity.js';
 import { updateOrigin, originOffset, snapshotShiftables, restoreShiftables } from './origin.js';
-import { camera, updateCamera, snapCamera, resizeCamera } from './camera.js';
+import { camera, updateCamera, snapCamera, resizeCamera, dashBlend } from './camera.js';
 import { initTuning } from './tuning.js';
 import { initStarfield, updateStarfield } from './starfield.js';
 import { initNebula, updateNebula } from './nebula.js';
 import { initDeepNebula, updateDeepNebula, deepNebulae } from './deepnebula.js';
 import { initPaintingNebulae, paintingNebulae } from './paintingnebula.js';
-import { cockpitScene, updateCockpit, cockpitGroup, CockpitOverlayPass } from './cockpit.js';
-import { initCockpitFrame, updateCockpitFrame } from './cockpitFrame.js';
+import { cockpitScene, CockpitOverlayPass } from './cockpit.js';
+import {
+  initCockpit3d,
+  updateCockpit3d,
+  cockpitRig,
+  cockpitShell,
+  cockpitPointerGate,
+  cockpitDebug,
+} from './cockpit3d.js';
+import { initHolonav, updateHolonav, isHoloOpen, holonavDebug } from './holonav.js';
+import { startAutoWarp, stepAutopilot, autopilotActive, cancelAutopilot } from './autopilot.js';
 import {
   interiorScene,
   initInterior,
@@ -74,10 +83,10 @@ import {
 import { initJournal, journalState } from './journal.js';
 import { initSun, sunAltitude } from './sun.js';
 import { initStations, updateStations, nearestDockableStation } from './stations.js';
-import { initMenu, showMenu, hideMenu, updateHeatUI, setWarpButtonVisible } from './menu.js';
+import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
 import { startMusic, nextTrack, prevTrack, currentTitle, pauseMusic, resumeMusic } from './music.js';
 import { initRadio, updateRadio } from './radio.js';
-import { initNav, updateNav, navState, showNavToast } from './nav.js';
+import { initNav, updateNav, navState, showNavToast, getBodies } from './nav.js';
 import { settings, onSettingsChange } from './settings.js';
 import {
   initSettingsPanel,
@@ -123,10 +132,12 @@ snapshotShiftables();
 
 initInput(renderer.domElement);
 initTuning();
-initCockpitFrame();
+initCockpit3d(renderer.domElement);
 initInterior();
 initRadio();
 initNav();
+initHolonav(cockpitShell);
+setPointerLockGate(cockpitPointerGate);
 initCompass();
 initControls();
 initCapture(renderer);
@@ -326,6 +337,13 @@ if (import.meta.env.DEV) {
     },
     radio: { nextTrack, prevTrack, currentTitle },
     navState,
+    cockpit: cockpitDebug(),
+    holo: holonavDebug(),
+    autopilot: {
+      active: autopilotActive,
+      start: (id) => startAutoWarp(getBodies().find((b) => b.id === id)),
+      cancel: cancelAutopilot,
+    },
     launch: () => {
       resetToStart();
       accumulator = 0;
@@ -357,7 +375,6 @@ if (import.meta.env.DEV) {
         heat = 0;
         phase = 'walk';
         accumulator = 0;
-        setWarpButtonVisible(false);
       }
       return floor;
     },
@@ -390,7 +407,6 @@ if (import.meta.env.DEV) {
         heat = 0;
         phase = 'walk';
         accumulator = 0;
-        setWarpButtonVisible(false);
         return dock.station.name;
       }
       return null;
@@ -404,7 +420,6 @@ if (import.meta.env.DEV) {
         snapCamera(ship);
         phase = 'fly';
         accumulator = 0;
-        setWarpButtonVisible(true);
       }
     },
     // Landing-site entities, walker body + interior player — for headless
@@ -623,6 +638,7 @@ function resetToStart() {
   ship.angularVelocity.set(0, 0, 0);
   ship.properAccel.set(0, 0, 0);
   restoreShiftables(); // planets, sun, stations, black hole + origin offset
+  cancelAutopilot();
   heat = 0;
   landState = null;
   landedPlanet = null;
@@ -689,7 +705,7 @@ function frame(now) {
     // C: stand up out of the seat / sit back down at it. Standing is
     // blocked at warp (nobody walks at 10,000 u/s); sitting requires being
     // back at the chair. Consumed once per frame at the bottom of the loop.
-    if (input.toggleInterior) {
+    if (input.toggleInterior && !autopilotActive()) {
       if (!standing && !input.warp) standing = true;
       else if (standing && nearSeat()) {
         standing = false;
@@ -715,8 +731,11 @@ function frame(now) {
       if (landState === 'auto') stepAutoLand(DT);
       else if (landState === 'landed') stepLanded(DT, piloted);
       else {
+        // nav auto-warp drives the ship (turn + warp) before the normal step;
+        // it suppresses player input, so stepShip flies the plotted course
+        if (autopilotActive()) stepAutopilot(DT, heat);
         stepShip(DT, piloted);
-        if (piloted) checkTouchdown();
+        if (piloted && !autopilotActive()) checkTouchdown();
       }
       accumulator -= DT;
     }
@@ -758,7 +777,7 @@ function frame(now) {
     // flight — dock at a berth (unchanged, checked first), else start the
     // assisted auto-land toward the flattest nearby ground. Only from the
     // pilot seat — sit back down before stepping outside.
-    if (input.toggleWalk && !standing && standBlend < 0.05) {
+    if (input.toggleWalk && !standing && standBlend < 0.05 && !autopilotActive()) {
       if (landState === 'landed') {
         const floor = nearestTerraFloor(ship.position);
         if (floor) {
@@ -768,7 +787,6 @@ function frame(now) {
           heat = 0;
           phase = 'walk';
           accumulator = 0;
-          setWarpButtonVisible(false); // no warping on foot
         }
       } else if (landState === 'auto') {
         // Wave off: hand control back with a gentle outward drift.
@@ -787,7 +805,6 @@ function frame(now) {
           heat = 0;
           phase = 'walk';
           accumulator = 0;
-          setWarpButtonVisible(false);
         } else {
           const floor = nearestTerraFloor(ship.position);
           if (
@@ -819,7 +836,6 @@ function frame(now) {
       snapCamera(ship);
       phase = 'fly';
       accumulator = 0;
-      setWarpButtonVisible(true);
     } else {
       // E — talk to the focused citizen/creature, or advance the open dialogue.
       if (input.interact) walkInteract();
@@ -830,7 +846,6 @@ function frame(now) {
           snapCamera(ship); // resync the camera-lag state exitWalk set directly
           phase = 'fly';
           accumulator = 0;
-          setWarpButtonVisible(true);
         } else {
           // You walked here — the ship didn't. Go back for it.
           promptReturnToShip();
@@ -906,28 +921,26 @@ function frame(now) {
     camera.position.y += Math.sin(now * 0.127 + 2.1) * s;
     camera.position.z += Math.sin(now * 0.071 + 4.4) * s;
   }
-  updateCockpit(ship);
-  // The instrument cockpit is the resting view; boost/warp fades it out for
-  // the clear window (inverted at the user's request). The dashboard
-  // consoles (radio, NAV) ride the same fade — they live on the dash. On
-  // foot on a planet the whole ship overlay hides; standing in the ship
-  // swaps the seated canopy for the interior overlay.
-  let frameBlend;
+  updateCockpit3d(ship, delta, phase);
+  // The 3D cockpit is the resting view; boost/warp lean the camera forward so
+  // the dashboard sinks out of frame for the clear window. dashBlend() (1 at
+  // rest, 0 at full-window) drives the DOM dash panels (radio, capture) the
+  // way the frame image's blend used to. On foot on a planet the whole ship
+  // overlay hides; standing in the ship swaps the cockpit for the interior.
+  const dash = dashBlend();
   if (phase === 'walk') {
-    frameBlend = updateCockpitFrame(ship, delta, false); // fade the frame image out
-    cockpitGroup.visible = false;
+    cockpitRig.visible = false;
     cockpitPass.enabled = false;
     interiorPass.enabled = false;
-    updateRadio(frameBlend, false);
+    updateRadio(0, false);
     // "E — TALK" while an alien/creature is in range (dialogue hints are on
     // the dialogue panel itself). Reuses the interior prompt element.
     setPrompt(walkPromptText());
   } else {
-    frameBlend = updateCockpitFrame(ship, delta, phase !== 'menu', standBlend);
     interiorPass.enabled = standBlend > 0.001;
     cockpitPass.enabled = !interiorPass.enabled;
-    cockpitGroup.visible = frameBlend < 0.3;
-    updateRadio(frameBlend, phase === 'fly');
+    cockpitRig.visible = true; // the camera zoom handles the full-window view
+    updateRadio(dash, phase === 'fly');
     // the C prompt: a launch reminder while seated, "SIT" back at the chair;
     // standing, "E — READ" in front of the plaque (E handled in the fly block)
     if (phase === 'fly') {
@@ -976,10 +989,15 @@ function frame(now) {
   // nav AFTER the stations are placed: a reset snaps orbiting stations back
   // to their snapshot spot for one frame, and a discovery check reading that
   // stale position would log everything sitting at the spawn point
-  updateNav(ship, delta, phase === 'fly', frameBlend);
+  updateNav(ship, delta, phase === 'fly');
+  // hologram AFTER updateStations so orbiting stations plot at their live spot;
+  // usable only when the pilot is seated, flying, and not already auto-warping
+  const holoActive =
+    phase === 'fly' && !paused && !standing && landState === null && !autopilotActive();
+  updateHolonav(ship, delta, holoActive);
   updateCompass(phase === 'walk' ? shipBearing() : null);
-  updateControls(phase, frameBlend);
-  updateCapture(phase, frameBlend, delta);
+  updateControls(phase);
+  updateCapture(phase, dash, delta);
   camera.updateMatrixWorld();
   camera.matrixWorldInverse.copy(camera.matrixWorld).invert(); // fresh for projection
   updateBlackHole(camera, lensPass.uniforms, now / 1000);

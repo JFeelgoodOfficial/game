@@ -32,9 +32,20 @@ export const input = {
   wheel: 0, // accumulated scroll since last consume (third-person zoom)
 };
 
+// The 3D cockpit registers a gate so a click that pressed a dashboard button,
+// grabbed the wheel, or opened the nav hologram doesn't also grab pointer
+// lock (which would hide the cursor the hologram needs). Returns true to skip
+// the lock for this click.
+let lockGate = null;
+export function setPointerLockGate(fn) {
+  lockGate = fn;
+}
+
 export function initInput(element) {
   element.addEventListener('click', () => {
-    if (!input.locked) element.requestPointerLock();
+    if (input.locked) return;
+    if (lockGate && lockGate()) return;
+    element.requestPointerLock();
   });
 
   const hint = document.getElementById('hint');
