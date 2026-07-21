@@ -46,6 +46,7 @@ const CSS = `
   letter-spacing: 0.34em; color: #a9f7ff; padding: 8px 24px;
   border: 1px solid rgba(130,247,255,0.45); border-radius: 3px;
   background: rgba(4,10,16,0.5); text-shadow: 0 0 8px rgba(130,247,255,0.6);
+  max-width: 92vw; box-sizing: border-box; white-space: normal; text-align: center;
 }
 `;
 

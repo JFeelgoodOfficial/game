@@ -23,6 +23,7 @@ const CSS = `
 }
 #menu .sub {
   font-size: 13px; letter-spacing: 0.28em; color: #7ad7e0;
+  max-width: 92vw; text-align: center;
   text-shadow: 0 0 8px rgba(130,247,255,0.5);
 }
 #menu .dead { color: #ff7a6a; text-shadow: 0 0 12px rgba(255,80,60,0.7); }
@@ -95,6 +96,14 @@ const CSS = `
 @media (prefers-reduced-motion: reduce) {
   #heatWarn.on { animation: none; }
   #countdown { animation: none; }
+}
+@media (max-width: 640px) {
+  #menu .sub { font-size: 10px; letter-spacing: 0.14em; line-height: 1.8; }
+  #heatWarn {
+    font-size: 12px; letter-spacing: 0.18em; max-width: 92vw;
+    box-sizing: border-box; white-space: normal; text-align: center;
+  }
+  #countdown .cd-digit { font-size: 56px; }
 }
 `;
 

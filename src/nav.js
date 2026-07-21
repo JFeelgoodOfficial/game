@@ -23,6 +23,7 @@ const CSS = `
   letter-spacing: 0.34em; color: #7dffc8; padding: 8px 24px;
   border: 1px solid rgba(120,255,190,0.6); border-radius: 3px;
   background: rgba(4,30,20,0.55); text-shadow: 0 0 10px rgba(120,255,190,0.8);
+  max-width: 92vw; box-sizing: border-box; white-space: normal; text-align: center;
 }
 `;
 

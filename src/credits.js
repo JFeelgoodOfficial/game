@@ -6,7 +6,9 @@
 const CSS = `
 #credits {
   position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  z-index: 22; display: none; flex-direction: column; max-width: 560px;
+  z-index: 22; display: none; flex-direction: column;
+  max-width: min(560px, 92vw); max-height: 80vh; overflow-y: auto;
+  box-sizing: border-box;
   padding: 18px 26px 14px; border-radius: 6px; user-select: none;
   font-family: 'Courier New', ui-monospace, monospace; color: #cdd8e8;
   background: rgba(10,10,16,0.92); border: 1px solid rgba(200,168,106,0.65);

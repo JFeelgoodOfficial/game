@@ -13,7 +13,8 @@ const CSS = `
 #dlgPanel {
   position: fixed; left: 50%; bottom: 12%; transform: translateX(-50%);
   z-index: 14; pointer-events: none; opacity: 0; transition: opacity 0.25s;
-  min-width: 340px; max-width: 620px; padding: 14px 22px 12px;
+  min-width: min(340px, 92vw); max-width: min(620px, 92vw);
+  box-sizing: border-box; padding: 14px 22px 12px;
   font-family: 'Courier New', ui-monospace, monospace; color: #a9f7ff;
   background: rgba(4,10,16,0.72); border: 1px solid rgba(130,247,255,0.45);
   border-radius: 4px; box-shadow: 0 0 24px rgba(130,247,255,0.15);

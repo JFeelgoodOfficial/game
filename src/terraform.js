@@ -408,6 +408,12 @@ function initTerraformUI() {
       box-shadow: 0 0 18px rgba(212, 64, 143, 0.8);
     }
     .tformHint { font-size: 10px; opacity: 0.6; color: #ffd9ec; text-align: center; }
+    @media (max-width: 640px) {
+      #tformUI { right: 12px; bottom: 96px; }
+    }
+    @media (pointer: coarse) {
+      .tformBtn { padding: 14px 20px; }
+    }
   `;
   document.head.appendChild(style);
 

@@ -26,6 +26,12 @@ const CSS = `
   color: #ffd06a; letter-spacing: 0.3em; margin-top: 2px;
   text-shadow: 0 0 8px rgba(255,208,106,0.6);
 }
+@media (max-width: 640px) {
+  #walkHint {
+    font-size: 10px; letter-spacing: 0.1em;
+    max-width: calc(100vw - 32px); box-sizing: border-box;
+  }
+}
 `;
 
 const WALK_LINES = [

@@ -59,8 +59,9 @@ const CSS = `
 }
 #galPanel {
   position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  z-index: 24; display: none; flex-direction: column; width: min(80vw, 820px);
-  max-height: 80vh; padding: 16px 18px 12px; border-radius: 6px; user-select: none;
+  z-index: 24; display: none; flex-direction: column; width: min(94vw, 820px);
+  box-sizing: border-box; max-height: 86vh;
+  padding: 16px 18px 12px; border-radius: 6px; user-select: none;
   font-family: 'Courier New', ui-monospace, monospace; color: #a9f7ff;
   background: rgba(4,12,20,0.92); border: 1px solid rgba(130,247,255,0.55);
   box-shadow: 0 0 44px rgba(130,247,255,0.3), inset 0 0 30px rgba(130,247,255,0.06);
@@ -88,6 +89,13 @@ const CSS = `
 #galPanel .g-cell button.del { color: #ff8a8a; border-color: rgba(255,110,110,0.4); }
 #galPanel .g-empty { color: #5da8b3; text-align: center; padding: 30px 0; letter-spacing: 0.2em; font-size: 12px; }
 #galPanel .g-foot { font-size: 10px; letter-spacing: 0.26em; color: #5da8b3; margin-top: 10px; text-align: center; }
+@media (max-width: 640px) {
+  #capBtn {
+    right: 12px; bottom: 14px; padding: 10px 16px;
+    font-size: 12px; letter-spacing: 0.2em;
+  }
+  #galPanel .g-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+}
 `;
 
 let renderer = null;
