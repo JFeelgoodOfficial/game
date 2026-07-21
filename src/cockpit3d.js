@@ -81,12 +81,9 @@ function buildWindow() {
     return me;
   }
 
-  // dark top beam + bottom sill
-  box(beamMat, fw + 1.0, 0.36, 0.34, 0, fy + fh / 2 + 0.18, fz);
+  // bottom sill only — no top beam or side posts, so the window is open on
+  // the top and both sides for an unobstructed view.
   box(beamMat, fw + 1.0, 0.2, 0.34, 0, fy - fh / 2 - 0.1, fz);
-  // side posts (frame edges, clear of the glass)
-  box(mat, 0.18, fh + 0.4, 0.34, -fw / 2 - 0.08, fy, fz);
-  box(mat, 0.18, fh + 0.4, 0.34, fw / 2 + 0.08, fy, fz);
   // No center mullion: the window is a single clean pane, unobstructed.
 
   // overhead cross-brace, so the hold-V glance frames space rather than void
