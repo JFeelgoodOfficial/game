@@ -490,7 +490,6 @@ let deathReason = ''; // set when the burn wins; shown on the menu
 // capture, nav, and the accumulator must all keep running.
 let standing = false;
 let standBlend = 0; // seat <-> stand camera blend, 0..1
-let promptTimer = 0; // shows "C — STAND" briefly after each launch
 
 // NMS-style landing sub-mode within 'fly' (not a phase — heat UI, nav,
 // capture, skyfog all keep running): null = free flight, 'auto' = assisted
@@ -667,7 +666,6 @@ function resetToStart() {
   standBlend = 0;
   closeCredits();
   closeRadioPopup();
-  promptTimer = 6; // remind the pilot the corridor exists
   resetPlayer();
   input.toggleInterior = false;
   // snap the lagging camera to the ship so it doesn't slerp from the horizon
@@ -993,10 +991,9 @@ function frame(now) {
             ship.velocity.length() < C.AUTOLAND_SPEED
           )
             prompt = 'G — LAND';
-          else if (promptTimer > 0) prompt = 'C — STAND UP';
         }
+        // No "C — STAND UP" reminder: the dash C button already shows it.
         setPrompt(prompt);
-        if (promptTimer > 0) promptTimer -= delta;
       }
     } else {
       setPrompt(null);

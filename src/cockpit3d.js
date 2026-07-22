@@ -22,8 +22,8 @@ import { settings } from './settings.js';
 import { camera } from './camera.js';
 import { cockpitScene } from './cockpit.js';
 import { toggleRadioPopup } from './radioPopup.js';
+import { toggleGallery } from './capture.js';
 import { toggleHolo, isHoloOpen, holoPick } from './holonav.js';
-import { label } from './holoLabel.js';
 
 const CYAN = 0x82f7ff,
   CYAN2 = 0xa9f7ff,
@@ -241,14 +241,107 @@ function buildWheel() {
 // buttons
 // ---------------------------------------------------------------------------
 
+// Long keyboard keys don't fit inside the circle as words, so map them to a
+// short glyph; single letters (F, Q, E, N, G, C, P…) render as-is.
+function keyGlyph(key) {
+  if (!key) return '';
+  switch (key) {
+    case 'SHIFT': return '⇧';
+    case 'SPACE': return '␣';
+    case ', .': return '♪';
+    default: return key;
+  }
+}
+
+// The key "circle": a colored border ring with the activation key on it, baked
+// into a single camera-facing sprite (like label()) so it stays crisp and
+// readable at the dash's steep viewing angle — a 3D torus would foreshorten
+// into an unreadable arc. Returns the sprite; caller positions it.
+function keycap(keyText, color) {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 128;
+  const g = c.getContext('2d');
+  const col = '#' + color.toString(16).padStart(6, '0');
+  // dark disc so the letter reads against it, like the reference keycaps
+  g.beginPath();
+  g.arc(64, 64, 50, 0, Math.PI * 2);
+  g.fillStyle = 'rgba(6,11,17,0.82)';
+  g.fill();
+  // glowing colored border ring
+  g.lineWidth = 7;
+  g.strokeStyle = col;
+  g.shadowColor = col;
+  g.shadowBlur = 16;
+  g.beginPath();
+  g.arc(64, 64, 50, 0, Math.PI * 2);
+  g.stroke();
+  // the key, bright and centered
+  g.shadowColor = '#bff6ff';
+  g.shadowBlur = 8;
+  g.fillStyle = '#e8fcff';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = '700 ' + (keyText.length > 1 ? 46 : 66) + 'px "Courier New", ui-monospace, monospace';
+  g.fillText(keyText, 64, 68);
+  const tex = new THREE.CanvasTexture(c);
+  tex.anisotropy = 4;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  return s;
+}
+
+// The action-name label for a button. Unlike the shared label() (tuned for the
+// hologram, with wide margins), this sizes the text to FILL the canvas width so
+// the name reads large and clear on the dash. `worldW` is the sprite's width in
+// button units; the caller matches it to the rectangle plate.
+function nameLabel(text, color, worldW) {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 120;
+  const g = c.getContext('2d');
+  const col = '#' + color.toString(16).padStart(6, '0');
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  let fs = 96;
+  do {
+    g.font = '700 ' + fs + 'px "Courier New", ui-monospace, monospace';
+    fs -= 4;
+  } while (g.measureText(text).width > 476 && fs > 34);
+  g.shadowColor = col;
+  g.shadowBlur = 14;
+  g.fillStyle = col;
+  g.fillText(text, 256, 62);
+  const tex = new THREE.CanvasTexture(c);
+  tex.anisotropy = 4;
+  const s = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, blending: THREE.AdditiveBlending })
+  );
+  s.scale.set(worldW, (worldW * 120) / 512, 1);
+  return s;
+}
+
+// A dashboard button (the "colored knob", user redesign): a bordered frame
+// holding a colored CIRCLE up top with the activation key on it, and a
+// RECTANGLE beneath the circle with the action name. The circle's fill is the
+// lit surface (screenMat) and a backing plane is the additive glow (glowMat),
+// so the existing lit-state animation in updateCockpit3d drives it unchanged.
 function makeButton(def) {
   const g = new THREE.Group();
   g.position.set(def.x, def.y, def.z);
-  g.rotation.x = -0.32;
+  g.rotation.x = -0.32; // lie flush with the dash face, like the other console faces
   const frameMat = new THREE.MeshStandardMaterial({ color: 0x3b414b, roughness: 0.4, metalness: 0.92 });
   const bevelMat = new THREE.MeshStandardMaterial({ color: 0x2a2f37, roughness: 0.5, metalness: 0.85 });
   const innerMat = new THREE.MeshStandardMaterial({ color: 0x090c11, roughness: 0.55, metalness: 0.5 });
-  const screenMat = new THREE.MeshBasicMaterial({ color: def.color, transparent: true, opacity: 0.14 });
+  const plateMat = new THREE.MeshStandardMaterial({ color: 0x0c1016, roughness: 0.55, metalness: 0.5 });
+  // screenMat is the colored glow disc behind the keycap; the update loop
+  // pulses its opacity to "light up" the button (additive, so it blooms).
+  const screenMat = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(def.color).multiplyScalar(1.3),
+    transparent: true,
+    opacity: 0.16,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
   const glowMat = new THREE.MeshBasicMaterial({
     color: new THREE.Color(def.color).multiplyScalar(1.3),
     transparent: true,
@@ -256,60 +349,92 @@ function makeButton(def) {
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
-  const W = 0.24,
-    H = 0.165;
+  const W = 0.3,
+    H = 0.34;
+  const cy = 0.086, // circle centre (upper)
+    ry = -0.094, // rectangle centre (lower)
+    cR = 0.07; // circle radius
 
-  const glow = new THREE.Mesh(new THREE.PlaneGeometry(W + 0.045, H + 0.045), glowMat);
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(W + 0.05, H + 0.05), glowMat);
   glow.position.z = -0.026;
   g.add(glow);
   const frame = new THREE.Mesh(new THREE.BoxGeometry(W, H, 0.05), frameMat);
   g.add(frame);
-  const bevel = new THREE.Mesh(new THREE.BoxGeometry(W - 0.028, H - 0.028, 0.045), bevelMat);
+  const bevel = new THREE.Mesh(new THREE.BoxGeometry(W - 0.03, H - 0.03, 0.045), bevelMat);
   bevel.position.z = 0.012;
   g.add(bevel);
   const inner = new THREE.Mesh(new THREE.BoxGeometry(W - 0.06, H - 0.06, 0.02), innerMat);
   inner.position.z = 0.03;
   g.add(inner);
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.06, H - 0.06), screenMat);
-  screen.position.z = 0.041;
-  g.add(screen);
 
-  const lab = label(def.name, def.color, 0.19);
-  lab.position.set(0, 0.012, 0.05);
-  g.add(lab);
+  // circle: an additive colored glow disc that lights up (screenMat) with the
+  // crisp key "circle" sprite on top. The sprite faces the camera so the ring
+  // and letter stay legible at the dash's steep angle. Keyless buttons (e.g.
+  // CAMERA, which opens a pop-up rather than mapping to one key) skip the
+  // circle entirely and centre their label instead.
   if (def.key) {
-    const kl = label(def.key, CYAN2, 0.1);
-    kl.position.set(0, -0.052, 0.05);
-    g.add(kl);
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(cR + 0.02, 32), screenMat);
+    disc.position.set(0, cy, 0.041);
+    g.add(disc);
+    const cap = keycap(keyGlyph(def.key), def.color);
+    cap.scale.set(cR * 2.4, cR * 2.4, 1);
+    cap.position.set(0, cy, 0.06);
+    g.add(cap);
   }
+
+  // rectangle: a recessed plate with a thin colored border, holding the action
+  // name — so it reads as a distinct labelled rectangle, not floating text.
+  const labelY = def.key ? ry : 0;
+  const rectBorder = new THREE.Mesh(
+    new THREE.PlaneGeometry(W - 0.03, 0.12),
+    new THREE.MeshBasicMaterial({
+      color: def.color,
+      transparent: true,
+      opacity: 0.22,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+  rectBorder.position.set(0, labelY, 0.028);
+  g.add(rectBorder);
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(W - 0.05, 0.1, 0.02), plateMat);
+  plate.position.set(0, labelY, 0.031);
+  g.add(plate);
+  const lab = nameLabel(def.name, def.color, W - 0.03);
+  lab.position.set(0, labelY, 0.05);
+  g.add(lab);
+
   g.userData = { def, screenMat, glowMat, baseZ: g.position.z, _flash: 0 };
   return g;
 }
 
 function buildButtons() {
-  // main row of 7 across the dash top
+  // Top row: WARP/BOOST on the left, STAND/CAMERA on the right, centre kept
+  // clear for the wheel. CAMERA is keyless (it opens the camera pop-up, where
+  // P photographs and R records) so it shows no key circle. BRAKE/LAND/NAV have
+  // moved down to the right console cluster (where SHIELDS used to be).
   const main = [
-    { name: 'WARP', key: 'F', color: 0x82f7ff, mode: 'hold', flag: 'warp' },
-    { name: 'BOOST', key: 'SHIFT', color: 0xff6a4a, mode: 'hold', flag: 'boost' },
-    { name: 'BRAKE', key: 'SPACE', color: 0xa9f7ff, mode: 'hold', flag: 'brake' },
-    { name: 'NAV', key: 'N', color: 0x7dffc8, mode: 'nav' },
-    { name: 'LAND', key: 'G', color: 0xffd75a, mode: 'edge', flag: 'toggleWalk', code: 'KeyG' },
-    { name: 'STAND', key: 'C', color: 0xcfe6ff, mode: 'edge', flag: 'toggleInterior', code: 'KeyC' },
-    { name: 'PHOTO', key: 'P', color: 0xffc9ec, mode: 'edge', flag: 'photo', code: 'KeyP' },
+    { name: 'WARP', key: 'F', color: 0x82f7ff, mode: 'hold', flag: 'warp', x: -1.3 },
+    { name: 'BOOST', key: 'SHIFT', color: 0xff6a4a, mode: 'hold', flag: 'boost', x: -0.87 },
+    { name: 'STAND', key: 'C', color: 0xcfe6ff, mode: 'edge', flag: 'toggleInterior', code: 'KeyC', x: 0.87 },
+    { name: 'CAMERA', key: '', color: 0xffc9ec, mode: 'fn', fn: toggleGallery, x: 1.3 },
   ];
-  const span = 2.6,
-    x0 = -span / 2;
-  main.forEach(function (d, i) {
-    d.x = x0 + i * (span / (main.length - 1));
-    d.y = 0.74;
+  main.forEach(function (d) {
+    d.y = 0.82; // lifted to seat the taller redesigned buttons on the dash
     d.z = 0.05;
   });
 
-  // lower tier: the radio pop-up trigger on the left pod, a blank system
-  // button on the right pod, flanking the holo projector at centre
+  // Lower tiers mirror each other across the wheel: roll thrusters + radio on
+  // the bottom-left, and brake/land/nav on the bottom-right. ROLL L/R are held
+  // buttons wired to the same input flags Q/E drive (ship.js reads them each
+  // tick); code: makes the key press flash the matching button.
   const aux = [
-    { name: 'RADIO', key: ', .', color: 0x9fd8e8, mode: 'fn', fn: toggleRadioPopup, x: -0.97, y: 0.55, z: 0.16 },
-    { name: 'SHIELDS', key: '', color: 0xbfe8ff, mode: 'blank', x: 0.97, y: 0.55, z: 0.16 },
+    { name: 'ROLL L', key: 'Q', color: 0xb98cff, mode: 'hold', flag: 'rollLeft', code: 'KeyQ', x: -1.54, y: 0.5, z: 0.16 },
+    { name: 'ROLL R', key: 'E', color: 0x8cffd1, mode: 'hold', flag: 'rollRight', code: 'KeyE', x: -1.16, y: 0.5, z: 0.16 },
+    { name: 'RADIO', key: ', .', color: 0x9fd8e8, mode: 'fn', fn: toggleRadioPopup, x: -0.78, y: 0.5, z: 0.16 },
+    { name: 'BRAKE', key: 'SPACE', color: 0xa9f7ff, mode: 'hold', flag: 'brake', x: 0.78, y: 0.5, z: 0.16 },
+    { name: 'LAND', key: 'G', color: 0xffd75a, mode: 'edge', flag: 'toggleWalk', code: 'KeyG', x: 1.16, y: 0.5, z: 0.16 },
+    { name: 'NAV', key: 'N', color: 0x7dffc8, mode: 'nav', x: 1.54, y: 0.5, z: 0.16 },
   ];
 
   buttons = [];
