@@ -404,6 +404,16 @@ function makeButton(def) {
   lab.position.set(0, labelY, 0.05);
   g.add(lab);
 
+  // Touch hit-proxy: an invisible camera-facing sprite a bit larger than the
+  // button, so a finger tap registers even though the real button is small and
+  // foreshortened on the raked dash. Sprites always face the camera, giving a
+  // consistent, fat-finger-friendly tap area regardless of the dash angle.
+  // onPointerDown raycasts the whole group, so this is picked up automatically.
+  const hit = new THREE.Sprite(new THREE.SpriteMaterial({ visible: false, depthTest: false }));
+  hit.scale.set(W + 0.12, H + 0.12, 1);
+  hit.userData.hit = true;
+  g.add(hit);
+
   g.userData = { def, screenMat, glowMat, baseZ: g.position.z, _flash: 0 };
   return g;
 }
@@ -504,14 +514,17 @@ function onPointerDown(e) {
     return;
   }
 
-  // dashboard buttons
-  for (let i = 0; i < buttons.length; i++) {
-    if (raycaster.intersectObject(buttons[i], true).length) {
-      pressButton(buttons[i], true);
-      pointerButtons.set(e.pointerId, buttons[i]);
+  // dashboard buttons: raycast them all and take the NEAREST hit, so a tap that
+  // lands where two enlarged touch proxies overlap goes to the closest button.
+  const hits = raycaster.intersectObjects(buttons, true);
+  if (hits.length) {
+    let o = hits[0].object;
+    while (o && buttons.indexOf(o) === -1) o = o.parent;
+    if (o) {
+      pressButton(o, true);
+      pointerButtons.set(e.pointerId, o);
       lastConsumed = true;
       e.preventDefault();
-      return;
     }
   }
 }
@@ -632,5 +645,13 @@ export function cockpitDebug() {
       return b ? b.userData.screenMat.opacity : null;
     },
     wheelRot: () => (wheel ? wheel.rotation.z : 0),
+    // screen-space centre of a button, for touch-hit verification
+    screenPos(name) {
+      const b = buttons.find((x) => x.userData.def.name === name);
+      if (!b || !dom) return null;
+      const v = b.getWorldPosition(new THREE.Vector3()).project(camera);
+      const r = dom.getBoundingClientRect();
+      return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
+    },
   };
 }
