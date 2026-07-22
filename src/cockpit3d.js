@@ -485,33 +485,37 @@ function interactive() {
   return curPhase === 'fly' && !input.locked;
 }
 
-function setPointer(e) {
+function setPointer(cx, cy) {
   const r = dom.getBoundingClientRect();
-  pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
-  pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  pointer.x = ((cx - r.left) / r.width) * 2 - 1;
+  pointer.y = -((cy - r.top) / r.height) * 2 + 1;
 }
 
-function onPointerDown(e) {
+// Shared press/move/release core, fed by BOTH pointer events (mouse/pen) and
+// native touch events. Android WebGL canvases don't always emit pointer events
+// for touch, so we drive touch through touchstart/move/end directly and let the
+// pointer path handle mouse/pen only. `id` is a pointerId or a touch identifier.
+// Returns true if the press landed on cockpit geometry (so callers can
+// preventDefault / suppress the pointer-lock click).
+function beginAt(id, cx, cy, type) {
   lastConsumed = false;
-  lastPointerType = e.pointerType || 'mouse';
-  if (!interactive()) return;
-  setPointer(e);
+  lastPointerType = type;
+  if (!interactive()) return false;
+  setPointer(cx, cy);
   raycaster.setFromCamera(pointer, camera);
 
   // hologram first when open: a hit (body or ENGAGE) consumes the pointer; a
   // miss deselects and falls through so the dash stays usable.
   if (isHoloOpen() && holoPick(raycaster)) {
     lastConsumed = true;
-    e.preventDefault();
-    return;
+    return true;
   }
 
   // steering wheel: grab and drag to fly
   if (raycaster.intersectObject(stick, true).length) {
-    wheelDrag = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    wheelDrag = { id, x: cx, y: cy };
     lastConsumed = true;
-    e.preventDefault();
-    return;
+    return true;
   }
 
   // dashboard buttons: raycast them all and take the NEAREST hit, so a tap that
@@ -522,32 +526,79 @@ function onPointerDown(e) {
     while (o && buttons.indexOf(o) === -1) o = o.parent;
     if (o) {
       pressButton(o, true);
-      pointerButtons.set(e.pointerId, o);
+      pointerButtons.set(id, o);
       lastConsumed = true;
-      e.preventDefault();
+      return true;
     }
   }
+  return false;
+}
+
+function moveAt(id, cx, cy) {
+  if (wheelDrag && id === wheelDrag.id) {
+    const dx = cx - wheelDrag.x;
+    const dy = cy - wheelDrag.y;
+    input.mouseX += dx * settings.sensitivity * C.WHEEL_DRAG_GAIN;
+    input.mouseY += dy * settings.sensitivity * (settings.invertY ? -1 : 1) * C.WHEEL_DRAG_GAIN;
+    wheelDrag.x = cx;
+    wheelDrag.y = cy;
+    return true;
+  }
+  return false;
+}
+
+function endAt(id) {
+  if (wheelDrag && id === wheelDrag.id) wheelDrag = null;
+  const b = pointerButtons.get(id);
+  if (b) {
+    pressButton(b, false);
+    pointerButtons.delete(id);
+  }
+}
+
+// --- mouse / pen: pointer events (touch is handled by the touch path below) ---
+function onPointerDown(e) {
+  if (e.pointerType === 'touch') return;
+  if (beginAt(e.pointerId, e.clientX, e.clientY, e.pointerType || 'mouse')) e.preventDefault();
 }
 
 function onPointerMove(e) {
-  if (wheelDrag && e.pointerId === wheelDrag.id) {
-    const dx = e.clientX - wheelDrag.x;
-    const dy = e.clientY - wheelDrag.y;
-    input.mouseX += dx * settings.sensitivity * C.WHEEL_DRAG_GAIN;
-    input.mouseY += dy * settings.sensitivity * (settings.invertY ? -1 : 1) * C.WHEEL_DRAG_GAIN;
-    wheelDrag.x = e.clientX;
-    wheelDrag.y = e.clientY;
-    e.preventDefault();
-  }
+  if (e.pointerType === 'touch') return;
+  if (moveAt(e.pointerId, e.clientX, e.clientY)) e.preventDefault();
 }
 
 function onPointerUp(e) {
-  if (wheelDrag && e.pointerId === wheelDrag.id) wheelDrag = null;
-  const b = pointerButtons.get(e.pointerId);
-  if (b) {
-    pressButton(b, false);
-    pointerButtons.delete(e.pointerId);
+  if (e.pointerType === 'touch') return;
+  endAt(e.pointerId);
+}
+
+// --- touch: native touch events, so it works even where the canvas emits no
+// pointer events for touch (some Android browsers/WebViews). Touch ids namespace
+// with a prefix so they never collide with mouse pointerIds in the shared maps.
+function tid(t) {
+  return 'touch:' + t.identifier;
+}
+
+function onTouchStart(e) {
+  let consumed = false;
+  for (const t of e.changedTouches) {
+    if (beginAt(tid(t), t.clientX, t.clientY, 'touch')) consumed = true;
   }
+  // Prevent the browser's compatibility mouse/click (which would try to grab
+  // pointer lock) and any scroll/zoom while interacting with the dash.
+  if (consumed || interactive()) e.preventDefault();
+}
+
+function onTouchMove(e) {
+  let moved = false;
+  for (const t of e.changedTouches) {
+    if (moveAt(tid(t), t.clientX, t.clientY)) moved = true;
+  }
+  if (moved) e.preventDefault();
+}
+
+function onTouchEnd(e) {
+  for (const t of e.changedTouches) endAt(tid(t));
 }
 
 // Consulted by input.js before it grabs pointer lock: skip the lock when the
@@ -577,10 +628,18 @@ export function initCockpit3d(domElement) {
   cockpitShell.add(holoGlow);
 
   domElement.style.touchAction = 'none';
+  // mouse / pen
   domElement.addEventListener('pointerdown', onPointerDown);
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', onPointerUp);
   window.addEventListener('pointercancel', onPointerUp);
+  // touch (native): the reliable path on mobile, where the canvas may emit no
+  // pointer events for touch. passive:false so we can preventDefault the
+  // compatibility click (pointer-lock grab) and page scroll/zoom.
+  domElement.addEventListener('touchstart', onTouchStart, { passive: false });
+  domElement.addEventListener('touchmove', onTouchMove, { passive: false });
+  window.addEventListener('touchend', onTouchEnd);
+  window.addEventListener('touchcancel', onTouchEnd);
 
   // keyboard flashes: the key already drives the control (input.js / radioPopup.js);
   // this only lights the matching dash button so touch and keys look alike.
