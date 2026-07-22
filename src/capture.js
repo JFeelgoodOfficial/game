@@ -166,7 +166,7 @@ export function initCapture(gameRenderer) {
   panel.setAttribute('data-nocapture', '');
   const title = document.createElement('div');
   title.className = 'g-title';
-  title.textContent = 'GALLERY';
+  title.textContent = 'CAMERA';
   grid = document.createElement('div');
   grid.className = 'g-grid';
   foot = document.createElement('div');

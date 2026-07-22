@@ -369,11 +369,13 @@ function makeButton(def) {
 
   // circle: an additive colored glow disc that lights up (screenMat) with the
   // crisp key "circle" sprite on top. The sprite faces the camera so the ring
-  // and letter stay legible at the dash's steep angle.
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(cR + 0.02, 32), screenMat);
-  disc.position.set(0, cy, 0.041);
-  g.add(disc);
+  // and letter stay legible at the dash's steep angle. Keyless buttons (e.g.
+  // CAMERA, which opens a pop-up rather than mapping to one key) skip the
+  // circle entirely and centre their label instead.
   if (def.key) {
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(cR + 0.02, 32), screenMat);
+    disc.position.set(0, cy, 0.041);
+    g.add(disc);
     const cap = keycap(keyGlyph(def.key), def.color);
     cap.scale.set(cR * 2.4, cR * 2.4, 1);
     cap.position.set(0, cy, 0.06);
@@ -382,6 +384,7 @@ function makeButton(def) {
 
   // rectangle: a recessed plate with a thin colored border, holding the action
   // name — so it reads as a distinct labelled rectangle, not floating text.
+  const labelY = def.key ? ry : 0;
   const rectBorder = new THREE.Mesh(
     new THREE.PlaneGeometry(W - 0.03, 0.12),
     new THREE.MeshBasicMaterial({
@@ -392,13 +395,13 @@ function makeButton(def) {
       depthWrite: false,
     })
   );
-  rectBorder.position.set(0, ry, 0.028);
+  rectBorder.position.set(0, labelY, 0.028);
   g.add(rectBorder);
   const plate = new THREE.Mesh(new THREE.BoxGeometry(W - 0.05, 0.1, 0.02), plateMat);
-  plate.position.set(0, ry, 0.031);
+  plate.position.set(0, labelY, 0.031);
   g.add(plate);
   const lab = nameLabel(def.name, def.color, W - 0.03);
-  lab.position.set(0, ry, 0.05);
+  lab.position.set(0, labelY, 0.05);
   g.add(lab);
 
   g.userData = { def, screenMat, glowMat, baseZ: g.position.z, _flash: 0 };
@@ -406,34 +409,32 @@ function makeButton(def) {
 }
 
 function buildButtons() {
-  // main row of 7 across the dash top
+  // Top row: WARP/BOOST on the left, STAND/CAMERA on the right, centre kept
+  // clear for the wheel. CAMERA is keyless (it opens the camera pop-up, where
+  // P photographs and R records) so it shows no key circle. BRAKE/LAND/NAV have
+  // moved down to the right console cluster (where SHIELDS used to be).
   const main = [
-    { name: 'WARP', key: 'F', color: 0x82f7ff, mode: 'hold', flag: 'warp' },
-    { name: 'BOOST', key: 'SHIFT', color: 0xff6a4a, mode: 'hold', flag: 'boost' },
-    { name: 'BRAKE', key: 'SPACE', color: 0xa9f7ff, mode: 'hold', flag: 'brake' },
-    { name: 'NAV', key: 'N', color: 0x7dffc8, mode: 'nav' },
-    { name: 'LAND', key: 'G', color: 0xffd75a, mode: 'edge', flag: 'toggleWalk', code: 'KeyG' },
-    { name: 'STAND', key: 'C', color: 0xcfe6ff, mode: 'edge', flag: 'toggleInterior', code: 'KeyC' },
-    { name: 'PHOTO', key: 'P', color: 0xffc9ec, mode: 'fn', fn: toggleGallery, code: 'KeyP' },
+    { name: 'WARP', key: 'F', color: 0x82f7ff, mode: 'hold', flag: 'warp', x: -1.3 },
+    { name: 'BOOST', key: 'SHIFT', color: 0xff6a4a, mode: 'hold', flag: 'boost', x: -0.87 },
+    { name: 'STAND', key: 'C', color: 0xcfe6ff, mode: 'edge', flag: 'toggleInterior', code: 'KeyC', x: 0.87 },
+    { name: 'CAMERA', key: '', color: 0xffc9ec, mode: 'fn', fn: toggleGallery, x: 1.3 },
   ];
-  const span = 2.6,
-    x0 = -span / 2;
-  main.forEach(function (d, i) {
-    d.x = x0 + i * (span / (main.length - 1));
+  main.forEach(function (d) {
     d.y = 0.82; // lifted to seat the taller redesigned buttons on the dash
     d.z = 0.05;
   });
 
-  // lower tier: roll thrusters on the bottom-left of the dash (user request),
-  // the radio pop-up trigger inboard of them, a blank system button on the
-  // right pod, flanking the holo projector at centre. ROLL L/R are held
+  // Lower tiers mirror each other across the wheel: roll thrusters + radio on
+  // the bottom-left, and brake/land/nav on the bottom-right. ROLL L/R are held
   // buttons wired to the same input flags Q/E drive (ship.js reads them each
   // tick); code: makes the key press flash the matching button.
   const aux = [
     { name: 'ROLL L', key: 'Q', color: 0xb98cff, mode: 'hold', flag: 'rollLeft', code: 'KeyQ', x: -1.54, y: 0.5, z: 0.16 },
     { name: 'ROLL R', key: 'E', color: 0x8cffd1, mode: 'hold', flag: 'rollRight', code: 'KeyE', x: -1.16, y: 0.5, z: 0.16 },
     { name: 'RADIO', key: ', .', color: 0x9fd8e8, mode: 'fn', fn: toggleRadioPopup, x: -0.78, y: 0.5, z: 0.16 },
-    { name: 'SHIELDS', key: '', color: 0xbfe8ff, mode: 'blank', x: 0.97, y: 0.55, z: 0.16 },
+    { name: 'BRAKE', key: 'SPACE', color: 0xa9f7ff, mode: 'hold', flag: 'brake', x: 0.78, y: 0.5, z: 0.16 },
+    { name: 'LAND', key: 'G', color: 0xffd75a, mode: 'edge', flag: 'toggleWalk', code: 'KeyG', x: 1.16, y: 0.5, z: 0.16 },
+    { name: 'NAV', key: 'N', color: 0x7dffc8, mode: 'nav', x: 1.54, y: 0.5, z: 0.16 },
   ];
 
   buttons = [];
