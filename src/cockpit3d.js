@@ -22,8 +22,8 @@ import { settings } from './settings.js';
 import { camera } from './camera.js';
 import { cockpitScene } from './cockpit.js';
 import { toggleRadioPopup } from './radioPopup.js';
+import { toggleGallery } from './capture.js';
 import { toggleHolo, isHoloOpen, holoPick } from './holonav.js';
-import { label } from './holoLabel.js';
 
 const CYAN = 0x82f7ff,
   CYAN2 = 0xa9f7ff,
@@ -290,6 +290,36 @@ function keycap(keyText, color) {
   return s;
 }
 
+// The action-name label for a button. Unlike the shared label() (tuned for the
+// hologram, with wide margins), this sizes the text to FILL the canvas width so
+// the name reads large and clear on the dash. `worldW` is the sprite's width in
+// button units; the caller matches it to the rectangle plate.
+function nameLabel(text, color, worldW) {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 120;
+  const g = c.getContext('2d');
+  const col = '#' + color.toString(16).padStart(6, '0');
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  let fs = 96;
+  do {
+    g.font = '700 ' + fs + 'px "Courier New", ui-monospace, monospace';
+    fs -= 4;
+  } while (g.measureText(text).width > 476 && fs > 34);
+  g.shadowColor = col;
+  g.shadowBlur = 14;
+  g.fillStyle = col;
+  g.fillText(text, 256, 62);
+  const tex = new THREE.CanvasTexture(c);
+  tex.anisotropy = 4;
+  const s = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, blending: THREE.AdditiveBlending })
+  );
+  s.scale.set(worldW, (worldW * 120) / 512, 1);
+  return s;
+}
+
 // A dashboard button (the "colored knob", user redesign): a bordered frame
 // holding a colored CIRCLE up top with the activation key on it, and a
 // RECTANGLE beneath the circle with the action name. The circle's fill is the
@@ -319,11 +349,11 @@ function makeButton(def) {
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
-  const W = 0.26,
-    H = 0.32;
-  const cy = 0.078, // circle centre (upper)
-    ry = -0.088, // rectangle centre (lower)
-    cR = 0.065; // circle radius
+  const W = 0.3,
+    H = 0.34;
+  const cy = 0.086, // circle centre (upper)
+    ry = -0.094, // rectangle centre (lower)
+    cR = 0.07; // circle radius
 
   const glow = new THREE.Mesh(new THREE.PlaneGeometry(W + 0.05, H + 0.05), glowMat);
   glow.position.z = -0.026;
@@ -345,7 +375,7 @@ function makeButton(def) {
   g.add(disc);
   if (def.key) {
     const cap = keycap(keyGlyph(def.key), def.color);
-    cap.scale.set(cR * 2.3, cR * 2.3, 1);
+    cap.scale.set(cR * 2.4, cR * 2.4, 1);
     cap.position.set(0, cy, 0.06);
     g.add(cap);
   }
@@ -353,7 +383,7 @@ function makeButton(def) {
   // rectangle: a recessed plate with a thin colored border, holding the action
   // name — so it reads as a distinct labelled rectangle, not floating text.
   const rectBorder = new THREE.Mesh(
-    new THREE.PlaneGeometry(W - 0.03, 0.108),
+    new THREE.PlaneGeometry(W - 0.03, 0.12),
     new THREE.MeshBasicMaterial({
       color: def.color,
       transparent: true,
@@ -364,10 +394,10 @@ function makeButton(def) {
   );
   rectBorder.position.set(0, ry, 0.028);
   g.add(rectBorder);
-  const plate = new THREE.Mesh(new THREE.BoxGeometry(W - 0.05, 0.09, 0.02), plateMat);
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(W - 0.05, 0.1, 0.02), plateMat);
   plate.position.set(0, ry, 0.031);
   g.add(plate);
-  const lab = label(def.name, def.color, 0.19);
+  const lab = nameLabel(def.name, def.color, W - 0.03);
   lab.position.set(0, ry, 0.05);
   g.add(lab);
 
@@ -384,7 +414,7 @@ function buildButtons() {
     { name: 'NAV', key: 'N', color: 0x7dffc8, mode: 'nav' },
     { name: 'LAND', key: 'G', color: 0xffd75a, mode: 'edge', flag: 'toggleWalk', code: 'KeyG' },
     { name: 'STAND', key: 'C', color: 0xcfe6ff, mode: 'edge', flag: 'toggleInterior', code: 'KeyC' },
-    { name: 'PHOTO', key: 'P', color: 0xffc9ec, mode: 'edge', flag: 'photo', code: 'KeyP' },
+    { name: 'PHOTO', key: 'P', color: 0xffc9ec, mode: 'fn', fn: toggleGallery, code: 'KeyP' },
   ];
   const span = 2.6,
     x0 = -span / 2;
@@ -400,9 +430,9 @@ function buildButtons() {
   // buttons wired to the same input flags Q/E drive (ship.js reads them each
   // tick); code: makes the key press flash the matching button.
   const aux = [
-    { name: 'ROLL L', key: 'Q', color: 0xb98cff, mode: 'hold', flag: 'rollLeft', code: 'KeyQ', x: -1.5, y: 0.5, z: 0.16 },
-    { name: 'ROLL R', key: 'E', color: 0x8cffd1, mode: 'hold', flag: 'rollRight', code: 'KeyE', x: -1.18, y: 0.5, z: 0.16 },
-    { name: 'RADIO', key: ', .', color: 0x9fd8e8, mode: 'fn', fn: toggleRadioPopup, x: -0.82, y: 0.5, z: 0.16 },
+    { name: 'ROLL L', key: 'Q', color: 0xb98cff, mode: 'hold', flag: 'rollLeft', code: 'KeyQ', x: -1.54, y: 0.5, z: 0.16 },
+    { name: 'ROLL R', key: 'E', color: 0x8cffd1, mode: 'hold', flag: 'rollRight', code: 'KeyE', x: -1.16, y: 0.5, z: 0.16 },
+    { name: 'RADIO', key: ', .', color: 0x9fd8e8, mode: 'fn', fn: toggleRadioPopup, x: -0.78, y: 0.5, z: 0.16 },
     { name: 'SHIELDS', key: '', color: 0xbfe8ff, mode: 'blank', x: 0.97, y: 0.55, z: 0.16 },
   ];
 

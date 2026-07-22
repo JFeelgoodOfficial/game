@@ -559,6 +559,13 @@ function onGalleryKey(e) {
   if (e.code === 'KeyX') closeGallery();
 }
 
+// Toggle the camera / PICS pop-up. Called by the dash PHOTO button (cockpit3d.js)
+// in flight, replacing the corner PICS button that only shows on foot now.
+export function toggleGallery() {
+  if (galleryOpen) closeGallery();
+  else openGallery();
+}
+
 function showToast(text) {
   toast.textContent = text;
   toast.style.opacity = '1';
@@ -568,14 +575,14 @@ function showToast(text) {
 // --- per-frame ------------------------------------------------------------
 
 export function updateCapture(phase, frameBlend, delta) {
-  // PICS button: visible on foot always, and in flight with the dashboard fade
-  const shown = phase === 'walk' || (phase === 'fly' && frameBlend > 0.15);
+  // PICS button: on foot only. In flight the camera lives on the dash PHOTO
+  // button (which opens this gallery), so the corner button would be redundant.
+  const shown = phase === 'walk';
   if (shown !== lastBtnShown) {
     capBtn.classList.toggle('hidden', !shown);
     lastBtnShown = shown;
   }
-  if (shown && phase === 'fly') capBtn.style.opacity = Math.min(frameBlend * 1.4, 1).toFixed(3);
-  else if (shown) capBtn.style.opacity = '1';
+  if (shown) capBtn.style.opacity = '1';
 
   if (recording) {
     recSeconds += delta;
