@@ -481,8 +481,14 @@ function pressButton(b, on) {
 // keyboard drives the dash. Touch never locks, so it always reaches here.
 // ---------------------------------------------------------------------------
 
-function interactive() {
-  return curPhase === 'fly' && !input.locked;
+// Some mobile browsers only deliver ONE of touch / pointer events for a finger;
+// a few also honor requestPointerLock in a way that leaves input.locked stuck
+// true. Guard for both: prefer native touch when the browser has touch events,
+// and never gate touch on the pointer lock (touch never mouse-looks).
+const hasTouchEvents = typeof window !== 'undefined' && 'ontouchstart' in window;
+
+function interactive(isTouch) {
+  return curPhase === 'fly' && (isTouch || !input.locked);
 }
 
 function setPointer(cx, cy) {
@@ -500,7 +506,7 @@ function setPointer(cx, cy) {
 function beginAt(id, cx, cy, type) {
   lastConsumed = false;
   lastPointerType = type;
-  if (!interactive()) return false;
+  if (!interactive(type === 'touch')) return false;
   setPointer(cx, cy);
   raycaster.setFromCamera(pointer, camera);
 
@@ -556,19 +562,24 @@ function endAt(id) {
   }
 }
 
-// --- mouse / pen: pointer events (touch is handled by the touch path below) ---
+// --- mouse / pen via pointer events. If the browser also has touch events, let
+// the touch path own touch (avoids double-handling); otherwise handle touch
+// here too, so devices that ONLY emit pointer events for touch still work. ---
+function ignoreTouchPointer(e) {
+  return e.pointerType === 'touch' && hasTouchEvents;
+}
 function onPointerDown(e) {
-  if (e.pointerType === 'touch') return;
+  if (ignoreTouchPointer(e)) return;
   if (beginAt(e.pointerId, e.clientX, e.clientY, e.pointerType || 'mouse')) e.preventDefault();
 }
 
 function onPointerMove(e) {
-  if (e.pointerType === 'touch') return;
+  if (ignoreTouchPointer(e)) return;
   if (moveAt(e.pointerId, e.clientX, e.clientY)) e.preventDefault();
 }
 
 function onPointerUp(e) {
-  if (e.pointerType === 'touch') return;
+  if (ignoreTouchPointer(e)) return;
   endAt(e.pointerId);
 }
 
@@ -586,7 +597,7 @@ function onTouchStart(e) {
   }
   // Prevent the browser's compatibility mouse/click (which would try to grab
   // pointer lock) and any scroll/zoom while interacting with the dash.
-  if (consumed || interactive()) e.preventDefault();
+  if (consumed || interactive(true)) e.preventDefault();
 }
 
 function onTouchMove(e) {
