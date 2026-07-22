@@ -84,7 +84,7 @@ export function initHolonav(shell) {
   // Markers, the sun, rings and the course arrow all live here; the info panel
   // stays upright (added straight to `holo`) so its readouts face the pilot.
   chart = new THREE.Group();
-  chart.rotation.x = -0.42;
+  chart.rotation.x = -0.7; // tilted up toward the pilot so the orrery faces them
   holo.add(chart);
 
   // upward emitter beam — a faint cone of light widening from the projector to
@@ -177,7 +177,7 @@ function buildPrompt() {
   promptGroup = new THREE.Group();
   promptGroup.visible = false;
   // counter the chart tilt so the readout panel faces the pilot upright
-  promptGroup.rotation.x = 0.42;
+  promptGroup.rotation.x = 0.7;
   const bg = new THREE.Mesh(
     new THREE.PlaneGeometry(0.62, 0.44),
     new THREE.MeshBasicMaterial({ color: 0x061820, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false })
@@ -256,29 +256,39 @@ function makeMarker(body) {
   const group = new THREE.Group();
   const color = body.color;
   let mesh;
+  let labelY = 0.08;
   if (body.station) {
     mesh = new THREE.Mesh(
-      new THREE.OctahedronGeometry(0.016),
+      new THREE.OctahedronGeometry(0.032),
       new THREE.MeshBasicMaterial({ color: CYAN })
     );
   } else if (body.nebula) {
     mesh = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: glowTexture(), color, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthTest: false })
     );
-    mesh.scale.setScalar(0.07);
+    mesh.scale.setScalar(0.12);
+    labelY = 0.1;
   } else {
-    const r = 0.012 + (body.dot / 10) * 0.01;
-    mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 16), new THREE.MeshBasicMaterial({ color }));
+    // planets: bigger spheres (user request) with a soft colored halo so they
+    // read as glowing worlds on the orbit rings
+    const r = 0.032 + (body.dot / 10) * 0.03;
+    mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 20), new THREE.MeshBasicMaterial({ color }));
+    const halo = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: glowTexture(), color, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthTest: false })
+    );
+    halo.scale.setScalar(r * 4);
+    group.add(halo);
+    labelY = r + 0.05;
   }
   group.add(mesh);
 
-  const lab = label(body.label, color, 0.22);
-  lab.position.set(0, 0.05, 0);
+  const lab = label(body.label, color, 0.24);
+  lab.position.set(0, labelY, 0);
   group.add(lab);
 
   // comfortable touch target, invisible but still raycasts
   const proxy = new THREE.Mesh(
-    new THREE.SphereGeometry(0.05, 8, 8),
+    new THREE.SphereGeometry(0.08, 8, 8),
     new THREE.MeshBasicMaterial({ visible: false })
   );
   proxy.userData.body = body;
@@ -477,6 +487,10 @@ export function holonavDebug() {
       const b = getBodies().find((x) => x.id === id);
       if (b) select(b);
       return !!b;
+    },
+    setTilt(x) {
+      if (chart) chart.rotation.x = x;
+      if (promptGroup) promptGroup.rotation.x = -x;
     },
     engage,
   };
