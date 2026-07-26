@@ -44,6 +44,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildRig, poseRig } from './aliens.js';
 import { createActualitySky } from './actuality-sky.js';
+import { createActualityMaterials } from './actuality-materials.js';
+import { createCrowd } from './shadowreach-people.js';
 import { Astronaut } from '../src/astronaut.js';
 
 // The owner's paintings (repo-root /artgallery, same pipeline as the Orbital
@@ -632,12 +634,35 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     if (o.map) tileTex(o.map, r); // fine-grain detail underfoot, not one giant blob
 
+    // `ground` names a registry family (world/actuality-materials.js) — albedo,
+    // roughness AND normal, which is what makes a floor read as ground rather
+    // than as paint now that a real sun rakes across it. The registry owns the
+    // core material; the skirt needs its own alphaMap and opacity, so it takes a
+    // clone that this module owns and disposes.
+    const groundMat = o.ground
+      ? materials.make(o.ground, {
+        repeat: Math.max(2, Math.round((r * 2) / 15)),
+        color: o.color ?? 0xffffff,
+        roughness: o.roughness ?? 1.0,
+      })
+      : null;
+
     const coreGeo = keep(drape(new THREE.RingGeometry(0.01, r * 0.8, 48, 8).rotateX(-Math.PI / 2), o.lift ?? 0.08));
-    const core = new THREE.Mesh(coreGeo, stdMat(o.map ? 0xffffff : o.color, { rough: 1.0, map: o.map }));
+    const core = new THREE.Mesh(coreGeo,
+      groundMat ?? stdMat(o.map ? 0xffffff : o.color, { rough: 1.0, map: o.map }));
     core.frustumCulled = false;
+    core.receiveShadow = true;
 
     const skirtGeo = keep(drape(new THREE.RingGeometry(r * 0.8, r, 48, 4).rotateX(-Math.PI / 2), (o.lift ?? 0.08) - 0.03));
-    const skirtMat = stdMat(o.map ? 0xffffff : o.color, { rough: 1.0, map: o.map, transparent: true, depthWrite: false });
+    let skirtMat;
+    if (groundMat) {
+      skirtMat = groundMat.clone();
+      skirtMat.transparent = true;
+      skirtMat.depthWrite = false;
+      disposables.push(skirtMat); // the CLONE is ours; the original is the registry's
+    } else {
+      skirtMat = stdMat(o.map ? 0xffffff : o.color, { rough: 1.0, map: o.map, transparent: true, depthWrite: false });
+    }
     skirtMat.alphaMap = sharedRadialAlpha();
     const skirt = new THREE.Mesh(skirtGeo, skirtMat);
     skirt.frustumCulled = false;
@@ -697,6 +722,22 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   // near them — but "near" here is a confession circle 28 m across with dead
   // trees beyond it.
   if (sky) sky.setShadowExtent(110, 420);
+
+  /* -------------------------------------------------------------------
+   * PBR material registry (world/actuality-materials.js).
+   *
+   * Procedural, generated on a canvas at load — no texture files, nothing to
+   * fetch. Nine families of albedo + roughness + normal maps, memoized, so the
+   * standing stones and the Thinking Stone and the round room's walls are all
+   * the same handful of draw calls.
+   *
+   * The registry OWNS everything it returns and hands the same instance to
+   * every caller that asks for the same thing. Nothing from it goes into
+   * `disposables` — teardown would double-dispose — and anything that needs an
+   * onBeforeCompile or a live opacity is cloned first. One dispose() at the
+   * bottom of this module's own.
+   * ----------------------------------------------------------------- */
+  const materials = createActualityMaterials({ quality: opts.quality });
 
   // The blend picked by update(), drained by preRender().
   const _skyBlend = { a: SR.SKY_STOPS[0][1], b: SR.SKY_STOPS[0][1], k: 0 };
@@ -1038,8 +1079,8 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const g = new THREE.Group();
 
     // Vivid green ground carpets under the grass.
-    g.add(drapeDisc(170 * P, 150 * Z, { map: keep(makeMottleTexture(0x3fae4a, 0x2d8a38)) }));
-    g.add(drapeDisc(370 * P, 60 * Z, { map: keep(makeMottleTexture(0x53b856, 0x3fae4a)) }));
+    g.add(drapeDisc(170 * P, 150 * Z, { ground: 'groundCover', color: 0x4aa74e }));
+    g.add(drapeDisc(370 * P, 60 * Z, { ground: 'groundCover', color: 0x5cbc5e }));
 
     // Swaying grass — dressing.js blade with a rich green gradient. Bright
     // root→tip colors + a warm emissive floor keep backfaces from going black.
@@ -1102,7 +1143,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     // Stepping stones across the crossing (visual — the ground is walkable).
     const stoneGeo = keep(new THREE.CylinderGeometry(1.0, 1.1, 0.5, 7));
-    const stoneMat = stdMat(0x8f857a, { rough: 1.0 });
+    const stoneMat = materials.make('rock', { repeat: 2, color: 0xa89c8c });
     for (let i = -3; i <= 3; i++) {
       const st = new THREE.Mesh(stoneGeo, stoneMat);
       const dir = pathDir(SR.RIVER + i * 3.2, (i % 2) * 0.6);
@@ -1330,7 +1371,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       const margin = Math.abs(d - SR.RIVER) < 24 ? 12 : 6.5;
       lampSpots.push({ d, lat: -margin }, { d, lat: margin });
     }
-    const postMat = stdMat(0x3a342c, { rough: 1.0 });
+    const postMat = materials.make('wood', { repeat: 1, color: 0x584f42 });
     const orbMat = stdMat(0xffffff, { rough: 0.4, emis: 1.15, emisColor: 0xffcf7a });
     const placeLamp = (i) => ({ d: lampSpots[i].d, lat: lampSpots[i].lat, s: 1, h: 0 });
     g.add(scatterInstanced(postGeo, postMat, lampSpots.length, placeLamp));
@@ -1342,12 +1383,15 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   /* -------------------------------------------------------------------
    * ZONE 2 — The Confession Circle (dusk clearing, standing stones)
    * ----------------------------------------------------------------- */
-  let circleMesh = null;
+  let circleCrowd = null;
+  // Worn, sun-bleached homespun. Read together with the robed silhouette these
+  // are the clothes of people who have been standing here a long time.
+  const CIRCLE_CLOTH = [0x8a6f52, 0x9c8465, 0x74604a, 0xa89376, 0x6b5642, 0xb5a488];
   function buildCircle() {
     const g = new THREE.Group();
 
     // Dry amber clearing.
-    g.add(drapeDisc(SR.CIRCLE, 32, { map: keep(makeMottleTexture(0x9a6a3c, 0x7d5430)) }));
+    g.add(drapeDisc(SR.CIRCLE, 32, { ground: 'aggregate', color: 0x9a6a3c }));
 
     // Ring of dark standing stones around the huddle.
     const stoneParts = [];
@@ -1360,7 +1404,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       stoneParts.push(geo);
     }
     const stonesGeo = keep(mergeParts(stoneParts));
-    const stones = new THREE.Mesh(stonesGeo, stdMat(0x2b2b30, { rough: 1.0 }));
+    const stones = new THREE.Mesh(stonesGeo, materials.make('stone', { repeat: 3, color: 0x4a4a52 }));
     stones.frustumCulled = false;
     const cf = frameAt(SR.CIRCLE);
     stones.position.copy(cf.pos);
@@ -1368,54 +1412,43 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     g.add(stones);
 
     // Dead trees scattered beyond the stones.
-    g.add(scatterInstanced(deadTreeGeo(), stdMat(0x3a3028, { rough: 1.0 }), 10, () => ({
+    g.add(scatterInstanced(deadTreeGeo(), materials.make('bark', { repeat: 2, color: 0x6a5a48 }), 10, () => ({
       d: SR.CIRCLE - 70 * Z + rng() * 140 * Z,
       lat: (rng() < 0.5 ? -1 : 1) * (40 + rng() * 35),
       yaw: rng() * Math.PI * 2,
       s: 0.8 + rng() * 0.8,
     })));
 
-    // The huddled crowd — two rings of dusty-umber hooded figures facing in.
-    const fig = keep(mergeParts([
-      new THREE.ConeGeometry(0.34, 1.5, 6).translate(0, 0.75, 0),
-      new THREE.SphereGeometry(0.19, 6, 5).translate(0, 1.6, 0),
-    ]));
-    const mat = stdMat(0x8a6f52, { rough: 1.0, emis: 0.12 });
-    mat.transparent = true;
-    const N = 60;
-    const crowd = new THREE.InstancedMesh(fig, mat, N);
-    crowd.frustumCulled = false;
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(1, 1, 1);
-    const dir = new THREE.Vector3(), pos = new THREE.Vector3();
-    for (let i = 0; i < N; i++) {
-      const ring = i < 24 ? 0 : 1;
-      const a = ((i % (ring ? 36 : 24)) / (ring ? 36 : 24)) * Math.PI * 2 + ring * 0.09;
-      const rr = ring ? 18 + rng() * 4 : 12 + rng() * 3;
-      pathDirInto(SR.CIRCLE + Math.sin(a) * rr, Math.cos(a) * rr, dir);
-      pos.copy(dir).multiplyScalar(sampleGround(planet, dir) + 0.1);
-      q.setFromUnitVectors(_yAxis, dir);
-      q.multiply(_qScratch.setFromAxisAngle(_yAxis, -a + Math.PI / 2)); // face circle center
-      s.setScalar(0.9 + rng() * 0.3);
-      m.compose(pos, q, s);
-      crowd.setMatrixAt(i, m);
-    }
-    crowd.instanceMatrix.needsUpdate = true;
-    g.add(crowd);
-    circleMesh = { mesh: crowd, mat, fade: -1 };
+    // The huddled crowd — sixty people in two rings, facing in. Mostly robed:
+    // this is a confession, and they are here to listen.
+    const _cDir = new THREE.Vector3();
+    circleCrowd = createCrowd({
+      count: 60,
+      rng,
+      materials,
+      robedFraction: 0.62,
+      // Dusty umber through to bleached linen — the zone's own palette, worn.
+      cloth: (r) => CIRCLE_CLOTH[Math.floor(r() * CIRCLE_CLOTH.length)],
+      place: (i) => {
+        const ring = i < 24 ? 0 : 1;
+        const a = ((i % (ring ? 36 : 24)) / (ring ? 36 : 24)) * Math.PI * 2 + ring * 0.09;
+        const rr = ring ? 18 + rng() * 4 : 12 + rng() * 3;
+        pathDirInto(SR.CIRCLE + Math.sin(a) * rr, Math.cos(a) * rr, _cDir);
+        const q = new THREE.Quaternion().setFromUnitVectors(_yAxis, _cDir)
+          .multiply(_qScratch.setFromAxisAngle(_yAxis, -a + Math.PI / 2)); // face the centre
+        return {
+          pos: _cDir.clone().multiplyScalar(sampleGround(planet, _cDir)),
+          quat: q,
+        };
+      },
+    });
+    g.add(circleCrowd.group);
 
     // Low amber dusk glow over the clearing.
     const dusk = new THREE.PointLight(0xffb060, 3.5, 100, 2);
     placeAtDir(dusk, planet, pathDir(SR.CIRCLE, 0), 10);
     g.add(dusk);
     addEventLight(dusk, SR.CIRCLE, 0);
-
-    zoneUpdaters.push((t, dt) => {
-      if (circleMesh.fade >= 0) {
-        circleMesh.fade += dt;
-        mat.opacity = Math.max(0, 1 - circleMesh.fade / 2);
-        if (circleMesh.fade > 2) { crowd.visible = false; circleMesh.fade = -2; }
-      }
-    });
     return { group: g };
   }
 
@@ -1443,15 +1476,14 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   function buildLine() {
     const g = new THREE.Group();
 
-    // Golden sand carpets along the corridor.
-    const sandTex = keep(makeMottleTexture(0xd9b25f, 0xc39c4e));
-    g.add(drapeDisc(1080 * P, 120 * Z, { map: sandTex }));
-    g.add(drapeDisc(1260 * P, 120 * Z, { map: sandTex }));
-    g.add(drapeDisc(1440 * P, 120 * Z, { map: sandTex }));
+    // Golden sand carpets along the corridor, warming as the queue goes on.
+    g.add(drapeDisc(1080 * P, 120 * Z, { ground: 'aggregate', color: 0xd9b877 }));
+    g.add(drapeDisc(1260 * P, 120 * Z, { ground: 'aggregate', color: 0xd3b070 }));
+    g.add(drapeDisc(1440 * P, 120 * Z, { ground: 'aggregate', color: 0xcaa768 }));
 
     // Dune mounds flanking the corridor.
     const duneGeo = keep(new THREE.SphereGeometry(1, 12, 8));
-    g.add(scatterInstanced(duneGeo, stdMat(0xd9b25f, { rough: 1.0 }), 40, () => {
+    g.add(scatterInstanced(duneGeo, materials.make('aggregate', { repeat: 4, color: 0xe8c98a }), 40, () => {
       const sc = 12 + rng() * 26;
       const ySc = sc * (0.3 + rng() * 0.2);
       // Bury only the rim (the flattened sphere's half-height is ~0.3-0.5 sc,
@@ -1464,29 +1496,37 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       };
     }));
 
-    // The queue: ~120 sun-bleached figures winding through the dunes in a
-    // serpentine, receding far past where the girl breaks the scene.
+    // The queue: 120 people winding through the dunes in a serpentine, standing
+    // about arm's length apart, all of them facing the way the line is going —
+    // which is away from you, until the girl turns and breaks it.
     const queueLat = (d) => 40 * Math.sin(((d - SR.LINE_START) / QUEUE_LEN) * 3 * Math.PI);
-    const fig = keep(mergeParts([
-      new THREE.CapsuleGeometry(0.22, 1.0, 3, 6).translate(0, 0.85, 0),
-      new THREE.SphereGeometry(0.18, 6, 5).translate(0, 1.65, 0),
-    ]));
-    const qMat = stdMat(0xffffff, { rough: 1.0, emis: 0.05, emisColor: 0xcbb391 });
-    qMat.transparent = true;
     const QN = 120;
-    const tanShades = [0xcbb391, 0xdcc9a8, 0xe8dcc4, 0xbfa27e];
-    const queue = scatterInstanced(fig, qMat, QN, (i) => {
-      const d = SR.LINE_START + (i / QN) * QUEUE_LEN; // runs well past the break
-      return {
-        d,
-        lat: queueLat(d) + (rng() - 0.5) * 1.2,
-        yaw: rng() * 0.4 - 0.2,
-        s: 0.92 + rng() * 0.16,
-        h: 0.02,
-        color: tanShades[Math.floor(rng() * tanShades.length)],
-      };
+    const _qDir = new THREE.Vector3(), _qAhead = new THREE.Vector3();
+    queueCrowd = createCrowd({
+      count: QN,
+      rng,
+      materials,
+      robedFraction: 0.28,
+      cloth: (r) => QUEUE_CLOTH[Math.floor(r() * QUEUE_CLOTH.length)],
+      place: (i) => {
+        const d = SR.LINE_START + (i / QN) * QUEUE_LEN;
+        const lat = queueLat(d) + (rng() - 0.5) * 1.2;
+        pathDirInto(d, lat, _qDir);
+        const pos = _qDir.clone().multiplyScalar(sampleGround(planet, _qDir));
+        // Face up-queue: aim at where the person in front is standing, so the
+        // whole line bends through the serpentine instead of staring one way.
+        const dAhead = Math.min(d + 6, SR.LINE_START + QUEUE_LEN);
+        pathDirInto(dAhead, queueLat(dAhead), _qAhead);
+        _qAhead.multiplyScalar(sampleGround(planet, _qAhead));
+        const q0 = new THREE.Quaternion().setFromUnitVectors(_yAxis, _qDir);
+        _qAhead.sub(pos).applyQuaternion(_qScratch.copy(q0).invert());
+        const q = q0.multiply(_qScratch.setFromAxisAngle(
+          _yAxis, Math.atan2(_qAhead.x, _qAhead.z) + (rng() - 0.5) * 0.35
+        ));
+        return { pos, quat: q };
+      },
     });
-    g.add(queue);
+    g.add(queueCrowd.group);
 
     // Rope posts + sagging ropes marking the queue lane (merged buckets).
     const postParts = [], ropeParts = [];
@@ -1519,8 +1559,8 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       prev.copy(cur);
       prevSet = true;
     }
-    const postMesh = new THREE.Mesh(keep(mergeParts(postParts)), stdMat(0x8a7050, { rough: 1.0 }));
-    const ropeMesh = new THREE.Mesh(keep(mergeParts(ropeParts)), stdMat(0xc9b184, { rough: 1.0 }));
+    const postMesh = new THREE.Mesh(keep(mergeParts(postParts)), materials.make('wood', { repeat: 1.5, color: 0xb59470 }));
+    const ropeMesh = new THREE.Mesh(keep(mergeParts(ropeParts)), materials.make('groundCover', { repeat: 3, color: 0xd8c49a }));
     postMesh.frustumCulled = false; ropeMesh.frustumCulled = false;
     postMesh.position.copy(cf2.pos); postMesh.quaternion.copy(cf2.q);
     ropeMesh.position.copy(cf2.pos); ropeMesh.quaternion.copy(cf2.q);
@@ -1594,15 +1634,17 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       } else if (girl.state === 'ready') {
         poseRig(gr, dt, t, 'idle', 0);
       }
-      if (lineFadeRequested && fadeT < 0) fadeT = 0;
+      if (lineFadeRequested && fadeT < 0) { fadeT = 0; queueCrowd.startFade(2.5); }
       if (fadeT >= 0) {
+        // The crowd runs its own dissolve (it has to clear the promoted rigs as
+        // well as the instances); the banners and shimmer follow on the same
+        // clock so the whole zone goes together.
         fadeT += dt;
         const o = Math.max(0, 1 - fadeT / 2.5);
-        qMat.opacity = o;
         bannerMat.opacity = o;
         micaMat.emissiveIntensity = 1.0 * o;
         if (fadeT > 2.5) {
-          queue.visible = false; mica.visible = false; banners.visible = false;
+          mica.visible = false; banners.visible = false;
           fadeT = Infinity;
         }
       }
@@ -1610,6 +1652,9 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     return { group: g };
   }
   let lineFadeRequested = false;
+  let queueCrowd = null;
+  // Sun-bleached: linen and undyed cotton gone pale in a desert nobody leaves.
+  const QUEUE_CLOTH = [0xcbb391, 0xdcc9a8, 0xe8dcc4, 0xbfa27e, 0xd6c4a4, 0xa8916f];
 
   /* -------------------------------------------------------------------
    * ZONE 4 — The Wasteland (cracked black earth, giant storm, lightning)
@@ -1619,7 +1664,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const g = new THREE.Group();
 
     // Cracked near-black earth.
-    g.add(drapeDisc(SR.DESERT, WASTE_R, { map: keep(makeCrackTexture()) }));
+    g.add(drapeDisc(SR.DESERT, WASTE_R, { ground: 'rock', color: 0x2e2b28 }));
 
     // Glowing molten fissures: a second draped disc using the crack pattern as
     // an emissive/alpha map so only the cracks light up orange — big color in
@@ -1676,13 +1721,13 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     g.add(embers);
 
     // Dead black trees and ash-grey rock scatter.
-    g.add(scatterInstanced(deadTreeGeo(), stdMat(0x141210, { rough: 1.0 }), 40, () => ({
+    g.add(scatterInstanced(deadTreeGeo(), materials.make('bark', { repeat: 2, color: 0x2a2622 }), 40, () => ({
       d: SR.DESERT - 130 * Z + rng() * 260 * Z,
       lat: (rng() - 0.5) * 240 * Z,
       yaw: rng() * Math.PI * 2,
       s: 0.7 + rng() * 1.1,
     })));
-    g.add(scatterInstanced(keep(new THREE.DodecahedronGeometry(0.3, 0)), stdMat(0x4a4644, { rough: 1.0 }), 150, () => ({
+    g.add(scatterInstanced(keep(new THREE.DodecahedronGeometry(0.3, 0)), materials.make('rock', { repeat: 1, color: 0x6a6664 }), 150, () => ({
       d: SR.DESERT - 120 * Z + rng() * 240 * Z,
       lat: (rng() - 0.5) * 220 * Z,
       h: 0.05,
@@ -1720,24 +1765,12 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       stormHolder.add(disc);
       discMeshes.push({ mesh: disc, speed: d.speed });
     }
-    // Hanging cloud fringe under the outer rim.
-    const fringeMat = stdMat(0x23261f, { rough: 1.0, transparent: true, opacity: 0.85, depthWrite: false });
-    const fringeGeo = keep(new THREE.SphereGeometry(1, 8, 6));
-    const fringe = new THREE.InstancedMesh(fringeGeo, fringeMat, 30);
-    fringe.frustumCulled = false;
-    {
-      const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3();
-      for (let i = 0; i < 30; i++) {
-        const a = rng() * Math.PI * 2, rr = 50 + rng() * 34;
-        const sc = 6 + rng() * 8;
-        s.set(sc, sc * 0.35, sc);
-        m.compose(new THREE.Vector3(Math.cos(a) * rr, 42 + rng() * 12, Math.sin(a) * rr), q.identity(), s);
-        fringe.setMatrixAt(i, m);
-      }
-      fringe.instanceMatrix.needsUpdate = true;
-    }
-    fringe.renderOrder = 3;
-    stormHolder.add(fringe);
+    // The hanging cloud fringe that used to sit under the outer rim is gone. It
+    // was thirty flattened eight-by-six spheres standing in for cloud, which was
+    // the right call when the sky was a flat colour; against a raymarched deck
+    // at 86% cover they read as exactly what they are — polygons — and they were
+    // competing with real cloud for the same piece of sky. The swirl discs stay:
+    // they draw the eye of the storm, which the sky's own weather cannot.
 
     // Lightning bolts: jagged Lines flashing via the creatures.js spike curve,
     // the brightest one driving a single shared ground-flash light.
@@ -1793,7 +1826,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     // The Thinking Stone at the eye of the storm, with a dim warm keeper light
     // so the Warrior reads under the dark sky.
-    const stone = new THREE.Mesh(keep(new THREE.CylinderGeometry(1.3, 1.5, 1.0, 9)), stdMat(0xcac0ae, { rough: 1.0 }));
+    const stone = new THREE.Mesh(keep(new THREE.CylinderGeometry(1.3, 1.5, 1.0, 9)), materials.make('rock', { repeat: 1.5, color: 0xd8cdb8 }));
     const stoneDir = pathDir(SR.DESERT, 0);
     placeAtDir(stone, planet, stoneDir, 0.5);
     orientOnSurface(stone, stoneDir, 0);
@@ -2053,7 +2086,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     // Deep green garden floor. Scatter is biased -120..+100 in dist to keep an
     // antipode margin (hard cap ~2740).
-    g.add(drapeDisc(SR.GARDEN, 34, { map: keep(makeMottleTexture(0x2f7a3a, 0x246330)) }));
+    g.add(drapeDisc(SR.GARDEN, 34, { ground: 'groundCover', color: 0x357f40 }));
 
     // Golden-hour light over the whole garden. The garden sits past the
     // terminator (night side) — the story's "warm gold light" radiates from
@@ -2131,12 +2164,12 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     })));
 
     // The bare tree with the windowpane leaning against it.
-    const trunk = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.4, 0.6, 6, 7)), stdMat(0x5a4634, { rough: 1.0 }));
+    const trunk = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.4, 0.6, 6, 7)), materials.make('bark', { repeat: 2.5, color: 0x8a6c50 }));
     const treeDir = pathDir(SR.GARDEN + 14, 8);
     placeAtDir(trunk, planet, treeDir, 3);
     orientOnSurface(trunk, treeDir, 0);
     g.add(trunk);
-    const paneFrame = new THREE.Mesh(keep(new THREE.BoxGeometry(1.6, 2.2, 0.12)), stdMat(0x8a7a5c, { rough: 0.8 }));
+    const paneFrame = new THREE.Mesh(keep(new THREE.BoxGeometry(1.6, 2.2, 0.12)), materials.make('wood', { repeat: 1, color: 0xb0a077 }));
     // The windowpane shows a dream: one of the owner's own paintings, softly
     // self-lit so the memory reads in the night garden.
     let paneMat;
@@ -2348,7 +2381,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       }
       queueToast(TXT.cloakRiver, 4.5, 0.4);
     } else if (f === 'circle_triggered') {
-      if (circleMesh) circleMesh.fade = 0; // begin vanishing
+      if (circleCrowd) circleCrowd.startFade(2); // begin vanishing
     } else if (f === 'line_broken') {
       girl.state = 'joined';
       addFollower(girl.rig, 2.0);
@@ -2553,6 +2586,11 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     // Zone hooks (girl motion, fades, storm, mirror, sprout growth).
     for (const zu of zoneUpdaters) zu(t, dt, _pl, sunDot);
 
+    // The two crowds: idle motion, and promoting whoever the player is standing
+    // among into articulated bodies.
+    if (circleCrowd) circleCrowd.update(t, dt, _pl);
+    if (queueCrowd) queueCrowd.update(t, dt, _pl);
+
     // Event lights dim out while the player stands in them (up close they wash
     // out the character art) and come back as the player leaves.
     for (const el of eventLights) {
@@ -2689,6 +2727,24 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     return null;
   }
 
+  // Crowd state, for headless verification: how many of each crowd have been
+  // promoted to articulated bodies, and whether the dissolve has finished.
+  function debugCrowds() {
+    return {
+      circle: circleCrowd
+        ? { rigs: circleCrowd.rigCount, faded: circleCrowd.faded } : null,
+      queue: queueCrowd
+        ? { rigs: queueCrowd.rigCount, faded: queueCrowd.faded } : null,
+    };
+  }
+
+  // Fire both crowd dissolves directly, for headless verification — the story
+  // route to them runs through a five-line toast chain and a dialogue close.
+  function debugFadeCrowds() {
+    if (circleCrowd) circleCrowd.startFade(2);
+    if (queueCrowd) queueCrowd.startFade(2.5);
+  }
+
   function canBoard() { return stage === 0 || has('mask_removed'); }
   function isComplete() { return has('mask_removed'); }
   const marks = {
@@ -2711,6 +2767,9 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     // First: the sky owns scene.fog and scene.environment, which belong to the
     // root scene and outlive this module.
     if (sky) sky.dispose();
+    if (circleCrowd) circleCrowd.dispose();
+    if (queueCrowd) queueCrowd.dispose();
+    materials.dispose(); // the registry owns its own textures and materials
     for (const d of dissolves) d.dispose();
     dissolves.length = 0;
     holograms.length = 0;
@@ -2738,6 +2797,8 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     isComplete,
     initAudio,
     debugState,
+    debugCrowds,
+    debugFadeCrowds,
   };
 }
 
