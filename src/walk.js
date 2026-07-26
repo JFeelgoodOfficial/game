@@ -30,6 +30,7 @@ import {
   setViewGetter,
 } from './terraform.js';
 import { createDiamondRain } from './diamondrain.js';
+import { createMarineSnow } from './marinesnow.js';
 // World entities spawned around the landing site. All parented (directly or
 // via the city group) to planet.surface, so planet spin and floating-origin
 // rebases carry them — the world never moves without them. Aliased import:
@@ -137,6 +138,7 @@ let crowd = null; // citizens inside the city (world/aliens.js)
 let wonders = null; // megastructure field (world/wonders.js)
 let creatures = null; // planet wildlife (world/creatures.js)
 let diamondRain = null; // walker-local diamond-rain volume (cfg.diamondRain)
+let marineSnow = null; // diver-local particulate volume (cfg.divable)
 let wavemall = null; // total-conversion content for 'wavemall prime' only
 let actuality = null; // total-conversion content for 'actuality' only
 let shadowreach = null; // total-conversion narrative world for 'shadowreach' only
@@ -386,6 +388,13 @@ export function enterWalk(planet) {
   if (planet.cfg.diamondRain) {
     diamondRain = createDiamondRain();
     astronaut.group.parent.add(diamondRain.group); // the scene
+  }
+
+  // Marine snow + bubbles (divable worlds): a diver-local particulate volume,
+  // visible only below the surface.
+  if (planet.cfg.divable) {
+    marineSnow = createMarineSnow();
+    astronaut.group.parent.add(marineSnow.group); // the scene
   }
 }
 
@@ -645,7 +654,11 @@ function spawnWorldEntities(planet) {
   }); // adds its group to planet.surface itself
 
   // --- creatures: scattered around the landing site itself ---
-  creatures = createCreatures(planet, _up, { radius: C.DRESS_RADIUS });
+  creatures = createCreatures(planet, _up, {
+    radius: C.DRESS_RADIUS,
+    quality: settings.quality,
+    materials: surfaceMaterials,
+  });
   toSurfaceLocal(planet, _up, _localUp);
   creatures.group.quaternion.setFromUnitVectors(_yAxisV, _localUp);
   let creatR = planet.radius + planet.body.groundAt(_up);
@@ -684,6 +697,10 @@ export function exitWalk(camera) {
   if (diamondRain) {
     diamondRain.dispose();
     diamondRain = null;
+  }
+  if (marineSnow) {
+    marineSnow.dispose();
+    marineSnow = null;
   }
 
   if (dressing) {
@@ -1247,8 +1264,22 @@ export function updateWalkVisuals(dt, t) {
   const planet = walk.planet;
   _up.subVectors(ship.position, planet.body.position).normalize();
 
+  // Dive depth of the walker below the sea surface, 0..1 over the same 80 u
+  // band the old skyfog grading used (0.4 u threshold keeps surface swimming
+  // in air). Shared by the sky grading, the marine snow and the rain gate.
+  let uwDepth = 0;
+  if (planet.cfg.divable && planet.water) {
+    const d = planet.water.r - ship.position.distanceTo(planet.body.position);
+    if (d > 0.4) uwDepth = Math.min(d / 80, 1);
+  }
+
   // Diamond rain rides the walker: one uniform write + a transform per frame.
-  if (diamondRain) diamondRain.update(t, ship.position, _up);
+  // It is a sky storm — underwater it yields to the marine snow.
+  if (diamondRain) {
+    diamondRain.update(t, ship.position, _up);
+    diamondRain.group.visible = uwDepth === 0;
+  }
+  if (marineSnow) marineSnow.update(t, ship.position, _up, uwDepth);
 
   astronaut.group.position.copy(ship.position);
   // Tangent basis with the model's +Z on the body facing and +Y on planet-up.
@@ -1273,13 +1304,7 @@ export function updateWalkVisuals(dt, t) {
       .subVectors(ship.position, planet.body.position)
       .applyAxisAngle(_yAxisV, -planet.surface.rotation.y);
     planetSky.update(t, dt, _playerLocal);
-    // Dive grading (divable worlds): depth of the walker below the sea
-    // surface, saturating over the same 80 u band the old skyfog hijack used.
-    // The 0.4 u threshold keeps surface swimming (buoyancy bobbing) in air.
-    if (planet.cfg.divable && planet.water) {
-      const depth = planet.water.r - _playerLocal.length();
-      planetSky.setUnderwater(depth > 0.4 ? Math.min(depth / 80, 1) : 0);
-    }
+    if (planet.cfg.divable) planetSky.setUnderwater(uwDepth);
   }
 
   // Interaction focus: re-scanned below in each module's own player-local
@@ -1534,7 +1559,7 @@ export function promptReturnToShip() {
 export function walkSite() {
   return {
     city, parked, crowd, dressing, wavemall, actuality, shadowreach, interiorCrowds,
-    creatures, diamondRain, planetSky,
+    creatures, diamondRain, marineSnow, planetSky,
     station: stationWalk.stationSite(),
   };
 }

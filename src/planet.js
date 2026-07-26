@@ -340,6 +340,9 @@ function makeSurfaceUniforms(cfg, radius) {
     // ShaderMaterials can't read scene.fog. Density 0 = off.
     uFogColor: { value: new THREE.Color(0) },
     uFogDensity: { value: 0 },
+    // Divable worlds run the detail grain + relief shading below sea level
+    // too — a diver looks at that ground from arm's length.
+    uSeabedDetail: { value: cfg.divable ? 1 : 0 },
   };
 }
 
@@ -381,6 +384,7 @@ export function initPlanets(scene) {
               uGloss: { value: cfg.water.gloss },
               uFogColor: { value: new THREE.Color(0) },
               uFogDensity: { value: 0 },
+              uTime: { value: 0 },
             },
             // Divable worlds: the sea surface must render from below too.
             side: cfg.divable ? THREE.DoubleSide : THREE.FrontSide,
@@ -638,6 +642,7 @@ export function updatePlanets(t, camPos, only = null) {
         p.clouds.material.uniforms.uTime.value = t;
         p.clouds.material.uniforms.uCover.value = C.CLOUD_COVER;
       }
+      if (p.waterMesh) p.waterMesh.material.uniforms.uTime.value = t;
     } else {
       p.surface.material.uniforms.uTime.value = t;
     }

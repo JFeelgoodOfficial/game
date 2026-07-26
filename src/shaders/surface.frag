@@ -25,6 +25,7 @@ uniform vec3 uColMid;     // uplands / rock
 uniform vec3 uColHigh;    // peaks
 uniform vec3 uFogColor;   // custom fog (planetsky underwater grading)
 uniform float uFogDensity;// 0 = off — raw ShaderMaterials can't read scene.fog
+uniform float uSeabedDetail; // 1 on divable worlds: grain/relief run underwater too
 
 float hash(vec3 p) {
   p = fract(p * 0.3183099 + 0.1);
@@ -82,6 +83,15 @@ void main() {
   if (elev < uSeaLevel) {
     float d = elev / max(uSeaLevel, 1e-4);
     col = mix(uColDeep, uColShallow, d * d);
+    if (uSeabedDetail > 0.5 && uOct >= 6) {
+      // Divable seabed: the same detail grain the land gets, plus current-
+      // combed sand ripples in the shallow band where a diver actually looks.
+      float grain = fbm(p * 40.0, 3);
+      col *= 0.9 + 0.2 * grain;
+      float shallow = smoothstep(0.5, 0.95, d);
+      float rip = sin((p.x * 0.62 + p.z * 0.78) * 900.0 + fbm(p * 26.0, 2) * 7.0);
+      col *= 1.0 + rip * 0.07 * shallow;
+    }
   } else {
     float e = (elev - uSeaLevel) / (1.0 - uSeaLevel);
     col = mix(uColSand, uColLow, smoothstep(0.02, 0.18, e));
@@ -105,7 +115,7 @@ void main() {
   // already computed above (surface-gradient bump mapping) instead of three
   // extra elevation() evaluations per pixel — ~4x fewer noise lookups on
   // every lit land fragment for the same visual relief.
-  if (uAmp > 0.0 && elev > uSeaLevel) {
+  if (uAmp > 0.0 && (elev > uSeaLevel || uSeabedDetail > 0.5)) {
     vec3 dpx = dFdx(vObjPos);
     vec3 dpy = dFdy(vObjPos);
     vec3 r1 = cross(dpy, N);
