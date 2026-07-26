@@ -282,6 +282,19 @@ export const CITY_STYLES = [
       windowWarm: '#dff4ff',
     },
   },
+  {
+    name: 'basecampNeon', // alpine resort under the peaks — lodges, lift-line ads
+    heightScale: 0.55,
+    density: 0.7,
+    signChance: 0.6,
+    adBillboards: true,
+    flickerAmount: 0.18,
+    palette: {
+      neonPrimary: 0xff7a2f, neonSecondaryA: 0x4adfff, neonSecondaryB: 0xf4f8ff,
+      hullA: 0x37404e, hullB: 0x272e3a, street: 0x1a2029, plaza: 0x232b36,
+      windowWarm: '#ffe9b0',
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------

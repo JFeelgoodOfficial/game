@@ -144,8 +144,20 @@ const CULTURES = {
     farewells: ['Return if you learn something worth recording.', 'Safe travels — and keep your eyes open.'],
     questBias: 'codex',
   },
+  linechasers: {
+    pronoun: 'we',
+    greetings: ['You flew the canyon coming in — we heard you before we saw you.', 'Fresh snow, fresh face. Good day for both.', 'Welcome to basecamp. Everything here points uphill.'],
+    observations: ['Every face of this world holds one perfect line. We are still counting them.', 'The kites read the wind better than any instrument we ever built.', 'Nobody here asks why you climb. They ask which ridge.'],
+    requests: ['Ride the east bowl before the light flattens — then tell us what you found.', 'If you thread the great arch, do it low. It only counts low.'],
+    farewells: ['Keep your nose downhill.', 'The mountain will still be here. Go meet it.'],
+    questBias: 'waypoint',
+  },
 };
-const CULTURE_KEYS = Object.keys(CULTURES);
+// Worlds with a pinned culture. Pinned banks stay OUT of the hash-pick pool
+// below so every other city keeps the culture it always had.
+const CULTURE_BY_CITY = { wyattmattoe: 'linechasers' };
+const PINNED = new Set(Object.values(CULTURE_BY_CITY));
+const CULTURE_KEYS = Object.keys(CULTURES).filter((k) => !PINNED.has(k));
 
 // Role banks for building interiors — occupants draw lines that fit the room
 // they're standing in (a shop, a lounge, the tower balcony) instead of the
@@ -206,6 +218,7 @@ const ROLE_CULTURES = {
 };
 
 function cultureForCity(cityId) {
+  if (CULTURE_BY_CITY[cityId]) return CULTURES[CULTURE_BY_CITY[cityId]];
   const rng = mulberry32(hashStr('culture:' + cityId));
   return CULTURES[pick(rng, CULTURE_KEYS)];
 }

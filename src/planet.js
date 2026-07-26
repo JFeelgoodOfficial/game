@@ -262,6 +262,46 @@ const CONFIGS = [
       rocks: true,
     },
   },
+  {
+    // Extreme-alpine world: ride the ridgelines, fly the canyons. The
+    // tallest relief in the system with the heaviest ridged weight — long
+    // continuous fall lines, knife crests, and valley-carved drainage
+    // canyons deep enough to thread the ship below the ridgelines. The
+    // frozen lakes pooled in the canyon floors are flat flight corridors
+    // and board run-outs. boardable unlocks the snowboard (B) on foot.
+    name: 'wyattmattoe',
+    type: 'terra',
+    dir: new THREE.Vector3(-0.82, 0.4, 0.15).normalize(),
+    distance: () => 35000,
+    radius: () => 1050,
+    mass: () => 8.8e5, // surface g ~= 30
+    skyColor: () => 0x8fb8e8, // thin high-altitude blue
+    spin: () => 0.009,
+    atmoColor: 0xa8ccf5,
+    seaLevel: () => 0.42,
+    terrainHeight: () => 280, // terra is 220 — real descents
+    // Heaviest ridge blend in the system; crest wavelength stays above the
+    // ~17 u vertex spacing at radius 1050; deep carved drainage so canyons
+    // read as flyable corridors, not noise.
+    shape: { ridge: 0.58, ridgeFreq: 2.7, valley: 0.18 },
+    iceLat: 0.3, // snowline near the equator — a white world with rock teeth
+    // Floaty alpine air on foot and huge airs off jumps. Flight untouched.
+    walkGravityScale: 0.5,
+    boardable: true,
+    palette: {
+      deep: 0x16283e, shallow: 0x2d6b7e, sand: 0x8a94a0,
+      low: 0x3a5a48, mid: 0x6b7280, high: 0xf4f8ff, // spruce, granite, snow
+    },
+    water: { color: 0xcfe0ec, gloss: 0.1 }, // frozen: flat matte lake ice
+    clouds: true,
+    frozenSea: true, // canyon-floor lakes are rideable ice sheets
+    dress: {
+      trees: true, // spruce stands below the snowline
+      treeHueShift: 0.16,
+      rocks: true,
+      rockTint: 0x6b7280, // granite scree
+    },
+  },
 ];
 
 // surface.vert is shared by the water/cloud/gas/rings/atmosphere materials

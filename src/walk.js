@@ -90,6 +90,11 @@ const _desired = new THREE.Vector3();
 const _camDir = new THREE.Vector3();
 const _camOffset = new THREE.Vector3();
 const _basis = new THREE.Matrix4();
+// Snowboard scratch (board branch of stepWalk only).
+const _bt1 = new THREE.Vector3(); // board forward tangent
+const _bt2 = new THREE.Vector3(); // board right tangent
+const _bProbe = new THREE.Vector3(); // slope probe direction
+const _bDown = new THREE.Vector3(); // downhill tangent, magnitude = slope
 
 export const walk = {
   active: false,
@@ -104,6 +109,9 @@ export const walk = {
   grounded: true,
   swimming: false,
   diving: false, // underwater free-swim (divable worlds; C toggles)
+  boarding: false, // snowboard (boardable worlds; B toggles)
+  carve: 0, // smoothed board steer lean, -1..1 — feeds the body roll
+  boardIdle: 0, // secs grounded at ~standstill (board auto-exit timer)
   view: 'tp', // 'fp' | 'tp'
   camDist: 7.6, // third-person orbit distance (scroll wheel)
   facing: new THREE.Vector3(0, 0, -1), // astronaut body heading (follows vel)
@@ -113,6 +121,9 @@ let astronaut = null; // the visible third-person body (initWalk)
 let dressing = null; // active surface-dressing patch, spawned per disembark
 let camSnap = true; // snap (don't lerp) the TP camera on the next frame
 let fovKick = 0; // eased 0..1 sprint FOV widen
+let boardPrevGroundR = 0; // surface radius under the board last tick
+let boardGroundVel = 0; // radial rate the terrain imposed while grounded
+let boardCamEase = 0; // eased 0..1 board-speed fraction for the TP camera
 let lastSpinAngle = 0; // surface.rotation.y at the previous walk tick (co-rotation)
 
 // Landing-site world entities, spawned per disembark like dressing.
@@ -252,6 +263,9 @@ export function enterWalk(planet) {
   walk.grounded = true;
   walk.swimming = false;
   walk.diving = false;
+  walk.boarding = false;
+  walk.carve = 0;
+  walk.boardIdle = 0;
   walk.camDist = C.WALK_CAM_DIST;
   camSnap = true;
   // The story worlds hold still while you walk them — no spin means no
@@ -300,6 +314,8 @@ export function enterWalk(planet) {
       camSnap = true;
     });
   }
+  // This world carries the snowboard — say so once per disembark.
+  if (planet.cfg.boardable) showViewToast('B — SNOWBOARD');
 
   // Dress the landing site (terra/oceana get the full valley; ice and rock
   // worlds get boulders; gasless of course never reach here).
@@ -326,6 +342,7 @@ const WONDER_TYPES = {
   glacia: ['crystals', 'monoliths'],
   rustia: ['titan', 'arch', 'monoliths', 'ringworld'],
   neptunia: ['crystals', 'arch', 'titan'],
+  wyattmattoe: ['arch', 'elevator', 'crystals'], // arch = a gate to fly through
 };
 
 // Spawn the landing-site world entities, all riding planet.surface so they
@@ -457,6 +474,7 @@ function spawnWorldEntities(planet) {
     glacia: 'frostHaven',
     rustia: 'dustOutpost',
     neptunia: 'tideLuminous',
+    wyattmattoe: 'basecampNeon',
   };
   const terraWorlds = planets.filter((p) => p.cfg.type === 'terra');
   const styleIdx = Math.max(0, terraWorlds.indexOf(planet));
@@ -720,52 +738,144 @@ export function stepWalk(dt) {
   if (!walk.swimming) walk.diving = false;
   const diving = walk.diving;
 
+  // --- snowboard toggle (B): boardable worlds only. Consumed here, first —
+  // game.js zeroes any leftover press at the end of the frame, so a B typed
+  // in flight can never fire on a later landing. B mid-ride steps off
+  // anywhere; entering needs solid ground under the feet.
+  if (input.toggleBoard) {
+    input.toggleBoard = false;
+    if (walk.boarding) {
+      walk.boarding = false;
+    } else if (planet.cfg.boardable && walk.grounded && !walk.swimming && !diving) {
+      walk.boarding = true;
+      walk.carve = 0;
+      walk.boardIdle = 0;
+      // Seed the ground tracker so frame 1 reads zero terrain motion.
+      boardPrevGroundR = ship.position.distanceTo(planet.body.position);
+      boardGroundVel = 0;
+    }
+  }
+  if (walk.swimming) walk.boarding = false; // splashed into open water — swim
+
   // --- planar movement: velocity approaches the wish direction ---
   _right.crossVectors(walk.heading, _up).normalize();
   const fwd = (input.forward ? 1 : 0) - (input.reverse ? 1 : 0);
   const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-  _wish.set(0, 0, 0);
-  if (diving) {
-    // Underwater: forward follows the pitched look direction — swim where
-    // you're looking. Space floats up; Shift is a faster stroke.
-    _look.copy(walk.heading).multiplyScalar(Math.cos(walk.pitch))
-      .addScaledVector(_up, Math.sin(walk.pitch));
-    _wish.addScaledVector(_look, fwd);
-    _wish.addScaledVector(_right, strafe);
-    if (input.brake) _wish.addScaledVector(_up, 0.7);
-    const diveSpeed = C.WALK_DIVE_SPEED * (input.boost ? 1.6 : 1);
-    if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(diveSpeed);
-  } else {
-    _wish.addScaledVector(walk.heading, fwd);
-    _wish.addScaledVector(_right, strafe);
-    const targetSpeed = walk.swimming
-      ? C.WALK_SWIM_SPEED
-      : wading
-        ? C.WALK_WADE_SPEED
-        : input.boost
-          ? C.WALK_RUN_SPEED
-          : C.WALK_SPEED;
-    if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(targetSpeed);
-  }
+  if (walk.boarding) {
+    // --- SNOWBOARD: gravity-fed carving (boardable worlds; B toggles) -----
+    // No wish velocity: the fall line accelerates you, the board's grip
+    // swings the velocity toward wherever the nose points, and the only
+    // engine on flat ground is a weak W hop-skate. Everything below stays
+    // in the walker's tangent-plane plumbing, so co-rotation, the city
+    // push-out, and floating origin behave exactly as they do on foot.
+    const carveRate = walk.grounded ? C.BOARD_CARVE_RATE : C.BOARD_CARVE_AIR;
+    if (strafe !== 0) {
+      // A/D carve steers the shared heading (mouse look already yawed it).
+      walk.heading.applyAxisAngle(_up, -strafe * carveRate * dt);
+      projectTangent(walk.heading, _up);
+      walk.heading.normalize();
+      _right.crossVectors(walk.heading, _up).normalize();
+    }
+    walk.carve += (strafe - walk.carve) * Math.min(1, 6 * dt); // pose lean
+    _bt1.copy(walk.heading); // along the board
+    _bt2.copy(_right); // across the board
 
-  // Keep the persistent velocity in the current tangent plane (the plane
-  // tilts as you move around the sphere), then move it toward the wish at a
-  // state-dependent acceleration: crisp on the ground, weak in the air,
-  // syrupy in the water. Diving keeps the radial component — full 3D.
-  if (!diving) projectTangent(walk.vel, _up);
-  const accel = diving
-    ? C.WALK_DIVE_ACCEL
-    : walk.swimming
-      ? C.WALK_ACCEL_SWIM
-      : walk.grounded
-        ? C.WALK_ACCEL_GROUND
-        : C.WALK_ACCEL_AIR;
-  _move.subVectors(_wish, walk.vel);
-  const gap = _move.length();
-  const step = accel * dt;
-  if (gap > step && gap > 1e-6) walk.vel.addScaledVector(_move, step / gap);
-  else walk.vel.copy(_wish);
-  ship.position.addScaledVector(walk.vel, dt);
+    // Terrain gradient by central differences of the same floor the feet
+    // ride — floorRadius clamps to the frozen sheet, so lake ice reads as
+    // slope 0 and the ride flattens into a glide.
+    const e = C.BOARD_PROBE;
+    _bProbe.copy(ship.position).addScaledVector(_bt1, e).sub(planet.body.position).normalize();
+    const hF = floorRadius(planet, _bProbe);
+    _bProbe.copy(ship.position).addScaledVector(_bt1, -e).sub(planet.body.position).normalize();
+    const hB = floorRadius(planet, _bProbe);
+    _bProbe.copy(ship.position).addScaledVector(_bt2, e).sub(planet.body.position).normalize();
+    const hR = floorRadius(planet, _bProbe);
+    _bProbe.copy(ship.position).addScaledVector(_bt2, -e).sub(planet.body.position).normalize();
+    const hL = floorRadius(planet, _bProbe);
+    const gF = (hF - hB) / (2 * e);
+    const gR = (hR - hL) / (2 * e);
+    _bDown.set(0, 0, 0).addScaledVector(_bt1, -gF).addScaledVector(_bt2, -gR);
+    const slope = _bDown.length();
+    if (slope > C.BOARD_SLOPE_MAX) _bDown.multiplyScalar(C.BOARD_SLOPE_MAX / slope);
+
+    projectTangent(walk.vel, _up);
+    const gscale = planet.cfg?.walkGravityScale ?? 1;
+    // Frozen-lake ice underfoot: grip AND drag drop — long drifty slides.
+    const fric =
+      planet.water?.frozen && planet.radius + planet.body.terrainAt(_up) < planet.water.r
+        ? C.BOARD_ICE_SCALE
+        : 1;
+
+    if (walk.grounded) {
+      // Downhill pull (uphill it opposes the velocity and bleeds it off).
+      walk.vel.addScaledVector(_bDown, C.BOARD_PULL * gscale * dt);
+      // Anisotropic friction on the board axes: near-free forward glide,
+      // strong sideways grip — grip is what turns a heading change into a
+      // carve instead of a drift. S skids extra drag into the glide.
+      const vAlong = walk.vel.dot(_bt1);
+      const vSide = walk.vel.dot(_bt2);
+      const kAlong = Math.exp(-(C.BOARD_GLIDE_DRAG + (input.reverse ? C.BOARD_BRAKE_DRAG : 0)) * fric * dt);
+      const kSide = Math.exp(-C.BOARD_GRIP * fric * dt);
+      walk.vel.set(0, 0, 0)
+        .addScaledVector(_bt1, vAlong * kAlong)
+        .addScaledVector(_bt2, vSide * kSide);
+      // Flat/uphill: W pushes a slow hop-skate (never fights real speed).
+      if (input.forward && walk.vel.length() < C.BOARD_SKATE_SPEED) {
+        walk.vel.addScaledVector(_bt1, C.BOARD_SKATE_ACCEL * dt);
+      }
+    }
+    // Soft speed cap — tucking (holding W at speed) raises it a touch.
+    const cap = C.BOARD_MAX_SPEED * (input.forward && walk.grounded ? C.BOARD_TUCK_CAP : 1);
+    const sp = walk.vel.length();
+    if (sp > cap) walk.vel.multiplyScalar(1 - Math.min(1, 3 * dt) * (1 - cap / sp));
+    // Standing still on the ground long enough steps off the board.
+    walk.boardIdle = walk.grounded && sp < 1.0 ? walk.boardIdle + dt : 0;
+    if (walk.boardIdle > C.BOARD_IDLE_EXIT) walk.boarding = false;
+    ship.position.addScaledVector(walk.vel, dt);
+  } else {
+    _wish.set(0, 0, 0);
+    if (diving) {
+      // Underwater: forward follows the pitched look direction — swim where
+      // you're looking. Space floats up; Shift is a faster stroke.
+      _look.copy(walk.heading).multiplyScalar(Math.cos(walk.pitch))
+        .addScaledVector(_up, Math.sin(walk.pitch));
+      _wish.addScaledVector(_look, fwd);
+      _wish.addScaledVector(_right, strafe);
+      if (input.brake) _wish.addScaledVector(_up, 0.7);
+      const diveSpeed = C.WALK_DIVE_SPEED * (input.boost ? 1.6 : 1);
+      if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(diveSpeed);
+    } else {
+      _wish.addScaledVector(walk.heading, fwd);
+      _wish.addScaledVector(_right, strafe);
+      const targetSpeed = walk.swimming
+        ? C.WALK_SWIM_SPEED
+        : wading
+          ? C.WALK_WADE_SPEED
+          : input.boost
+            ? C.WALK_RUN_SPEED
+            : C.WALK_SPEED;
+      if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(targetSpeed);
+    }
+
+    // Keep the persistent velocity in the current tangent plane (the plane
+    // tilts as you move around the sphere), then move it toward the wish at a
+    // state-dependent acceleration: crisp on the ground, weak in the air,
+    // syrupy in the water. Diving keeps the radial component — full 3D.
+    if (!diving) projectTangent(walk.vel, _up);
+    const accel = diving
+      ? C.WALK_DIVE_ACCEL
+      : walk.swimming
+        ? C.WALK_ACCEL_SWIM
+        : walk.grounded
+          ? C.WALK_ACCEL_GROUND
+          : C.WALK_ACCEL_AIR;
+    _move.subVectors(_wish, walk.vel);
+    const gap = _move.length();
+    const step = accel * dt;
+    if (gap > step && gap > 1e-6) walk.vel.addScaledVector(_move, step / gap);
+    else walk.vel.copy(_wish);
+    ship.position.addScaledVector(walk.vel, dt);
+  }
 
   // --- city: building push-out + unified ground, in the city's flat frame ---
   // The walker can't pass through tower walls (slide along them instead), and
@@ -938,6 +1048,47 @@ export function stepWalk(dt) {
       walk.vUp = SHORE_HOP;
       r += walk.vUp * dt;
     }
+  } else if (walk.boarding) {
+    // Board vertical: while grounded the terrain hands the walker a radial
+    // rate (boardGroundVel); a crest launches the ride when the ballistic
+    // continuation of that rate clears the dropping face — no keypress, the
+    // convexity itself throws you. Space ollies on top of whatever the lip
+    // gave. Landing keeps the tangent momentum, so the ride continues.
+    const gscale = planet.cfg?.walkGravityScale ?? 1;
+    if (walk.grounded) {
+      const groundVel = dt > 0 ? (surfaceR - boardPrevGroundR) / dt : 0;
+      if (input.brake && !walk.jumpHeld) {
+        walk.grounded = false;
+        walk.vUp = Math.max(boardGroundVel, 0) + C.BOARD_JUMP; // ollie keeps the lip's pop
+        r += walk.vUp * dt;
+      } else {
+        const vBal = boardGroundVel - C.WALK_GRAVITY * gscale * dt;
+        const rBal = r + vBal * dt;
+        if (walk.vel.length() > C.BOARD_LAUNCH_SPEED && rBal > surfaceR + 0.05) {
+          walk.grounded = false; // the crest launched the ride
+          walk.vUp = vBal;
+          r = rBal;
+        } else if (r <= surfaceR + C.BOARD_SNAP) {
+          r = surfaceR; // ride the surface
+          walk.vUp = 0;
+        } else {
+          walk.grounded = false; // slow roll off a sheer edge — just fall
+          walk.vUp = Math.min(boardGroundVel, 0);
+          r += walk.vUp * dt;
+        }
+      }
+      boardGroundVel = groundVel;
+    } else {
+      walk.vUp -= C.WALK_GRAVITY * gscale * dt;
+      r += walk.vUp * dt;
+      if (r <= surfaceR) {
+        r = surfaceR;
+        walk.grounded = true;
+        walk.vUp = 0;
+        boardGroundVel = 0;
+      }
+    }
+    boardPrevGroundR = surfaceR;
   } else if (walk.vUp <= 0 && r <= surfaceR + GROUND_SNAP) {
     r = surfaceR; // grounded: follow the terrain up and down
     walk.grounded = true;
@@ -963,12 +1114,16 @@ export function stepWalk(dt) {
   const hSpeed = walk.vel.length();
   walk.mode = walk.swimming
     ? 'swim'
-    : !walk.grounded
-      ? 'jump'
-      : hSpeed > 0.6
-        ? 'run'
-        : 'idle';
-  walk.speed01 = Math.min(hSpeed / C.WALK_RUN_SPEED, 1);
+    : walk.boarding
+      ? 'board'
+      : !walk.grounded
+        ? 'jump'
+        : hSpeed > 0.6
+          ? 'run'
+          : 'idle';
+  walk.speed01 = walk.boarding
+    ? Math.min(hSpeed / C.BOARD_MAX_SPEED, 1)
+    : Math.min(hSpeed / C.WALK_RUN_SPEED, 1);
   if (hSpeed > 0.4) {
     // The body turns smoothly toward where it's actually moving.
     _fwd.copy(walk.vel).multiplyScalar(1 / hSpeed);
@@ -997,7 +1152,7 @@ export function updateWalkVisuals(dt, t) {
   _fwd.crossVectors(_right, _up).normalize();
   _basis.makeBasis(_right, _up, _fwd);
   astronaut.group.quaternion.setFromRotationMatrix(_basis);
-  astronaut.update(dt, walk.mode, walk.speed01);
+  astronaut.update(dt, walk.mode, walk.speed01, walk.carve);
   // The body is only drawn in third person: the FP camera sits inside the
   // helmet and the rig has no first-person-safe arms.
   astronaut.group.visible = walk.view === 'tp';
@@ -1273,6 +1428,11 @@ export function currentGravityScale() {
   return walk.active ? (walk.planet?.cfg?.walkGravityScale ?? 1) : 1;
 }
 
+// Whether the world underfoot carries the snowboard. For the walk-hint UI.
+export function currentBoardable() {
+  return walk.active && !stationWalk.stationActive() && !!walk.planet?.cfg?.boardable;
+}
+
 // Bearing from the walker to the parked ship, for the on-foot compass.
 // angle: radians relative to the look heading (0 = dead ahead, + = right);
 // dist: world units. Null when there's nothing to point at.
@@ -1341,9 +1501,14 @@ export function updateWalkCamera(camera, delta = 0) {
     input.wheel = 0;
   }
 
+  // Boarding at speed eases the orbit out for a wider view of the line.
+  const bFrac = walk.boarding ? Math.min(walk.speed01 * 1.3, 1) : 0;
+  boardCamEase += (bFrac - boardCamEase) * Math.min(1, 4 * delta);
+  const camDist = walk.camDist * (1 + C.BOARD_CAM_PULL * boardCamEase);
+
   const eyeH = walk.mode === 'swim' ? C.WALK_TP_SWIM_EYE : C.WALK_TP_EYE;
   _target.copy(ship.position).addScaledVector(_up, eyeH);
-  _desired.copy(_target).addScaledVector(_look, -walk.camDist);
+  _desired.copy(_target).addScaledVector(_look, -camDist);
 
   // Keep the camera above the terrain and out of the water.
   _camDir.subVectors(_desired, planet.body.position);
@@ -1379,11 +1544,15 @@ export function updateWalkCamera(camera, delta = 0) {
   camera.up.copy(_up);
   camera.lookAt(_target);
 
-  // A touch of extra FOV at full sprint — the demo's speed rush.
-  const wantKick =
-    walk.mode === 'run' && input.boost && walk.speed01 > 0.55 ? 1 : 0;
+  // A touch of extra FOV at full sprint — the demo's speed rush. The board
+  // widens further, scaled by how fast the ride actually is.
+  const wantKick = walk.boarding
+    ? boardCamEase
+    : walk.mode === 'run' && input.boost && walk.speed01 > 0.55
+      ? 1
+      : 0;
   fovKick += (wantKick - fovKick) * Math.min(1, 5 * delta);
-  const fov = C.FOV + SPRINT_FOV_KICK * fovKick;
+  const fov = C.FOV + (walk.boarding ? C.BOARD_FOV_KICK : SPRINT_FOV_KICK) * fovKick;
   if (Math.abs(camera.fov - fov) > 0.01) {
     camera.fov = fov;
     camera.updateProjectionMatrix();

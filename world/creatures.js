@@ -105,6 +105,18 @@ const C = {
     memoryTradeChance: 0.4,  // fraction of interactions offering a choice quest
   },
 
+  // --- Wyattmattoe: Ridge Kites ---
+  wyattmattoe: {
+    density: 1.0,
+    kiteCount: 10,
+    sailSpan: [1.6, 3.2],    // wingtip-to-wingtip
+    soarHeight: [6, 14],     // hover band above the anchor cairn
+    groundedFraction: 0.35,  // kites resting at their cairns — the talkable ones
+    glowMin: 0.5,
+    glowMax: 1.6,
+    tetherCutChance: 0.3,    // fraction of interactions offering the choice quest
+  },
+
   // --- Sky Ecologies: Saturnia / Neptunia (backdrop only) ---
   sky: {
     density: 1.0,
@@ -861,6 +873,191 @@ function buildRustia(planet, worldUp, opts, seed) {
 }
 
 // ---------------------------------------------------------------------------
+// Recipe: WYATTMATTOE — Ridge Kites
+// Living diamond-shaped sails of translucent membrane over safety-orange
+// cartilage struts, each tethered by silk to a stone cairn on a summit or
+// ridgeline. They surf the standing wave of wind above their anchor; the
+// grounded ones (and any that reel down to talk) are the interactable ones.
+// ---------------------------------------------------------------------------
+function buildWyattmattoe(planet, worldUp, opts, seed) {
+  const rand = mulberry32(seed);
+  const cfg = C.wyattmattoe;
+  const pal = opts.palette ?? C.paletteDefault;
+  const group = new THREE.Group();
+  group.name = 'wyattmattoe-creatures';
+
+  const kiteCount = Math.round(cfg.kiteCount * (opts.density ?? cfg.density));
+  const radius = opts.radius ?? 240;
+
+  const members = [];
+  for (let i = 0; i < kiteCount; i++) {
+    const a = rand() * Math.PI * 2, r = Math.sqrt(rand()) * radius;
+    const mSeed = seed ^ (0x51a7be3d * (i + 1));
+    const mrand = mulberry32(mSeed);
+    members.push({
+      id: `kite-${i}`,
+      pos: new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r),
+      seed: mSeed,
+      species: 'Ridge Kite',
+      isGrounded: mrand() < cfg.groundedFraction,
+      active: false, rig: null,
+      _phase: mrand() * Math.PI * 2,
+      _soarH: THREE.MathUtils.lerp(cfg.soarHeight[0], cfg.soarHeight[1], mrand()),
+      _fly: 0, // smoothed altitude of the sail above the cairn
+      activate() {
+        if (!this.rig) {
+          this.rig = buildKiteRig(mulberry32(this.seed), pal);
+          this.rig.position.copy(this.pos);
+          group.add(this.rig);
+          this._fly = this.isGrounded ? 0.4 : this._soarH;
+        }
+        this.rig.visible = true; this.active = true;
+      },
+      deactivate() { if (this.rig) this.rig.visible = false; this.active = false; },
+    });
+  }
+
+  function buildKiteRig(rand2, pal2) {
+    const g = new THREE.Group();
+    const span = THREE.MathUtils.lerp(cfg.sailSpan[0], cfg.sailSpan[1], rand2());
+    // Sail: a flattened octahedron reads as a taut diamond membrane.
+    const sailMat = new THREE.MeshStandardMaterial({
+      color: 0xf4f8ff, roughness: 0.35, transparent: true, opacity: 0.8,
+    });
+    const strutMat = new THREE.MeshStandardMaterial({
+      color: 0xff7a2f, roughness: 0.6, // safety-orange cartilage
+    });
+    const sail = new THREE.Group();
+    const membrane = new THREE.Mesh(new THREE.OctahedronGeometry(span * 0.5), sailMat);
+    membrane.scale.set(1, 0.55, 0.12);
+    sail.add(membrane);
+    for (let s = 0; s < 2; s++) {
+      const strut = new THREE.Mesh(
+        new THREE.BoxGeometry(s === 0 ? span : 0.06, s === 0 ? 0.06 : span * 0.55, 0.05),
+        strutMat
+      );
+      sail.add(strut);
+    }
+    const eye = new THREE.Mesh(
+      new THREE.SphereGeometry(0.07, 8, 8),
+      new THREE.MeshStandardMaterial({
+        color: pal2.cyan, emissive: new THREE.Color(pal2.cyan),
+        emissiveIntensity: cfg.glowMax,
+      })
+    );
+    eye.position.set(span * 0.5, 0, 0); // the leading point
+    sail.add(eye);
+    g.userData.eyeMat = eye.material;
+    g.userData.sail = sail;
+    g.userData.sailMat = sailMat;
+    g.add(sail);
+    // Silk tether: a hair-thin cylinder the sail rides up and down.
+    const tether = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.008, 0.008, 1, 4, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0xdfe8f4, transparent: true, opacity: 0.35 })
+    );
+    g.userData.tether = tether;
+    g.add(tether);
+    // Anchor cairn: three leaned granite stones.
+    const cairnMat = new THREE.MeshStandardMaterial({ color: 0x6b7280, roughness: 0.95 });
+    for (let s = 0; s < 3; s++) {
+      const stone = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.4 + rand2() * 0.3, 0.25), cairnMat);
+      const sa = (s / 3) * Math.PI * 2 + rand2() * 0.6;
+      stone.position.set(Math.cos(sa) * 0.22, 0.2, Math.sin(sa) * 0.22);
+      stone.rotation.y = rand2() * Math.PI;
+      stone.rotation.z = (rand2() - 0.5) * 0.25;
+      g.add(stone);
+    }
+    return g;
+  }
+
+  const pool = makePopulationPool(members, opts);
+
+  function update(dt, playerPos, sunDot) {
+    const dim = Math.max(sunDot, 0);
+    const t = performance.now() * 0.001;
+    for (const m of members) {
+      if (!m.active || !m.rig) continue;
+      const sail = m.rig.userData.sail;
+      // Talk reaction: reel down to head height; otherwise ride the wind band
+      // (grounded kites sit folded just above their cairn).
+      const wantH = m._talking ? 1.6 : m.isGrounded ? 0.4 : m._soarH;
+      m._fly = THREE.MathUtils.damp(m._fly, wantH, 2.5, dt);
+      const ph = t * 0.6 + m._phase;
+      if (!m.isGrounded && !m._talking) {
+        // Figure-eight surf around the tether, banked into the turn.
+        sail.position.set(Math.sin(ph) * 1.6, m._fly + Math.sin(t * 0.7 + m._phase) * 1.5, Math.sin(ph * 2) * 0.8);
+        sail.rotation.set(Math.sin(ph * 2) * 0.3, Math.cos(ph) * 0.5, Math.cos(ph) * 0.45);
+      } else {
+        // Folded / reeled-in: settle level over the cairn, breathing gently.
+        sail.position.set(0, m._fly, 0);
+        sail.rotation.set(THREE.MathUtils.damp(sail.rotation.x, 0, 4, dt), sail.rotation.y, THREE.MathUtils.damp(sail.rotation.z, 0, 4, dt));
+        m.rig.userData.sailMat.opacity = 0.7 + Math.sin(t * 1.2 + m._phase) * 0.1;
+      }
+      // Tether stretches from cairn top to the sail's belly.
+      const tether = m.rig.userData.tether;
+      const len = Math.max(sail.position.length(), 0.01);
+      tether.scale.y = len;
+      tether.position.copy(sail.position).multiplyScalar(0.5);
+      tether.quaternion.setFromUnitVectors(_yAxis, _v0.copy(sail.position).normalize());
+      const glow = m._talking
+        ? cfg.glowMax + 0.6
+        : THREE.MathUtils.lerp(cfg.glowMin, cfg.glowMax, 0.5 + 0.5 * Math.sin(t * 1.1 + m._phase)) + (1 - dim) * 0.3;
+      m.rig.userData.eyeMat.emissiveIntensity = glow;
+    }
+    pool.update(dt, playerPos);
+  }
+
+  function nearestInteractable(playerPos, maxDist = C.interactRadius) {
+    let best = null, bestD = maxDist * maxDist;
+    for (const m of members) {
+      if (!m.active || !(m.isGrounded || m._talking)) continue;
+      const d = _v0.copy(m.pos).sub(playerPos).lengthSq();
+      if (d < bestD) { bestD = d; best = m; }
+    }
+    return best;
+  }
+
+  function interact(creature) {
+    creature._talking = true;
+    const rand2 = mulberry32(creature.seed);
+    const lines = [
+      'The wind writes one perfect descent on every face. We fly until we have read them all.',
+      creature.isGrounded
+        ? 'Between gusts we fold and hold the stone. The mountain rests; so do we.'
+        : 'Our tethers are not chains. They are how the mountain remembers us.',
+    ];
+    let offer;
+    if (rand2() < cfg.tetherCutChance) {
+      offer = {
+        kind: 'choice',
+        prompt: 'The kite dips its leading eye toward its tether — old, frayed, nearly worn through. It waits to see what you will do.',
+        options: [
+          { label: 'Cut the frayed tether free', outcomeTag: 'wyattmattoe_tether_cut' },
+          { label: 'Leave it — the line is theirs to keep', outcomeTag: 'wyattmattoe_tether_left' },
+        ],
+      };
+    } else {
+      offer = { kind: 'codex', subject: 'Ridge Kites: tethered wind-surfing membrane life' };
+    }
+    return { speaker: { name: proceduralName(rand2), species: 'Ridge Kite', cityId: null }, lines, offer };
+  }
+
+  function dispose() {
+    for (const m of members) if (m.rig) {
+      m.rig.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material && o.material !== m.rig.userData.eyeMat) o.material.dispose?.();
+      });
+      m.rig.userData.eyeMat?.dispose();
+    }
+    group.clear();
+  }
+
+  return { group, update, dispose, nearestInteractable, interact, endInteract: endInteractShared };
+}
+
+// ---------------------------------------------------------------------------
 // Recipe: Sky Ecologies (Saturnia / Neptunia) — backdrop-only gas giant life
 // ---------------------------------------------------------------------------
 function buildSkyEcology(planet, worldUp, opts, seed) {
@@ -1341,6 +1538,7 @@ export function createCreatures(planet, worldUp, opts = {}) {
     case 'oceana': return buildOceana(planet, worldUp, opts, seed);
     case 'glacia': return buildGlacia(planet, worldUp, opts, seed);
     case 'rustia': return buildRustia(planet, worldUp, opts, seed);
+    case 'wyattmattoe': return buildWyattmattoe(planet, worldUp, opts, seed);
     case 'saturnia': return buildSkyEcology(planet, worldUp, opts, seed);
     case 'neptunia': return buildNeptunia(planet, worldUp, opts, seed);
     default:

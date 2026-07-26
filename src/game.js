@@ -714,6 +714,7 @@ function frame(now) {
     delta = 0;
     // swallow anything typed/moved under the overlay so it can't fire on resume
     input.toggleWalk = input.toggleInterior = input.toggleView = input.interact = false;
+    input.toggleBoard = false;
     input.photo = input.record = false;
     input.mouseX = input.mouseY = 0;
   }
@@ -904,9 +905,12 @@ function frame(now) {
     if (input.record) toggleRecording();
   }
   // Consume the edge-triggered toggles exactly once per frame, in any phase.
+  // (stepWalk consumes toggleBoard earlier in the frame when it applies —
+  // zeroing here just keeps a B pressed in flight from firing on landing.)
   input.toggleWalk = false;
   input.toggleInterior = false;
   input.toggleView = false;
+  input.toggleBoard = false;
   input.interact = false;
   input.photo = false;
   input.record = false;

@@ -324,6 +324,8 @@ Small, once 5.6 works. One `biome` parameter fed to the same shader, not separat
 
 Acceptance: three planets that read as different places using one shader.
 
+**Recorded exception — wyattmattoe.** The extreme-alpine world is still one config object (palette + thresholds + the shared shader; the tallest `terrainHeight` and heaviest ridge weight in the system), but it carries one opt-in system on top of the archetype contract: the snowboard, gated by `boardable: true` and implemented as a branch of the on-foot walker (`walk.boarding` in walk.js, `BOARD_*` block in constants.js — the diving precedent, not a separate loop). No new shaders, no new render passes, no per-frame allocation. Any future planet can opt in with the flag alone.
+
 ---
 
 ## 6. Build sequence
