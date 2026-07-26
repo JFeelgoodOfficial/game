@@ -1,100 +1,88 @@
 /**
- * city.js — Procedural neon city draped over a spherical planet surface.
+ * city.js — Permanent flagship towns draped over a spherical planet surface.
  *
- * COORDINATE ASSUMPTIONS
+ * v2 — towns of real people. The old instanced-box skyline (windows painted
+ * on by shader, doorways faked with lit panels) is gone. A town is now:
+ *   - ONE building per citizen (world/cityRegistry.js citizens[]), each fully
+ *     enterable: real floor slab, real walls with GLASS window openings, an
+ *     OPEN doorway (no door leaf), a high ceiling (5.2 u), and furnishing
+ *     keyed to the resident's role. All of it merged into shared per-material
+ *     meshes built from the PBR material registry (world/actuality-materials).
+ *   - An ELEVATOR TOWER: ground lobby, enclosed moving cab with call buttons
+ *     (the town's one ride), and a glass PENTHOUSE on top where the governor
+ *     lives, overlooking the town from a balcony.
+ *   - A central plaza, a landing pad OUTSIDE the town edge, and a lit walkway
+ *     from the pad through a gate into town.
+ *
+ * COORDINATE ASSUMPTIONS (unchanged from v1)
  * - The city `group` is parented to `planet.surface` and lives in UNROTATED
- *   object space: we never read/write `planet.surface.rotation` ourselves,
- *   we just place children so the planet's own spin + floating-origin
- *   rebasing carries the city along for free.
- * - `worldUp` (THREE.Vector3, world-space) is the radial landing direction:
- *   planet center -> landing point. We build the city in a local frame
- *   where local +Y = worldUp, then set group.quaternion via
- *   quaternion.setFromUnitVectors(YAXIS, worldUp) and position the group at
- *   worldUp * (planet.radius + baseHeight), converted into planet.surface's
- *   local space (planet.surface is assumed to sit at the planet's origin,
- *   i.e. local space == planet-centered space before spin).
- * - Inside the city's own local frame (children of `group`), we use a flat
- *   X/Z grid (like a normal ground-plane city) and only the group's
- *   orientation bends that flat grid onto the sphere's tangent plane at the
- *   landing point. This is correct for city-scale footprints (~300 units)
- *   against planet radii of 800-1100 units — curvature inside the footprint
- *   is handled by draping: sampleGroundLocalY solves the sphere exactly for
- *   each flat-local point (a point d from the center sits ~d²/2R above the
- *   curved ground), so buildings/streets/NPCs all sit ON the terrain instead
- *   of floating on the tangent plane.
- * - Terrain height is sampled via `planet.body.groundAt(dir)` where `dir`
- *   is a world-space unit vector from planet center through the sample
- *   point. We reconstruct `dir` per sample as
- *   (group.position + local point rotated by group.quaternion).normalize()
- *   in planet-local space, matching the host's expected convention.
- * - +Y is always "up" (radial) inside the city's local frame; buildings
- *   extrude along local +Y.
+ *   object space: the planet's own spin + floating-origin rebasing carry the
+ *   city along for free.
+ * - `worldUp` (THREE.Vector3, world-space) is the radial site direction. We
+ *   build in a local frame where local +Y = site dir, group.quaternion =
+ *   setFromUnitVectors(+Y, dir), group.position = dir * baseRadius.
+ * - Inside the group children use a flat X/Z grid; sampleGroundLocalY solves
+ *   the sphere exactly per point so everything sits ON the terrain.
+ * - Buildings are axis-aligned in city-local space so walkable surfaces and
+ *   wall AABBs stay simple (the makeStructure contract walk.js consumes).
+ *
+ * MATERIAL OWNERSHIP (the v2 rule)
+ * - `opts.materials` is the shared registry. Everything it hands out
+ *   (make/glassFor/tiledSet/steel/...) is REGISTRY-OWNED and must never be
+ *   disposed here — walk.js disposes the registry last, after every consumer.
+ * - Locally created materials/textures go into ownedMaterials/ownedTextures
+ *   and only those are disposed. dispose() frees all geometry but no longer
+ *   blanket-disposes materials off the scene graph.
  */
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import basicVert from './shaders/basic.vert?raw';
-import cityWindowsVert from './shaders/cityWindows.vert?raw';
-import cityWindowsFrag from './shaders/cityWindows.frag?raw';
-import pulseGlowVert from './shaders/pulseGlow.vert?raw';
-import pulseGlowFrag from './shaders/pulseGlow.frag?raw';
-import cityAdsFrag from './shaders/cityAds.frag?raw';
 import cityHazeFrag from './shaders/cityHaze.frag?raw';
 
 // ---------------------------------------------------------------------------
 // Tunables
 // ---------------------------------------------------------------------------
 const C = {
-  BASE_HEIGHT_OFFSET: 0.05,        // lift above sampled ground to avoid z-fight
-  SINK: 0.35,                       // drop below analytic ground: the rendered
-                                    // planet mesh is coarse (384 segs) and dips
-                                    // under the analytic height between vertices
-                                    // — same compensation dressing.js uses.
-  FOUNDATION_DEPTH: 3.0,            // towers extend this far underground so
-                                    // sloped ground never shows a gap underneath
-  GRID_CELL: 18,                    // street-grid cell size (block + street)
-  STREET_WIDTH: 7,                  // avenue width carved out of each cell
-  WIDE_AVENUE_EVERY: 4,             // every Nth grid line is a wide avenue
-  WIDE_AVENUE_WIDTH: 11,
-  CORE_RADIUS_FRAC: 0.35,           // fraction of city radius considered "dense core"
-  OUTSKIRT_RADIUS_FRAC: 0.85,       // beyond this, sparse outskirts
-  BUILDING_MIN_FOOT: 5,             // min building footprint half-size
-  BUILDING_MAX_FOOT: 9,
-  BUILDING_MIN_H_CORE: 22,
-  BUILDING_MAX_H_CORE: 70,
-  BUILDING_MIN_H_MID: 10,
-  BUILDING_MAX_H_MID: 30,
-  BUILDING_MIN_H_OUT: 4,
-  BUILDING_MAX_H_OUT: 12,
-  SETBACK_STEP_CHANCE: 0.55,        // chance a tall building gets a setback tier
-  SETBACK_SHRINK: 0.62,
-  WINDOW_ROW_HEIGHT: 3.2,
-  FLATTEN_RADIUS: 10,               // pad flattening radius around building centers
-  PLAZA_COUNT: 3,
-  PLAZA_RADIUS: 16,
-  PAD_LENGTH: 20,                   // landing pad long axis (fits 12-16 unit ship)
+  BASE_HEIGHT_OFFSET: 0.05, // lift above sampled ground to avoid z-fight
+  SINK: 0.35, // drop below analytic ground (coarse render mesh dips between verts)
+  PLAZA_RADIUS: 14,
+  HOUSE_RING_MIN: 34, // houses sit on a ring around the plaza
+  HOUSE_RING_MAX: 52,
+  ROOM_H: 5.2, // interior ceiling height — high, airy, easy to walk and talk in
+  WALL_T: 0.35,
+  DOOR_HALF: 0.8, // open doorway: 1.6 wide ...
+  DOOR_H: 3.4, // ... and 3.4 tall
+  WIN_W: 1.5, // window opening width
+  WIN_H: 1.6, // window opening height
+  WIN_SILL: 1.1, // sill height above the floor
+  ROOF_T: 0.35,
+  PAD_LENGTH: 20,
   PAD_WIDTH: 14,
   PAD_RING_SEGMENTS: 48,
-  STREETLIGHT_SPACING: 22,
+  WALKWAY_W: 6,
   STREETLIGHT_HEIGHT: 6,
-  PLANTER_CHANCE: 0.35,
-  KIOSK_CHANCE: 0.12,
-  RAILING_HEIGHT: 0.9,
-  NEON_BLOOM_INTENSITY: 1.6,        // above 0.85 bloom threshold
+  NEON_BLOOM_INTENSITY: 1.6, // above 0.85 bloom threshold
   NEON_DIM_INTENSITY: 0.25,
-  SIGN_FLICKER_SPEED: 4.5,
-  SIGN_FLICKER_AMOUNT: 0.18,
-  MOTE_COUNT: 60,
+  MOTE_COUNT: 40,
   MOTE_RISE_SPEED: 0.6,
-  MOTE_SPREAD: 140,
-  MOTE_HEIGHT: 45,
-  TRAFFIC_COUNT: 26,                // grav-car streaks circling above rooftops
-  MAX_TOWER_INSTANCES: 260,
-  MAX_WINDOW_INSTANCES: 260,
-  MAX_SIGN_INSTANCES: 90,
+  MOTE_SPREAD: 110,
+  MOTE_HEIGHT: 40,
+  TRAFFIC_COUNT: 10, // grav-car streaks circling above the tower
+  // Elevator tower
+  TOWER_HALF: 5.5, // 11 x 11 footprint
+  TOWER_TOP: 42, // penthouse floor level above the tower base
+  LOBBY_H: 5.0,
+  PENT_H: 5.2,
+  PARAPET: 1.1,
+  KNEE: 1.0, // penthouse glass sits on a solid knee wall — see out, never fall out
+  CAB_RIDE_SPEED: 2.8, // u/s — 0.047 u/frame @60Hz, far under walk.js STEP_UP 0.7,
+                       // so the rising cab floor carries the player like a slow stair
+  CAB_CEIL: 4.6, // tall cab: a jump inside (apex ~2.1 over feet) stays under it
 };
 
 const YAXIS = new THREE.Vector3(0, 1, 0);
+const GATE_DISABLED = 1e9; // wall record y0 sentinel — resolveWalls never matches
 
 // ---------------------------------------------------------------------------
 // mulberry32 deterministic PRNG
@@ -107,88 +95,6 @@ function mulberry32(seed) {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-}
-
-// ---------------------------------------------------------------------------
-// Small canvas texture helpers (no external assets — windows moved to a
-// fully procedural per-cell shader, world/shaders/cityWindows.frag)
-// ---------------------------------------------------------------------------
-const cssColor = (hex) => `#${hex.toString(16).padStart(6, '0')}`;
-
-// Glowing alien advertising board: dark panel, neon border, rows of blocky
-// procedural glyphs (unreadable alien script) with the occasional accent bar.
-function makeAdTexture(rng, palette, vertical) {
-  const w = vertical ? 128 : 256;
-  const h = vertical ? 256 : 128;
-  const canvas = document.createElement('canvas');
-  canvas.width = w; canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#0a0714';
-  ctx.fillRect(0, 0, w, h);
-  const neons = [
-    cssColor(palette.neonPrimary),
-    cssColor(palette.neonSecondaryA),
-    cssColor(palette.neonSecondaryB),
-  ];
-  const border = neons[Math.floor(rng() * neons.length)];
-  ctx.strokeStyle = border;
-  ctx.lineWidth = 6;
-  ctx.strokeRect(5, 5, w - 10, h - 10);
-
-  // glyph rows
-  const cellW = 18, cellH = 24, pad = 16;
-  const rows = Math.floor((h - pad * 2) / (cellH + 8));
-  for (let r = 0; r < rows; r++) {
-    const y0 = pad + r * (cellH + 8);
-    // an accent bar instead of a glyph row, sometimes
-    if (rng() < 0.25) {
-      ctx.fillStyle = neons[Math.floor(rng() * neons.length)];
-      ctx.globalAlpha = 0.85;
-      ctx.fillRect(pad, y0 + cellH * 0.3, (w - pad * 2) * (0.4 + rng() * 0.6), cellH * 0.35);
-      ctx.globalAlpha = 1;
-      continue;
-    }
-    const color = neons[Math.floor(rng() * neons.length)];
-    ctx.strokeStyle = color;
-    ctx.fillStyle = color;
-    ctx.lineWidth = 3;
-    const count = Math.max(2, Math.floor((w - pad * 2) / cellW * (0.4 + rng() * 0.6)));
-    for (let g = 0; g < count; g++) {
-      const x0 = pad + g * cellW;
-      if (x0 + cellW > w - pad) break;
-      // each glyph: 2-4 random strokes inside its cell
-      const strokes = 2 + Math.floor(rng() * 3);
-      for (let s = 0; s < strokes; s++) {
-        if (rng() < 0.4) {
-          ctx.fillRect(x0 + rng() * 8, y0 + rng() * 12, 3 + rng() * 8, 3 + rng() * 10);
-        } else {
-          ctx.beginPath();
-          ctx.moveTo(x0 + rng() * cellW * 0.8, y0 + rng() * cellH);
-          ctx.lineTo(x0 + rng() * cellW * 0.8, y0 + rng() * cellH);
-          ctx.stroke();
-        }
-      }
-    }
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-function makePanelNoiseTexture(rng) {
-  const size = 32;
-  const canvas = document.createElement('canvas');
-  canvas.width = size; canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  const img = ctx.createImageData(size, size);
-  for (let i = 0; i < img.data.length; i += 4) {
-    const v = 150 + Math.floor(rng() * 40);
-    img.data[i] = v; img.data[i + 1] = v; img.data[i + 2] = v + 8; img.data[i + 3] = 255;
-  }
-  ctx.putImageData(img, 0, 0);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  return tex;
 }
 
 // ---------------------------------------------------------------------------
@@ -205,139 +111,112 @@ const DEFAULT_PALETTE = {
   windowWarm: '#ffe9b0',
 };
 
+// Registry-material recipe fallback: what a town is built FROM when its style
+// doesn't say. Families index world/actuality-materials.js; colors tint the
+// luminance-baked maps.
+const DEFAULT_BUILD = {
+  wall: 'concrete', wallColor: 0x9aa0ae,
+  floor: 'wood', floorColor: 0x8a6a48,
+  roof: 'concrete', roofColor: 0x5f6470,
+  plazaFam: 'stone', plazaColor: 0x8b8578,
+  walkFam: 'concrete', walkColor: 0x8f8c96,
+};
+
 // ---------------------------------------------------------------------------
-// Per-world style presets (opts.style). Each world picks one deterministically
-// (walk.js), so every planet's city has its own skyline and color identity.
+// Per-world style presets (opts.style): the town's neon identity (palette)
+// plus its build recipe (registry material families + tints). One code path,
+// seven distinct worlds.
 // ---------------------------------------------------------------------------
 export const CITY_STYLES = [
   {
-    name: 'neonMetropolis', // Tokyo/NYC — tall, dense, plastered in alien ads
-    heightScale: 1.6,
-    density: 1.2,
-    signChance: 0.85,
-    adBillboards: true,
-    flickerAmount: 0.3,
+    name: 'neonMetropolis', // terra capital — steel-and-concrete under loud neon
     palette: {
       neonPrimary: 0xff2fa0, neonSecondaryA: 0x2fe8ff, neonSecondaryB: 0xd8ff2f,
       hullA: 0x2c2a44, hullB: 0x1d1b30, street: 0x16141f, plaza: 0x201b33,
       windowWarm: '#ffe9b0',
     },
+    build: {
+      wall: 'concrete', wallColor: 0x9aa0b4, floor: 'wood', floorColor: 0x8a6a48,
+      roof: 'concrete', roofColor: 0x565a6a, plazaFam: 'stone', plazaColor: 0x7f7c8c,
+      walkFam: 'concrete', walkColor: 0x8f8c9c,
+    },
   },
   {
-    name: 'dustOutpost', // low-rise frontier town, muted rust and amber
-    heightScale: 0.45,
-    density: 0.7,
-    signChance: 0.15,
-    adBillboards: false,
-    flickerAmount: 0.12,
+    name: 'dustOutpost', // rustia frontier town — plaster and oxide amber
     palette: {
       neonPrimary: 0xffb347, neonSecondaryA: 0xff7847, neonSecondaryB: 0xffd9a0,
       hullA: 0x4a3d33, hullB: 0x3a3028, street: 0x2a231c, plaza: 0x332a20,
       windowWarm: '#ffd9a0',
     },
+    build: {
+      wall: 'plaster', wallColor: 0xc9a97e, floor: 'wood', floorColor: 0x8a6a48,
+      roof: 'plaster', roofColor: 0xa8895f, plazaFam: 'aggregate', plazaColor: 0x9a8264,
+      walkFam: 'aggregate', walkColor: 0xa48a6a,
+    },
   },
   {
-    name: 'verdantTerrace', // mid-rise garden city, teal/green/violet
-    heightScale: 0.8,
-    density: 0.9,
-    signChance: 0.45,
-    adBillboards: false,
-    flickerAmount: 0.18,
+    name: 'verdantTerrace', // garden town — warm plaster, living wood
     palette: {
       neonPrimary: 0x40d4c8, neonSecondaryA: 0x7dff6a, neonSecondaryB: 0xb47dff,
       hullA: 0x2f4038, hullB: 0x243329, street: 0x1b241d, plaza: 0x223026,
       windowWarm: '#eaffd8',
     },
+    build: {
+      wall: 'plaster', wallColor: 0xd8d2ba, floor: 'wood', floorColor: 0x8a6a48,
+      roof: 'wood', roofColor: 0x6f5640, plazaFam: 'stone', plazaColor: 0x8f8a76,
+      walkFam: 'stone', walkColor: 0x9a9480,
+    },
   },
   {
-    name: 'tideLuminous', // neptunia's shore city — bioluminescent indigo/cyan
-    heightScale: 0.8,
-    density: 0.7,
-    signChance: 0.5,
-    adBillboards: false,
-    flickerAmount: 0.15,
+    name: 'tideLuminous', // shore town — wet concrete, shell-glisten trim
     palette: {
       neonPrimary: 0x4adfff, neonSecondaryA: 0x9a6aff, neonSecondaryB: 0x6a8fff,
       hullA: 0x1a1f4a, hullB: 0x252a5e, street: 0x101430, plaza: 0x161b3c,
       windowWarm: '#9ab8ff',
     },
-  },
-  {
-    name: 'frostHaven', // cold-world settlement, ice blue/white with warm doors
-    heightScale: 0.65,
-    density: 0.8,
-    signChance: 0.35,
-    adBillboards: false,
-    flickerAmount: 0.15,
-    palette: {
-      neonPrimary: 0x6ac8ff, neonSecondaryA: 0xdff4ff, neonSecondaryB: 0xffa347,
-      hullA: 0x3d4a5c, hullB: 0x2c3847, street: 0x1e2733, plaza: 0x26313e,
-      windowWarm: '#dff4ff',
+    build: {
+      wall: 'concrete', wallColor: 0x9aa4bc, floor: 'stone', floorColor: 0x7f8aa8,
+      roof: 'concrete', roofColor: 0x6a7490, plazaFam: 'stone', plazaColor: 0x76809c,
+      walkFam: 'concrete', walkColor: 0x8892ac,
     },
   },
   {
-    name: 'basecampNeon', // alpine resort under the peaks — lodges, lift-line ads
-    heightScale: 0.55,
-    density: 0.7,
-    signChance: 0.6,
-    adBillboards: true,
-    flickerAmount: 0.18,
+    name: 'basecampNeon', // wyattmattoe ridge resort — timber lodges, lift-line neon
     palette: {
       neonPrimary: 0xff7a2f, neonSecondaryA: 0x4adfff, neonSecondaryB: 0xf4f8ff,
       hullA: 0x37404e, hullB: 0x272e3a, street: 0x1a2029, plaza: 0x232b36,
       windowWarm: '#ffe9b0',
     },
-  },
-  {
-    name: 'reefNeon', // oceana port capital — reef teal/green over wet basalt
-    heightScale: 1.35,
-    density: 1.15,
-    signChance: 0.8,
-    adBillboards: true,
-    flickerAmount: 0.28,
-    palette: {
-      neonPrimary: 0x2fffb8, neonSecondaryA: 0x7dff6a, neonSecondaryB: 0x2fe8ff,
-      hullA: 0x27333a, hullB: 0x1b262c, street: 0x131c21, plaza: 0x1a262c,
-      windowWarm: '#d8fff0',
+    build: {
+      wall: 'wood', wallColor: 0x9a7b5a, floor: 'wood', floorColor: 0x8a6a48,
+      roof: 'stone', roofColor: 0x6b7280, plazaFam: 'stone', plazaColor: 0x7c828e,
+      walkFam: 'stone', walkColor: 0x878d99,
     },
   },
   {
-    name: 'abyssGlow', // neptunia trench port — bioluminescent violet strobe
-    heightScale: 1.45,
-    density: 1.1,
-    signChance: 0.75,
-    adBillboards: true,
-    flickerAmount: 0.35,
+    name: 'abyssGlow', // neptunia trench port — sealed concrete, violet strobe
     palette: {
       neonPrimary: 0x9a6aff, neonSecondaryA: 0x4adfff, neonSecondaryB: 0x304aff,
       hullA: 0x141838, hullB: 0x0e1128, street: 0x0a0d20, plaza: 0x101430,
       windowWarm: '#9ab8ff',
     },
-  },
-  {
-    name: 'auroraHold', // glacia vent town — aurora green with warm doorlight
-    heightScale: 0.6,
-    density: 0.75,
-    signChance: 0.4,
-    adBillboards: false,
-    flickerAmount: 0.12,
-    palette: {
-      neonPrimary: 0x6affc8, neonSecondaryA: 0x6ac8ff, neonSecondaryB: 0xffa347,
-      hullA: 0x3d4a5c, hullB: 0x2c3847, street: 0x1e2733, plaza: 0x26313e,
-      windowWarm: '#ffd9a0',
+    build: {
+      wall: 'concrete', wallColor: 0x767e9e, floor: 'concrete', floorColor: 0x565e7e,
+      roof: 'steel', roofColor: 0x4a5068, plazaFam: 'concrete', plazaColor: 0x5c6484,
+      walkFam: 'concrete', walkColor: 0x6a7292,
     },
   },
   {
-    name: 'graniteCamp', // wyattmattoe stone village — lantern amber on granite
-    heightScale: 0.45,
-    density: 0.65,
-    signChance: 0.3,
-    adBillboards: false,
-    flickerAmount: 0.1,
+    name: 'graniteCamp', // stone village — granite walls, lantern amber
     palette: {
       neonPrimary: 0xffb347, neonSecondaryA: 0xf4f8ff, neonSecondaryB: 0x4adfff,
       hullA: 0x4a4f58, hullB: 0x343941, street: 0x22262c, plaza: 0x2b3037,
       windowWarm: '#ffe9b0',
+    },
+    build: {
+      wall: 'stone', wallColor: 0x9aa0aa, floor: 'wood', floorColor: 0x8a6a48,
+      roof: 'stone', roofColor: 0x757c88, plazaFam: 'stone', plazaColor: 0x828892,
+      walkFam: 'stone', walkColor: 0x8d939d,
     },
   },
 ];
@@ -345,12 +224,12 @@ export const CITY_STYLES = [
 // ---------------------------------------------------------------------------
 // Walkable-structure helper: given axis-aligned slab/ramp surfaces and wall
 // AABBs in an origin-local frame, returns the {surfaceYAt, resolveWalls}
-// contract walk.js consumes. Shared by the landmark tower and the enterable
-// building lobbies so both feel identical underfoot.
+// contract walk.js consumes. Shared by every citizen house and the elevator
+// tower here, and exported for stationWalk.js / actuality.js.
+// The surfaces/walls ARRAYS are captured live — mutating a record (the
+// elevator cab floor/gates) is legal and takes effect on the next query.
 // ---------------------------------------------------------------------------
 const STRUCT_STEP_UP = 0.7;
-// Exported for stationWalk.js: the gallery's spine rooms reuse this exact
-// contract so the station walker feels identical underfoot to the lobbies.
 export function makeStructure(ox, oz, baseY, surfaces, walls, halfExtent) {
   return {
     x: ox, z: oz, baseY, halfExtent,
@@ -398,17 +277,33 @@ export function makeStructure(ox, oz, baseY, surfaces, walls, halfExtent) {
 }
 
 // ---------------------------------------------------------------------------
+// House kits: what each citizen role lives in. half = footprint half-extent.
+// ---------------------------------------------------------------------------
+const ROLE_KITS = {
+  merchant: { kind: 'shop', half: 7 },
+  artisan: { kind: 'studio', half: 6.5 },
+  farmer: { kind: 'greenhouse', half: 7 },
+  gardener: { kind: 'greenhouse', half: 7 },
+  scholar: { kind: 'study', half: 6 },
+  entertainer: { kind: 'stage', half: 7 },
+  guide: { kind: 'cottage', half: 5.5 },
+  apprentice: { kind: 'cottage', half: 5.5 },
+  caretaker: { kind: 'cottage', half: 5.5 },
+  elite: { kind: 'villa', half: 8 },
+  governor: { kind: 'villa', half: 8 }, // only if not homed in the penthouse
+  resident: { kind: 'cottage', half: 5.5 },
+};
+
+// ---------------------------------------------------------------------------
 // Main factory
 // ---------------------------------------------------------------------------
 export function createCity(planet, worldUp, opts = {}) {
-  const radius = opts.radius ?? 300;
+  const radius = opts.radius ?? 150;
   const style = opts.style ?? null;
   const palette = { ...DEFAULT_PALETTE, ...(style?.palette ?? {}), ...(opts.palette ?? {}) };
-  const density = opts.density ?? style?.density ?? 1.0;
-  const heightScale = style?.heightScale ?? 1.0;
-  const signChance = style?.signChance ?? 0.6;
-  const flickerAmount = style?.flickerAmount ?? C.SIGN_FLICKER_AMOUNT;
-  const dirSeeded = worldUp.clone().normalize();
+  const build = { ...DEFAULT_BUILD, ...(style?.build ?? {}) };
+  const M = opts.materials ?? null; // shared PBR registry (walk.js surfaceMaterials)
+  const roster = opts.citizens ?? [];
   // Cities are permanent: the layout seed always comes from the registry
   // (world/cityRegistry.js), never from the landing direction — a player who
   // lands twice must find the same streets both times.
@@ -418,32 +313,39 @@ export function createCity(planet, worldUp, opts = {}) {
   const group = new THREE.Group();
   group.name = 'City';
 
+  // Everything created LOCALLY (not by the registry) that must die with the
+  // city. Registry-owned materials are never pushed here — see header rule.
+  const ownedMaterials = [];
+  const ownedTextures = [];
+  const own = (m) => { ownedMaterials.push(m); return m; };
+
+  // Registry material accessors with plain-material fallbacks so the module
+  // still works if a caller has no registry in hand.
+  const fam = (family, o = {}) => M
+    ? M.make(family, { repeat: o.repeat ?? 3, color: o.color ?? 0xffffff, roughness: o.roughness ?? 0.95, metalness: o.metalness ?? 0.05 })
+    : own(new THREE.MeshStandardMaterial({ color: o.color ?? 0x888888, roughness: o.roughness ?? 0.95, metalness: o.metalness ?? 0.05 }));
+  const glass = M ? M.glassFor(palette.neonSecondaryA) : {
+    pane: own(new THREE.MeshStandardMaterial({ color: 0xdfe8f2, metalness: 0.1, roughness: 0.06, transparent: true, opacity: 0.17, depthWrite: false, side: THREE.DoubleSide })),
+    scrim: own(new THREE.MeshBasicMaterial({ color: palette.neonSecondaryA, transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending })),
+  };
+  const mullionMat = M ? M.steelBright : fam('none', { color: 0xb9bec6, metalness: 0.9, roughness: 0.5 });
+
   // Fill light: the global scene ambient is very dim (built for the vacuum of
-  // space), so backlit building facades otherwise fall to near-black. A
-  // hemisphere fill (cool sky above, street-toned bounce below) models the
-  // facades better than a flat ambient at the same budget. It lives on the
-  // city group, so it only affects the landing site and is torn down with the
-  // city when the player boards (nothing else is in view on foot anyway).
+  // space); a hemisphere fill models the facades better than a flat ambient.
   const fillLight = new THREE.HemisphereLight(0x7d8ab0, palette.plaza, 0.75);
   group.add(fillLight);
 
-  // Shared FX uniforms: every shader-driven element (windows, signs, ads,
-  // haze) reads time + night level from these two objects, so update()
-  // writes two numbers instead of walking material lists.
+  // Shared FX uniforms for shader-driven elements (haze).
   const fx = { uTime: { value: 0 }, uNight: { value: 0 } };
-  const ownedTextures = []; // textures held in shader uniforms (not .map)
-  const structures = []; // enterable buildings: landmark tower + lobbies
-  const lobbies = [];    // per-lobby manifest for interior occupants (walk.js)
-  let balconySpot = null; // landmark balcony perch for a lone caretaker
+  const structures = []; // every enterable building: houses + elevator tower
+  const homes = []; // per-citizen home manifest (world/citizens.js)
 
-  // The group lives as a child of planet.surface, whose local frame is the
-  // planet's UNROTATED object space — so undo the current spin to convert
-  // the world-space landing dir into the frame we actually place in.
-  // (dirSeeded stays world-space for deterministic seeding.)
+  // The group lives as a child of planet.surface (UNROTATED object space) —
+  // undo the current spin to convert the world-space site dir into that frame.
+  const dirSeeded = worldUp.clone().normalize();
   const rotY = planet.surface?.rotation?.y ?? 0;
   const dirLocal = dirSeeded.clone().applyAxisAngle(YAXIS, -rotY);
 
-  // Orient +Y to the landing dir, position at surface radial point.
   const quat = new THREE.Quaternion().setFromUnitVectors(YAXIS, dirLocal);
   group.quaternion.copy(quat);
 
@@ -453,8 +355,7 @@ export function createCity(planet, worldUp, opts = {}) {
       ? planet.body.groundAt(dirSeeded)
       : 0;
   let baseRadius = (planet.radius ?? 900) + groundBase + C.BASE_HEIGHT_OFFSET;
-  // Never sink the deck below the sea surface (or ice sheet): a city landing
-  // in a wet/icy region rides just above it instead of flooding.
+  // Never sink the deck below the sea surface (or ice sheet).
   if (planet.water?.r && baseRadius < planet.water.r + 0.4) {
     baseRadius = planet.water.r + 0.4;
   }
@@ -467,29 +368,19 @@ export function createCity(planet, worldUp, opts = {}) {
   const tmpDir = new THREE.Vector3();
 
   function sampleGroundLocalY(localX, localZ) {
-    // tmpDir is in planet.surface's unrotated frame (group lives there),
-    // so sample via groundAtLocal — groundAt would un-spin it a second time.
     tmpWorldPos.set(localX, 0, localZ).applyQuaternion(quat).add(group.position);
     tmpDir.copy(tmpWorldPos).normalize();
     const h = planet.body?.groundAtLocal ? planet.body.groundAtLocal(tmpDir) : 0;
     const planetR = planet.radius ?? 900;
-    // Ground radius under this point, clamped to the water surface so streets
-    // crossing a wet spot ride it as a causeway instead of sinking under.
     let rr = planetR + h;
     if (planet.water?.r) rr = Math.max(rr, planet.water.r + 0.4);
-    // Drop the flat tangent-plane point onto the sphere: a local point at
-    // distance d from the city center sits ~d²/2R above the curved ground,
-    // which floated the whole rim before. Solve the sphere exactly instead of
-    // returning the radial height difference.
+    // Drop the flat tangent-plane point onto the sphere exactly.
     const d2 = localX * localX + localZ * localZ;
     return Math.sqrt(Math.max(rr * rr - d2, 0)) - baseRadius - C.SINK;
   }
 
-  // Is the terrain under this local point below the sea surface? (Buildings,
-  // dressing, and the landing pad never go in the water; streets bridge it.)
-  // A FROZEN sea is solid ground: ice-sheet worlds (wyattmattoe)
-  // build straight onto the ice — that's what lets a village sit on a
-  // canyon-floor lake — and the deck clamp above already keeps it level.
+  // Is the terrain under this local point below the sea surface? A FROZEN sea
+  // is solid ground (wyattmattoe's canyon lakes) — the deck clamp keeps it level.
   function isWetLocal(localX, localZ) {
     if (!planet.water?.r || planet.water.frozen) return false;
     tmpWorldPos.set(localX, 0, localZ).applyQuaternion(quat).add(group.position);
@@ -516,854 +407,886 @@ export function createCity(planet, worldUp, opts = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // Street grid layout
+  // Layout: plaza at the origin, pad outside the edge, gate + walkway between,
+  // houses on a ring, elevator tower across the plaza from the gate.
   // -------------------------------------------------------------------------
-  const halfCells = Math.ceil(radius / C.GRID_CELL);
-  const buildingSlots = []; // {x, z, footHalf, isCore, isMid}
-  const plazaCenters = [];
-  const streetMaterial = new THREE.MeshStandardMaterial({
-    color: palette.street, roughness: 0.9, metalness: 0.05,
-  });
-  const streetGeos = [];
+  const plazaCenters = [{ x: 0, z: 0, r: C.PLAZA_RADIUS }];
+  flattenPads.push({ x: 0, z: 0, r: C.PLAZA_RADIUS + 4, y: sampleGroundLocalY(0, 0) });
 
-  // pre-pick plaza cells deterministically (retry onto dry ground)
-  for (let i = 0; i < C.PLAZA_COUNT; i++) {
-    let px = 0, pz = 0;
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const ang = rng() * Math.PI * 2;
-      const dist = radius * (0.15 + rng() * 0.55);
-      px = Math.cos(ang) * dist;
-      pz = Math.sin(ang) * dist;
-      if (!isWetLocal(px, pz)) break;
-    }
-    plazaCenters.push({ x: px, z: pz, r: C.PLAZA_RADIUS });
-  }
-
-  // landing pad: the registry pins it (opts.padLocal, city-local {x,z} —
-  // the auto-land arc in game.js targets the same coordinates through
-  // cityRegistry.padLocalDir, so the two must agree). Fallback for callers
-  // without a registry entry: pick an open ring position near mid-radius,
-  // on dry ground (keep the last candidate on a mostly-wet site).
+  // Landing pad: the registry pins it OUTSIDE the town radius (opts.padLocal —
+  // the auto-land arc targets the same coordinates via cityRegistry.padLocalDir).
   const padCenter = new THREE.Vector2();
   if (opts.padLocal) {
     padCenter.set(opts.padLocal.x, opts.padLocal.z);
   } else {
-    for (let attempt = 0; attempt < 12; attempt++) {
-      const ang = rng() * Math.PI * 2;
-      const dist = radius * (0.55 + rng() * 0.2);
-      padCenter.set(Math.cos(ang) * dist, Math.sin(ang) * dist);
-      if (!isWetLocal(padCenter.x, padCenter.y)) break;
-    }
+    // Fallback for callers without a registry entry: just outside the edge.
+    const ang = rng() * Math.PI * 2;
+    padCenter.set(Math.cos(ang) * (radius + 34), Math.sin(ang) * (radius + 34));
   }
-  flattenPads.push({ x: padCenter.x, z: padCenter.y, r: Math.max(C.PAD_LENGTH, C.PAD_WIDTH) * 0.75, y: sampleGroundLocalY(padCenter.x, padCenter.y) });
-  for (const pz of plazaCenters) {
-    flattenPads.push({ x: pz.x, z: pz.z, r: pz.r, y: sampleGroundLocalY(pz.x, pz.z) });
-  }
+  const padDist = padCenter.length();
+  const gateBearing = Math.atan2(padCenter.y, padCenter.x);
+  const outerRadius = padDist + 25; // walk.js collision/ground gates extend here
+  flattenPads.push({
+    x: padCenter.x, z: padCenter.y,
+    r: Math.max(C.PAD_LENGTH, C.PAD_WIDTH) * 0.75,
+    y: sampleGroundLocalY(padCenter.x, padCenter.y),
+  });
 
-  function inPlaza(x, z) {
-    for (const p of plazaCenters) if (Math.hypot(x - p.x, z - p.z) < p.r) return true;
-    if (Math.hypot(x - padCenter.x, z - padCenter.y) < Math.max(C.PAD_LENGTH, C.PAD_WIDTH) * 0.75) return true;
-    return false;
-  }
+  // Town gate on the pad bearing, just inside the edge.
+  const gateSpot = {
+    x: Math.cos(gateBearing) * radius * 0.95,
+    z: Math.sin(gateBearing) * radius * 0.95,
+  };
 
-  // Reserve a dry cell near the center for the landmark observation tower —
-  // the one building the player can enter and climb (built further down).
-  let landmarkSpot = null;
-  outer: for (let ring = 1; ring <= 3; ring++) {
-    for (let gx = -ring; gx <= ring; gx++) {
-      for (let gz = -ring; gz <= ring; gz++) {
-        if (Math.max(Math.abs(gx), Math.abs(gz)) !== ring) continue;
-        const cx = gx * C.GRID_CELL, cz = gz * C.GRID_CELL;
-        if (inPlaza(cx, cz) || isWetLocal(cx, cz)) continue;
-        landmarkSpot = { x: cx, z: cz };
-        break outer;
-      }
-    }
-  }
-  if (landmarkSpot) {
-    flattenPads.push({
-      x: landmarkSpot.x, z: landmarkSpot.z, r: 17,
-      y: sampleGroundLocalY(landmarkSpot.x, landmarkSpot.z),
-    });
-  }
-
-  for (let gx = -halfCells; gx <= halfCells; gx++) {
-    for (let gz = -halfCells; gz <= halfCells; gz++) {
-      const cx = gx * C.GRID_CELL;
-      const cz = gz * C.GRID_CELL;
-      const distFromCenter = Math.hypot(cx, cz);
-      if (distFromCenter > radius) continue;
-      if (inPlaza(cx, cz)) continue;
-      if (isWetLocal(cx, cz)) continue; // never build in the water
-
-      if (landmarkSpot && Math.hypot(cx - landmarkSpot.x, cz - landmarkSpot.z) < 16) continue;
-
-      const isWideRow = (gx % C.WIDE_AVENUE_EVERY === 0) || (gz % C.WIDE_AVENUE_EVERY === 0);
-      const streetHalf = (isWideRow ? C.WIDE_AVENUE_WIDTH : C.STREET_WIDTH) / 2;
-      const blockHalf = C.GRID_CELL / 2 - streetHalf;
-      if (blockHalf <= C.BUILDING_MIN_FOOT * 0.5) continue; // pure street cell
-
-      const fracR = distFromCenter / radius;
-      const isCore = fracR < C.CORE_RADIUS_FRAC;
-      const isOutskirt = fracR > C.OUTSKIRT_RADIUS_FRAC;
-      const spawnChance = isCore ? 0.95 : isOutskirt ? 0.35 * density : 0.7 * density;
-      if (rng() > spawnChance) continue;
-
-      const footHalf = THREE.MathUtils.clamp(
-        blockHalf * (0.55 + rng() * 0.35), C.BUILDING_MIN_FOOT, C.BUILDING_MAX_FOOT
-      );
-      buildingSlots.push({ x: cx + (rng() - 0.5) * 2, z: cz + (rng() - 0.5) * 2, footHalf, isCore, isOutskirt });
-      flattenPads.push({ x: cx, z: cz, r: footHalf + 2, y: sampleGroundLocalY(cx, cz) });
-    }
-  }
-
-  // Pick a few roomy buildings to be genuinely enterable — a lit ground-floor
-  // lobby you can walk into (the rest get a mock doorway). Spread them out so
-  // they aren't clustered, and keep them clear of the landmark tower.
-  const lobbySlots = [];
-  for (const slot of buildingSlots) {
-    if (lobbySlots.length >= 4) break;
-    if (slot.footHalf < C.BUILDING_MIN_FOOT - 0.1) continue;
-    if (landmarkSpot && Math.hypot(slot.x - landmarkSpot.x, slot.z - landmarkSpot.z) < 32) continue;
-    if (lobbySlots.some((s) => Math.hypot(s.x - slot.x, s.z - slot.z) < 40)) continue;
-    slot.isLobby = true;
-    lobbySlots.push(slot);
-  }
-
-  // Build a merged street-surface mesh draped to terrain height. A plain
-  // CircleGeometry is a triangle FAN (center + rim vertices only), so draping
-  // its vertices produced a flat cone. Use a radially subdivided ring (real
-  // interior vertices) plus a tiny center cap so the surface actually follows
-  // the terrain between the center and the rim.
+  // Walkway flatten pads: pad apron -> gate -> plaza rim, every ~8 u, each at
+  // its own sampled height so the strip hugs the terrain without cliffs.
+  const walkwayPts = [];
   {
-    const drape = (geo) => {
-      const posAttr = geo.attributes.position;
-      for (let i = 0; i < posAttr.count; i++) {
-        const x = posAttr.getX(i);
-        const z = posAttr.getZ(i);
-        posAttr.setY(i, flattenedHeight(x, z) - 0.05);
+    const from = padCenter, mid = gateSpot;
+    const addLeg = (x0, z0, x1, z1) => {
+      const len = Math.hypot(x1 - x0, z1 - z0);
+      const steps = Math.max(2, Math.ceil(len / 8));
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        walkwayPts.push({ x: x0 + (x1 - x0) * t, z: z0 + (z1 - z0) * t });
       }
-      posAttr.needsUpdate = true;
-      geo.computeVertexNormals();
-      streetGeos.push(geo);
     };
+    addLeg(from.x, from.y, mid.x, mid.z);
+    const rimX = Math.cos(gateBearing) * (C.PLAZA_RADIUS - 2);
+    const rimZ = Math.sin(gateBearing) * (C.PLAZA_RADIUS - 2);
+    addLeg(mid.x, mid.z, rimX, rimZ);
+    for (const p of walkwayPts) {
+      flattenPads.push({ x: p.x, z: p.z, r: C.WALKWAY_W, y: sampleGroundLocalY(p.x, p.z) });
+    }
+  }
+
+  // Elevator tower: across the plaza from the gate, on the nearest dry
+  // cardinal so its geometry stays axis-aligned (makeStructure needs AABBs).
+  const towerDist = C.PLAZA_RADIUS + C.TOWER_HALF + 6.5;
+  let towerU = null; // unit cardinal from tower TOWARD the plaza
+  let towerSpot = null;
+  {
+    const want = gateBearing + Math.PI;
+    const cardinals = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+      .sort((a, b) => (b[0] * Math.cos(want) + b[1] * Math.sin(want)) -
+                      (a[0] * Math.cos(want) + a[1] * Math.sin(want)));
+    for (const c of cardinals) {
+      const tx = c[0] * towerDist, tz = c[1] * towerDist;
+      if (!isWetLocal(tx, tz)) { towerSpot = { x: tx, z: tz }; towerU = [-c[0], -c[1]]; break; }
+    }
+    if (!towerSpot) { // pathological site: put it opposite the gate regardless
+      towerSpot = { x: Math.cos(want) * towerDist, z: Math.sin(want) * towerDist };
+      towerU = [-Math.sign(Math.round(Math.cos(want))) || 1, 0];
+    }
+    flattenPads.push({ x: towerSpot.x, z: towerSpot.z, r: C.TOWER_HALF + 6, y: sampleGroundLocalY(towerSpot.x, towerSpot.z) });
+  }
+  const towerBearing = Math.atan2(towerSpot.z, towerSpot.x);
+
+  // House slots: one per grounded citizen, ringed around the plaza, keeping
+  // clear of the walkway corridor and the tower.
+  const angDiff = (a, b) => {
+    let d = a - b;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return Math.abs(d);
+  };
+  const groundedCitizens = [];
+  let penthouseCitizen = null;
+  for (let i = 0; i < roster.length; i++) {
+    const c = roster[i];
+    if (c.home === 'penthouse' && !penthouseCitizen) penthouseCitizen = { ...c, idx: i };
+    else groundedCitizens.push({ ...c, idx: i });
+  }
+  const houseSlots = [];
+  {
+    const n = Math.max(groundedCitizens.length, 1);
+    const start = gateBearing + 0.7;
+    const span = Math.PI * 2 - 1.4; // leave the gate corridor open
+    for (let i = 0; i < groundedCitizens.length; i++) {
+      let a = start + ((i + 0.5) / n) * span;
+      // nudge out of the tower's wedge
+      if (angDiff(a, towerBearing) < 0.5) a += (a > towerBearing ? 1 : -1) * (0.55 - angDiff(a, towerBearing));
+      a += (rng() - 0.5) * 0.12;
+      let d = C.HOUSE_RING_MIN + rng() * (C.HOUSE_RING_MAX - C.HOUSE_RING_MIN);
+      let hx = Math.cos(a) * d, hz = Math.sin(a) * d;
+      // snap to dry ground: walk the bearing/distance a little if needed
+      for (let attempt = 0; attempt < 10 && isWetLocal(hx, hz); attempt++) {
+        a += 0.13 * (attempt % 2 === 0 ? 1 : -1) * (attempt + 1);
+        d = C.HOUSE_RING_MIN + ((attempt * 7) % (C.HOUSE_RING_MAX - C.HOUSE_RING_MIN));
+        hx = Math.cos(a) * d; hz = Math.sin(a) * d;
+      }
+      houseSlots.push({ x: hx, z: hz, citizen: groundedCitizens[i] });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Ground: draped street disc + plaza paving + walkway strip
+  // -------------------------------------------------------------------------
+  const streetMat = fam(build.walkFam, { repeat: 10, color: palette.street, roughness: 0.95 });
+  const plazaMat = fam(build.plazaFam, { repeat: 6, color: build.plazaColor });
+  const walkMat = fam(build.walkFam, { repeat: 8, color: build.walkColor });
+
+  const drapeInto = (geo, bucket, lift = 0) => {
+    const posAttr = geo.attributes.position;
+    for (let i = 0; i < posAttr.count; i++) {
+      const x = posAttr.getX(i);
+      const z = posAttr.getZ(i);
+      posAttr.setY(i, flattenedHeight(x, z) + lift);
+    }
+    posAttr.needsUpdate = true;
+    geo.computeVertexNormals();
+    bucket.push(geo);
+  };
+  {
+    const streetGeos = [];
     const ringGeo = new THREE.RingGeometry(2, radius, 64, 20);
     ringGeo.rotateX(-Math.PI / 2);
-    drape(ringGeo);
+    drapeInto(ringGeo, streetGeos, -0.05);
     const capGeo = new THREE.CircleGeometry(2.05, 16);
     capGeo.rotateX(-Math.PI / 2);
-    drape(capGeo);
+    drapeInto(capGeo, streetGeos, -0.05);
+    const streetMesh = new THREE.Mesh(mergeGeometries(streetGeos), streetMat);
+    streetMesh.frustumCulled = false;
+    group.add(streetMesh);
+
+    const plazaGeos = [];
+    const plazaGeo = new THREE.CircleGeometry(C.PLAZA_RADIUS + 1, 48);
+    plazaGeo.rotateX(-Math.PI / 2);
+    drapeInto(plazaGeo, plazaGeos, 0.02);
+    const plazaMesh = new THREE.Mesh(mergeGeometries(plazaGeos), plazaMat);
+    plazaMesh.frustumCulled = false;
+    group.add(plazaMesh);
+
+    // Walkway: one long strip pad->gate + a short strip gate->plaza, both
+    // subdivided along their length and draped.
+    const walkGeos = [];
+    const strip = (x0, z0, x1, z1) => {
+      const len = Math.hypot(x1 - x0, z1 - z0);
+      if (len < 1) return;
+      const geo = new THREE.PlaneGeometry(len, C.WALKWAY_W, Math.max(4, Math.ceil(len / 4)), 2);
+      geo.rotateX(-Math.PI / 2);
+      geo.rotateY(-Math.atan2(z1 - z0, x1 - x0));
+      geo.translate((x0 + x1) / 2, 0, (z0 + z1) / 2);
+      drapeInto(geo, walkGeos, 0.04);
+    };
+    strip(padCenter.x, padCenter.y, gateSpot.x, gateSpot.z);
+    strip(gateSpot.x, gateSpot.z,
+      Math.cos(gateBearing) * (C.PLAZA_RADIUS - 2), Math.sin(gateBearing) * (C.PLAZA_RADIUS - 2));
+    const walkMesh = new THREE.Mesh(mergeGeometries(walkGeos), walkMat);
+    walkMesh.frustumCulled = false;
+    group.add(walkMesh);
   }
-  const streetMesh = new THREE.Mesh(mergeGeometries(streetGeos), streetMaterial);
-  streetMesh.receiveShadow = false;
-  group.add(streetMesh);
 
   // -------------------------------------------------------------------------
-  // Buildings — InstancedMesh towers (box body) + window-strip instances +
-  // rooftop neon sign instances
+  // Shared merged-geometry buckets for every building (houses + tower shell).
+  // One mesh per material family for the whole town.
   // -------------------------------------------------------------------------
-  const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-  // A faint self-lit floor (the hull's own hue, dimmed) so even a fully
-  // backlit facade never crushes to black against a bright horizon.
-  const hullEmissive = new THREE.Color(palette.hullA).multiplyScalar(1.0);
-  const hullMat = new THREE.MeshStandardMaterial({
-    color: palette.hullA, roughness: 0.75, metalness: 0.2,
-    map: makePanelNoiseTexture(rng),
-    emissive: hullEmissive, emissiveIntensity: 0.3,
-  });
-  const towerCount = Math.min(buildingSlots.length, C.MAX_TOWER_INSTANCES);
-  const towerMesh = new THREE.InstancedMesh(boxGeo, hullMat, towerCount);
-  towerMesh.frustumCulled = false;
-  const towerColor = new THREE.Color();
+  const wallGeos = [], floorGeos = [], roofGeos = [];
+  const trimGeos = [], warmGeos = [];
+  const paneGeos = [], scrimGeos = [], mullionGeos = [];
+  const furnGeos = [], metalGeos = [], plantGeos = [];
 
-  // Window shell: fully procedural per-cell window grid (cityWindows.frag).
-  // Each instance carries a seed so towers never share a lit pattern, and
-  // individual windows wink on/off over time at night.
-  const windowGeo = new THREE.BoxGeometry(1, 1, 1);
-  const windowCap = Math.min(towerCount, C.MAX_WINDOW_INSTANCES);
-  const windowSeeds = new Float32Array(Math.max(windowCap, 1));
-  for (let i = 0; i < windowSeeds.length; i++) windowSeeds[i] = rng() * 100;
-  windowGeo.setAttribute('aSeed', new THREE.InstancedBufferAttribute(windowSeeds, 1));
-  const windowMat = new THREE.ShaderMaterial({
-    vertexShader: cityWindowsVert,
-    fragmentShader: cityWindowsFrag,
-    uniforms: {
-      uTime: fx.uTime,
-      uNight: fx.uNight,
-      uWarm: { value: new THREE.Color(palette.windowWarm) },
-      uFacade: { value: new THREE.Color(palette.hullB).multiplyScalar(0.55) },
-    },
-  });
-  const windowMesh = new THREE.InstancedMesh(windowGeo, windowMat, windowCap);
-  windowMesh.frustumCulled = false;
-
-  // Rooftop signs: instanced pulse-glow shader — per-sign phase and accent
-  // tint attributes give every sign its own flicker clock and neon colour.
-  const signGeo = new THREE.BoxGeometry(1, 1, 1);
-  const signCap = Math.min(towerCount, C.MAX_SIGN_INSTANCES);
-  const signPhases = new Float32Array(Math.max(signCap, 1));
-  const signTints = new Float32Array(Math.max(signCap, 1) * 3);
-  signGeo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(signPhases, 1));
-  signGeo.setAttribute('aTint', new THREE.InstancedBufferAttribute(signTints, 3));
-  const signMat = new THREE.ShaderMaterial({
-    vertexShader: pulseGlowVert,
-    fragmentShader: pulseGlowFrag,
-    uniforms: {
-      uTime: fx.uTime,
-      uNight: fx.uNight,
-      uBase: { value: C.NEON_BLOOM_INTENSITY * 0.75 },
-      uAmp: { value: C.NEON_BLOOM_INTENSITY * 0.35 },
-      uSpeed: { value: 0.9 },
-      uFlicker: { value: flickerAmount * 2.5 },
-    },
-  });
-  const signMesh = new THREE.InstancedMesh(signGeo, signMat, signCap);
-  signMesh.frustumCulled = false;
+  const wallMat = fam(build.wall, { repeat: 3, color: build.wallColor });
+  const floorMat = fam(build.floor, { repeat: 4, color: build.floorColor });
+  const roofMat = fam(build.roof, { repeat: 3, color: build.roofColor });
+  const furnMat = fam('wood', { repeat: 2, color: 0x9a7a55 });
+  const metalMat = M ? M.steel : fam('none', { color: 0x777d88, metalness: 0.85, roughness: 0.6 });
+  const plantMat = fam('groundCover', { repeat: 2, color: 0x69a054 });
+  const trimMat = own(new THREE.MeshStandardMaterial({
+    color: 0x220016, emissive: new THREE.Color(palette.neonPrimary),
+    emissiveIntensity: C.NEON_BLOOM_INTENSITY, roughness: 0.3,
+  }));
+  const warmMat = own(new THREE.MeshStandardMaterial({
+    color: 0x120a04, emissive: new THREE.Color(palette.windowWarm),
+    emissiveIntensity: C.NEON_BLOOM_INTENSITY * 0.6, roughness: 0.5,
+  }));
 
   const colliders = [];
-  const collidersLocal = []; // city-flat {x,z,radius,height} — aliens.js format
-  const billboardSpecs = []; // Tokyo-style wall ads (neonMetropolis only)
-  const doorSpecs = [];      // mock lit entrances, one per instanced tower
-  const dummy = new THREE.Object3D();
-  const signAccentColors = [palette.neonPrimary, palette.neonSecondaryA, palette.neonSecondaryB];
-  let signIdx = 0;
-  let windowIdx = 0;
-  let towerIdx = 0; // written-instance count (lobby slots are skipped)
-
+  const collidersLocal = []; // city-flat {x,z,radius,height,baseY} — NPC steering
   const worldPosScratch = new THREE.Vector3();
 
-  for (let i = 0; i < towerCount; i++) {
-    const slot = buildingSlots[i];
-    if (slot.isLobby) continue; // built as an enterable lobby below, not here
-    const heightRange = slot.isCore
-      ? [C.BUILDING_MIN_H_CORE, C.BUILDING_MAX_H_CORE]
-      : slot.isOutskirt
-      ? [C.BUILDING_MIN_H_OUT, C.BUILDING_MAX_H_OUT]
-      : [C.BUILDING_MIN_H_MID, C.BUILDING_MAX_H_MID];
-    const height = THREE.MathUtils.lerp(heightRange[0], heightRange[1], rng()) * heightScale;
-    const baseY = flattenedHeight(slot.x, slot.z);
-    const footW = slot.footHalf * 2 * (0.85 + rng() * 0.3);
-    const footD = slot.footHalf * 2 * (0.85 + rng() * 0.3);
-
-    const doSetback = height > C.BUILDING_MIN_H_MID * 1.5 && rng() < C.SETBACK_STEP_CHANCE;
-    const bodyHeight = doSetback ? height * (0.55 + rng() * 0.2) : height;
-
-    // Extend the box down into the ground (foundation) so sloped terrain
-    // under a jittered footprint never shows a gap beneath the walls.
-    const rotY = rng() * Math.PI * 2;
-    const inst = towerIdx++;
-    dummy.position.set(slot.x, baseY - C.FOUNDATION_DEPTH + (bodyHeight + C.FOUNDATION_DEPTH) / 2, slot.z);
-    dummy.scale.set(footW, bodyHeight + C.FOUNDATION_DEPTH, footD);
-    dummy.rotation.set(0, rotY, 0);
-    dummy.updateMatrix();
-    towerMesh.setMatrixAt(inst, dummy.matrix);
-    towerColor.set(rng() < 0.5 ? palette.hullA : palette.hullB);
-    towerMesh.setColorAt(inst, towerColor);
-
-    // mock lit entrance on one face at street level (real lobbies handled
-    // separately). Face the building's local +Z, whatever way it was rotated.
-    doorSpecs.push({ x: slot.x, z: slot.z, rotY, footD, baseY });
-
-    if (doSetback && signIdx < signMesh.count) {
-      // upper setback tier gets its own smaller box merged visually via a
-      // second instanced write reusing the tower buffer would exceed count,
-      // so we approximate the setback as a stepped silhouette using the
-      // sign instance as a slim rooftop crown, then place the neon sign atop.
-    }
-
-    // window strip band along the taller faces
-    if (windowIdx < windowMesh.count) {
-      dummy.position.set(slot.x, baseY + bodyHeight * 0.55, slot.z);
-      dummy.scale.set(footW * 1.001, bodyHeight * 0.85, footD * 1.001);
-      dummy.updateMatrix();
-      windowMesh.setMatrixAt(windowIdx, dummy.matrix);
-      windowIdx++;
-    }
-
-    // rooftop neon sign (only on taller / core buildings for restraint)
-    if ((slot.isCore || bodyHeight > 25) && rng() < signChance && signIdx < signMesh.count) {
-      dummy.position.set(slot.x, baseY + bodyHeight + 1.4, slot.z);
-      dummy.scale.set(footW * 0.5, 2.2, 0.6);
-      dummy.rotation.set(0, rng() * Math.PI * 2, 0);
-      dummy.updateMatrix();
-      signMesh.setMatrixAt(signIdx, dummy.matrix);
-      signPhases[signIdx] = rng() * Math.PI * 2;
-      towerColor.set(signAccentColors[Math.floor(rng() * signAccentColors.length)]);
-      signTints[signIdx * 3] = towerColor.r;
-      signTints[signIdx * 3 + 1] = towerColor.g;
-      signTints[signIdx * 3 + 2] = towerColor.b;
-      signIdx++;
-    }
-
-    // wall-mounted ad billboards (neon metropolis style)
-    if (style?.adBillboards && bodyHeight > 14 && billboardSpecs.length < 40 && rng() < 0.55) {
-      billboardSpecs.push({
-        x: slot.x, z: slot.z, rotY, footW, footD, baseY, bodyHeight,
-        face: Math.floor(rng() * 4),
-        frac: 0.3 + rng() * 0.4,   // height up the wall
-        vertical: rng() < 0.4,     // tall banner vs wide board
-        tex: Math.floor(rng() * 4),
-      });
-    }
-
-    worldPosScratch.set(slot.x, 0, slot.z).applyQuaternion(quat).add(group.position);
-    colliders.push({
-      center: worldPosScratch.clone(),
-      radius: Math.max(footW, footD) * 0.5 + 0.4,
-      height: bodyHeight,
-    });
-    collidersLocal.push({
-      x: slot.x,
-      z: slot.z,
-      radius: Math.max(footW, footD) * 0.5 + 0.4,
-      height: bodyHeight,
-      baseY, // city-local ground level at this tower (walk.js roof checks)
-    });
-  }
-  towerMesh.count = towerIdx;
-  windowMesh.count = windowIdx;
-  signMesh.count = signIdx;
-  towerMesh.instanceMatrix.needsUpdate = true;
-  windowMesh.instanceMatrix.needsUpdate = true;
-  signMesh.instanceMatrix.needsUpdate = true;
-  if (towerMesh.instanceColor) towerMesh.instanceColor.needsUpdate = true;
-  group.add(towerMesh, windowMesh, signMesh);
-
-  const adMats = []; // emissive materials that ride the day/night neon dimming
+  // Axis-aligned box into a bucket: absolute city-local center/dims.
+  const emitBox = (bucket, cx, cy, cz, w, h, d) => {
+    const g = new THREE.BoxGeometry(Math.max(w, 0.01), Math.max(h, 0.01), Math.max(d, 0.01));
+    g.translate(cx, cy, cz);
+    bucket.push(g);
+  };
 
   // -------------------------------------------------------------------------
-  // Mock entrances — a lit doorway panel + frame on each instanced tower, so
-  // the towers read as inhabited buildings instead of blank blocks. Merged
-  // into two meshes (recess + frame). Real, enterable lobbies are built later.
+  // House builder. Each house is axis-aligned; the door faces the plaza along
+  // the dominant axis. A local (u,v) frame — +U toward the plaza — keeps the
+  // kit code readable while everything stays an AABB underneath.
   // -------------------------------------------------------------------------
-  if (doorSpecs.length) {
-    const DOOR_W = 2.4, DOOR_HT = 3.0;
-    const panelGeos = [], frameGeos = [];
-    const dm = new THREE.Matrix4(), dq = new THREE.Quaternion();
-    const dp = new THREE.Vector3(), ds = new THREE.Vector3(1, 1, 1);
-    for (const dsp of doorSpecs) {
-      const nx = Math.sin(dsp.rotY), nz = Math.cos(dsp.rotY); // local +Z, rotated
-      const out = dsp.footD * 0.5;
-      dq.setFromAxisAngle(YAXIS, dsp.rotY);
-      // the glowing recess, sunk 0.05 into the face
-      dp.set(dsp.x + nx * (out - 0.05), dsp.baseY + DOOR_HT / 2, dsp.z + nz * (out - 0.05));
-      const panel = new THREE.PlaneGeometry(DOOR_W, DOOR_HT);
-      panel.applyMatrix4(dm.compose(dp, dq, ds));
-      panelGeos.push(panel);
-      // a thin frame proud of the wall (two jambs + a lintel)
-      for (const off of [-DOOR_W / 2, DOOR_W / 2]) {
-        const jamb = new THREE.BoxGeometry(0.16, DOOR_HT + 0.3, 0.16);
-        dp.set(dsp.x + nx * (out + 0.05) - nz * off,
-               dsp.baseY + (DOOR_HT + 0.3) / 2,
-               dsp.z + nz * (out + 0.05) + nx * off);
-        jamb.applyMatrix4(dm.compose(dp, dq, ds));
-        frameGeos.push(jamb);
-      }
-      const lintel = new THREE.BoxGeometry(DOOR_W + 0.3, 0.16, 0.16);
-      dp.set(dsp.x + nx * (out + 0.05), dsp.baseY + DOOR_HT + 0.15, dsp.z + nz * (out + 0.05));
-      lintel.applyMatrix4(dm.compose(dp, dq, ds));
-      frameGeos.push(lintel);
-    }
-    const panelMat = new THREE.MeshStandardMaterial({
-      color: 0x120a04, emissive: new THREE.Color(palette.windowWarm),
-      emissiveIntensity: C.NEON_BLOOM_INTENSITY * 0.6, roughness: 0.5,
-      side: THREE.DoubleSide,
-    });
-    const frameMat = new THREE.MeshStandardMaterial({
-      color: 0x14121e, emissive: new THREE.Color(palette.neonSecondaryA),
-      emissiveIntensity: C.NEON_BLOOM_INTENSITY * 0.4, roughness: 0.4,
-    });
-    const panelMesh = new THREE.Mesh(mergeGeometries(panelGeos), panelMat);
-    const frameMesh = new THREE.Mesh(mergeGeometries(frameGeos), frameMat);
-    panelMesh.frustumCulled = false;
-    frameMesh.frustumCulled = false;
-    group.add(panelMesh, frameMesh);
-    adMats.push(panelMat, frameMat);
-  }
+  function buildHouse(slot) {
+    const citizen = slot.citizen;
+    const kit = ROLE_KITS[citizen.build ?? citizen.role] ?? ROLE_KITS.resident;
+    const half = kit.half;
+    const cx = slot.x, cz = slot.z;
+    const by = flattenedHeight(cx, cz);
+    flattenPads.push({ x: cx, z: cz, r: half + 3, y: by });
 
-  // -------------------------------------------------------------------------
-  // Ad billboards — merged planes per texture, glued to tower walls
-  // -------------------------------------------------------------------------
-  if (billboardSpecs.length) {
-    const adTexes = Array.from({ length: 4 }, (_, i) => makeAdTexture(rng, palette, i % 2 === 1));
-    const perTexGeos = adTexes.map(() => []);
-    const adMatrix = new THREE.Matrix4();
-    const adQuat = new THREE.Quaternion();
-    const adPos = new THREE.Vector3();
-    const adScale = new THREE.Vector3(1, 1, 1);
-    for (const b of billboardSpecs) {
-      const w = b.vertical ? 2.2 + (b.frac % 0.1) * 10 : 5 + (b.frac % 0.2) * 20;
-      const h = b.vertical ? 8 + (b.frac % 0.15) * 40 : 3 + (b.frac % 0.1) * 20;
-      if (h + 2 > b.bodyHeight) continue; // wall too short for this board
-      // face 0..3 -> +z, +x, -z, -x of the tower's rotated frame
-      const faceAng = b.rotY + b.face * Math.PI * 0.5;
-      const halfOut = (b.face % 2 === 0 ? b.footD : b.footW) * 0.5 + 0.12;
-      const sin = Math.sin(faceAng), cos = Math.cos(faceAng);
-      adPos.set(b.x + sin * halfOut, b.baseY + Math.min(b.bodyHeight * b.frac, b.bodyHeight - h / 2 - 1) + h / 2, b.z + cos * halfOut);
-      adQuat.setFromAxisAngle(YAXIS, faceAng);
-      const geo = new THREE.PlaneGeometry(w, h);
-      geo.applyMatrix4(adMatrix.compose(adPos, adQuat, adScale));
-      perTexGeos[b.tex].push(geo);
-    }
-    // Animated holo-boards (cityAds.frag): highlight sweep + scanlines +
-    // occasional glitch tear over the seeded glyph canvas. Day/night level
-    // rides the shared fx uniforms.
-    for (let i = 0; i < adTexes.length; i++) {
-      if (!perTexGeos[i].length) { adTexes[i].dispose(); continue; }
-      const mat = new THREE.ShaderMaterial({
-        vertexShader: basicVert,
-        fragmentShader: cityAdsFrag,
-        uniforms: { uMap: { value: adTexes[i] }, uTime: fx.uTime, uNight: fx.uNight },
-        side: THREE.DoubleSide,
-      });
-      ownedTextures.push(adTexes[i]);
-      const mesh = new THREE.Mesh(mergeGeometries(perTexGeos[i]), mat);
-      mesh.frustumCulled = false;
-      group.add(mesh);
-    }
-  }
+    // +U points from the house toward the plaza (door side), axis-aligned.
+    const axisX = Math.abs(cx) >= Math.abs(cz);
+    const ux = axisX ? (cx > 0 ? -1 : 1) : 0;
+    const uz = axisX ? 0 : (cz > 0 ? -1 : 1);
+    const vxAxis = -uz, vzAxis = ux; // +V is "sideways"
+    const faceYaw = Math.atan2(ux, uz); // yaw looking toward the plaza
 
-  // -------------------------------------------------------------------------
-  // Landmark observation tower — the one building you can enter: ground-floor
-  // doorway, switchback stairs up open-air floors, railed balcony on top.
-  // Axis-aligned in city-local space so walkable surfaces and walls stay
-  // simple AABBs (consumed by walk.js via city.landmark).
-  // -------------------------------------------------------------------------
-  let landmark = null;
-  if (landmarkSpot) {
-    const HALF = 7, FLOOR_H = 4.5, FLOORS = 5, WALL_T = 0.4;
-    const SX0 = -6.6, SX1 = -3.4;   // stairwell x band, hugging the -x wall
-    const ZRUN = 4.6;               // flights run z: -ZRUN..+ZRUN
-    const DOOR_HALF = 1.3, DOOR_H = 3.2, PARAPET = 1.1, SLAB_T = 0.3;
-    const TOP = FLOORS * FLOOR_H;
-    const lmBaseY = flattenedHeight(landmarkSpot.x, landmarkSpot.z);
-    const lmSurfaces = []; // {x0,x1,z0,z1, y} flat | {..., ramp:true, zA,zB,yA,yB}
-    const lmWalls = [];    // {x0,x1,z0,z1, y0,y1} — y relative to lmBaseY
-
-    const hullGeos = [];
-    const glowGeos = [];
-    const lmBox = (w, h, d, x, y, z, geos = hullGeos, rotX = 0) => {
-      const g = new THREE.BoxGeometry(w, h, d);
-      if (rotX) g.rotateX(rotX);
-      g.translate(landmarkSpot.x + x, lmBaseY + y, landmarkSpot.z + z);
-      geos.push(g);
+    const surfaces = [], walls = [];
+    // (u,v) rect -> RELATIVE city-local x/z bounds (makeStructure's frame:
+    // records are compared against x - ox / z - oz).
+    const rect = (u0, u1, v0, v1) => {
+      const xA = u0 * ux + v0 * vxAxis, xB = u1 * ux + v1 * vxAxis;
+      const zA = u0 * uz + v0 * vzAxis, zB = u1 * uz + v1 * vzAxis;
+      return {
+        x0: Math.min(xA, xB), x1: Math.max(xA, xB),
+        z0: Math.min(zA, zB), z1: Math.max(zA, zB),
+      };
     };
-    const wall = (x0, x1, z0, z1, y0, y1) => lmWalls.push({ x0, x1, z0, z1, y0, y1 });
+    // Box from a (u,v) rect and a RELATIVE y band; optional wall record.
+    const boxUV = (bucket, u0, u1, v0, v1, y0, y1, solid = false) => {
+      const r = rect(u0, u1, v0, v1);
+      emitBox(bucket, cx + (r.x0 + r.x1) / 2, by + (y0 + y1) / 2, cz + (r.z0 + r.z1) / 2,
+        r.x1 - r.x0, y1 - y0, r.z1 - r.z0);
+      if (solid) walls.push({ x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1, y0, y1 });
+    };
 
-    // ground slab (top at 0.3)
-    lmBox(HALF * 2 + 0.6, 0.6, HALF * 2 + 0.6, 0, 0, 0);
-    lmSurfaces.push({ x0: -HALF, x1: HALF, z0: -HALF, z1: HALF, y: 0.3 });
+    const H = C.ROOM_H, T = C.WALL_T;
 
-    // corner pillars
-    for (const px of [-HALF + 0.4, HALF - 0.4]) {
-      for (const pz of [-HALF + 0.4, HALF - 0.4]) {
-        lmBox(0.8, TOP + PARAPET, 0.8, px, (TOP + PARAPET) / 2, pz);
-        wall(px - 0.4, px + 0.4, pz - 0.4, pz + 0.4, 0, TOP + PARAPET);
-      }
-    }
+    // Floor slab (walkable top at +0.3) and roof slab (walkable — free rooftop).
+    boxUV(floorGeos, -half, half, -half, half, -0.3, 0.3);
+    surfaces.push({ ...rect(-half, half, -half, half), y: 0.3 });
+    boxUV(roofGeos, -half - 0.3, half + 0.3, -half - 0.3, half + 0.3, H, H + C.ROOF_T);
+    surfaces.push({ ...rect(-half - 0.3, half + 0.3, -half - 0.3, half + 0.3), y: H + C.ROOF_T });
+    // low parapet (visual only — no wall record, the roof is a bonus perch)
+    for (const [a0, a1, b0, b1] of [
+      [-half, half, half, half + 0.25], [-half, half, -half - 0.25, -half],
+      [half, half + 0.25, -half, half], [-half - 0.25, -half, -half, half],
+    ]) boxUV(roofGeos, a0, a1, b0, b1, H + C.ROOF_T, H + C.ROOF_T + 0.5);
 
-    // -x wall: solid the full height (backs the stairwell)
-    lmBox(WALL_T, TOP + PARAPET, HALF * 2, -(HALF - WALL_T / 2), (TOP + PARAPET) / 2, 0);
-    wall(-HALF - 0.1, -HALF + WALL_T, -HALF - 0.1, HALF + 0.1, 0, TOP + PARAPET);
-
-    // ground floor: +x wall with the doorway, solid ±z walls
-    const doorSegLen = HALF - DOOR_HALF;
+    // Front wall (+U): open doorway — two side segments + lintel, neon frame.
+    const u0 = half - T, u1 = half; // wall band in U
     for (const s of [-1, 1]) {
-      lmBox(WALL_T, FLOOR_H, doorSegLen, HALF - WALL_T / 2, FLOOR_H / 2, s * (DOOR_HALF + doorSegLen / 2));
-      wall(HALF - WALL_T, HALF + 0.1, s === -1 ? -HALF - 0.1 : DOOR_HALF, s === -1 ? -DOOR_HALF : HALF + 0.1, 0, FLOOR_H);
+      boxUV(wallGeos, u0, u1, s === -1 ? -half : C.DOOR_HALF, s === -1 ? -C.DOOR_HALF : half, 0, H, true);
     }
-    lmBox(WALL_T, FLOOR_H - DOOR_H, DOOR_HALF * 2, HALF - WALL_T / 2, DOOR_H + (FLOOR_H - DOOR_H) / 2, 0);
-    wall(HALF - WALL_T, HALF + 0.1, -DOOR_HALF, DOOR_HALF, DOOR_H, FLOOR_H);
-    for (const s of [-1, 1]) {
-      lmBox(HALF * 2, FLOOR_H, WALL_T, 0, FLOOR_H / 2, s * (HALF - WALL_T / 2));
-      wall(-HALF - 0.1, HALF + 0.1, s === -1 ? -HALF - 0.1 : HALF - WALL_T, s === -1 ? -HALF + WALL_T : HALF + 0.1, 0, FLOOR_H);
-    }
+    boxUV(wallGeos, u0, u1, -C.DOOR_HALF, C.DOOR_HALF, C.DOOR_H, H, true);
+    // glowing door frame + a warm threshold light over the opening
+    for (const s of [-1, 1]) boxUV(trimGeos, half + 0.02, half + 0.14, s * (C.DOOR_HALF + 0.12) - 0.08, s * (C.DOOR_HALF + 0.12) + 0.08, 0, C.DOOR_H);
+    boxUV(trimGeos, half + 0.02, half + 0.14, -C.DOOR_HALF - 0.2, C.DOOR_HALF + 0.2, C.DOOR_H + 0.02, C.DOOR_H + 0.18);
+    boxUV(warmGeos, u0 + 0.05, u1 - 0.05, -C.DOOR_HALF, C.DOOR_HALF, C.DOOR_H - 0.12, C.DOOR_H - 0.02);
 
-    // upper floors: main slab (east of the stairwell), landing, parapets
-    for (let f = 1; f <= FLOORS; f++) {
-      const y = f * FLOOR_H + 0.3;
-      const mainW = HALF - SX1;
-      lmBox(mainW, SLAB_T, HALF * 2, (SX1 + HALF) / 2, y - SLAB_T / 2, 0);
-      lmSurfaces.push({ x0: SX1, x1: HALF, z0: -HALF, z1: HALF, y });
-      // arrival landing for the flight below (alternating side)
-      const side = (f - 1) % 2 === 0 ? 1 : -1;
-      lmBox(SX1 - SX0, SLAB_T, HALF - ZRUN, (SX0 + SX1) / 2, y - SLAB_T / 2, side * (ZRUN + HALF) / 2);
-      lmSurfaces.push({
-        x0: SX0, x1: SX1,
-        z0: side === 1 ? ZRUN : -HALF, z1: side === 1 ? HALF : -ZRUN, y,
-      });
-      // parapet on +x and ±z (the -x side is the solid wall)
-      lmBox(WALL_T * 0.6, PARAPET, HALF * 2, HALF - WALL_T * 0.3, y + PARAPET / 2, 0);
-      wall(HALF - WALL_T, HALF + 0.1, -HALF - 0.1, HALF + 0.1, y, y + PARAPET);
-      for (const s of [-1, 1]) {
-        lmBox(HALF * 2, PARAPET, WALL_T * 0.6, 0, y + PARAPET / 2, s * (HALF - WALL_T * 0.3));
-        wall(-HALF - 0.1, HALF + 0.1, s === -1 ? -HALF - 0.1 : HALF - WALL_T, s === -1 ? -HALF + WALL_T : HALF + 0.1, y, y + PARAPET);
+    // Other three walls: real window openings with glass panes and mullions.
+    // The wall is decomposed into 4 boxes around each opening; the collision
+    // record stays one solid full-height AABB (the 1.1 sill blocks walking).
+    const windowWall = (side) => {
+      // side: 'back' (-U) or +V / -V
+      const isBack = side === 'back';
+      const sV = side === '+v' ? 1 : -1;
+      const wins = half >= 6.5 ? 2 : 1;
+      const positions = wins === 2 ? [-half * 0.45, half * 0.45] : [0];
+      const w0 = C.WIN_SILL, w1 = C.WIN_SILL + C.WIN_H; // vertical band
+      // helper emitting a wall box in this wall's own coordinates: `along` is
+      // the lateral axis of the wall, band [a0,a1]; the wall's U/V band is fixed.
+      const wallBox = (a0, a1, y0, y1) => {
+        if (isBack) boxUV(wallGeos, -half, -half + T, a0, a1, y0, y1);
+        else boxUV(wallGeos, a0, a1, sV > 0 ? half - T : -half, sV > 0 ? half : -half + T, y0, y1);
+      };
+      // full-height collision record for the whole wall
+      const r = isBack ? rect(-half, -half + T, -half, half)
+        : rect(-half, half, sV > 0 ? half - T : -half, sV > 0 ? half : -half + T);
+      walls.push({ ...r, y0: 0, y1: H });
+
+      let cursor = -half;
+      for (const p of positions) {
+        const o0 = p - C.WIN_W / 2, o1 = p + C.WIN_W / 2;
+        wallBox(cursor, o0, 0, H); // pier before the opening
+        wallBox(o0, o1, 0, w0); // below sill
+        wallBox(o0, o1, w1, H); // above lintel
+        // glass: pane + scrim, inset into the opening; thin boxes so no
+        // orientation bookkeeping is needed.
+        const paneBox = (bucket, inset, thick) => {
+          if (isBack) boxUV(bucket, -half + inset, -half + inset + thick, o0 + 0.08, o1 - 0.08, w0 + 0.06, w1 - 0.06);
+          else boxUV(bucket, o0 + 0.08, o1 - 0.08, sV > 0 ? half - inset - thick : -half + inset, sV > 0 ? half - inset : -half + inset + thick, w0 + 0.06, w1 - 0.06);
+        };
+        paneBox(paneGeos, 0.14, 0.05);
+        paneBox(scrimGeos, 0.2, 0.03);
+        // mullion cross + frame
+        const mull = (a0, a1, y0, y1) => {
+          if (isBack) boxUV(mullionGeos, -half + 0.1, -half + 0.22, a0, a1, y0, y1);
+          else boxUV(mullionGeos, a0, a1, sV > 0 ? half - 0.22 : -half + 0.1, sV > 0 ? half - 0.1 : -half + 0.22, y0, y1);
+        };
+        mull(p - 0.04, p + 0.04, w0, w1); // vertical
+        mull(o0, o1, (w0 + w1) / 2 - 0.04, (w0 + w1) / 2 + 0.04); // horizontal
+        mull(o0, o1, w0 - 0.06, w0 + 0.02); // sill plate
+        cursor = o1;
       }
+      wallBox(cursor, half, 0, H); // pier after the last opening
+    };
+    windowWall('back');
+    windowWall('+v');
+    windowWall('-v');
+
+    // Warm ceiling cove: a slim lit ring below the ceiling — the "beautiful
+    // interior" light source that makes the doorway glow at night.
+    boxUV(warmGeos, -half + 1, half - 1, -half + 1, -half + 0.9, H - 0.25, H - 0.15);
+    boxUV(warmGeos, -half + 1, half - 1, half - 0.9, half - 1 + 0.1, H - 0.25, H - 0.15);
+
+    // ------------------------- furnishing kits ------------------------------
+    // Kits place along (u,v): the door is at +U, the back wall at -U.
+    let anchor = { u: -half + 2.2, v: 0 };
+    const K = kit.kind;
+    if (K === 'shop') {
+      boxUV(furnGeos, -half + 1.0, -half + 1.8, -half + 1.2, half - 1.2, 0.3, 1.3); // counter
+      boxUV(warmGeos, -half + 1.05, -half + 1.75, -half + 1.4, half - 1.4, 1.3, 1.38); // counter light
+      boxUV(furnGeos, -half + 0.6, -half + 1.0, -half + 1.0, half - 1.0, 0.3, 2.4); // backwall shelving
+      boxUV(furnGeos, half - 2.6, half - 1.6, -half + 1.0, -half + 2.2, 0.3, 1.1); // crate stack
+      boxUV(furnGeos, half - 2.4, half - 1.8, -half + 1.2, -half + 2.0, 1.1, 1.7);
+      anchor = { u: -half + 2.6, v: 0 };
+    } else if (K === 'studio') {
+      boxUV(furnGeos, -half + 1.0, -half + 2.0, -half + 1.2, half - 1.2, 0.3, 1.25); // workbench
+      boxUV(metalGeos, -half + 1.2, -half + 1.8, -half + 1.6, -half + 2.6, 1.25, 1.5); // tools
+      boxUV(wallGeos, -half + 1.2, -half + 3.2, half - 2.6, half - 1.0, 0.3, 2.2); // kiln block
+      boxUV(warmGeos, -half + 2.0, -half + 2.6, half - 2.65, half - 2.55, 0.7, 1.5); // kiln mouth glow
+      anchor = { u: -half + 2.8, v: -1.0 };
+    } else if (K === 'greenhouse') {
+      for (const v of [-half + 1.8, 0, half - 1.8]) {
+        boxUV(furnGeos, -half + 1.0, half - 2.6, v - 0.55, v + 0.55, 0.3, 0.85); // planter trough
+        boxUV(plantGeos, -half + 1.1, half - 2.7, v - 0.45, v + 0.45, 0.85, 1.25); // greens
+      }
+      boxUV(metalGeos, -half + 0.6, -half + 0.9, -half + 1.0, half - 1.0, 0.3, 2.0); // tool wall
+      anchor = { u: 0, v: half - 2.6 }; // between the planter rows
+    } else if (K === 'study') {
+      boxUV(furnGeos, -half + 1.2, -half + 2.0, -1.2, 1.2, 0.3, 1.1); // desk
+      boxUV(furnGeos, -half + 2.4, -half + 3.0, -0.3, 0.3, 0.3, 0.8); // chair
+      for (const sv of [-1, 1]) boxUV(furnGeos, -half + 0.6, half - 2.0, sv * (half - 1.0) - 0.3, sv * (half - 1.0) + 0.3, 0.3, H - 1.2); // shelf walls
+      boxUV(trimGeos, -half + 0.55, -half + 0.65, -1.4, 1.4, 2.2, 3.6); // star-chart panel
+      anchor = { u: -half + 2.7, v: 0 };
+    } else if (K === 'stage') {
+      const r = rect(-half + 1.0, -half + 3.6, -half + 1.0, half - 1.0);
+      boxUV(floorGeos, -half + 1.0, -half + 3.6, -half + 1.0, half - 1.0, 0.3, 0.7); // riser
+      surfaces.push({ ...r, y: 0.7 });
+      boxUV(trimGeos, -half + 1.1, -half + 1.3, -half + 1.2, half - 1.2, 0.7, 3.8); // neon backdrop
+      for (const sv of [-1, 1]) boxUV(furnGeos, half - 3.4, half - 1.4, sv * (half - 1.5) - 0.35, sv * (half - 1.5) + 0.35, 0.3, 0.75); // benches
+      anchor = { u: -half + 2.3, v: 0, y: 0.7 };
+    } else if (K === 'villa') {
+      boxUV(furnGeos, -half + 1.2, -half + 3.2, -half + 1.2, -half + 2.4, 0.3, 0.9); // long lounge
+      boxUV(furnGeos, -half + 1.6, -half + 2.8, -0.6, 0.6, 0.3, 0.75); // low table
+      boxUV(warmGeos, -half + 2.0, -half + 2.4, -0.2, 0.2, 0.75, 1.05); // table lamp
+      boxUV(furnGeos, -half + 1.2, -half + 2.2, half - 2.6, half - 1.2, 0.3, 1.0); // bed
+      boxUV(plantGeos, half - 2.2, half - 1.4, -half + 1.2, -half + 2.0, 0.3, 1.3); // court plant
+      anchor = { u: -half + 3.0, v: 0 };
+    } else { // cottage
+      boxUV(furnGeos, -half + 1.0, -half + 2.6, half - 2.4, half - 1.0, 0.3, 0.85); // bed
+      boxUV(furnGeos, -half + 1.4, -half + 2.6, -1.9, -0.7, 0.3, 1.05); // table
+      for (const sv of [-1, 1]) boxUV(furnGeos, -half + 1.7 + (sv > 0 ? 1.2 : -0.9), -half + 2.3 + (sv > 0 ? 1.2 : -0.9), -1.3 + sv * 0.9, -0.7 + sv * 0.9, 0.3, 0.75);
+      boxUV(wallGeos, half - 2.2, half - 1.0, -half + 1.0, -half + 1.9, 0.3, 1.9); // hearth block
+      boxUV(warmGeos, half - 1.9, half - 1.3, -half + 1.05, -half + 1.15, 0.55, 1.25); // hearth glow
+      anchor = { u: -half + 2.4, v: -1.3 };
     }
 
-    // stair flights (ramps hugging the -x wall, alternating direction)
-    const run = ZRUN * 2;
-    const rampLen = Math.hypot(run, FLOOR_H);
-    const slope = Math.atan2(FLOOR_H, run);
-    for (let f = 0; f < FLOORS; f++) {
-      const up = f % 2 === 0 ? 1 : -1; // +1: rises toward +z
-      lmBox(SX1 - SX0 - 0.2, 0.25, rampLen, (SX0 + SX1) / 2, (f + 0.5) * FLOOR_H + 0.3, 0, hullGeos, -up * slope);
-      lmSurfaces.push({
-        ramp: true, x0: SX0, x1: SX1, z0: -ZRUN, z1: ZRUN,
-        zA: up === 1 ? -ZRUN : ZRUN, zB: up === 1 ? ZRUN : -ZRUN,
-        yA: f * FLOOR_H + 0.3, yB: (f + 1) * FLOOR_H + 0.3,
-      });
-      // thin guard rail on the flight's open edge
-      lmBox(0.12, 1.0, rampLen, SX1 - 0.06, (f + 0.5) * FLOOR_H + 0.3 + 0.6, 0, hullGeos, -up * slope);
-    }
-
-    // neon: doorway frame, balcony rail glow, under-slab light strips
-    for (const s of [-1, 1]) lmBox(0.15, DOOR_H, 0.15, HALF + 0.05, DOOR_H / 2, s * (DOOR_HALF + 0.1), glowGeos);
-    lmBox(0.15, 0.15, DOOR_HALF * 2 + 0.5, HALF + 0.05, DOOR_H + 0.1, 0, glowGeos);
-    lmBox(0.1, 0.08, HALF * 2, HALF - 0.3, TOP + PARAPET + 0.05, 0, glowGeos);
-    for (const s of [-1, 1]) lmBox(HALF * 2, 0.08, 0.1, 0, TOP + PARAPET + 0.05, s * (HALF - 0.3), glowGeos);
-    for (let f = 1; f <= FLOORS; f++) {
-      lmBox(HALF - SX1 - 1, 0.08, 0.3, (SX1 + HALF) / 2, f * FLOOR_H - 0.25, 0, glowGeos);
-    }
-
-    const lmHullMat = new THREE.MeshStandardMaterial({
-      color: palette.hullA, roughness: 0.7, metalness: 0.25,
-      map: makePanelNoiseTexture(rng),
-      emissive: new THREE.Color(palette.hullA), emissiveIntensity: 0.3,
-    });
-    const lmHull = new THREE.Mesh(mergeGeometries(hullGeos), lmHullMat);
-    lmHull.frustumCulled = false;
-    const lmGlowMat = new THREE.MeshStandardMaterial({
-      color: 0x220016, emissive: new THREE.Color(palette.neonPrimary),
-      emissiveIntensity: C.NEON_BLOOM_INTENSITY, roughness: 0.3,
-    });
-    const lmGlow = new THREE.Mesh(mergeGeometries(glowGeos), lmGlowMat);
-    lmGlow.frustumCulled = false;
-    group.add(lmHull, lmGlow);
-    adMats.push(lmGlowMat); // ride the day/night neon dimming
-
-    // NPCs steer around the tower but never enter; the player's collision
-    // skips npcOnly and uses the wall AABBs instead (so the doorway works).
+    // Structure + NPC steering collider + world-frame collider.
+    structures.push(makeStructure(cx, cz, by, surfaces, walls, half + 0.6));
     collidersLocal.push({
-      x: landmarkSpot.x, z: landmarkSpot.z,
-      radius: HALF * Math.SQRT2 + 0.5, height: TOP, baseY: lmBaseY, npcOnly: true,
+      x: cx, z: cz, radius: half * Math.SQRT2 + 0.4,
+      height: H + 1, baseY: by, npcOnly: true,
     });
+    worldPosScratch.set(cx, 0, cz).applyQuaternion(quat).add(group.position);
+    colliders.push({ center: worldPosScratch.clone(), radius: half * Math.SQRT2 + 0.4, height: H + 1 });
 
-    const STEP_UP = 0.7;
-    landmark = {
-      x: landmarkSpot.x,
-      z: landmarkSpot.z,
-      baseY: lmBaseY,
-      topY: lmBaseY + TOP + 0.3,
-      // Highest walkable slab/ramp under (x,z) reachable from feetY, or null.
-      surfaceYAt(x, z, feetY) {
-        const lx = x - landmarkSpot.x, lz = z - landmarkSpot.z;
-        if (lx < -HALF - 0.4 || lx > HALF + 0.4 || lz < -HALF - 0.4 || lz > HALF + 0.4) return null;
-        let best = null;
-        for (const s of lmSurfaces) {
-          if (lx < s.x0 || lx > s.x1 || lz < s.z0 || lz > s.z1) continue;
-          let y;
-          if (s.ramp) {
-            const t = THREE.MathUtils.clamp((lz - s.zA) / (s.zB - s.zA), 0, 1);
-            y = s.yA + (s.yB - s.yA) * t;
+    // Home manifest: where the resident stands (anchor) and lives.
+    const ax = cx + anchor.u * ux + anchor.v * vxAxis;
+    const az = cz + anchor.u * uz + anchor.v * vzAxis;
+    homes.push({
+      idx: citizen.idx, role: citizen.role, kind: K,
+      x: cx, z: cz, floorY: by + 0.3, half,
+      doorX: cx + (half + 1.2) * ux, doorZ: cz + (half + 1.2) * uz,
+      doorYaw: faceYaw,
+      anchor: { x: ax, z: az, y: by + 0.3 + (anchor.y ?? 0), face: faceYaw },
+    });
+  }
+
+  for (const slot of houseSlots) buildHouse(slot);
+
+  // -------------------------------------------------------------------------
+  // ELEVATOR TOWER — ground lobby wrapping a 4x4 shaft, enclosed moving cab,
+  // glass penthouse + balcony on top. The town's tall landmark and the
+  // governor's address. All shell geometry goes into the shared buckets; the
+  // CAB is its own small group so update() can slide it.
+  // -------------------------------------------------------------------------
+  let elevator = null;
+  let penthouseHome = null;
+  {
+    const cx = towerSpot.x, cz = towerSpot.z;
+    const by = flattenedHeight(cx, cz);
+    const EH = C.TOWER_HALF, TOP = C.TOWER_TOP;
+    const totalH = TOP + C.PENT_H + C.PARAPET;
+    const [ux, uz] = towerU; // +U looks from the tower toward the plaza
+    const vxAxis = -uz, vzAxis = ux;
+    const faceYaw = Math.atan2(ux, uz);
+
+    const surfaces = [], walls = [];
+    // RELATIVE bounds — same frame contract as the house builder above.
+    const rect = (u0, u1, v0, v1) => {
+      const xA = u0 * ux + v0 * vxAxis, xB = u1 * ux + v1 * vxAxis;
+      const zA = u0 * uz + v0 * vzAxis, zB = u1 * uz + v1 * vzAxis;
+      return {
+        x0: Math.min(xA, xB), x1: Math.max(xA, xB),
+        z0: Math.min(zA, zB), z1: Math.max(zA, zB),
+      };
+    };
+    const boxUV = (bucket, u0, u1, v0, v1, y0, y1, solid = false) => {
+      const r = rect(u0, u1, v0, v1);
+      emitBox(bucket, cx + (r.x0 + r.x1) / 2, by + (y0 + y1) / 2, cz + (r.z0 + r.z1) / 2,
+        r.x1 - r.x0, y1 - y0, r.z1 - r.z0);
+      if (solid) walls.push({ x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1, y0, y1 });
+      return r;
+    };
+
+    // Shaft interior: u in [-4.9,-0.9], v in [-2,2]. Cab doorway faces +U.
+    const SU0 = -4.9, SU1 = -0.9, SV = 2.0;
+    const DOOR_V = 1.0, DOOR_H2 = 3.6; // shaft/cab doorway: 2 wide, 3.6 tall
+
+    // Ground slab + lobby floor (walkable), penthouse slab with a shaft hole.
+    boxUV(floorGeos, -EH - 0.3, EH + 0.3, -EH - 0.3, EH + 0.3, -0.3, 0.3);
+    surfaces.push({ ...rect(-EH, EH, -EH, EH), y: 0.3 });
+    // Penthouse floor: three rects around the shaft hole.
+    boxUV(floorGeos, SU1, EH, -EH, EH, TOP, TOP + 0.3);
+    surfaces.push({ ...rect(SU1, EH, -EH, EH), y: TOP + 0.3 });
+    for (const sv of [-1, 1]) {
+      boxUV(floorGeos, -EH, SU1, sv > 0 ? SV : -EH, sv > 0 ? EH : -SV, TOP, TOP + 0.3);
+      surfaces.push({ ...rect(-EH, SU1, sv > 0 ? SV : -EH, sv > 0 ? EH : -SV), y: TOP + 0.3 });
+    }
+    // Lobby ceiling (visual; leaves the shaft column clear for the cab) and
+    // penthouse roof + parapet.
+    boxUV(wallGeos, SU1, EH, -EH, EH, C.LOBBY_H, C.LOBBY_H + 0.3);
+    for (const sv of [-1, 1]) {
+      boxUV(wallGeos, -EH, SU1, sv > 0 ? SV : -EH, sv > 0 ? EH : -SV, C.LOBBY_H, C.LOBBY_H + 0.3);
+    }
+    boxUV(roofGeos, -EH - 0.4, EH + 0.4, -EH - 0.4, EH + 0.4, TOP + C.PENT_H, TOP + C.PENT_H + C.ROOF_T);
+    for (const [a0, a1, b0, b1] of [
+      [-EH, EH, EH, EH + 0.3], [-EH, EH, -EH - 0.3, -EH],
+      [EH, EH + 0.3, -EH, EH], [-EH - 0.3, -EH, -EH, EH],
+    ]) boxUV(roofGeos, a0, a1, b0, b1, TOP + C.PENT_H + C.ROOF_T, TOP + C.PENT_H + C.ROOF_T + 0.6);
+
+    // Shell walls, ground to penthouse floor (the shaft section). Front (+U)
+    // gets the lobby doorway; the rest are solid.
+    const T = C.WALL_T;
+    // front wall: two segments + band above the door up to TOP
+    for (const s of [-1, 1]) {
+      boxUV(wallGeos, EH - T, EH, s === -1 ? -EH : DOOR_V + 0.1, s === -1 ? -(DOOR_V + 0.1) : EH, 0, TOP, true);
+    }
+    boxUV(wallGeos, EH - T, EH, -(DOOR_V + 0.1), DOOR_V + 0.1, DOOR_H2, TOP, true);
+    // entry frame neon
+    for (const s of [-1, 1]) boxUV(trimGeos, EH + 0.02, EH + 0.14, s * (DOOR_V + 0.24) - 0.1, s * (DOOR_V + 0.24) + 0.1, 0, DOOR_H2);
+    boxUV(trimGeos, EH + 0.02, EH + 0.14, -(DOOR_V + 0.34), DOOR_V + 0.34, DOOR_H2 + 0.02, DOOR_H2 + 0.2);
+    // back + side shells, solid to TOP
+    boxUV(wallGeos, -EH, -EH + T, -EH, EH, 0, TOP, true);
+    for (const sv of [-1, 1]) {
+      boxUV(wallGeos, -EH, EH, sv > 0 ? EH - T : -EH, sv > 0 ? EH : -EH + T, 0, TOP, true);
+    }
+    // Corner neon strips: the town's night landmark, full height.
+    for (const su of [-1, 1]) for (const sv of [-1, 1]) {
+      boxUV(trimGeos, su * EH - 0.08 + su * 0.14, su * EH + 0.08 + su * 0.14,
+        sv * EH - 0.08 + sv * 0.14, sv * EH + 0.08 + sv * 0.14, 0.3, totalH);
+    }
+
+    // Shaft internal walls (lobby side): front shaft wall with the cab doorway
+    // opening at the BOTTOM and the penthouse level; sides solid full height.
+    // Between floors the doorway band is covered by the moving gates below.
+    const SF0 = SU1, SF1 = SU1 + 0.35; // shaft front wall band in U
+    for (const s of [-1, 1]) {
+      boxUV(wallGeos, SF0, SF1, s === -1 ? -SV : DOOR_V, s === -1 ? -DOOR_V : SV, 0, TOP, true);
+    }
+    // band above the bottom doorway up to the top doorway
+    boxUV(wallGeos, SF0, SF1, -DOOR_V, DOOR_V, DOOR_H2, TOP, true);
+    for (const sv of [-1, 1]) {
+      boxUV(wallGeos, SU0 - 0.35, SU1, sv > 0 ? SV : -SV - 0.35, sv > 0 ? SV + 0.35 : -SV, 0, TOP, true);
+    }
+
+    // Penthouse: glass curtain on three sides over a knee wall; solid behind
+    // the shaft; balcony off the front.
+    const P0 = TOP + 0.3, P1 = TOP + C.PENT_H;
+    void P0;
+    // Knee walls (collision keeps you in; the glass above is visual). The
+    // front knee is split around a 2-wide balcony doorway at v = 0.
+    for (const s of [-1, 1]) {
+      boxUV(wallGeos, EH - T, EH, s === -1 ? -EH : 1.0, s === -1 ? -1.0 : EH, TOP, TOP + C.KNEE, true);
+    }
+    for (const sv of [-1, 1]) boxUV(wallGeos, -EH, EH, sv > 0 ? EH - T : -EH, sv > 0 ? EH : -EH + T, TOP, TOP + C.KNEE, true);
+    boxUV(wallGeos, -EH, -EH + T, -EH, EH, TOP, P1, true); // solid back
+
+    // Glass curtain: pane + scrim + mullions on front and sides. The front
+    // curtain leaves the balcony doorway open (two spans around v = ±1.1).
+    const curtain = (side, spans) => {
+      const isFront = side === 'front';
+      const sv = side === '+v' ? 1 : -1;
+      const g0 = TOP + C.KNEE + 0.05, g1 = P1 - 0.1;
+      for (const [v0, v1] of spans) {
+        const paneB = (bucket, inset, thick) => {
+          if (isFront) boxUV(bucket, EH - inset - thick, EH - inset, v0, v1, g0, g1);
+          else boxUV(bucket, v0, v1, sv > 0 ? EH - inset - thick : -EH + inset, sv > 0 ? EH - inset : -EH + inset + thick, g0, g1);
+        };
+        paneB(paneGeos, 0.12, 0.05);
+        paneB(scrimGeos, 0.18, 0.03);
+        const span = v1 - v0;
+        const n = Math.max(1, Math.ceil(span / 2.2));
+        for (let i = 0; i <= n; i++) {
+          const a = v0 + (i / n) * span;
+          if (isFront) boxUV(mullionGeos, EH - 0.24, EH - 0.1, a - 0.05, a + 0.05, g0, g1);
+          else boxUV(mullionGeos, a - 0.05, a + 0.05, sv > 0 ? EH - 0.24 : -EH + 0.1, sv > 0 ? EH - 0.1 : -EH + 0.24, g0, g1);
+        }
+      }
+    };
+    curtain('front', [[-EH + 0.4, -1.1], [1.1, EH - 0.4]]);
+    curtain('+v', [[-EH + 0.4, EH - 0.4]]);
+    curtain('-v', [[-EH + 0.4, EH - 0.4]]);
+
+    // Balcony doorway trim: glowing posts flanking the opening.
+    for (const s of [-1, 1]) boxUV(trimGeos, EH - 0.05, EH + 0.08, s * 1.08 - 0.06, s * 1.08 + 0.06, TOP, TOP + C.KNEE + 0.4);
+    const BAL = 3.0; // balcony depth
+    boxUV(floorGeos, EH, EH + BAL, -3.5, 3.5, TOP, TOP + 0.3);
+    surfaces.push({ ...rect(EH, EH + BAL, -3.5, 3.5), y: TOP + 0.3 });
+    // balcony parapets (three outer edges), real walls
+    boxUV(wallGeos, EH + BAL - 0.15, EH + BAL, -3.5, 3.5, TOP, TOP + C.PARAPET, true);
+    for (const s of [-1, 1]) boxUV(wallGeos, EH, EH + BAL, s === -1 ? -3.5 : 3.35, s === -1 ? -3.35 : 3.5, TOP, TOP + C.PARAPET, true);
+    boxUV(trimGeos, EH + BAL - 0.12, EH + BAL - 0.02, -3.5, 3.5, TOP + C.PARAPET, TOP + C.PARAPET + 0.08);
+
+    // Penthouse furnishing: the governor's suite.
+    boxUV(furnGeos, SU1 + 0.8, SU1 + 3.0, -EH + 0.8, -EH + 2.0, TOP + 0.3, TOP + 1.2); // lounge
+    boxUV(furnGeos, SU1 + 1.2, SU1 + 2.6, -0.7, 0.7, TOP + 0.3, TOP + 0.8); // low table
+    boxUV(warmGeos, SU1 + 1.7, SU1 + 2.1, -0.2, 0.2, TOP + 0.8, TOP + 1.1); // lamp
+    boxUV(furnGeos, EH - 3.0, EH - 1.4, EH - 2.4, EH - 1.0, TOP + 0.3, TOP + 1.0); // desk
+    boxUV(metalGeos, EH - 2.6, EH - 1.8, EH - 3.0, EH - 2.4, TOP + 0.3, TOP + 1.6); // telescope-ish
+    boxUV(plantGeos, -EH + 0.8, -EH + 1.8, EH - 1.8, EH - 0.8, TOP + 0.3, TOP + 1.4); // planter
+    // warm cove around the penthouse ceiling
+    boxUV(warmGeos, SU1 + 0.4, EH - 0.4, -EH + 0.5, -EH + 0.62, P1 - 0.28, P1 - 0.18);
+    boxUV(warmGeos, SU1 + 0.4, EH - 0.4, EH - 0.62, EH - 0.5, P1 - 0.28, P1 - 0.18);
+    // lobby warm cove
+    boxUV(warmGeos, -EH + 0.8, EH - 0.8, -EH + 0.7, -EH + 0.82, C.LOBBY_H - 0.3, C.LOBBY_H - 0.2);
+    boxUV(warmGeos, -EH + 0.8, EH - 0.8, EH - 0.82, EH - 0.7, C.LOBBY_H - 0.3, C.LOBBY_H - 0.2);
+
+    // ----------------------------- the CAB -----------------------------------
+    // Enclosed: floor, three walls, doorway on +U, tall ceiling. Its own group
+    // (registry materials, geometry owned) so update() slides one position.y.
+    const cabGroup = new THREE.Group();
+    const cabW = SV * 2 - 0.4; // 3.6 exterior
+    const cabU0 = SU0 + 0.2, cabU1 = SU1 - 0.2;
+    {
+      const cabGeos = [];
+      const cabWarm = [];
+      const cabBox = (arr, u0, u1, v0, v1, y0, y1) => {
+        const r = rect(u0, u1, v0, v1); // relative — cabGroup sits at (cx, by, cz)
+        const g = new THREE.BoxGeometry(r.x1 - r.x0, y1 - y0, r.z1 - r.z0);
+        g.translate((r.x0 + r.x1) / 2, (y0 + y1) / 2, (r.z0 + r.z1) / 2);
+        arr.push(g);
+      };
+      cabBox(cabGeos, cabU0, cabU1, -cabW / 2, cabW / 2, 0, 0.25); // floor
+      cabBox(cabGeos, cabU0, cabU0 + 0.15, -cabW / 2, cabW / 2, 0.25, C.CAB_CEIL); // back
+      for (const s of [-1, 1]) cabBox(cabGeos, cabU0, cabU1, s * cabW / 2 - s * 0.15, s * cabW / 2, 0.25, C.CAB_CEIL); // sides
+      for (const s of [-1, 1]) cabBox(cabGeos, cabU1 - 0.15, cabU1, s === -1 ? -cabW / 2 : DOOR_V, s === -1 ? -DOOR_V : cabW / 2, 0.25, C.CAB_CEIL); // front jamb strips
+      cabBox(cabGeos, cabU1 - 0.15, cabU1, -DOOR_V, DOOR_V, DOOR_H2, C.CAB_CEIL); // front lintel
+      cabBox(cabGeos, cabU0, cabU1, -cabW / 2, cabW / 2, C.CAB_CEIL, C.CAB_CEIL + 0.15); // ceiling
+      cabBox(cabWarm, cabU0 + 0.3, cabU1 - 0.3, -cabW / 2 + 0.3, cabW / 2 - 0.3, C.CAB_CEIL - 0.08, C.CAB_CEIL - 0.02); // cab light
+      const cabMesh = new THREE.Mesh(mergeGeometries(cabGeos), metalMat);
+      cabMesh.frustumCulled = false;
+      const cabWarmMesh = new THREE.Mesh(mergeGeometries(cabWarm), warmMat);
+      cabWarmMesh.frustumCulled = false;
+      cabGroup.add(cabMesh, cabWarmMesh);
+      cabGroup.position.set(cx, by, cz);
+      group.add(cabGroup);
+    }
+
+    // Mutable structure records for the ride. The walkable cab-floor record
+    // spans the whole shaft cross-section plus a lip over each sill, so there
+    // is never a fall-through crack between cab floor and landing floor.
+    const cabFloorSurf = { ...rect(SU0, SU1 + 0.25, -SV, SV), y: 0.25 }; // y mutated to cabY + 0.25
+    surfaces.push(cabFloorSurf);
+    // cab walls (move with the cab): back, sides, front jambs — solid records
+    const cabWalls = [];
+    const pushCabWall = (u0, u1, v0, v1) => {
+      const r = rect(u0, u1, v0, v1);
+      const w = { ...r, y0: 0, y1: C.CAB_CEIL };
+      walls.push(w);
+      cabWalls.push(w);
+      return w;
+    };
+    pushCabWall(cabU0, cabU0 + 0.15, -cabW / 2, cabW / 2);
+    pushCabWall(cabU0, cabU1, -cabW / 2, -cabW / 2 + 0.15);
+    pushCabWall(cabU0, cabU1, cabW / 2 - 0.15, cabW / 2);
+    pushCabWall(cabU1 - 0.15, cabU1, -cabW / 2, -DOOR_V);
+    pushCabWall(cabU1 - 0.15, cabU1, DOOR_V, cabW / 2);
+    // cab doorway gate: covers the cab opening while moving
+    const cabDoorGate = { ...rect(cabU1 - 0.15, cabU1, -DOOR_V, DOOR_V), y0: GATE_DISABLED, y1: GATE_DISABLED + 1 };
+    walls.push(cabDoorGate);
+    // bottom shaft gate: blocks the lobby-side shaft doorway when the cab is away
+    const bottomGate = { ...rect(SF0, SF1 + 0.15, -DOOR_V, DOOR_V), y0: GATE_DISABLED, y1: GATE_DISABLED + 1 };
+    walls.push(bottomGate);
+    // top hole gate: blocks stepping into the open shaft from the penthouse
+    const topGate = { ...rect(SU0, SU1, -SV, SV), y0: GATE_DISABLED, y1: GATE_DISABLED + 1 };
+    walls.push(topGate);
+
+    // Buttons: glowing pads — bottom call (lobby, beside the shaft door), cab
+    // panel (rides with the cab), top call (penthouse, beside the shaft).
+    const btnGeo = (u, v, yRel, intoCab) => {
+      const r = rect(u - 0.12, u + 0.12, v - 0.12, v + 0.12); // relative
+      const g = new THREE.BoxGeometry(Math.max(r.x1 - r.x0, 0.1), 0.24, Math.max(r.z1 - r.z0, 0.1));
+      if (intoCab) g.translate((r.x0 + r.x1) / 2, yRel, (r.z0 + r.z1) / 2);
+      else g.translate(cx + (r.x0 + r.x1) / 2, by + yRel, cz + (r.z0 + r.z1) / 2);
+      return g;
+    };
+    const btnMesh = new THREE.Mesh(
+      mergeGeometries([btnGeo(SU1 + 0.5, DOOR_V + 0.55, 1.4, false), btnGeo(SU1 + 0.5, DOOR_V + 0.55, TOP + 1.4, false)]),
+      trimMat
+    );
+    btnMesh.frustumCulled = false;
+    group.add(btnMesh);
+    const cabBtnMesh = new THREE.Mesh(btnGeo(cabU1 - 0.35, DOOR_V + 0.35, 1.4, true), trimMat);
+    cabBtnMesh.frustumCulled = false;
+    cabGroup.add(cabBtnMesh);
+
+    const btnPt = (u, v) => {
+      const r = rect(u, u, v, v); // relative — entities live in absolute city-local
+      return { x: cx + r.x0, z: cz + r.z0 };
+    };
+    const pB = btnPt(SU1 + 0.5, DOOR_V + 0.55);
+    const pC = btnPt(cabU1 - 0.35, DOOR_V + 0.35);
+    const entities = [
+      { kind: 'callBottom', pos: new THREE.Vector2(pB.x, pB.z), y: by + 1.4, prompt: 'E — CALL ELEVATOR' },
+      { kind: 'cab', pos: new THREE.Vector2(pC.x, pC.z), y: by + 1.4, prompt: 'E — PENTHOUSE' },
+      { kind: 'callTop', pos: new THREE.Vector2(pB.x, pB.z), y: by + TOP + 1.4, prompt: 'E — CALL ELEVATOR' },
+    ];
+
+    // State machine — stepped from walk.js stepWalk (physics-synced).
+    const cabMidU = (SU0 + SU1) / 2;
+    const elev = {
+      state: 'parkedBottom', // parkedBottom | rising | parkedTop | descending
+      cabY: 0,
+      baseY: by,
+      topY: TOP,
+      // Standing point inside the cab (absolute city-local) — verification
+      // and NPC use.
+      cabSpot: { x: cx + cabMidU * ux, z: cz + cabMidU * uz },
+      // interaction contract (walk.js scanModule / walkInteract)
+      nearestInteractable(playerLocal, maxDist) {
+        let best = null, bestD2 = maxDist * maxDist;
+        for (const e of entities) {
+          if (Math.abs(e.y - playerLocal.y) > 3) continue;
+          const dx = e.pos.x - playerLocal.x, dz = e.pos.y - playerLocal.z;
+          const d2 = dx * dx + dz * dz;
+          if (d2 < bestD2) { best = e; bestD2 = d2; }
+        }
+        if (best) {
+          // live prompt per state
+          if (best.kind === 'cab') {
+            best.prompt = elev.state === 'parkedBottom' ? 'E — PENTHOUSE'
+              : elev.state === 'parkedTop' ? 'E — GROUND FLOOR' : 'ELEVATOR MOVING';
           } else {
-            y = s.y;
+            const here = best.kind === 'callBottom' ? 'parkedBottom' : 'parkedTop';
+            best.prompt = elev.state === here ? 'E — ELEVATOR READY' : 'E — CALL ELEVATOR';
           }
-          y += lmBaseY;
-          if (y <= feetY + STEP_UP && (best === null || y > best)) best = y;
         }
         return best;
       },
-      // 2D AABB push-out for walls whose height band overlaps the body.
-      // p is a city-local position (y = feet); returns true if moved.
-      resolveWalls(p, r) {
-        let lx = p.x - landmarkSpot.x, lz = p.z - landmarkSpot.z;
-        if (Math.abs(lx) > HALF + 2 || Math.abs(lz) > HALF + 2) return false;
-        const feet = p.y - lmBaseY;
-        let pushed = false;
-        for (const w of lmWalls) {
-          if (feet >= w.y1 || feet + 1.7 <= w.y0) continue;
-          const ex0 = w.x0 - r, ex1 = w.x1 + r, ez0 = w.z0 - r, ez1 = w.z1 + r;
-          if (lx <= ex0 || lx >= ex1 || lz <= ez0 || lz >= ez1) continue;
-          const dx = Math.min(lx - ex0, ex1 - lx);
-          const dz = Math.min(lz - ez0, ez1 - lz);
-          if (dx < dz) lx = lx - ex0 < ex1 - lx ? ex0 : ex1;
-          else lz = lz - ez0 < ez1 - lz ? ez0 : ez1;
-          pushed = true;
+      interact(e) {
+        if (e.kind === 'cab') {
+          if (elev.state === 'parkedBottom') elev.state = 'rising';
+          else if (elev.state === 'parkedTop') elev.state = 'descending';
+        } else if (e.kind === 'callBottom') {
+          if (elev.state === 'parkedTop') elev.state = 'descending';
+        } else if (e.kind === 'callTop') {
+          if (elev.state === 'parkedBottom') elev.state = 'rising';
         }
-        if (pushed) {
-          p.x = landmarkSpot.x + lx;
-          p.z = landmarkSpot.z + lz;
+        return null; // no dialogue — walk.js releases the entity on null
+      },
+      endInteract() {},
+      // step(dt): move the cab, keep records + visuals in lockstep.
+      step(dt) {
+        if (elev.state === 'rising') {
+          elev.cabY = Math.min(elev.cabY + C.CAB_RIDE_SPEED * dt, TOP);
+          if (elev.cabY >= TOP) elev.state = 'parkedTop';
+        } else if (elev.state === 'descending') {
+          elev.cabY = Math.max(elev.cabY - C.CAB_RIDE_SPEED * dt, 0);
+          if (elev.cabY <= 0) elev.state = 'parkedBottom';
         }
-        return pushed;
+        const y = elev.cabY;
+        cabGroup.position.y = by + y;
+        cabFloorSurf.y = y + 0.25;
+        for (const w of cabWalls) { w.y0 = y; w.y1 = y + C.CAB_CEIL; }
+        // gates: cab doorway sealed while moving; shaft openings sealed while
+        // the cab is away from that landing.
+        const moving = elev.state === 'rising' || elev.state === 'descending';
+        if (moving) { cabDoorGate.y0 = y; cabDoorGate.y1 = y + C.CAB_CEIL; }
+        else { cabDoorGate.y0 = GATE_DISABLED; cabDoorGate.y1 = GATE_DISABLED + 1; }
+        if (elev.state !== 'parkedBottom') { bottomGate.y0 = 0; bottomGate.y1 = DOOR_H2; }
+        else { bottomGate.y0 = GATE_DISABLED; bottomGate.y1 = GATE_DISABLED + 1; }
+        // The penthouse shaft-hole gate rides ABOVE the cab ceiling: it always
+        // guards the open hole, can never overlap a rider inside the cab, and
+        // self-disables when the cab parks flush (y0 climbs past the band).
+        topGate.y0 = y + C.CAB_CEIL;
+        topGate.y1 = TOP + 2.4;
+        // cab button rides along
+        entities[1].y = by + y + 1.4;
       },
     };
-    structures.push(landmark);
-    // A lone caretaker stands on the balcony deck (walk.js spawns them).
-    balconySpot = { x: landmarkSpot.x + 2, z: landmarkSpot.z, y: lmBaseY + TOP + 0.3 };
+    elev.step(0); // initialize gates for parkedBottom
+    elevator = elev;
+
+    structures.push(makeStructure(cx, cz, by, surfaces, walls, EH + BAL + 0.6));
+    collidersLocal.push({
+      x: cx, z: cz, radius: EH * Math.SQRT2 + 0.5,
+      height: totalH, baseY: by, npcOnly: true,
+    });
+    worldPosScratch.set(cx, 0, cz).applyQuaternion(quat).add(group.position);
+    colliders.push({ center: worldPosScratch.clone(), radius: EH * Math.SQRT2 + 0.5, height: totalH });
+
+    // Penthouse home manifest for the governor.
+    if (penthouseCitizen) {
+      const au = SU1 + 2.0, av = 0;
+      penthouseHome = {
+        idx: penthouseCitizen.idx, role: penthouseCitizen.role, kind: 'penthouse',
+        x: cx, z: cz, floorY: by + TOP + 0.3, half: EH,
+        doorX: cx + (EH + 1.2) * ux, doorZ: cz + (EH + 1.2) * uz, doorYaw: faceYaw,
+        penthouse: true,
+        anchor: {
+          x: cx + au * ux + av * vxAxis,
+          z: cz + au * uz + av * vzAxis,
+          y: by + TOP + 0.3, face: faceYaw,
+        },
+      };
+      homes.push(penthouseHome);
+    }
+  }
+
+  // Emit the shared building meshes (one draw per material family).
+  const bucketMeshes = [
+    [wallGeos, wallMat], [floorGeos, floorMat], [roofGeos, roofMat],
+    [trimGeos, trimMat], [warmGeos, warmMat],
+    [paneGeos, glass.pane], [scrimGeos, glass.scrim], [mullionGeos, mullionMat],
+    [furnGeos, furnMat], [metalGeos, metalMat], [plantGeos, plantMat],
+  ];
+  for (const [geos, mat] of bucketMeshes) {
+    if (!geos.length) continue;
+    const mesh = new THREE.Mesh(mergeGeometries(geos), mat);
+    mesh.frustumCulled = false;
+    group.add(mesh);
   }
 
   // -------------------------------------------------------------------------
-  // Enterable building lobbies — a lit ground-floor room with a doorway you
-  // can walk into; a solid tower rises above it. Axis-aligned so walls/floor
-  // stay simple AABBs (walk.js consumes them via city.structures). NPCs steer
-  // around the footprint (npcOnly collider) but only the player enters.
+  // Landing pad — flat deck ringed with a neon strip, just outside town.
   // -------------------------------------------------------------------------
-  if (lobbySlots.length) {
-    const lobbyHullGeos = [], lobbyGlowGeos = [], lobbyPropGeos = [];
-    const RH = 4.4, WT = 0.4, DH = 1.4, DOORH = 3.1;
-    let lobbyIdx = 0;
-    for (const slot of lobbySlots) {
-      // Alternate the interior flavor: even = shop, odd = lounge. Occupants
-      // (walk.js) match — shopkeeper + browser vs. a couple of loungers.
-      const flavor = lobbyIdx % 2 === 0 ? 'shop' : 'lounge';
-      const cx = slot.x, cz = slot.z;
-      const hx = slot.footHalf, hz = slot.footHalf;
-      const by = flattenedHeight(cx, cz);
-      const height = THREE.MathUtils.lerp(C.BUILDING_MIN_H_MID * 1.4, C.BUILDING_MAX_H_CORE, rng()) * heightScale;
-      const surfaces = [], walls = [];
-      const box = (w, h, d, x, y, z, geos) => {
-        const g = new THREE.BoxGeometry(w, h, d);
-        g.translate(cx + x, by + y, cz + z);
-        geos.push(g);
-      };
-      // door faces the city centre (reachable from a street)
-      const axisX = Math.abs(cx) >= Math.abs(cz);
-      const sign = axisX ? (cx > 0 ? -1 : 1) : (cz > 0 ? -1 : 1);
-
-      // ground slab (walkable floor)
-      box(hx * 2, 0.6, hz * 2, 0, 0, 0, lobbyHullGeos);
-      surfaces.push({ x0: -hx, x1: hx, z0: -hz, z1: hz, y: 0.3 });
-      // solid tower above the room (its underside is the lobby ceiling)
-      box(hx * 2, height - RH, hz * 2, 0, RH + (height - RH) / 2, 0, lobbyHullGeos);
-      // window bands on the solid upper box (a little life)
-      for (const wf of [0.45, 0.72]) {
-        box(hx * 2.02, 1.4, hz * 2.02, 0, RH + (height - RH) * wf, 0, lobbyGlowGeos);
-      }
-
-      // four sides: three solid full-height walls, the door side split into
-      // jambs + lintel at ground and a solid band above the room.
-      const wallFull = (ax, sg) => {
-        if (ax === 'x') {
-          box(WT, height, hz * 2, sg * (hx - WT / 2), height / 2, 0, lobbyHullGeos);
-          walls.push({ x0: sg > 0 ? hx - WT : -hx, x1: sg > 0 ? hx : -hx + WT, z0: -hz - 0.1, z1: hz + 0.1, y0: 0, y1: height });
-        } else {
-          box(hx * 2, height, WT, 0, height / 2, sg * (hz - WT / 2), lobbyHullGeos);
-          walls.push({ x0: -hx - 0.1, x1: hx + 0.1, z0: sg > 0 ? hz - WT : -hz, z1: sg > 0 ? hz : -hz + WT, y0: 0, y1: height });
-        }
-      };
-      const wallDoor = (ax, sg) => {
-        if (ax === 'x') {
-          const wx = sg * (hx - WT / 2), x0 = sg > 0 ? hx - WT : -hx, x1 = sg > 0 ? hx : -hx + WT;
-          const seg = hz - DH;
-          for (const s of [-1, 1]) {
-            box(WT, RH, seg, wx, RH / 2, s * (DH + seg / 2), lobbyHullGeos);
-            walls.push({ x0, x1, z0: s < 0 ? -hz - 0.1 : DH, z1: s < 0 ? -DH : hz + 0.1, y0: 0, y1: RH });
-          }
-          box(WT, RH - DOORH, DH * 2, wx, DOORH + (RH - DOORH) / 2, 0, lobbyHullGeos);
-          walls.push({ x0, x1, z0: -DH, z1: DH, y0: DOORH, y1: RH });
-          box(WT, height - RH, hz * 2, wx, RH + (height - RH) / 2, 0, lobbyHullGeos);
-          walls.push({ x0, x1, z0: -hz - 0.1, z1: hz + 0.1, y0: RH, y1: height });
-          // door frame glow
-          const fo = sg * (hx + 0.06);
-          box(0.16, DOORH, 0.16, fo, DOORH / 2, DH, lobbyGlowGeos);
-          box(0.16, DOORH, 0.16, fo, DOORH / 2, -DH, lobbyGlowGeos);
-          box(0.16, 0.16, DH * 2 + 0.5, fo, DOORH + 0.05, 0, lobbyGlowGeos);
-        } else {
-          const wz = sg * (hz - WT / 2), z0 = sg > 0 ? hz - WT : -hz, z1 = sg > 0 ? hz : -hz + WT;
-          const seg = hx - DH;
-          for (const s of [-1, 1]) {
-            box(seg, RH, WT, s * (DH + seg / 2), RH / 2, wz, lobbyHullGeos);
-            walls.push({ x0: s < 0 ? -hx - 0.1 : DH, x1: s < 0 ? -DH : hx + 0.1, z0, z1, y0: 0, y1: RH });
-          }
-          box(DH * 2, RH - DOORH, WT, 0, DOORH + (RH - DOORH) / 2, wz, lobbyHullGeos);
-          walls.push({ x0: -DH, x1: DH, z0, z1, y0: DOORH, y1: RH });
-          box(hx * 2, height - RH, WT, 0, RH + (height - RH) / 2, wz, lobbyHullGeos);
-          walls.push({ x0: -hx - 0.1, x1: hx + 0.1, z0, z1, y0: RH, y1: height });
-          const fo = sg * (hz + 0.06);
-          box(0.16, DOORH, 0.16, DH, DOORH / 2, fo, lobbyGlowGeos);
-          box(0.16, DOORH, 0.16, -DH, DOORH / 2, fo, lobbyGlowGeos);
-          box(DH * 2 + 0.5, 0.16, 0.16, 0, DOORH + 0.05, fo, lobbyGlowGeos);
-        }
-      };
-      const doorAx = axisX ? 'x' : 'z';
-      for (const ax of ['x', 'z']) {
-        for (const sg of [-1, 1]) {
-          if (ax === doorAx && sg === sign) wallDoor(ax, sg);
-          else wallFull(ax, sg);
-        }
-      }
-      // interior: a glowing back wall + ceiling strip so the doorway reads lit
-      const backSign = -sign;
-      if (axisX) box(0.1, RH - 0.8, hz * 1.5, backSign * (hx - WT - 0.1), RH / 2, 0, lobbyGlowGeos);
-      else box(hx * 1.5, RH - 0.8, 0.1, 0, RH / 2, backSign * (hz - WT - 0.1), lobbyGlowGeos);
-      box(hx * 1.4, 0.08, hz * 1.4, 0, RH - 0.2, 0, lobbyGlowGeos);
-
-      // Interior furnishing, keyed off the flavor. Local axes: the "back" is
-      // toward backSign along the door axis; the "side" is the other axis.
-      // bx/bz map a (depth-from-door, sideways) offset into local x,z.
-      const place = (depth, side, w, h, d, geos) => {
-        if (axisX) box(w, h, d, backSign * depth, 0.3 + h / 2, side, geos);
-        else box(d, h, w, side, 0.3 + h / 2, backSign * depth, geos);
-      };
-      if (flavor === 'shop') {
-        // a service counter across the back, plus a shelf unit on one side
-        place(hx - 1.3, 0, 2.6, 1.0, 0.7, lobbyPropGeos);
-        place(hx - 1.3, 0, 2.4, 0.12, 0.5, lobbyGlowGeos); // counter light strip (sits at counter top-ish)
-        place(hx - 0.5, hz - 1.0, 0.7, 2.0, 1.6, lobbyPropGeos); // shelf stack
-        place(hx - 0.5, hz - 1.0, 0.5, 0.1, 1.4, lobbyGlowGeos);
-      } else {
-        // a lounge: two benches along the sides and a low glowing table
-        place(hx - 1.0, hz - 1.0, 0.7, 0.45, 2.2, lobbyPropGeos);
-        place(hx - 1.0, -(hz - 1.0), 0.7, 0.45, 2.2, lobbyPropGeos);
-        place(hx - 1.8, 0, 1.1, 0.5, 1.1, lobbyPropGeos); // table
-        place(hx - 1.8, 0, 0.35, 0.55, 0.35, lobbyGlowGeos); // table lamp
-      }
-
-      collidersLocal.push({
-        x: cx, z: cz, radius: Math.max(hx, hz) * Math.SQRT2 + 0.4,
-        height, baseY: by, npcOnly: true,
-      });
-      structures.push(makeStructure(cx, cz, by, surfaces, walls, Math.max(hx, hz)));
-      lobbies.push({
-        x: cx, z: cz, floorY: by + 0.3, half: Math.max(hx - 1.2, 1.5),
-        flavor, seed: (seed ^ Math.imul(lobbyIdx + 7, 0x9e3779b1)) >>> 0,
-      });
-      lobbyIdx++;
-    }
-    const lobbyHullMat = new THREE.MeshStandardMaterial({
-      color: palette.hullB, roughness: 0.72, metalness: 0.22,
-      map: makePanelNoiseTexture(rng),
-      emissive: new THREE.Color(palette.hullB), emissiveIntensity: 0.3,
-    });
-    const lobbyGlowMat = new THREE.MeshStandardMaterial({
-      color: 0x120a04, emissive: new THREE.Color(palette.windowWarm),
-      emissiveIntensity: C.NEON_BLOOM_INTENSITY * 0.6, roughness: 0.4,
-    });
-    const lobbyPropMat = new THREE.MeshStandardMaterial({
-      color: palette.hullA, roughness: 0.6, metalness: 0.3,
-      emissive: new THREE.Color(palette.hullA), emissiveIntensity: 0.25,
-    });
-    const lobbyHull = new THREE.Mesh(mergeGeometries(lobbyHullGeos), lobbyHullMat);
-    const lobbyGlow = new THREE.Mesh(mergeGeometries(lobbyGlowGeos), lobbyGlowMat);
-    lobbyHull.frustumCulled = false;
-    lobbyGlow.frustumCulled = false;
-    group.add(lobbyHull, lobbyGlow);
-    if (lobbyPropGeos.length) {
-      const props = new THREE.Mesh(mergeGeometries(lobbyPropGeos), lobbyPropMat);
-      props.frustumCulled = false;
-      group.add(props);
-    }
-    adMats.push(lobbyGlowMat);
-  }
-
-  // -------------------------------------------------------------------------
-  // Landing pad — flat surface ringed with magenta emissive strips
-  // -------------------------------------------------------------------------
-  const padGroup = new THREE.Group();
   const padY = flattenedHeight(padCenter.x, padCenter.y);
-  const padGeo = new THREE.BoxGeometry(C.PAD_LENGTH, 0.3, C.PAD_WIDTH);
-  const padMat = new THREE.MeshStandardMaterial({ color: 0x1a1826, roughness: 0.6, metalness: 0.3 });
-  const padMesh = new THREE.Mesh(padGeo, padMat);
+  const padDeckMat = M ? M.pad : fam('none', { color: 0xa8a49c });
+  const padMesh = new THREE.Mesh(new THREE.BoxGeometry(C.PAD_LENGTH, 0.3, C.PAD_WIDTH), padDeckMat);
+  // long axis faces town so the parked ship noses at the gate
+  padMesh.rotation.y = -gateBearing;
   padMesh.position.set(padCenter.x, padY + 0.15, padCenter.y);
-  padGroup.add(padMesh);
+  group.add(padMesh);
 
-  const ringGeo = new THREE.TorusGeometry(
-    Math.max(C.PAD_LENGTH, C.PAD_WIDTH) * 0.52, 0.18, 8, C.PAD_RING_SEGMENTS
-  );
-  const ringMat = new THREE.MeshStandardMaterial({
+  const ringMat = own(new THREE.MeshStandardMaterial({
     color: 0x220016, emissive: new THREE.Color(palette.neonPrimary), emissiveIntensity: C.NEON_BLOOM_INTENSITY,
-  });
-  const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+  }));
+  const ringMesh = new THREE.Mesh(
+    new THREE.TorusGeometry(Math.max(C.PAD_LENGTH, C.PAD_WIDTH) * 0.52, 0.18, 8, C.PAD_RING_SEGMENTS),
+    ringMat
+  );
   ringMesh.rotation.x = -Math.PI / 2;
   ringMesh.scale.set(C.PAD_LENGTH / C.PAD_WIDTH, 1, 1);
+  ringMesh.rotation.z = gateBearing;
   ringMesh.position.set(padCenter.x, padY + 0.25, padCenter.y);
-  padGroup.add(ringMesh);
+  group.add(ringMesh);
 
-  group.add(padGroup);
+  // Gate pylons: two neon columns flanking the walkway at the town edge.
+  {
+    const sideX = -Math.sin(gateBearing), sideZ = Math.cos(gateBearing);
+    const pylonGeos = [];
+    for (const s of [-1, 1]) {
+      const px = gateSpot.x + sideX * s * (C.WALKWAY_W / 2 + 1.2);
+      const pz = gateSpot.z + sideZ * s * (C.WALKWAY_W / 2 + 1.2);
+      const py = flattenedHeight(px, pz);
+      const g = new THREE.BoxGeometry(0.5, 7, 0.5);
+      g.translate(px, py + 3.5, pz);
+      pylonGeos.push(g);
+      const cap = new THREE.BoxGeometry(0.8, 0.3, 0.8);
+      cap.translate(px, py + 7.15, pz);
+      pylonGeos.push(cap);
+    }
+    const pylons = new THREE.Mesh(mergeGeometries(pylonGeos), trimMat);
+    pylons.frustumCulled = false;
+    group.add(pylons);
+  }
 
   const boardingPadLocal = new THREE.Vector3(padCenter.x, padY + 0.3, padCenter.y);
   const boardingPadWorld = boardingPadLocal.clone().applyQuaternion(quat).add(group.position);
 
   // -------------------------------------------------------------------------
-  // Ground-level dressing: streetlights, planters, kiosks, railings (merged)
+  // Streetlights + planters: plaza ring, walkway line, one per house door.
   // -------------------------------------------------------------------------
   const dressingGeos = [];
-  const lightPoleMat = new THREE.MeshStandardMaterial({ color: 0x14121e, roughness: 0.7 });
   const lightHeadGeos = [];
-  const lightHeadMat = new THREE.MeshStandardMaterial({
-    color: 0x220016, emissive: new THREE.Color(palette.neonSecondaryA), emissiveIntensity: C.NEON_BLOOM_INTENSITY * 0.7,
-  });
-
-  for (let gx = -halfCells; gx <= halfCells; gx++) {
-    for (let gz = -halfCells; gz <= halfCells; gz++) {
-      const cx = gx * C.GRID_CELL;
-      const cz = gz * C.GRID_CELL;
-      if (Math.hypot(cx, cz) > radius) continue;
-      if (rng() > 0.5) continue; // sparse placement along grid intersections
-      if (isWetLocal(cx, cz)) continue; // no streetlights/kiosks in the water
-      if (landmarkSpot && Math.hypot(cx - landmarkSpot.x, cz - landmarkSpot.z) < 12) continue;
-      const y = flattenedHeight(cx, cz);
-
-      const pole = new THREE.CylinderGeometry(0.12, 0.15, C.STREETLIGHT_HEIGHT, 6);
-      pole.translate(cx + 1.5, y + C.STREETLIGHT_HEIGHT / 2, cz + 1.5);
-      dressingGeos.push(pole);
-
-      const head = new THREE.IcosahedronGeometry(0.35, 0);
-      head.translate(cx + 1.5, y + C.STREETLIGHT_HEIGHT, cz + 1.5);
-      lightHeadGeos.push(head);
-
-      if (rng() < C.PLANTER_CHANCE) {
-        const planter = new THREE.CylinderGeometry(0.6, 0.7, 0.6, 8);
-        planter.translate(cx - 2, y + 0.3, cz - 2);
-        dressingGeos.push(planter);
-      }
-      if (rng() < C.KIOSK_CHANCE) {
-        const kiosk = new THREE.BoxGeometry(1.6, 2.2, 1.2);
-        kiosk.translate(cx + 3, y + 1.1, cz - 1.5);
-        dressingGeos.push(kiosk);
-      }
+  const lightHeadMat = own(new THREE.MeshStandardMaterial({
+    color: 0x220016, emissive: new THREE.Color(palette.neonSecondaryA),
+    emissiveIntensity: C.NEON_BLOOM_INTENSITY * 0.7,
+  }));
+  const lamp = (x, z) => {
+    if (isWetLocal(x, z)) return;
+    const y = flattenedHeight(x, z);
+    const pole = new THREE.CylinderGeometry(0.12, 0.15, C.STREETLIGHT_HEIGHT, 6);
+    pole.translate(x, y + C.STREETLIGHT_HEIGHT / 2, z);
+    dressingGeos.push(pole);
+    const head = new THREE.IcosahedronGeometry(0.35, 0);
+    head.translate(x, y + C.STREETLIGHT_HEIGHT, z);
+    lightHeadGeos.push(head);
+  };
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + 0.4;
+    lamp(Math.cos(a) * (C.PLAZA_RADIUS + 2.5), Math.sin(a) * (C.PLAZA_RADIUS + 2.5));
+  }
+  for (let i = 1; i < walkwayPts.length; i += 3) {
+    const p = walkwayPts[i];
+    const sideX = -Math.sin(gateBearing), sideZ = Math.cos(gateBearing);
+    lamp(p.x + sideX * (C.WALKWAY_W / 2 + 0.8), p.z + sideZ * (C.WALKWAY_W / 2 + 0.8));
+  }
+  const latePlantGeos = []; // the shared plant bucket mesh is already emitted
+  for (const h of homes) {
+    if (h.penthouse) continue;
+    lamp(h.doorX + 1.6, h.doorZ + 1.6);
+    if (rng() < 0.5) {
+      const py = flattenedHeight(h.doorX - 1.8, h.doorZ - 1.8);
+      const planter = new THREE.CylinderGeometry(0.6, 0.7, 0.6, 8);
+      planter.translate(h.doorX - 1.8, py + 0.3, h.doorZ - 1.8);
+      dressingGeos.push(planter);
+      const green = new THREE.IcosahedronGeometry(0.5, 0);
+      green.translate(h.doorX - 1.8, py + 0.85, h.doorZ - 1.8);
+      latePlantGeos.push(green);
     }
   }
-
-  // plaza railings (ring of thin boxes) for flavor
-  for (const pz of plazaCenters) {
-    const segCount = 24;
-    for (let i = 0; i < segCount; i++) {
-      const ang = (i / segCount) * Math.PI * 2;
-      const rx = pz.x + Math.cos(ang) * pz.r;
-      const rz = pz.z + Math.sin(ang) * pz.r;
-      const ry = flattenedHeight(rx, rz);
-      const rail = new THREE.BoxGeometry(0.1, C.RAILING_HEIGHT, 1.4);
-      rail.rotateY(ang);
-      rail.translate(rx, ry + C.RAILING_HEIGHT / 2, rz);
-      dressingGeos.push(rail);
-    }
+  const dressingMat = own(new THREE.MeshStandardMaterial({ color: 0x1e1c2a, roughness: 0.8 }));
+  if (dressingGeos.length) {
+    const dressingMesh = new THREE.Mesh(mergeGeometries(dressingGeos), dressingMat);
+    dressingMesh.frustumCulled = false;
+    group.add(dressingMesh);
   }
-
-  const dressingMat = new THREE.MeshStandardMaterial({ color: 0x1e1c2a, roughness: 0.8 });
-  const dressingMesh = dressingGeos.length
-    ? new THREE.Mesh(mergeGeometries(dressingGeos), dressingMat)
-    : null;
-  if (dressingMesh) { dressingMesh.frustumCulled = false; group.add(dressingMesh); }
-  const poleMeshFinal = dressingMesh; // shares draw call with dressing via merge above
-  void lightPoleMat; // pole material folded into dressingMat for draw-call budget
-
-  const lightHeadMesh = lightHeadGeos.length
-    ? new THREE.Mesh(mergeGeometries(lightHeadGeos), lightHeadMat)
-    : null;
-  if (lightHeadMesh) { lightHeadMesh.frustumCulled = false; group.add(lightHeadMesh); }
+  if (lightHeadGeos.length) {
+    const lightHeadMesh = new THREE.Mesh(mergeGeometries(lightHeadGeos), lightHeadMat);
+    lightHeadMesh.frustumCulled = false;
+    group.add(lightHeadMesh);
+  }
+  if (latePlantGeos.length) {
+    const doorPlants = new THREE.Mesh(mergeGeometries(latePlantGeos), plantMat);
+    doorPlants.frustumCulled = false;
+    group.add(doorPlants);
+  }
 
   // -------------------------------------------------------------------------
   // Drifting light motes (small InstancedMesh, animated in update() only)
   // -------------------------------------------------------------------------
-  const moteGeo = new THREE.IcosahedronGeometry(0.12, 0);
-  const moteMat = new THREE.MeshStandardMaterial({
+  const moteMat = own(new THREE.MeshStandardMaterial({
     color: 0x220016, emissive: new THREE.Color(palette.neonSecondaryB), emissiveIntensity: C.NEON_BLOOM_INTENSITY * 0.8,
     transparent: true, opacity: 0.85,
-  });
-  const moteMesh = new THREE.InstancedMesh(moteGeo, moteMat, C.MOTE_COUNT);
+  }));
+  const moteMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.12, 0), moteMat, C.MOTE_COUNT);
   moteMesh.frustumCulled = false;
+  const dummy = new THREE.Object3D();
   const moteSeeds = [];
   for (let i = 0; i < C.MOTE_COUNT; i++) {
     moteSeeds.push({
@@ -1373,8 +1296,6 @@ export function createCity(planet, worldUp, opts = {}) {
       speed: 0.5 + rng() * 0.5,
     });
     dummy.position.set(moteSeeds[i].x, C.MOTE_HEIGHT * rng(), moteSeeds[i].z);
-    dummy.scale.setScalar(1);
-    dummy.rotation.set(0, 0, 0);
     dummy.updateMatrix();
     moteMesh.setMatrixAt(i, dummy.matrix);
   }
@@ -1382,34 +1303,32 @@ export function createCity(planet, worldUp, opts = {}) {
   group.add(moteMesh);
 
   // -------------------------------------------------------------------------
-  // Aerial traffic — two counter-rotating lanes of emissive grav-car streaks
-  // circling well above the rooftops. Purely visual (no colliders), animated
-  // procedurally in update() with a reused dummy (zero allocs).
+  // Aerial traffic — a couple of counter-rotating grav-car lanes above the
+  // tower. Purely visual, zero-alloc updates.
   // -------------------------------------------------------------------------
-  const trafficMat = new THREE.MeshStandardMaterial({
+  const trafficMat = own(new THREE.MeshStandardMaterial({
     color: 0x0a0a12, emissive: new THREE.Color(palette.neonSecondaryA),
     emissiveIntensity: C.NEON_BLOOM_INTENSITY * 0.9, roughness: 0.4,
-  });
+  }));
   const trafficMesh = new THREE.InstancedMesh(
     new THREE.BoxGeometry(0.5, 0.18, 2.6), trafficMat, C.TRAFFIC_COUNT
   );
   trafficMesh.frustumCulled = false;
-  const laneAlt = C.BUILDING_MAX_H_CORE * heightScale; // clear of the tallest core tower
+  const laneAlt = C.TOWER_TOP + C.PENT_H + 16;
   const trafficSeeds = [];
   for (let i = 0; i < C.TRAFFIC_COUNT; i++) {
     trafficSeeds.push({
       lane: i % 2,
       r: radius * (i % 2 ? 0.72 : 0.48) * (0.92 + rng() * 0.16),
-      alt: laneAlt + (i % 2 ? 26 : 10) + rng() * 6,
-      speed: 0.08 + rng() * 0.07, // radians/sec around the loop
+      alt: laneAlt + (i % 2 ? 14 : 4) + rng() * 5,
+      speed: 0.08 + rng() * 0.07,
       phase: rng() * Math.PI * 2,
     });
   }
   group.add(trafficMesh);
 
   // -------------------------------------------------------------------------
-  // Rim haze — additive cards around the city edge merged into one mesh: a
-  // soft light-dome over the settlement, strongest at night (cityHaze.frag).
+  // Rim haze — additive cards around the town edge (cityHaze.frag).
   // -------------------------------------------------------------------------
   {
     const hazeGeos = [];
@@ -1421,13 +1340,13 @@ export function createCity(planet, worldUp, opts = {}) {
       const ang = (i / cards) * Math.PI * 2;
       const hx = Math.cos(ang) * radius * 1.02;
       const hz = Math.sin(ang) * radius * 1.02;
-      const geo = new THREE.PlaneGeometry(hazeW, 46);
-      hp.set(hx, sampleGroundLocalY(hx, hz) + 20, hz);
+      const geo = new THREE.PlaneGeometry(hazeW, 40);
+      hp.set(hx, sampleGroundLocalY(hx, hz) + 17, hz);
       hq.setFromAxisAngle(YAXIS, -ang + Math.PI / 2);
       geo.applyMatrix4(hm.compose(hp, hq, hs));
       hazeGeos.push(geo);
     }
-    const hazeMat = new THREE.ShaderMaterial({
+    const hazeMat = own(new THREE.ShaderMaterial({
       vertexShader: basicVert,
       fragmentShader: cityHazeFrag,
       uniforms: {
@@ -1439,7 +1358,7 @@ export function createCity(planet, worldUp, opts = {}) {
       },
       transparent: true, depthWrite: false,
       blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-    });
+    }));
     const hazeMesh = new THREE.Mesh(mergeGeometries(hazeGeos), hazeMat);
     hazeMesh.frustumCulled = false;
     hazeMesh.renderOrder = 1;
@@ -1460,67 +1379,69 @@ export function createCity(planet, worldUp, opts = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // update(t, sunDot) — day/night neon, mote drift, traffic lanes; zero
-  // per-frame allocs. Shader-driven elements (windows, signs, ads, haze)
-  // only need the two shared fx uniforms written.
+  // update(t, sunDot) — day/night neon, motes, traffic, and the elevator ride.
   // -------------------------------------------------------------------------
-  const emissiveMeshes = [ringMesh.material, lightHeadMat, moteMat, trafficMat, ...adMats];
-  const baseEmissive = emissiveMeshes.map((m) => m.emissiveIntensity);
-  const moteDummy = new THREE.Object3D();
+  const emissives = [ringMat, lightHeadMat, moteMat, trafficMat, trimMat, warmMat];
+  const baseEmissive = emissives.map((m) => m.emissiveIntensity);
+  let prevT = null;
 
   function update(t, sunDot) {
+    const dt = prevT === null ? 0 : THREE.MathUtils.clamp(t - prevT, 0, 0.1);
+    prevT = t;
+
     const nightLift = THREE.MathUtils.clamp(1 - Math.max(sunDot ?? 0, 0), 0, 1);
     fx.uTime.value = t;
     fx.uNight.value = nightLift;
     const level = THREE.MathUtils.lerp(C.NEON_DIM_INTENSITY, C.NEON_BLOOM_INTENSITY, nightLift);
-    for (let i = 0; i < emissiveMeshes.length; i++) {
-      emissiveMeshes[i].emissiveIntensity = level * (baseEmissive[i] / C.NEON_BLOOM_INTENSITY);
+    for (let i = 0; i < emissives.length; i++) {
+      emissives[i].emissiveIntensity = level * (baseEmissive[i] / C.NEON_BLOOM_INTENSITY);
     }
+    // Interiors must stay lit and inviting even at noon: keep the warm
+    // channel from dipping as far as the outdoor neon.
+    warmMat.emissiveIntensity = Math.max(warmMat.emissiveIntensity, C.NEON_BLOOM_INTENSITY * 0.35);
+
+    // NOTE: the elevator cab is stepped from walk.js stepWalk (physics),
+    // not here — dt below stays for any future visual-only timing needs.
+    void dt;
 
     for (let i = 0; i < C.MOTE_COUNT; i++) {
       const s = moteSeeds[i];
       const y = ((t * C.MOTE_RISE_SPEED * s.speed + s.phase * 3) % C.MOTE_HEIGHT + C.MOTE_HEIGHT) % C.MOTE_HEIGHT;
       const sway = Math.sin(t * 0.3 + s.phase) * 2;
-      moteDummy.position.set(s.x + sway, y, s.z);
-      moteDummy.updateMatrix();
-      moteMesh.setMatrixAt(i, moteDummy.matrix);
+      dummy.position.set(s.x + sway, y, s.z);
+      dummy.updateMatrix();
+      moteMesh.setMatrixAt(i, dummy.matrix);
     }
     moteMesh.instanceMatrix.needsUpdate = true;
 
-    // grav-car lanes: even instances orbit one way, odd the other; a gentle
-    // vertical bob keeps them from reading as being on rails
     for (let i = 0; i < trafficSeeds.length; i++) {
       const s = trafficSeeds[i];
       const dir = s.lane ? -1 : 1;
       const a = s.phase + t * s.speed * dir;
       const cos = Math.cos(a), sin = Math.sin(a);
-      moteDummy.position.set(cos * s.r, s.alt + Math.sin(t * 0.7 + s.phase) * 1.5, sin * s.r);
-      moteDummy.rotation.y = Math.atan2(-sin * dir, cos * dir);
-      moteDummy.updateMatrix();
-      trafficMesh.setMatrixAt(i, moteDummy.matrix);
+      dummy.position.set(cos * s.r, s.alt + Math.sin(t * 0.7 + s.phase) * 1.5, sin * s.r);
+      dummy.rotation.y = Math.atan2(-sin * dir, cos * dir);
+      dummy.updateMatrix();
+      trafficMesh.setMatrixAt(i, dummy.matrix);
     }
-    moteDummy.rotation.y = 0; // motes reuse the dummy next frame
+    dummy.rotation.y = 0;
     trafficMesh.instanceMatrix.needsUpdate = true;
   }
 
   // -------------------------------------------------------------------------
-  // dispose()
+  // dispose() — geometry always; ONLY locally-owned materials/textures.
+  // Registry-owned materials (make/glassFor/steel/pad/...) belong to
+  // walk.js's surfaceMaterials and are disposed there, last.
   // -------------------------------------------------------------------------
   function dispose() {
     group.traverse((obj) => {
       if (obj.geometry) obj.geometry.dispose();
-      if (obj.material) {
-        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-        for (const m of mats) {
-          if (m.map) m.map.dispose();
-          if (m.emissiveMap) m.emissiveMap.dispose();
-          m.dispose();
-        }
-      }
-      if (obj.dispose && obj.isInstancedMesh) obj.dispose();
+      if (obj.isInstancedMesh && obj.dispose) obj.dispose();
     });
-    // textures held in shader uniforms (ad boards) aren't reachable as .map
+    for (const m of ownedMaterials) m.dispose();
     for (const t of ownedTextures) t.dispose();
+    ownedMaterials.length = 0;
+    ownedTextures.length = 0;
     group.clear();
   }
 
@@ -1529,16 +1450,17 @@ export function createCity(planet, worldUp, opts = {}) {
     update,
     dispose,
     colliders, // surface-local {center,radius,height}
-    collidersLocal, // city-flat {x,z,radius,height} — for aliens.js
+    collidersLocal, // city-flat {x,z,radius,height,baseY,npcOnly} — NPC steering
     groundHeightAt,
-    groundLocalYAt: flattenedHeight, // (x,z) -> local Y — for aliens.js
-    plazaCenters, // city-flat {x,z,r} — aliens.js waypoints
+    groundLocalYAt: flattenedHeight, // (x,z) -> local Y
+    plazaCenters, // city-flat {x,z,r} — citizen stroll waypoints
     boardingPad: boardingPadWorld,
     padLocal: boardingPadLocal, // city-flat pad center {x,y,z} — ship parking
-    landmark, // enterable observation tower (surfaceYAt/resolveWalls) or null
-    structures, // all enterable buildings (landmark + lobbies), for walk.js
-    lobbies, // interior manifests {x,z,floorY,half,flavor,seed} for occupants
-    balconySpot, // {x,z,y} tower balcony perch, or null
+    outerRadius, // pad sits outside `radius`; collision/ground gates use this
+    gateSpot, // {x,z} town gate on the pad bearing
+    structures, // every enterable building (houses + tower) — walk.js collision
+    homes, // per-citizen manifests {idx,role,kind,x,z,floorY,half,anchor,...}
+    elevator, // interaction module + {state,cabY} (see walk.js scan)
   };
 }
 
@@ -1546,8 +1468,10 @@ export function createCity(planet, worldUp, opts = {}) {
 // Wiring into the main loop:
 //
 //   import { createCity } from './city.js';
-//   const city = createCity(planet, landingUpVector, { radius: 300, seed: mySeed });
+//   const city = createCity(planet, siteUpVector, {
+//     radius, style, seed, padLocal, citizens, materials,
+//   });
 //   planet.surface.add(city.group);
-//   // per frame: city.update(elapsedSeconds, sunDirection.dot(landingUpVector));
+//   // per frame: city.update(elapsedSeconds, sunDot) — includes the elevator.
 //   // on teardown: city.dispose(); planet.surface.remove(city.group);
 // ---------------------------------------------------------------------------

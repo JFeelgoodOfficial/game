@@ -560,6 +560,8 @@ function spawnWorldEntities(planet) {
       style,
       seed: cityDef.seed,
       padLocal: cityDef.pad,
+      citizens: cityDef.citizens,
+      materials: surfaceMaterials, // shared PBR registry — city NEVER disposes it
     });
     city.def = cityDef;
     planet.surface.add(city.group);
@@ -568,9 +570,10 @@ function spawnWorldEntities(planet) {
     // A landing on or into the city: the parked ship belongs on the landing
     // pad — never among the fixed buildings. Outskirts landings (inside
     // attach range but off the footprint) keep the generic PARK_OFFSET spot.
+    // The pad itself sits OUTSIDE cityDef.radius now — gate on outerRadius.
     playerLocalInto(city.group, _cityInvQuat, _cityLocal);
     const landD = Math.hypot(_cityLocal.x, _cityLocal.z);
-    if (landD <= cityDef.radius + 10) {
+    if (landD <= (city.outerRadius ?? cityDef.radius) + 12) {
       _cityPt.copy(city.padLocal)
         .applyQuaternion(city.group.quaternion)
         .add(city.group.position); // surface-local pad point
@@ -868,6 +871,11 @@ export function stepWalk(dt) {
   if (stationWalk.stationActive()) return stationWalk.stepStationWalk(dt);
   const planet = walk.planet;
 
+  // The elevator cab is a MOVING walkable surface — advance it here, in the
+  // physics step, so the rising floor and the walker stay in exact lockstep
+  // (city.update only handles visuals: neon, motes, traffic).
+  if (city?.elevator) city.elevator.step(dt);
+
   // Co-rotate with the planet's spin so the ground doesn't slide underfoot —
   // you turn with the planet's day, the way standing on a world works. The
   // surface (and sea/clouds) spin about world +Y (planet.js: rotation.y =
@@ -1073,7 +1081,9 @@ export function stepWalk(dt) {
   let wavemallGroundR = -1;
   let actualityGroundR = -1;
   let cityD = Infinity;
-  const cityR = city?.def?.radius ?? C.CITY_RADIUS; // per-city footprint (registry)
+  // Per-city reach: the pad sits OUTSIDE the town radius now, so collision and
+  // the flattened-deck ground extend to outerRadius (pad + walkway included).
+  const cityR = city?.outerRadius ?? city?.def?.radius ?? C.CITY_RADIUS;
   if (city) {
     playerLocalInto(city.group, _cityInvQuat, _cityLocal);
     cityD = Math.hypot(_cityLocal.x, _cityLocal.z);
@@ -1414,7 +1424,10 @@ export function updateWalkVisuals(dt, t) {
   focusD2 = Infinity;
 
   if (city) {
-    city.update(t, sunDot);
+    city.update(t, sunDot); // advances the elevator cab too
+    // The elevator's buttons share the city-local frame the citizens use.
+    playerLocalInto(city.group, _cityInvQuat, _playerLocal);
+    if (city.elevator) scanModule(city.elevator, 2.6);
     // Citizens want the player in the city's flat local x/z frame.
     if (crowd) {
       crowd.update(dt, playerLocalInto(city.group, _cityInvQuat, _playerLocal), sunDot);
@@ -1568,7 +1581,8 @@ export function walkInteract() {
 export function walkPromptText() {
   if (stationWalk.stationActive()) return stationWalk.stationPromptText();
   if (isDialogueOpen() || !focusEntity) return null;
-  return 'E — TALK';
+  // Entities may carry their own prompt (elevator buttons: 'E — PENTHOUSE').
+  return focusEntity.prompt ?? 'E — TALK';
 }
 
 // An accepted Quest offer (interaction.js): the module only described intent;
