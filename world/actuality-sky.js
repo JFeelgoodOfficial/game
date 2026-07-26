@@ -48,6 +48,10 @@ import cloudsFrag from './shaders/actualityClouds.frag?raw';
 /* ----------------------------------------------------------------------
  * Presets. Each is a complete description of "what it is like outside".
  * ------------------------------------------------------------------- */
+// `exposure` is the camera stop for the place, and it is authored per preset
+// for the same reason a photographer changes theirs: a single value calibrated
+// for noon renders dusk as mud and night as a black screen. This is the eye
+// adapting as you step from a sunlit terrace into a dark room.
 export const SKY_PRESETS = {
   // The headline look: a genuinely blue sky with clouds here and there.
   // Sun kept low-ish and turbidity low — clean deep blue overhead, warm light
@@ -58,6 +62,7 @@ export const SKY_PRESETS = {
     sunColor: 0xfff2dc, sunIntensity: 3.4,
     cloud: { cover: 0.34, altitude: 1150, thickness: 420, drift: 0.9, tint: 0xffffff },
     fog: { color: 0xbfd4e8, density: 0.0016 },
+    exposure: 0.32,
     // Outdoors the sun is several times the sky's contribution; matching them
     // 1:1 flattens every shadow into grey. This ratio is what gives the terrace
     // its direction of light.
@@ -70,14 +75,16 @@ export const SKY_PRESETS = {
     sunColor: 0xffc98a, sunIntensity: 2.9,
     cloud: { cover: 0.42, altitude: 1000, thickness: 440, drift: 0.7, tint: 0xffd9b0 },
     fog: { color: 0xd8b489, density: 0.0034 },
+    exposure: 0.40,
     envIntensity: 0.5,
   },
   dusk: {
     turbidity: 6.5, rayleigh: 3.0, mie: 0.007, mieG: 0.86,
     elevation: 1.6, azimuth: 250,
-    sunColor: 0xff9a56, sunIntensity: 1.5,
+    sunColor: 0xff9a56, sunIntensity: 2.4,
     cloud: { cover: 0.5, altitude: 1050, thickness: 460, drift: 0.55, tint: 0xffb27a },
     fog: { color: 0x8a6a70, density: 0.0042 },
+    exposure: 0.62,
     envIntensity: 0.6,
   },
   // The moody one: sun below the horizon, stars out, cloud lit from behind by
@@ -86,9 +93,10 @@ export const SKY_PRESETS = {
   nightMoody: {
     turbidity: 8.0, rayleigh: 2.2, mie: 0.004, mieG: 0.80,
     elevation: -7, azimuth: 250,
-    sunColor: 0x9fb6e0, sunIntensity: 0.35, // moonlight, cool and weak
+    sunColor: 0x9fb6e0, sunIntensity: 0.9, // moonlight: cool, weak, but a real key
     cloud: { cover: 0.62, altitude: 1100, thickness: 480, drift: 0.4, tint: 0x8fa4c8 },
     fog: { color: 0x1a2438, density: 0.0060 },
+    exposure: 0.95,
     stars: 0.9,
     envIntensity: 0.8,
   },
@@ -99,9 +107,10 @@ export const SKY_PRESETS = {
     ambient: 0x2a2c33,
     fog: { color: 0x14161c, density: 0.012 },
     envIntensity: 0.35,
+    exposure: 0.70,
   },
   // Zone 5's void and Zone 9's chamber want nothing at all.
-  none: { none: true, envIntensity: 0.0 },
+  none: { none: true, envIntensity: 0.0, exposure: 0.85 },
 };
 
 const SKY_SCALE = 3000; // inside the isolated-world far plane (4000)
@@ -363,6 +372,7 @@ export function createActualitySky(anchor, scene, opts = {}) {
     current = p;
     currentName = name;
     lastBakeK = -1; // a later blend must re-bake from scratch
+    if (renderer && p.exposure !== undefined) renderer.toneMappingExposure = p.exposure;
 
     const outdoor = !p.interior && !p.none;
     sky.visible = outdoor;
@@ -464,6 +474,7 @@ export function createActualitySky(anchor, scene, opts = {}) {
     if (!(scene.fog instanceof THREE.FogExp2)) scene.fog = new THREE.FogExp2(0, 0);
     scene.fog.color.set(a.fog.color).lerp(_c.set(b.fog.color), k);
     scene.fog.density = L(a.fog.density, b.fog.density);
+    if (renderer) renderer.toneMappingExposure = L(a.exposure ?? 0.32, b.exposure ?? 0.32);
 
     refreshWorldFrame();
 

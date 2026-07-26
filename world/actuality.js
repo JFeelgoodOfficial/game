@@ -50,7 +50,8 @@ import dragonGraniteUrl from '../src/assets/actuality-dragon-granite.png';
  * ------------------------------------------------------------------- */
 const AC = {
   HUB_FLOOR_HALF: 18,        // terrace half-extent (m)
-  HUB_WALL_H: 9.0,           // café nook wall height (tripled for the 2× figures)
+  HUB_WALL_H: 3.6,           // café nook wall height (a real single-storey shopfront)
+  HUB_DOOR_H: 2.2,           // mirror-room doorway opening in the back wall
   CAFE_BACK_Z: 14.0,         // back wall plane (anchor-local +Z)
   DOME_RADIUS: 140,          // hub sky dome
   ZONE_DIST: 315,            // zones sit this far from the hub along ring bearings (was 420; −25%)
@@ -399,7 +400,11 @@ const ZONE_META = [
   { id: 'z1', word: 'MIND', tint: 0xe8b878, sky: 'goldenLow', note: 'THE MIND, CHASING ITS OWN THOUGHTS' },
   { id: 'z2', word: 'BODY', tint: 0xd8926a, sky: 'interior', note: 'TWO SOULS DRAWN TOGETHER INTO ONE' },
   { id: 'z3', word: 'SOUL', tint: 0xd8d0b0, sky: 'interior', note: 'AN ORDINARY CAFÉ — THE SOUL IS THE EVERYDAY' },
-  { id: 'z4', word: 'SELF', tint: 0xe0c090, sky: 'interior', note: 'THE FRIENDS WHO MADE YOU WHO YOU ARE' },
+  // z4 is the one zone whose arrival point is OUTDOORS — you land on an apron
+  // and walk in through the dorm door — so it needs a real sky, not an interior
+  // probe, or the approach is a black void. Dusk also gives the apartment's
+  // warm window something to be a window onto.
+  { id: 'z4', word: 'SELF', tint: 0xe0c090, sky: 'dusk', note: 'THE FRIENDS WHO MADE YOU WHO YOU ARE' },
   { id: 'z5', word: 'ORDER', tint: 0x8890b0, sky: 'none', note: 'YOUR MEMORIES, SET IN ORDER ALONG THE PATH' },
   { id: 'z6', word: 'LIFE', tint: 0x6a86a0, sky: 'nightMoody', note: 'STEP DOWN INTO THE WATER — LIFE, DEATH, REBIRTH' },
   { id: 'z7', word: 'TIME', tint: 0x7088a8, sky: 'interior', note: 'SIT BY THE TV — TIME YOU WON’T REMEMBER' },
@@ -485,9 +490,10 @@ function makeFigure(opts = {}) {
     box(0.16, 0.9, 0.16, -0.12, hipY - 0.45, 0, clothMat);
     box(0.16, 0.9, 0.16, 0.12, hipY - 0.45, 0, clothMat);
   }
-  // All Actuality figures stand twice life-size; the `scale` opt still allows
-  // per-figure trims on top.
-  group.scale.setScalar(scale * 2);
+  // Human scale. The primitive body is authored ~1.9 m tall at scale 1, so
+  // `scale` is only ever a per-figure trim (a child, a taller adult) — it is
+  // not a global multiplier.
+  group.scale.setScalar(scale);
   const phase = rng() * 6.28;
   const baseY = group.position.y;
   function update(t) {
@@ -552,7 +558,8 @@ function buildHub(rng) {
   // it; it opens once every zone is seen — buildMirrorDoor owns the door itself).
   addBox(7.4, WH, 0.5, -6.3, WH / 2, BZ, wallMat);     // back — left of doorway
   addBox(7.4, WH, 0.5, 6.3, WH / 2, BZ, wallMat);      // back — right of doorway
-  addBox(3.2, WH - 5.2, 0.5, 0, WH - (WH - 5.2) / 2, BZ, wallMat); // lintel — 5.2 m doorway opening
+  const DH = AC.HUB_DOOR_H; // doorway opening height
+  addBox(3.2, WH - DH, 0.5, 0, WH - (WH - DH) / 2, BZ, wallMat); // lintel over the doorway
   addBox(0.5, WH, 6.5, -10, WH / 2, BZ - 3.25, wallMat); // left return
   addBox(0.5, WH, 6.5, 10, WH / 2, BZ - 3.25, wallMat);  // right return
   // Awning over the nook — striped canopy over wood beams.
@@ -1484,7 +1491,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     const fill = new THREE.PointLight(0xfff0da, 0.5, 40, 2.0);
     fill.position.set(0, 3.5, -2); rec.group.add(fill);
     // Walls + ceiling enclosing the shop (open +Z for the return arch).
-    const RX = 9, RZ = 12, WH = 12.6; // ceiling tripled for the 2× figures
+    const RX = 9, RZ = 12, WH = 3.2; // a real café ceiling
     const shopMat = new THREE.MeshStandardMaterial({ color: 0xcfc3ac, roughness: 0.9, side: THREE.DoubleSide });
     zoneMats.push(shopMat);
     const wall = (w, h, x, y, z, ry) => {
@@ -1571,20 +1578,35 @@ export function createActuality(planet, worldUp, opts = {}) {
       const m = new THREE.Mesh(g, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, 0);
       rec.group.add(m); zoneGeos.push(g);
     };
-    // Dorm shell: 5m wide, 6.6m ceiling (tripled), z 4..9 (door gap on -Z toward corridor).
-    const DCH = 6.6;
-    panel(dormMat, 5, DCH, 0, DCH / 2, 9, 0);          // dorm back
+    // Dorm shell: 5 m wide, z 4..9, real 2.6 m ceiling. The player arrives at
+    // (0,0,10) facing -Z, i.e. straight at the z=9 wall — so that wall is split
+    // around a door rather than being the blank face you used to land against.
+    // Same trick the café's back wall uses for the mirror door.
+    const DCH = 2.6;
+    const DOOR_HW = 0.65; // half-width of a door opening
+    const DOOR_H = 2.05;
+    // Dorm back wall (+Z, the arrival side): two jambs and a lintel.
+    panel(dormMat, 2.5 - DOOR_HW, DCH, -(DOOR_HW + (2.5 - DOOR_HW) / 2), DCH / 2, 9, 0);
+    panel(dormMat, 2.5 - DOOR_HW, DCH, DOOR_HW + (2.5 - DOOR_HW) / 2, DCH / 2, 9, 0);
+    panel(dormMat, DOOR_HW * 2, DCH - DOOR_H, 0, DOOR_H + (DCH - DOOR_H) / 2, 9, 0);
     panel(dormMat, 5, DCH, -2.5, DCH / 2, 6.5, Math.PI / 2);
     panel(dormMat, 5, DCH, 2.5, DCH / 2, 6.5, Math.PI / 2);
     panel(dormMat, 5, 5, 0, DCH, 6.5, 0, Math.PI / 2);  // dorm ceiling
-    // Corridor (z 1..4), cool→warm vertex tint via two short wall segments +
-    // ceiling beams that cross into a "4" (glyph).
-    panel(dormMat, 2.6, 7.8, -1.3, 3.9, 2.5, Math.PI / 2);
-    panel(aptMat, 2.6, 7.8, 1.3, 3.9, 2.5, Math.PI / 2);
-    addZoneBox(rec, 0.12, 0.12, 3, 0, 7.65, 2.5, 0x4a3a2a);         // beam along
-    addZoneBox(rec, 2.4, 0.12, 0.12, 0, 7.65, 1.8, 0x4a3a2a);  // beam across = "4"
-    // Apartment shell: 9m, 10.8m ceiling (tripled), z -12..0 (door gap on +Z).
-    const ACH = 10.8;
+    // Arrival apron: the ground between the return gateway (z=14) and the dorm
+    // door, so you land on a made surface and can see where you're meant to go.
+    addZoneBox(rec, 12, 0.12, 8, 0, -0.06, 12, 0x5c554c);
+    // A frame around the arrival door so the opening reads as a door.
+    addZoneBox(rec, 0.12, DOOR_H, 0.3, -DOOR_HW, DOOR_H / 2, 9, 0x4a3a2a);
+    addZoneBox(rec, 0.12, DOOR_H, 0.3, DOOR_HW, DOOR_H / 2, 9, 0x4a3a2a);
+    addZoneBox(rec, DOOR_HW * 2 + 0.24, 0.12, 0.3, 0, DOOR_H, 9, 0x4a3a2a);
+    // Corridor (z 1..4), cool→warm across its two walls + ceiling beams that
+    // cross into a "4" (glyph).
+    panel(dormMat, 2.6, DCH, -1.3, DCH / 2, 2.5, Math.PI / 2);
+    panel(aptMat, 2.6, DCH, 1.3, DCH / 2, 2.5, Math.PI / 2);
+    addZoneBox(rec, 0.1, 0.1, 3, 0, DCH - 0.12, 2.5, 0x4a3a2a);      // beam along
+    addZoneBox(rec, 2.4, 0.1, 0.1, 0, DCH - 0.12, 1.8, 0x4a3a2a);    // beam across = "4"
+    // Apartment shell: 9 m, 3.4 m ceiling, z -12..0 (door gap on +Z).
+    const ACH = 3.4;
     panel(aptMat, 9, ACH, 0, ACH / 2, -12, 0);
     panel(aptMat, 12, ACH, -4.5, ACH / 2, -6, Math.PI / 2);
     panel(aptMat, 12, ACH, 4.5, ACH / 2, -6, Math.PI / 2);
@@ -1611,10 +1633,16 @@ export function createActuality(planet, worldUp, opts = {}) {
 
     // Collision: dorm box + apartment box (each with a corridor door gap).
     rec.structure = makeStructure(0, 0, 0,
-      [{ x0: -4.5, x1: 4.5, z0: -12, z1: 9.5, y: 0 }],
+      // Floor runs past the dorm out to z=16 so the arrival point (0,0,10) and
+      // the return gateway at z=14 stand on this zone's floor rather than on
+      // whatever terrain happens to be coplanar with it.
+      [{ x0: -6, x1: 6, z0: -12, z1: 16, y: 0 }],
       [
-        // dorm walls (gap toward -Z corridor mouth at x∈[-1.3,1.3])
-        { x0: -2.5, x1: 2.5, z0: 9, z1: 9.4, y0: 0, y1: DCH },
+        // dorm back wall (+Z, the arrival side) — split around the door you
+        // now walk in through, so the gap in the geometry is a gap in collision
+        { x0: -2.5, x1: -DOOR_HW, z0: 9, z1: 9.4, y0: 0, y1: DCH },
+        { x0: DOOR_HW, x1: 2.5, z0: 9, z1: 9.4, y0: 0, y1: DCH },
+        // dorm side walls (gap toward -Z corridor mouth at x∈[-1.3,1.3])
         { x0: -2.9, x1: -2.5, z0: 4, z1: 9.4, y0: 0, y1: DCH },
         { x0: 2.5, x1: 2.9, z0: 4, z1: 9.4, y0: 0, y1: DCH },
         { x0: -2.5, x1: -1.3, z0: 4, z1: 4.4, y0: 0, y1: DCH },
@@ -2047,7 +2075,7 @@ export function createActuality(planet, worldUp, opts = {}) {
   // into extruding directions", kept abstract/tasteful).
   function buildZone2() {
     const rec = zoneById['z2'];
-    const R = 12, WH = 33; // chamber height tripled; the shell stretches with it
+    const R = 12, WH = 14; // deliberately cathedral-scale, but a buildable one
     // Faceted red-crystal chamber (Ch.2 "Body"): two figures embrace at the
     // centre, silhouetted against a rising burst of light, soul-gems beside them,
     // a sunset window in one wall — "two drawn together as one unit of creation".
@@ -2396,7 +2424,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     rec.group.add(new THREE.AmbientLight(0x101018, 0.35));
     addDome(rec, 60, '#04040a', '#08080f');
     // Enclose the dark room (walls + ceiling, door gap on +Z, window on +X).
-    const RX = 8, RZ = 10, WH = 21.6; // ceiling tripled for the 2× figures
+    const RX = 8, RZ = 10, WH = 3.0; // a low, close living room
     const roomMat = new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.95, side: THREE.DoubleSide });
     zoneMats.push(roomMat);
     const wall = (w, h, x, y, z, ry, rx = 0) => { const g = new THREE.PlaneGeometry(w, h); const m = new THREE.Mesh(g, roomMat); m.position.set(x, y, z); m.rotation.set(rx, ry, 0); rec.group.add(m); zoneGeos.push(g); };
@@ -2750,6 +2778,7 @@ export function createActuality(planet, worldUp, opts = {}) {
       flags: JSON.parse(JSON.stringify(flags)),
       activeZone, pendingDigit,
       fadePhase: fade.phase,
+      fadeT: fade.t,
       allZonesVisited: allZonesVisited(),
       // surface-local portal centers, for headless tests to drive the trigger
       portals: hubPortals.map((p) => ({
