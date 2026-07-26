@@ -14,7 +14,7 @@
 // continuously — no cuts, PMREM re-bakes self-throttled inside applyBlend.
 //
 // Two presets per world, 'pDay' and 'pNight', built from the planet config so
-// each world keeps its identity (rustia's sky is dustier, glacia's crisper,
+// each world keeps its identity (rustia's sky is dustier, wyattmattoe's crisper,
 // fog tinted from cfg.skyColor / palette). Both are COMPLETE outdoor presets —
 // applyBlend dereferences cloud.* and fog.* unguarded, and interior/none
 // presets are rejected there, so every field is always present.
@@ -50,8 +50,6 @@ const _uwDeep = new THREE.Color(0x0a0830);
 // cfg.skyColor, so even the defaults stay recognisably "their" world.
 const SKY_TUNE = {
   terra: {},
-  oceana: { rayleigh: 1.6, cloudCover: 0.36 },
-  glacia: { turbidity: 1.6, fogDensity: 0.0012, cloudCover: 0.22 },
   rustia: { turbidity: 3.4, rayleigh: 2.0, cloudCover: 0.1, fogDensity: 0.0018, sunColor: 0xffd9a8 },
   'wavemall prime': { turbidity: 2.6, cloudCover: 0.24 },
   neptunia: { rayleigh: 1.8, cloudCover: 0.38 },

@@ -487,7 +487,7 @@ export function createCity(planet, worldUp, opts = {}) {
 
   // Is the terrain under this local point below the sea surface? (Buildings,
   // dressing, and the landing pad never go in the water; streets bridge it.)
-  // A FROZEN sea is solid ground: ice-sheet worlds (glacia, wyattmattoe)
+  // A FROZEN sea is solid ground: ice-sheet worlds (wyattmattoe)
   // build straight onto the ice — that's what lets a village sit on a
   // canyon-floor lake — and the deck clamp above already keeps it level.
   function isWetLocal(localX, localZ) {

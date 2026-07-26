@@ -13,7 +13,7 @@
 // your feet land on the same relief the surface shader draws. Water: the sea
 // mesh sits at radius + WALK_WATER_LEVEL and the seabed is the base sphere, so
 // water depth = WALK_WATER_LEVEL - groundAt; deep enough and the walker swims,
-// riding the surface on buoyancy. Glacia's frozen sea is walkable ground.
+// riding the surface on buoyancy. Wyattmattoe's frozen lakes are walkable ground.
 
 import * as THREE from 'three';
 import { C } from './constants.js';
@@ -260,7 +260,7 @@ export function nearestTerraFloor(pos) {
 
 // Radial distance of the walkable floor: the terrain (signed — real seafloor
 // relief on divable worlds), or the ice sheet where the sea is frozen
-// (glacia — you stand on it, never swim under it).
+// (wyattmattoe — you stand on it, never swim under it).
 function floorRadius(planet, up) {
   let r = planet.radius + planet.body.terrainAt(up);
   if (planet.water && planet.water.frozen && r < planet.water.r) r = planet.water.r;
@@ -372,7 +372,7 @@ export function enterWalk(planet) {
     surfaceMaterials = createActualityMaterials({ quality: settings.quality });
   }
 
-  // Dress the landing site (terra/oceana get the full valley; ice and rock
+  // Dress the landing site (terra gets the full valley; ice and rock
   // worlds get boulders; gasless of course never reach here).
   dressing = createDressing(planet, _up, surfaceMaterials);
 

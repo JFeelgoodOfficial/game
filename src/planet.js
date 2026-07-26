@@ -1,9 +1,7 @@
-// The planetary system (Phases 3/4/6 pulled together). Six planets from a
+// The planetary system (Phases 3/4/6 pulled together). Planets from a
 // config array — variation is a palette and a threshold, not separate
 // systems (GDD 5.7):
 //   - Terra: continents, liquid ocean, clouds, blue sky.
-//   - Oceana: ocean world — sea level high, scattered islands (GDD 5.7).
-//   - Glacia: ice world — white-blue palette, sea frozen flat/matte.
 //   - Rustia: dead rock — sea level below the terrain minimum, no water.
 //   - Saturnia: ringed gold gas giant.  - Neptunia: blue ice giant.
 // Every planet registers gravity + an altitude floor (dive into any
@@ -63,56 +61,6 @@ const CONFIGS = [
       shrubs: true,
       rocks: true,
     },
-  },
-  {
-    name: 'oceana', // ocean world (GDD 5.7): sea level high, island chains
-    type: 'terra',
-    dir: new THREE.Vector3(0.85, -0.1, -0.52).normalize(),
-    distance: () => 30000,
-    radius: () => 1100,
-    mass: () => 1.04e6, // surface g ~= 30
-    skyColor: () => 0x4a7ce8,
-    spin: () => 0.014,
-    atmoColor: 0x4a80ff,
-    seaLevel: () => 0.62,
-    terrainHeight: () => 55,
-    iceLat: 0.8,
-    palette: {
-      deep: 0x03102e, shallow: 0x055980, sand: 0xb8ad80,
-      low: 0x337333, mid: 0x4d4d38, high: 0xd9dee6,
-    },
-    water: { color: 0x052e61, gloss: 1.0 },
-    clouds: true,
-    // Island greens: same dressing, foliage hue pulled toward green.
-    dress: {
-      grass: { root: 0x4f7a2e, tip: 0x9fce6a, emissive: 0x6fa04a },
-      trees: true,
-      treeHueShift: 0.14,
-      shrubs: true,
-      rocks: true,
-    },
-  },
-  {
-    name: 'glacia', // ice world (GDD 5.7): white-blue, sea frozen (flat, matte)
-    type: 'terra',
-    dir: new THREE.Vector3(-0.45, -0.2, 0.87).normalize(),
-    distance: () => 55000,
-    radius: () => 900,
-    mass: () => 6.9e5, // surface g ~= 30
-    skyColor: () => 0xa8c8e8,
-    spin: () => 0.008,
-    atmoColor: 0x9cc2f0,
-    seaLevel: () => 0.55,
-    terrainHeight: () => 65,
-    iceLat: 0.5,
-    palette: {
-      deep: 0x59738f, shallow: 0x8caec8, sand: 0xbfccdd,
-      low: 0xccd9ea, mid: 0x9eb2cc, high: 0xf2f7ff,
-    },
-    water: { color: 0xb8c8d8, gloss: 0.12 }, // frozen: flat but not reflective
-    clouds: false,
-    frozenSea: true, // the walker stands on the ice sheet, never swims
-    dress: { rocks: true, rockTint: 0x9eb8d4 }, // ice-scoured boulders only
   },
   {
     name: 'rustia', // dead rock (GDD 5.7): sea level below terrain minimum
@@ -188,7 +136,7 @@ const CONFIGS = [
     dir: new THREE.Vector3(0.7, 0.3, 0.2).normalize(),
     distance: () => 40000,
     radius: () => 900,
-    mass: () => 6.9e5, // surface g ~= 30, like glacia
+    mass: () => 6.9e5, // surface g ~= 30, the rocky-world standard
     // Approach/orbit sky only: while walking, world/shadowreach.js installs a
     // dynamic closure over cfg.skyColor that lerps the sky through each story
     // zone's mood (meadow blue → dusk ochre → desert pale → storm → gold) and

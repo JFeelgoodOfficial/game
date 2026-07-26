@@ -49,7 +49,7 @@ function saveLog() {
 }
 
 const PLANET_COLORS = {
-  terra: '#5fc76e', oceana: '#3f9dff', glacia: '#bfe8ff',
+  terra: '#5fc76e',
   rustia: '#ff8a5a', saturnia: '#e8c78a', neptunia: '#6a7dff',
   'wavemall prime': '#d4408f', actuality: '#f2c94c',
   shadowreach: '#cfcfd4', wyattmattoe: '#f4f8ff',
