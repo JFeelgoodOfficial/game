@@ -1,4 +1,4 @@
-// Isolated worlds — pausing the universe while the player walks a story planet.
+// Isolated worlds — pausing the universe while the player is down on a story planet.
 //
 // Most of the game is a solar system: seven planets, a sun, a black hole, two
 // nebula fields, the painting nebulae, the stations and 13,800 stars, all of
@@ -10,15 +10,32 @@
 // the one place the player is standing. What that buys, concretely: shadow maps
 // and an ambient-occlusion pass, neither of which the space sim could afford.
 //
+// TWO STAGES, because they start at different moments.
+//
+//   universe (`iso.active`)  — acquired the instant the skids touch down. Stops
+//     the simulation: game.js skips the starfield/nebula/planet/station updates,
+//     and the far field (sibling planets, nebulae, stations) is hidden. Nothing
+//     the player can see from the parked cockpit changes, so there is no pop.
+//
+//   surface (`iso.surface`) — acquired when they step out and the world module's
+//     own sky exists. This is the render-mode switch: near far-plane, world
+//     exposure, re-aimed bloom, shadow maps, ambient occlusion, and hiding the
+//     things that read as sky (the sun disc, the starfield, the black hole, the
+//     planet's own atmosphere shell and cloud layer) now that something else is
+//     drawing the sky.
+//
+// The gap between them is the parked-in-the-seat window. The ship is stationary
+// for all of it, which is exactly why freezing those systems there is invisible.
+//
 // What is NOT paused: floating-origin bookkeeping. `updateOrigin` walks the
 // shiftables list independently of anything here, and `updatePlanets` never
 // moves a planet — it spins them and pokes shader uniforms — so skipping it for
 // the six planets you can't see is free and safe. This mirrors the pattern
 // stations.js already uses (distance-gate the animation, never the origin).
 //
-// Restoring is symmetric and total: every flag set here is unset in `release`,
-// including the renderer and composer state, so a walk on an isolated world
-// leaves nothing behind for the flight sim to trip over.
+// Restoring is symmetric and total: every flag set here is unset in the matching
+// release, including the renderer and composer state, so a trip down to an
+// isolated world leaves nothing behind for the flight sim to trip over.
 
 import * as THREE from 'three';
 import { planets } from './planet.js';
@@ -39,11 +56,17 @@ export function isIsolatingWorld(name) {
   return ISOLATING_WORLDS.has(name);
 }
 
-// Live state. `active` is the whole switch; `keep` is the planet we're standing
-// on, which keeps updating while its six siblings do not.
+// Live state. `active` is the universe freeze, `surface` the render-mode switch;
+// `keep` is the planet we're standing on, which keeps updating while its six
+// siblings do not.
 const iso = {
   active: false,
+  surface: false,
   keep: null,
+  // The surface stage holds its own reference. `keep` belongs to the universe
+  // stage and is nulled when that releases, and the two release in either order
+  // depending on which exit path we're on — so the sky restore cannot borrow it.
+  surfaceKeep: null,
   prevShadow: false,
   prevShadowType: THREE.PCFShadowMap,
   prevFar: 1e6,
@@ -52,19 +75,26 @@ const iso = {
   prevBloomStrength: 0,
 };
 
-// Tone mapping exposure while isolated. The flight sim is calibrated for a
-// black sky with a handful of bright objects in it; a daylit sky is orders of
-// magnitude brighter and blows out at exposure 1.
-const ISO_EXPOSURE = 0.32;
-
-// Bloom on an isolated world has to be re-aimed. In space the sky is black, so
-// a 0.85 threshold catches only stars and the accretion disc. Under a real sky
-// almost every pixel clears that threshold, and bloom turns into a full-frame
-// white haze that eats the whole image. Raising the threshold well above sky
-// luminance puts the glow back where it belongs: the string lights, the
-// gateway panes, the fire.
-const ISO_BLOOM_THRESHOLD = 2.4;
-const ISO_BLOOM_STRENGTH = 0.5;
+// Exposure and bloom while standing on an isolated world, PER WORLD.
+//
+// Exposure: the flight sim is calibrated for a black sky with a handful of
+// bright objects in it; a daylit sky is orders of magnitude brighter and blows
+// out at exposure 1. But how far to stop down depends on what the world authors.
+// Actuality's sky presets drive exposure themselves and only need a sane opening
+// value. Shadowreach's twelve point lights and thirty-odd emissives were written
+// at exposure 1, so it opens up much further and lets its own presets take over.
+//
+// Bloom: in space the sky is black, so a 0.85 threshold catches only stars and
+// the accretion disc. Under a real sky almost every pixel clears that threshold
+// and bloom becomes a full-frame white haze. Raising it above sky luminance puts
+// the glow back where it belongs — but Shadowreach deliberately authors its
+// round-room spiral, its lightning and the finale's blue tear to cross 0.85, so
+// lifting the threshold to Actuality's 2.4 would erase all three.
+const WORLD_RENDER = {
+  actuality: { exposure: 0.32, bloomThreshold: 2.4, bloomStrength: 0.5 },
+  shadowreach: { exposure: 0.62, bloomThreshold: 1.15, bloomStrength: 0.62 },
+};
+const DEFAULT_RENDER = WORLD_RENDER.actuality;
 
 // Far plane while isolated. The flight camera runs 0.1..1e6 because it has to
 // hold a solar system, which leaves almost no depth precision at arm's length —
@@ -76,9 +106,22 @@ const ISO_FAR = 4000;
 
 export const isolated = iso; // read-only for callers (game.js, __debug)
 
-// Everything in the sky that belongs to the flight sim, toggled as one.
-function setSpaceVisible(v, keep) {
+// The far field: too small and too distant to read as anything but specks
+// through a daylit atmosphere, so hiding it the moment the skids touch is
+// invisible. Toggled with the universe stage.
+function setFarFieldVisible(v, keep) {
   for (const p of planets) if (p !== keep) p.group.visible = v;
+  // The painting nebulae push their records into deepNebulae too, so this one
+  // loop covers both fields.
+  for (const d of deepNebulae) if (d.group) d.group.visible = v;
+  for (const s of stations) if (s.group) s.group.visible = v;
+  setNebulaVisible(v);
+}
+
+// Everything that reads as SKY. This waits for the surface stage: pull it at
+// touchdown and the sun disc and the stars visibly wink out while the player is
+// still sitting in the seat, under a sky that is still the flight sim's.
+function setSkyVisible(v, keep) {
   // The planet you're standing on keeps its terrain, but not its orbital
   // dressing: the atmosphere limb is an additive shell designed to be seen from
   // outside, and from the ground it just lays white haze over the whole world.
@@ -90,22 +133,35 @@ function setSpaceVisible(v, keep) {
   }
   if (sun.group) sun.group.visible = v;
   if (blackhole.group) blackhole.group.visible = v;
-  // The painting nebulae push their records into deepNebulae too, so this one
-  // loop covers both fields.
-  for (const d of deepNebulae) if (d.group) d.group.visible = v;
-  for (const s of stations) if (s.group) s.group.visible = v;
   setStarfieldVisible(v);
-  setNebulaVisible(v);
 }
 
-// Called from enterWalk's host once the world module exists. `renderer` and the
-// AO pass are handed in rather than imported so this module stays free of the
-// composer's construction order.
-export function acquire(planet, renderer, aoPass, camera, bloomPass) {
+// Stage one — touchdown. Stops the simulation and clears the far field.
+export function acquireUniverse(planet) {
   if (iso.active) return;
   iso.active = true;
   iso.keep = planet;
-  setSpaceVisible(false, planet);
+  setFarFieldVisible(false, planet);
+}
+
+// Stage one release — liftoff, or boarding the ship (which on a walkable world
+// puts you back in free flight, not back on the pad).
+export function releaseUniverse() {
+  if (!iso.active) return;
+  setFarFieldVisible(true, iso.keep);
+  iso.active = false;
+  iso.keep = null;
+}
+
+// Stage two — stepping out, once the world module exists and owns the sky.
+// `renderer` and the AO pass are handed in rather than imported so this module
+// stays free of the composer's construction order.
+export function acquireSurface(planet, renderer, aoPass, camera, bloomPass) {
+  if (iso.surface) return;
+  iso.surface = true;
+  iso.surfaceKeep = planet ?? iso.keep;
+  const R = WORLD_RENDER[iso.surfaceKeep?.cfg?.name] ?? DEFAULT_RENDER;
+  setSkyVisible(false, iso.surfaceKeep);
 
   if (camera) {
     iso.prevFar = camera.far;
@@ -114,13 +170,13 @@ export function acquire(planet, renderer, aoPass, camera, bloomPass) {
   }
 
   iso.prevExposure = renderer.toneMappingExposure;
-  renderer.toneMappingExposure = ISO_EXPOSURE;
+  renderer.toneMappingExposure = R.exposure;
 
   if (bloomPass) {
     iso.prevBloomThreshold = bloomPass.threshold;
     iso.prevBloomStrength = bloomPass.strength;
-    bloomPass.threshold = ISO_BLOOM_THRESHOLD;
-    bloomPass.strength = ISO_BLOOM_STRENGTH;
+    bloomPass.threshold = R.bloomThreshold;
+    bloomPass.strength = R.bloomStrength;
   }
 
   // Shadows: off everywhere else in the game (a planet-scale shadow camera is
@@ -138,9 +194,12 @@ export function acquire(planet, renderer, aoPass, camera, bloomPass) {
   if (aoPass) aoPass.enabled = settings.quality !== 'low';
 }
 
-export function release(renderer, aoPass, camera, bloomPass) {
-  if (!iso.active) return;
-  setSpaceVisible(true, iso.keep);
+// Stage two release. Guards on `surface`, NOT on `active` — the two stages are
+// independent, and gating this on the universe flag would make it a no-op
+// whenever the universe was already thawed.
+export function releaseSurface(renderer, aoPass, camera, bloomPass) {
+  if (!iso.surface) return;
+  setSkyVisible(true, iso.surfaceKeep);
   if (camera) {
     camera.far = iso.prevFar;
     camera.updateProjectionMatrix();
@@ -154,6 +213,14 @@ export function release(renderer, aoPass, camera, bloomPass) {
   renderer.shadowMap.type = iso.prevShadowType;
   renderer.shadowMap.needsUpdate = true;
   if (aoPass) aoPass.enabled = false;
-  iso.active = false;
-  iso.keep = null;
+  iso.surface = false;
+  iso.surfaceKeep = null;
+}
+
+// Belt-and-braces for the exit paths that bypass both liftoff and boarding —
+// the collapse/respawn reset, the menu, and the actuality finale's game reset.
+// Both stages, in the right order, and safe to call when neither is held.
+export function releaseAll(renderer, aoPass, camera, bloomPass) {
+  releaseSurface(renderer, aoPass, camera, bloomPass);
+  releaseUniverse();
 }
