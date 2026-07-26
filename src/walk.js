@@ -40,7 +40,8 @@ import { createCrowd } from '../world/aliens.js';
 import { createWonderField } from '../world/wonders.js';
 import { createCreatures } from '../world/creatures.js';
 import { createWavemallPrime } from '../world/wavemallprime.js';
-import { createActuality } from '../world/actuality.js';
+import { createActuality, ACTUALITY_SITE } from '../world/actuality.js';
+import { settings } from './settings.js';
 import { createShadowreach } from '../world/shadowreach.js';
 import {
   getViewPref,
@@ -117,6 +118,7 @@ export const walk = {
   facing: new THREE.Vector3(0, 0, -1), // astronaut body heading (follows vel)
 };
 
+let worldScene = null; // the root scene (initWalk) — handed to sky-owning world modules
 let astronaut = null; // the visible third-person body (initWalk)
 let dressing = null; // active surface-dressing patch, spawned per disembark
 let camSnap = true; // snap (don't lerp) the TP camera on the next frame
@@ -175,6 +177,10 @@ const _cityInvQuat = new THREE.Quaternion();
 const _creatInvQuat = new THREE.Quaternion();
 const _wavemallInvQuat = new THREE.Quaternion();
 const _actualityInvQuat = new THREE.Quaternion();
+// Player state handed to world/actuality.js each frame (the mirror room's
+// copies mimic it). Preallocated — the walk loop allocates nothing.
+const _actualityFacing = new THREE.Vector3();
+const _actualityState = { mode: 'idle', speed01: 0, facing: _actualityFacing };
 const _identityQuat = new THREE.Quaternion(); // shadowreach group sits at identity
 
 // Convert a world-space (post-spin) direction into planet.surface's UNROTATED
@@ -200,6 +206,7 @@ function playerLocalInto(group, invQuat, out) {
 // Build the astronaut once and keep it hidden until a disembark. Called from
 // main.js after the scene exists.
 export function initWalk(scene) {
+  worldScene = scene; // world modules that own the sky need the root (fog, env map)
   astronaut = new Astronaut();
   astronaut.group.visible = false;
   scene.add(astronaut.group);
@@ -278,15 +285,37 @@ export function enterWalk(planet) {
 
   _up.subVectors(ship.position, planet.body.position).normalize();
 
-  // Seed heading from the ship's forward (-Z), projected onto the tangent
-  // plane. Fall back to an arbitrary tangent if it was pointing straight up.
-  walk.heading.set(0, 0, -1).applyQuaternion(ship.quaternion);
-  projectTangent(walk.heading, _up);
-  if (walk.heading.lengthSq() < 1e-6) {
-    walk.heading.set(1, 0, 0);
-    projectTangent(walk.heading, _up);
+  // Actuality has ONE landing site. Its café, gateways and landing pad are a
+  // fixed piece of architecture on the planet, so the disembark point is the
+  // site rather than wherever the ship came down — land anywhere and you step
+  // out onto the same terrace, with the ship on the same pad. ACTUALITY_SITE
+  // is surface-local (the planet's unrotated frame), so rotate it into world
+  // space before anything downstream reads _up.
+  const fixedSite = planet.cfg.name === 'actuality';
+  if (fixedSite) {
+    _up.copy(ACTUALITY_SITE).applyAxisAngle(_yAxisV, planet.surface.rotation.y).normalize();
   }
-  walk.heading.normalize();
+
+  if (fixedSite) {
+    // Step out facing the café — the site anchor's +Z — rather than wherever
+    // the nose happened to point when we came down somewhere else entirely.
+    // Same frame actuality.js builds its anchor in: +Y to the site direction.
+    _qTmp.setFromUnitVectors(_yAxisV, ACTUALITY_SITE);
+    walk.heading.set(0, 0, 1).applyQuaternion(_qTmp)
+      .applyAxisAngle(_yAxisV, planet.surface.rotation.y);
+    projectTangent(walk.heading, _up);
+    walk.heading.normalize();
+  } else {
+    // Seed heading from the ship's forward (-Z), projected onto the tangent
+    // plane. Fall back to an arbitrary tangent if it was pointing straight up.
+    walk.heading.set(0, 0, -1).applyQuaternion(ship.quaternion);
+    projectTangent(walk.heading, _up);
+    if (walk.heading.lengthSq() < 1e-6) {
+      walk.heading.set(1, 0, 0);
+      projectTangent(walk.heading, _up);
+    }
+    walk.heading.normalize();
+  }
   walk.facing.copy(walk.heading);
 
   // Snap onto the surface directly below: feet on the ground, or afloat at
@@ -409,7 +438,12 @@ function spawnWorldEntities(planet) {
   // wavemall above — the parked ship is still the boarding point.
   if (planet.cfg.name === 'actuality') {
     toSurfaceLocal(planet, _up, _localUp);
-    actuality = createActuality(planet, _localUp.clone(), {});
+    // scene: the module owns its own sky, fog and environment map, all of which
+    // live on the root scene rather than under the planet.
+    actuality = createActuality(planet, _localUp.clone(), {
+      scene: worldScene,
+      quality: settings.quality,
+    });
     planet.surface.add(actuality.group);
     _actualityInvQuat.copy(actuality.anchor.quaternion).invert();
     actuality.initAudio(); // the landing G keypress is fresh user activation
@@ -423,6 +457,35 @@ function spawnWorldEntities(planet) {
     sm.polygonOffset = true;
     sm.polygonOffsetFactor = 3;
     sm.polygonOffsetUnits = 3;
+
+    // Move the parked ship off the café terrace. You land AT the anchor, and
+    // the generic parking rule puts the ship one PARK_OFFSET behind the
+    // disembark point — which on this world is the middle of the terrace, with
+    // the third-person camera spawning inside the hull. Park it off to the side
+    // instead: clear of the 18 m terrace, clear of the nine-gateway arc at the
+    // front (-Z) and of the café nook at the back (+Z), and still an easy walk
+    // back for boarding.
+    const pad = actuality.pad;
+    _target.set(pad.x, 0, pad.z)
+      .applyQuaternion(actuality.anchor.quaternion)
+      .add(actuality.anchor.position);           // surface-local
+    _patchUp.copy(_target).normalize();
+    // The module OWNS the ground inside its footprint (groundRadiusAt), so ask
+    // it rather than the terrain sphere — otherwise the ship sinks into or
+    // floats above the terrace paving.
+    // The module's ground query already returns the pad's cast surface (its
+    // collision slab sits at the pad top), so pad.y is only the fallback for
+    // the case where the query misses and we're measuring bare terrain.
+    const parkR = actuality.groundRadiusAt(_target);
+    parked.group.position.copy(_patchUp).multiplyScalar(
+      parkR > 0 ? parkR + C.PARK_LIFT : _target.length() + pad.y + C.PARK_LIFT
+    );
+    parked.group.quaternion.setFromUnitVectors(_yAxisV, _patchUp);
+    // Nose pointing back at the terrace, so it reads as having set down here.
+    _siteT1.copy(actuality.anchor.position).sub(parked.group.position)
+      .applyQuaternion(_qTmp.copy(parked.group.quaternion).invert());
+    parked.group.rotateY(Math.atan2(_siteT1.x, _siteT1.z));
+
     return; // city/crowd/wonders/creatures stay null (guards short-circuit)
   }
 
@@ -1214,7 +1277,17 @@ export function updateWalkVisuals(dt, t) {
     // identity), so playerLocalInto lands the player in the anchor frame — the
     // one frame every hub/zone interactable position lives in.
     playerLocalInto(actuality.anchor, _actualityInvQuat, _playerLocal);
-    actuality.update(t, dt, _playerLocal, sunDot);
+    // The hyper-holo-grid's copies mimic the player, so hand the module the
+    // live mode/speed plus the facing resolved into the SAME anchor frame the
+    // player position is in — `walk.facing` is world-space tangent, and the
+    // module has no way to undo the planet's latched spin on its own.
+    _actualityFacing
+      .copy(walk.facing)
+      .applyAxisAngle(_yAxisV, -planet.surface.rotation.y) // world -> surface-local
+      .applyQuaternion(_actualityInvQuat);                 // -> anchor-local
+    _actualityState.mode = walk.mode;
+    _actualityState.speed01 = walk.speed01;
+    actuality.update(t, dt, _playerLocal, sunDot, _actualityState);
     scanModule(actuality, TALK_DIST_ACTUALITY);
     const toast = actuality.pendingToast();
     if (toast) showViewToast(toast.text, toast.seconds);

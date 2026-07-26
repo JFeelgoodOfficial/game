@@ -481,7 +481,10 @@ export function initPlanets(scene) {
     scene.add(group);
     addShiftable(group);
 
-    const p = { cfg, group, surface, clouds, spinning, radius, body: null };
+    // `atmosphere` is kept on the record so an isolated world (src/isolate.js)
+    // can hide the limb shell: it's an additive haze meant to be seen from
+    // orbit, and standing inside it just washes the whole surface out.
+    const p = { cfg, group, surface, clouds, atmosphere, spinning, radius, body: null };
 
     // gravity + altitude floor. Rocky floors follow the terrain: sample the
     // shared noise field in unrotated object space (undo the spin) with this
@@ -593,8 +596,15 @@ export function setPlanetSpinFrozen(planet, frozen) {
   planet.spinFrozen = frozen;
 }
 
-export function updatePlanets(t, camPos) {
+// `only`, when set, restricts the update to that one planet — the isolated-world
+// pause (src/isolate.js) uses it while the player walks a story world, where the
+// other six are hidden and nothing here would be observable. Safe to skip: this
+// function spins planets and writes shader uniforms, it never moves them, so
+// floating-origin bookkeeping (updateOrigin, over its own shiftables list) is
+// untouched either way.
+export function updatePlanets(t, camPos, only = null) {
   for (const p of planets) {
+    if (only && p !== only) continue;
     if (p.spinFrozen) {
       p.spinNeedsResync = true; // rotation.y stays latched
     } else {

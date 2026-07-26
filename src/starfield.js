@@ -99,6 +99,13 @@ export function initStarfield(scene) {
   }
 }
 
+// Hide/show the whole field. Used by the isolated-world pause (see
+// src/isolate.js): on a story planet the sky is authored by the world module,
+// so the space starfield is neither wanted nor paid for.
+export function setStarfieldVisible(v) {
+  for (const { points } of layers) points.visible = v;
+}
+
 // Call once per render frame. absCam computed in doubles; only the small
 // wrapped remainder reaches the GPU.
 export function updateStarfield(camera, pixelRatio) {

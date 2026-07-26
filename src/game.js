@@ -17,6 +17,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { C } from './constants.js';
@@ -53,6 +54,12 @@ import {
   setPrompt,
 } from './interior.js';
 import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
+import {
+  isIsolatingWorld,
+  isolated,
+  acquire as acquireIsolation,
+  release as releaseIsolation,
+} from './isolate.js';
 import {
   initPlanets,
   updatePlanets,
@@ -212,6 +219,18 @@ composer.addPass(skyfogPass);
 // per frame. Shallow cyan-blue saturating to indigo-black by depth.
 const _uwShallow = new THREE.Color(0x2a4ab8);
 const _uwDeep = new THREE.Color(0x0a0830);
+
+// Ambient occlusion — the contact darkening where surfaces meet, which is what
+// separates "boxes in a room" from "a place". Only ever enabled on an isolated
+// story world (src/isolate.js), where the paused universe pays for it; it is a
+// full extra scene pass for normals and the flight sim cannot afford one.
+// Placed AFTER skyfog so skyfog still reads the RenderPass's fresh depth
+// texture (GTAOPass owns its own depth/normal targets, so it needs nothing from
+// the composer's). Radius is metres — these are rooms, not landscapes.
+const aoPass = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
+aoPass.updateGtaoMaterial({ radius: 0.5, distanceExponent: 1.4, thickness: 0.4, scale: 1.0, samples: 16 });
+aoPass.enabled = false;
+composer.addPass(aoPass);
 
 const lensPass = new ShaderPass({
   uniforms: {
@@ -391,7 +410,7 @@ if (import.meta.env.DEV) {
     walkHere() {
       const floor = nearestTerraFloor(ship.position);
       if (floor) {
-        enterWalk(floor.planet);
+        beginWalk(floor.planet);
         heat = 0;
         phase = 'walk';
         accumulator = 0;
@@ -436,7 +455,7 @@ if (import.meta.env.DEV) {
     },
     walkExit() {
       if (phase === 'walk') {
-        exitWalk(camera);
+        endWalk();
         snapCamera(ship);
         phase = 'fly';
         accumulator = 0;
@@ -462,8 +481,39 @@ if (import.meta.env.DEV) {
       for (let i = 0; i < n; i++) sum += frameTimes[i];
       return n / sum;
     },
+    setAO(v) {
+      aoPass.enabled = !!v;
+    },
+    setExposure(v) {
+      renderer.toneMappingExposure = v;
+    },
+    renderState() {
+      const c = new THREE.Color();
+      renderer.getClearColor(c);
+      return {
+        clear: '#' + c.getHexString(),
+        clearAlpha: renderer.getClearAlpha(),
+        background: scene.background ? String(scene.background) : null,
+        passes: composer.passes.map((p) => p.constructor.name + ':' + (p.enabled ? 1 : 0)),
+      };
+    },
+    // Isolated-world pause, for headless verification: is it on, which planet
+    // is exempt, and did the space furniture actually go away.
+    isolation() {
+      return {
+        active: isolated.active,
+        keep: isolated.keep?.cfg?.name ?? null,
+        ao: aoPass.enabled,
+        shadows: renderer.shadowMap.enabled,
+        far: camera.far,
+        visiblePlanets: planets.filter((p) => p.group.visible).map((p) => p.cfg.name),
+      };
+    },
   };
   window.__debug = debug;
+  window.__THREE = THREE; // headless probes build raycasters/vectors against it
+  window.__scene = scene;
+  window.__camera = camera;
 }
 
 const DT = 1 / 60;
@@ -494,6 +544,21 @@ let standBlend = 0; // seat <-> stand camera blend, 0..1
 // NMS-style landing sub-mode within 'fly' (not a phase — heat UI, nav,
 // capture, skyfog all keep running): null = free flight, 'auto' = assisted
 // G auto-land arc, 'landed' = parked on the surface (G steps out, W lifts).
+// Every disembark/board routes through this pair so the isolated-world pause
+// (src/isolate.js) can never be left half-applied — there are five transition
+// sites, including the debug hooks and the hyper-holo-grid's game reset, and a
+// stranded pause would leave the flight sim with an invisible solar system.
+function beginWalk(planet) {
+  enterWalk(planet);
+  if (isIsolatingWorld(planet.cfg.name))
+    acquireIsolation(planet, renderer, aoPass, camera, bloomPass);
+}
+function endWalk() {
+  // before exitWalk: restores visibility for the reset snapshot
+  releaseIsolation(renderer, aoPass, camera, bloomPass);
+  exitWalk(camera);
+}
+
 let landState = null;
 let landedPlanet = null; // planets[] entry under the skids
 let autoT = 0; // auto-land arc progress 0..1
@@ -804,7 +869,7 @@ function frame(now) {
         if (floor) {
           landState = null;
           landedPlanet = null;
-          enterWalk(floor.planet);
+          beginWalk(floor.planet);
           heat = 0;
           phase = 'walk';
           accumulator = 0;
@@ -852,7 +917,7 @@ function frame(now) {
     // The actuality hyper-holo-grid finale loops the whole game back to start
     // (0 = repeat program): board off, reset to the spawn, resume flight.
     if (walkPendingReset()) {
-      exitWalk(camera);
+      endWalk();
       resetToStart();
       snapCamera(ship);
       phase = 'fly';
@@ -863,7 +928,7 @@ function frame(now) {
       if (input.toggleWalk) {
         if (nearParkedShip()) {
           // Board the ship and hand control back to flight.
-          exitWalk(camera);
+          endWalk();
           snapCamera(ship); // resync the camera-lag state exitWalk set directly
           phase = 'fly';
           accumulator = 0;
@@ -1003,11 +1068,18 @@ function frame(now) {
       setPrompt(null);
     }
   }
-  updateStarfield(camera, renderer.getPixelRatio());
-  updateNebula(camera);
-  updateDeepNebula(renderer, camera);
-  updatePlanets(now / 1000, camera.position);
-  updateStations(now / 1000, ship.position);
+  // Isolated world: the space sim is switched off (src/isolate.js) and the whole
+  // frame goes to the one place the player is standing. Only the planet under
+  // their feet keeps updating — it still has to spin.
+  if (isolated.active) {
+    updatePlanets(now / 1000, camera.position, isolated.keep);
+  } else {
+    updateStarfield(camera, renderer.getPixelRatio());
+    updateNebula(camera);
+    updateDeepNebula(renderer, camera);
+    updatePlanets(now / 1000, camera.position);
+    updateStations(now / 1000, ship.position);
+  }
   // nav AFTER the stations are placed: a reset snaps orbiting stations back
   // to their snapshot spot for one frame, and a discovery check reading that
   // stale position would log everything sitting at the spawn point
@@ -1035,7 +1107,10 @@ function frame(now) {
     camera.position.y += Math.sin(now * 0.043 + 1.7) * Math.sin(now * 0.011) * b;
     camera.position.z += Math.sin(now * 0.023 + 3.9) * b * 0.6;
   }
-  skyfogPass.enabled = _atmo.atmo > 0.001;
+  // Isolated worlds author their own sky and their own aerial perspective
+  // (per-zone fog), so the flight sim's atmospheric-entry wash is switched off
+  // there rather than fighting it.
+  skyfogPass.enabled = _atmo.atmo > 0.001 && !isolated.active;
   if (skyfogPass.enabled) {
     _up.set(_atmo.upX, _atmo.upY, _atmo.upZ).normalize();
     const su = skyfogPass.uniforms;
@@ -1073,9 +1148,13 @@ function frame(now) {
     }
   }
 
-  // live panel bindings (GDD 2.3): cheap scalar copies each frame
-  bloomPass.threshold = C.BLOOM_THRESHOLD;
-  bloomPass.strength = C.BLOOM_STRENGTH;
+  // live panel bindings (GDD 2.3): cheap scalar copies each frame. Skipped on an
+  // isolated world, which owns its own bloom calibration (src/isolate.js) — the
+  // space threshold assumes a black sky and would white out a daylit one.
+  if (!isolated.active) {
+    bloomPass.threshold = C.BLOOM_THRESHOLD;
+    bloomPass.strength = C.BLOOM_STRENGTH;
+  }
   bloomPass.radius = C.BLOOM_RADIUS;
   aberrationPass.uniforms.uStrength.value = (C.CA_STRENGTH * 8.0) / window.innerHeight;
 

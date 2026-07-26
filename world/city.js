@@ -308,7 +308,7 @@ const STRUCT_STEP_UP = 0.7;
 // contract so the station walker feels identical underfoot to the lobbies.
 export function makeStructure(ox, oz, baseY, surfaces, walls, halfExtent) {
   return {
-    x: ox, z: oz, baseY,
+    x: ox, z: oz, baseY, halfExtent,
     // Highest walkable slab/ramp under (x,z) reachable from feetY, or null.
     surfaceYAt(x, z, feetY) {
       const lx = x - ox, lz = z - oz;

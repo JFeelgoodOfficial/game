@@ -89,6 +89,11 @@ export function initNebula(scene, renderer) {
   scene.add(mesh);
 }
 
+// Hide/show the sky shell (src/isolate.js — story planets author their own sky).
+export function setNebulaVisible(v) {
+  if (mesh) mesh.visible = v;
+}
+
 export function updateNebula(camera) {
   mesh.position.copy(camera.position);
   mesh.material.uniforms.uIntensity.value = C.NEBULA_INTENSITY;

@@ -20,7 +20,7 @@ import { Astronaut } from '../src/astronaut.js';
 export function createMirrorRoom(opts = {}) {
   const HALF = opts.half ?? 4;      // interior half-extent (8 m cube)
   const SPACING = opts.spacing ?? 2.2;
-  const REACH = 3;                  // copies span i,k in [-REACH, REACH]
+  const REACH = opts.reach ?? 4;    // copies span i,j,k in [-REACH, REACH]
 
   const group = new THREE.Group();
   group.name = 'actuality.mirror';
@@ -65,11 +65,12 @@ export function createMirrorRoom(opts = {}) {
   addFace(HALF, HALF, 0, 0, -Math.PI / 2);  // right
   addFace(0, HALF * 2, 0, Math.PI / 2, 0);  // ceiling
 
-  // Glossy dark floor — semi-transparent so the mirrored copies below show
-  // through it, reading as a polished reflective surface.
+  // Glass floor. It was 0.62 opaque to half-hide a faked reflection; now there
+  // are real copies stacked underneath, so it drops to a sheet you genuinely
+  // see down through — the stack continues below your feet.
   const floorGeo = new THREE.PlaneGeometry(HALF * 2, HALF * 2);
   const floorMat = new THREE.MeshBasicMaterial({
-    map: gridTex, color: 0x0a1622, transparent: true, opacity: 0.62, side: THREE.DoubleSide, depthWrite: false,
+    map: gridTex, color: 0x0a1622, transparent: true, opacity: 0.34, side: THREE.DoubleSide, depthWrite: false,
   });
   const floor = new THREE.Mesh(floorGeo, floorMat);
   floor.position.set(0, 0.01, 0); floor.rotation.x = -Math.PI / 2;
@@ -126,13 +127,16 @@ export function createMirrorRoom(opts = {}) {
     group.add(d);
   }
 
-  // Matte-black void shell enclosing the copies (extends below the floor so the
-  // reflected copies read against black).
+  // Matte-black void shell enclosing the copies. Sized from the lattice on all
+  // three axes and centred on the dais, so the stack fades into black in every
+  // direction instead of clipping through a shell that only ever accounted for
+  // one floor plane of copies.
   const shellR = SPACING * (REACH + 3);
-  const voidGeo = new THREE.BoxGeometry(shellR * 2, shellR * 2, shellR * 2);
+  const shellRY = SPACING * 1.3 * (REACH + 3);
+  const voidGeo = new THREE.BoxGeometry(shellR * 2, shellRY * 2, shellR * 2);
   const voidMat = new THREE.MeshBasicMaterial({ color: 0x01030a, side: THREE.BackSide });
   const voidShell = new THREE.Mesh(voidGeo, voidMat);
-  voidShell.position.set(0, HALF - 2, 0);
+  voidShell.position.set(0, 1.1, 0); // the dais, i.e. the centre of the stack
   group.add(voidShell);
   geos.push(voidGeo); mats.push(voidMat);
 
@@ -176,8 +180,17 @@ export function createMirrorRoom(opts = {}) {
   cloneCam.position.set(0, 1.7, 5.4);
   cloneCam.lookAt(0, 0.85, 0);
 
-  // --- Copies: a floor grid of the live clone texture, plus a dimmer mirrored
-  // set below the floor for the reflection. ---
+  // --- Copies: a true 3-D lattice of the live clone texture. ---
+  //
+  // This used to be a single floor plane of copies plus one flipped set below
+  // it faking a reflection — nothing above you, nothing genuinely below. The
+  // book's line, quoted in this file's own header, is "individuals ... stacked
+  // on top or below your own ... it goes on forever", so the grid now runs in
+  // all three axes and the fake reflection is gone: the real stack underfoot
+  // is what it was standing in for.
+  //
+  // 9x9x9 is 728 copies and still one draw call, which is nothing on a world
+  // where the rest of the universe is switched off.
   const latMat = new THREE.MeshBasicMaterial({
     map: rt.texture, transparent: true, depthWrite: false, side: THREE.DoubleSide,
   });
@@ -185,13 +198,22 @@ export function createMirrorRoom(opts = {}) {
   const latGeo = new THREE.PlaneGeometry(1.25, 2.3);
   geos.push(latGeo);
   const cells = [];
-  const FY = 1.1;   // copy centre height (figure stands on the floor)
+  const FY = 1.1;             // copy centre height (figure stands on its dais)
+  const VSPACING = SPACING * 1.3; // taller than wide: bodies need headroom
   for (let i = -REACH; i <= REACH; i++) {
-    for (let k = -REACH; k <= REACH; k++) {
-      const dist = Math.abs(i) + Math.abs(k);
-      const dim = Math.pow(0.82, dist);
-      if (!(i === 0 && k === 0)) cells.push({ x: i * SPACING, y: FY, z: k * SPACING, dim });      // standing copy
-      cells.push({ x: i * SPACING, y: -FY, z: k * SPACING, dim: dim * 0.4, refl: true });          // floor reflection
+    for (let j = -REACH; j <= REACH; j++) {
+      for (let k = -REACH; k <= REACH; k++) {
+        if (i === 0 && j === 0 && k === 0) continue; // that one is you
+        // Euclidean falloff, so the stack hazes out evenly in every direction
+        // rather than down the axes first.
+        const d = Math.sqrt(i * i + j * j + k * k);
+        cells.push({
+          x: i * SPACING,
+          y: FY + j * VSPACING,
+          z: k * SPACING,
+          dim: Math.pow(0.80, d),
+        });
+      }
     }
   }
   const lattice = new THREE.InstancedMesh(latGeo, latMat, cells.length);
@@ -204,24 +226,44 @@ export function createMirrorRoom(opts = {}) {
   lattice.instanceColor.needsUpdate = true;
   group.add(lattice);
 
-  // --- Update: pose the clone, billboard every copy toward the player. ---
+  // --- Update: pose the clone as the player, billboard every copy. ---
+  //
+  // The copies all sample one render-to-texture clone, so they already move in
+  // perfect unison; the work is making that unison be YOU. The clone used to
+  // play a hardcoded 'idle' and spin on its own axis ("the selves regard you
+  // from their own angle"), which is the opposite of mimicry. Now walk.mode,
+  // walk.speed01 and the player's facing drive it directly.
+  //
+  // The quads stay camera-facing and the CLONE'S camera is orbited to match the
+  // angle you are being seen from — so each copy is a live picture of you from
+  // the viewer's side. Giving every copy your literal yaw instead would be more
+  // naive-correct and much worse: flat billboards all sharing one heading go
+  // edge-on and vanish the moment you turn.
   const _m = new THREE.Matrix4();
   const _q = new THREE.Quaternion();
   const _e = new THREE.Euler();
-  let cloneYaw = 0;
-  function update(t, dt, playerLocal, speed01 = 0) {
-    clone.update(dt, 'idle', speed01);
-    cloneYaw += dt * 0.1;
-    clone.group.rotation.y = cloneYaw; // the selves regard you from their own angle
+  const _camOff = new THREE.Vector3();
+  const CAM_DIST = 5.4;
+  function update(t, dt, playerLocal, speed01 = 0, mode = 'idle', facingYaw = 0, viewYaw = 0) {
+    clone.update(dt, mode, speed01);
+    clone.group.rotation.y = 0; // the clone stays put; the camera moves around it
+
+    // Where the viewer stands relative to the player, expressed as an angle
+    // about the clone. rel = 0 means we're looking at the player's back.
+    const rel = viewYaw - facingYaw;
+    _camOff.set(Math.sin(rel) * CAM_DIST, 1.7, Math.cos(rel) * CAM_DIST);
+    cloneCam.position.copy(_camOff);
+    cloneCam.lookAt(0, 0.85, 0);
+
     rim.material.emissiveIntensity = 1.0 + Math.sin(t * 1.5) * 0.3;
     const px = playerLocal ? playerLocal.x : 0;
     const pz = playerLocal ? playerLocal.z : 0;
     for (let c = 0; c < cells.length; c++) {
       const cell = cells[c];
-      const yaw = Math.atan2(px - cell.x, pz - cell.z); // face the player
+      const yaw = Math.atan2(px - cell.x, pz - cell.z); // billboard toward the viewer
       _e.set(0, yaw, 0);
       _q.setFromEuler(_e);
-      _m.compose(_v3(cell.x, cell.y, cell.z), _q, _s3(1, cell.refl ? -1 : 1, 1)); // flip the reflection
+      _m.compose(_v3(cell.x, cell.y, cell.z), _q, _s3(1, 1, 1));
       lattice.setMatrixAt(c, _m);
     }
     lattice.instanceMatrix.needsUpdate = true;

@@ -38,6 +38,10 @@ import * as THREE from 'three';
 import { makeStructure } from './city.js';
 import * as DLG from './actuality-dialogue.js';
 import { createMirrorRoom } from './actuality-mirrorroom.js';
+import { createActualitySky } from './actuality-sky.js';
+import { createActualityMaterials } from './actuality-materials.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import cityWindowsFrag from './shaders/actualityCityWindows.frag?raw';
 // The owner's dragon artwork, shown in Zone 9 the way the deep nebulae show the
 // owner's paintings — layered billboards rather than a built sculpt: the granite
 // statue behind, the glowing hologram (box removed) additively in front.
@@ -49,17 +53,18 @@ import dragonGraniteUrl from '../src/assets/actuality-dragon-granite.png';
  * ------------------------------------------------------------------- */
 const AC = {
   HUB_FLOOR_HALF: 18,        // terrace half-extent (m)
-  HUB_WALL_H: 9.0,           // café nook wall height (tripled for the 2× figures)
+  HUB_WALL_H: 3.6,           // café nook wall height (a real single-storey shopfront)
+  HUB_DOOR_H: 2.2,           // mirror-room doorway opening in the back wall
   CAFE_BACK_Z: 14.0,         // back wall plane (anchor-local +Z)
   DOME_RADIUS: 140,          // hub sky dome
   ZONE_DIST: 315,            // zones sit this far from the hub along ring bearings (was 420; −25%)
   ZONE_FLOOR_HALF: 30,       // zone landing-pad half-extent
-  ARCH_RING: 15,             // hub portal arches this far from the anchor
-  ARCH_ARC: 2.6,             // arc (radians) the nine arches span, front of terrace
+  ARCH_RING: 15,             // hub gateways this far from the anchor
+  ARCH_ARC: 2.9,             // arc (radians) the nine gateways span, front of terrace
   PORTAL_R: 2.0,             // portal trigger radius
   FADE_OUT: 0.6,             // seconds to black
   FADE_IN: 1.4,              // seconds back from black (~2 s total transition)
-  HOLOGRID_SECONDS: 10,      // time in the hyper-holo-grid before the loop resets
+  HOLOGRID_SECONDS: 45,      // time in the hyper-holo-grid before the loop resets
   BLOOM_THRESHOLD: 0.85,     // emissive above this blooms
   STRING_LIGHT_EMISSIVE: 1.1,
   TRIM_EMISSIVE: 0.4,        // stays under threshold (no bloom)
@@ -311,8 +316,9 @@ function crescentTexture(flip = false) {
   return tex;
 }
 
-// Portal sign: the digit glyph + its word, glowing warm on dark. Used on the
-// hub arches (a quiet reward for players tracking the cipher).
+// Sign plate: the digit glyph + its word, glowing warm on dark. The gateways
+// use the engraved steel plate in actuality-materials.js; this simpler one is
+// the hidden mirror door's "0 / REPEAT".
 function signTexture(digit, word) {
   const c = document.createElement('canvas');
   c.width = 256; c.height = 128;
@@ -364,6 +370,53 @@ function tvStaticTexture(rng) {
   return tex;
 }
 
+// Tiling ripple normal map for the Zone 6 lake. Built from summed directional
+// waves rather than noise: real water has coherent wavefronts, and noise-based
+// normals read as sand. The height field is differentiated analytically so the
+// result is a true normal map, and every wave uses an integer number of periods
+// across the tile so it repeats seamlessly.
+function waterNormalTexture(size = 256) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  const img = g.createImageData(size, size);
+  const waves = [
+    { kx: 3, ky: 1, amp: 1.00, ph: 0.0 },
+    { kx: -2, ky: 3, amp: 0.65, ph: 1.7 },
+    { kx: 5, ky: -2, amp: 0.40, ph: 3.1 },
+    { kx: 1, ky: 6, amp: 0.28, ph: 5.2 },
+    { kx: -7, ky: -4, amp: 0.16, ph: 2.4 },
+  ];
+  const TAU = Math.PI * 2;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = x / size, v = y / size;
+      let dhdu = 0, dhdv = 0;
+      for (const w of waves) {
+        const a = TAU * (w.kx * u + w.ky * v) + w.ph;
+        const s = Math.cos(a) * w.amp;
+        dhdu += s * TAU * w.kx;
+        dhdv += s * TAU * w.ky;
+      }
+      // Normal of the height field, packed into RGB.
+      const sc = 0.02;
+      let nx = -dhdu * sc, ny = -dhdv * sc, nz = 1;
+      const len = Math.hypot(nx, ny, nz);
+      nx /= len; ny /= len; nz /= len;
+      const i = (y * size + x) * 4;
+      img.data[i] = (nx * 0.5 + 0.5) * 255;
+      img.data[i + 1] = (ny * 0.5 + 0.5) * 255;
+      img.data[i + 2] = (nz * 0.5 + 0.5) * 255;
+      img.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(3, 2);
+  return tex;
+}
+
 // Simple black silhouette on transparent (skyline / swing set / crescent moon).
 function silhouetteTexture(kind) {
   const c = document.createElement('canvas');
@@ -391,41 +444,168 @@ function silhouetteTexture(kind) {
 
 // Per-zone metadata: digit word (for the arch sign) and a tint used for the
 // pad's ambient light so each zone reads as a distinct place at a glance.
+// `sky` names a preset in actuality-sky.js. Authored per zone rather than
+// simulated: each place has a fixed time of day that serves its scene, and the
+// transition blackout is where the swap (and its one-off IBL bake) happens.
 const ZONE_META = [
-  { id: 'z1', word: 'MIND', tint: 0xe8b878, note: 'THE MIND, CHASING ITS OWN THOUGHTS' },
-  { id: 'z2', word: 'BODY', tint: 0xd8926a, note: 'TWO SOULS DRAWN TOGETHER INTO ONE' },
-  { id: 'z3', word: 'SOUL', tint: 0xd8d0b0, note: 'AN ORDINARY CAFÉ — THE SOUL IS THE EVERYDAY' },
-  { id: 'z4', word: 'SELF', tint: 0xe0c090, note: 'THE FRIENDS WHO MADE YOU WHO YOU ARE' },
-  { id: 'z5', word: 'ORDER', tint: 0x8890b0, note: 'YOUR MEMORIES, SET IN ORDER ALONG THE PATH' },
-  { id: 'z6', word: 'LIFE', tint: 0x6a86a0, note: 'STEP DOWN INTO THE WATER — LIFE, DEATH, REBIRTH' },
-  { id: 'z7', word: 'TIME', tint: 0x7088a8, note: 'SIT BY THE TV — TIME YOU WON’T REMEMBER' },
-  { id: 'z8', word: 'ETERNITY', tint: 0xc88a5a, note: 'LET THE FIRE BURN DOWN UNDER AN ENDLESS SKY' },
-  { id: 'z9', word: 'DEATH / REBIRTH', tint: 0x707078, note: 'THE DRAGON — LEAP INTO THE BLACK BOX TO BE REBORN' },
+  { id: 'z1', word: 'MIND', tint: 0xe8b878, sky: 'goldenLow', note: 'THE MIND, CHASING ITS OWN THOUGHTS' },
+  { id: 'z2', word: 'BODY', tint: 0xd8926a, sky: 'interior', note: 'TWO SOULS DRAWN TOGETHER INTO ONE' },
+  { id: 'z3', word: 'SOUL', tint: 0xd8d0b0, sky: 'interior', note: 'AN ORDINARY CAFÉ — THE SOUL IS THE EVERYDAY' },
+  // z4 is the one zone whose arrival point is OUTDOORS — you land on an apron
+  // and walk in through the dorm door — so it needs a real sky, not an interior
+  // probe, or the approach is a black void. Dusk also gives the apartment's
+  // warm window something to be a window onto.
+  { id: 'z4', word: 'SELF', tint: 0xe0c090, sky: 'dusk', note: 'THE FRIENDS WHO MADE YOU WHO YOU ARE' },
+  { id: 'z5', word: 'ORDER', tint: 0x8890b0, sky: 'none', note: 'YOUR MEMORIES, SET IN ORDER ALONG THE PATH' },
+  { id: 'z6', word: 'LIFE', tint: 0x6a86a0, sky: 'nightMoody', note: 'STEP DOWN INTO THE WATER — LIFE, DEATH, REBIRTH' },
+  { id: 'z7', word: 'TIME', tint: 0x7088a8, sky: 'interior', note: 'SIT BY THE TV — TIME YOU WON’T REMEMBER' },
+  { id: 'z8', word: 'ETERNITY', tint: 0xc88a5a, sky: 'dusk', note: 'LET THE FIRE BURN DOWN UNDER AN ENDLESS SKY' },
+  { id: 'z9', word: 'DEATH / REBIRTH', tint: 0x707078, sky: 'none', note: 'THE DRAGON — LEAP INTO THE BLACK BOX TO BE REBORN' },
 ];
 
-// One portal arch (two posts + a lintel + a glowing sign), built facing +Z in
-// its own local frame; caller positions/yaws it.
-function buildPortalArch(digit, word, geos, mats) {
+/**
+ * The one place on Actuality the story happens.
+ *
+ * Every other world builds its landing site wherever you happen to touch down.
+ * This one can't: the café, the nine gateways and the landing pad are a fixed
+ * piece of architecture, and a player who lands twice should find them in the
+ * same place both times — the pad is a landmark, not a thing that follows the
+ * ship around. So the anchor is pinned to this direction in the planet's
+ * UNROTATED surface-local frame, and walk.js snaps the touchdown to it.
+ *
+ * Any unit vector works; this one is off-equator so the terrace doesn't sit on
+ * the seam of the terrain's latitude bands.
+ */
+export const ACTUALITY_SITE = new THREE.Vector3(0.42, 0.31, 0.85).normalize();
+
+// The café itself: the headline look — a real blue sky with clouds here and
+// there, sun low enough that the light across the terrace stays warm.
+const HUB_SKY = 'clearBlue';
+const MIRROR_SKY = 'none';
+
+function skyForZone(id) {
+  if (id === 'hub') return HUB_SKY;
+  if (id === 'mirror') return MIRROR_SKY;
+  const idx = Number(id.slice(1)) - 1;
+  return ZONE_META[idx]?.sky ?? 'interior';
+}
+
+// Gateway footprint, shared by the geometry, the collision boxes buildHub
+// registers, and the trigger placement. Half-width out to the outside face of
+// a plinth: the arches must not crowd each other on the arc.
+const GATE = {
+  COL_X: 1.45,       // column centre offset from the opening's centreline
+  HALF: 2.0,         // outer half-width (plinth face)
+  HEAD: 4.42,        // underside of the lintel
+  TOP: 4.96,         // top of the cap flashing
+};
+
+/**
+ * One gateway — blackened steel and glass, built facing +Z in its own local
+ * frame; the caller positions and yaws it.
+ *
+ * The read from across the terrace is a heavy steel portal frame: two I-section
+ * columns on concrete plinths, a deep lintel, and glazing that carries the
+ * destination zone's colour — a lit head transom over the opening and a slot of
+ * light let into each column's inner web. The opening itself stays clear, so
+ * it's obvious you walk through rather than into it, and a flush sill plate
+ * with a glowing inlay marks exactly where the threshold is.
+ *
+ * `tint` is the zone's colour; every gate is the same steel and differs only in
+ * what colour is burning inside it.
+ */
+function buildPortalArch(digit, word, tint, geos, mats, M) {
   const grp = new THREE.Group();
-  const postMat = new THREE.MeshStandardMaterial({ color: 0x3a2c20, roughness: 0.85 });
-  mats.push(postMat);
-  const box = (w, h, d, x, y, z, mat) => {
+  const glass = M.glassFor(tint);
+  const box = (w, h, d, x, y, z, mat, rz = 0) => {
     const g = new THREE.BoxGeometry(w, h, d);
     geos.push(g);
-    const m = new THREE.Mesh(g, mat); m.position.set(x, y, z); grp.add(m); return m;
+    const m = new THREE.Mesh(g, mat);
+    m.position.set(x, y, z);
+    if (rz) m.rotation.z = rz;
+    grp.add(m);
+    return m;
   };
-  box(0.4, 3.4, 0.4, -1.3, 1.7, 0, postMat);
-  box(0.4, 3.4, 0.4, 1.3, 1.7, 0, postMat);
-  box(3.4, 0.5, 0.4, 0, 3.55, 0, postMat);
-  const signTex = signTexture(digit, word);
-  const signGeo = new THREE.PlaneGeometry(2.6, 0.9);
-  const signMat = new THREE.MeshBasicMaterial({ map: signTex, transparent: true });
-  const sign = new THREE.Mesh(signGeo, signMat);
-  sign.position.set(0, 3.55, 0.25);
-  grp.add(sign);
-  geos.push(signGeo); mats.push(signMat);
-  grp.userData.signTex = signTex;
+  const plane = (w, h, x, y, z, mat) => {
+    const g = new THREE.PlaneGeometry(w, h);
+    geos.push(g);
+    const m = new THREE.Mesh(g, mat);
+    m.position.set(x, y, z);
+    grp.add(m);
+    return m;
+  };
+
+  const X = GATE.COL_X;
+  for (const s of [-1, 1]) {
+    // Cast plinth, with a chamfered top course so the column doesn't grow
+    // straight out of the paving.
+    box(1.10, 0.30, 1.10, s * X, 0.15, 0, M.concrete);
+    box(0.88, 0.14, 0.88, s * X, 0.37, 0, M.concrete);
+    // I-section column: web plus inner/outer flanges, so the profile reads as
+    // rolled steel rather than a stick.
+    box(0.30, 3.98, 0.34, s * X, 2.43, 0, M.steel);
+    box(0.13, 3.86, 0.66, s * X - s * 0.21, 2.43, 0, M.steel);
+    box(0.13, 3.86, 0.66, s * X + s * 0.21, 2.43, 0, M.steel);
+    // Base plate + visible bolt heads where the column meets the plinth.
+    box(0.74, 0.06, 0.74, s * X, 0.47, 0, M.steelBright);
+    for (const bz of [-0.28, 0.28]) {
+      box(0.10, 0.09, 0.10, s * X - 0.28, 0.53, bz, M.steelBright);
+      box(0.10, 0.09, 0.10, s * X + 0.28, 0.53, bz, M.steelBright);
+    }
+    // Slot of zone light let into the column's inner web.
+    plane(0.20, 2.60, s * (X - 0.155), 2.30, 0.001, glass.scrim);
+    plane(0.20, 2.60, s * (X - 0.155), 2.30, -0.001, glass.scrim);
+    // Corner gusset under the lintel.
+    box(0.46, 0.46, 0.28, s * (X - 0.42), GATE.HEAD - 0.30, 0, M.steel, Math.PI / 4);
+  }
+
+  // Lintel: a deep beam, a bright soffit plate under it (catches the light
+  // coming up off the terrace), and a cap flashing over the top.
+  box(2 * GATE.HALF - 0.1, 0.46, 0.70, 0, GATE.HEAD + 0.23, 0, M.steel);
+  box(2 * X - 0.34, 0.05, 0.52, 0, GATE.HEAD - 0.02, 0, M.steelBright);
+  box(2 * GATE.HALF + 0.14, 0.09, 0.86, 0, GATE.HEAD + 0.50, 0, M.steel);
+
+  // Head transom: a glazed panel over the opening, between a crossbeam and the
+  // lintel soffit. This is the lantern of the whole thing.
+  box(2 * X - 0.30, 0.16, 0.34, 0, 3.44, 0, M.steelBright);
+  const TW = 2 * X - 0.44, TH = GATE.HEAD - 3.60;
+  const TY = (3.52 + GATE.HEAD) / 2;
+  plane(TW, TH, 0, TY, 0.04, glass.pane);
+  plane(TW, TH, 0, TY, -0.03, glass.scrim);
+  // Two mullions across the transom.
+  for (const mx of [-0.44, 0.44]) box(0.07, TH, 0.16, mx, TY, 0, M.steelBright);
+
+  // Sill: a flush steel threshold plate with a glowing inlay each side, so the
+  // trigger has a visible edge to step over.
+  box(2 * X + 0.2, 0.07, 1.02, 0, 0.035, 0, M.steelBright);
+  for (const sz of [-0.34, 0.34]) {
+    const inlay = plane(2 * X - 0.24, 0.15, 0, 0.072, sz, glass.scrim);
+    inlay.rotation.x = -Math.PI / 2;
+  }
+
+  // Engraved nameplate on the lintel face.
+  const plateTex = M.plateTexture(digit, word, tint);
+  const plateGeo = new THREE.PlaneGeometry(2.30, 0.72);
+  const plateMat = new THREE.MeshStandardMaterial({
+    map: plateTex, roughness: 0.55, metalness: 0.8,
+    emissiveMap: plateTex, emissive: 0xffffff, emissiveIntensity: 0.30,
+  });
+  const plate = new THREE.Mesh(plateGeo, plateMat);
+  plate.position.set(0, GATE.HEAD + 0.23, 0.36);
+  grp.add(plate);
+  geos.push(plateGeo); mats.push(plateMat);
   return grp;
+}
+
+// Where hub gateway `i` of `count` stands on the terrace, in anchor-local
+// space. Shared by buildHub (which registers the columns as collision) and by
+// createActuality (geometry + trigger centres), so the two can never drift.
+function gatePlacement(i, count = AC.ZONE_COUNT) {
+  const t = count > 1 ? i / (count - 1) : 0.5;
+  const ang = -AC.ARCH_ARC / 2 + t * AC.ARCH_ARC;
+  const x = Math.sin(ang) * AC.ARCH_RING;
+  const z = -Math.cos(ang) * AC.ARCH_RING; // front (-Z) arc, clear of the café
+  return { x, z, yaw: Math.atan2(-x, -z) }; // yaw faces the terrace centre
 }
 
 /* ----------------------------------------------------------------------
@@ -469,9 +649,10 @@ function makeFigure(opts = {}) {
     box(0.16, 0.9, 0.16, -0.12, hipY - 0.45, 0, clothMat);
     box(0.16, 0.9, 0.16, 0.12, hipY - 0.45, 0, clothMat);
   }
-  // All Actuality figures stand twice life-size; the `scale` opt still allows
-  // per-figure trims on top.
-  group.scale.setScalar(scale * 2);
+  // Human scale. The primitive body is authored ~1.9 m tall at scale 1, so
+  // `scale` is only ever a per-figure trim (a child, a taller adult) — it is
+  // not a global multiplier.
+  group.scale.setScalar(scale);
   const phase = rng() * 6.28;
   const baseY = group.position.y;
   function update(t) {
@@ -497,7 +678,7 @@ function makeFigure(opts = {}) {
  * Built in anchor-local space (added under `anchor`). Returns geometry group,
  * a makeStructure for collision, lights, and the She interactable position.
  * ------------------------------------------------------------------- */
-function buildHub(rng) {
+function buildHub(rng, quality = 'high', M) {
   const group = new THREE.Group();
   group.name = 'actuality.hub';
   const geos = [];
@@ -536,7 +717,8 @@ function buildHub(rng) {
   // it; it opens once every zone is seen — buildMirrorDoor owns the door itself).
   addBox(7.4, WH, 0.5, -6.3, WH / 2, BZ, wallMat);     // back — left of doorway
   addBox(7.4, WH, 0.5, 6.3, WH / 2, BZ, wallMat);      // back — right of doorway
-  addBox(3.2, WH - 5.2, 0.5, 0, WH - (WH - 5.2) / 2, BZ, wallMat); // lintel — 5.2 m doorway opening
+  const DH = AC.HUB_DOOR_H; // doorway opening height
+  addBox(3.2, WH - DH, 0.5, 0, WH - (WH - DH) / 2, BZ, wallMat); // lintel over the doorway
   addBox(0.5, WH, 6.5, -10, WH / 2, BZ - 3.25, wallMat); // left return
   addBox(0.5, WH, 6.5, 10, WH / 2, BZ - 3.25, wallMat);  // right return
   // Awning over the nook — striped canopy over wood beams.
@@ -558,6 +740,102 @@ function buildHub(rng) {
   board.position.set(-6.5, 1.9, BZ - 0.3); board.rotation.y = Math.PI; geos.push(boardGeo);
   group.add(board);
 
+  // --- Landing pad ------------------------------------------------------
+  // Somewhere for the ship to actually be, instead of standing on the paving
+  // among the café tables. A raised concrete circle just off the terrace,
+  // reached through the parapet gap, with a painted ring, chevron markings and
+  // rim lights. The ship is set down on it by walk.js (PAD_X/PAD_Z below are
+  // the same anchor-local coordinates it parks at).
+  const PAD_X = 26, PAD_Z = 6, PAD_R = 7.0, PAD_RISE = 0.35;
+  // The parapet's opening, which the walk out to the pad runs through. Declared
+  // with the pad because both the walkway and the wall runs below need it.
+  const GAP_Z0 = 1.5, GAP_Z1 = 10.5;
+  const padMat = M.pad; // shared concrete (registry owns it)
+  const padPaint = new THREE.MeshStandardMaterial({ color: 0xd8c88a, roughness: 0.8 });
+  const padLightMat = new THREE.MeshStandardMaterial({
+    color: 0xbfe6ff, emissive: 0x7fd0ff, emissiveIntensity: 1.4, roughness: 0.4,
+  });
+  mats.push(padPaint, padLightMat);
+
+  const padGeo = new THREE.CylinderGeometry(PAD_R, PAD_R + 0.5, PAD_RISE + 1.0, 40);
+  geos.push(padGeo);
+  const padMesh = new THREE.Mesh(padGeo, padMat);
+  padMesh.position.set(PAD_X, PAD_RISE - (PAD_RISE + 1.0) / 2, PAD_Z);
+  group.add(padMesh);
+
+  // Painted ring + centre disc.
+  const ringGeo = new THREE.RingGeometry(PAD_R - 1.5, PAD_R - 1.1, 40);
+  geos.push(ringGeo);
+  const ring = new THREE.Mesh(ringGeo, padPaint);
+  ring.position.set(PAD_X, PAD_RISE + 0.01, PAD_Z);
+  ring.rotation.x = -Math.PI / 2;
+  group.add(ring);
+  const discGeo = new THREE.RingGeometry(1.5, 2.1, 32);
+  geos.push(discGeo);
+  const disc = new THREE.Mesh(discGeo, padPaint);
+  disc.position.set(PAD_X, PAD_RISE + 0.01, PAD_Z);
+  disc.rotation.x = -Math.PI / 2;
+  group.add(disc);
+  // Four chevrons pointing in, so the pad has an orientation.
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    addBox(2.4, 0.02, 0.42, PAD_X + Math.sin(a) * (PAD_R - 3.2), PAD_RISE + 0.012,
+      PAD_Z + Math.cos(a) * (PAD_R - 3.2), padPaint, -a);
+  }
+  // Rim lights around the edge.
+  const padBulbGeo = new THREE.BoxGeometry(0.22, 0.3, 0.22);
+  geos.push(padBulbGeo);
+  const padBulbs = new THREE.InstancedMesh(padBulbGeo, padLightMat, 12);
+  {
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      m.makeTranslation(PAD_X + Math.sin(a) * (PAD_R - 0.35), PAD_RISE + 0.15,
+        PAD_Z + Math.cos(a) * (PAD_R - 0.35));
+      padBulbs.setMatrixAt(i, m);
+    }
+    padBulbs.instanceMatrix.needsUpdate = true;
+  }
+  group.add(padBulbs);
+  const padGlow = new THREE.PointLight(0x8fd0ff, 0.5, 22, 2.0);
+  padGlow.position.set(PAD_X, 2.2, PAD_Z);
+  group.add(padGlow); lights.push(padGlow);
+
+  // The walk from the terrace gap out to the pad.
+  addBox(PAD_X - PAD_R - H + 2, 0.12, 4.0, (H + PAD_X - PAD_R) / 2, 0.06, (GAP_Z0 + GAP_Z1) / 2, padMat);
+
+  // --- Parapet: a low wall around the terrace edge ---------------------
+  // The terrace used to just stop, and you could walk straight off it into the
+  // city, which is scenery with no ground under it. A knee-high stone parapet
+  // runs the perimeter, with one gap on the +X side opening onto the walk to
+  // the landing pad. The café side is left alone — the nook's own walls close
+  // that end already.
+  const PARAPET_H = 1.05;
+  const PARAPET_T = 0.42;
+  const parapetMat = M.stone;   // shared limestone (registry owns both)
+  const capMat = M.coping;
+  const parapetWalls = []; // collision, filled alongside the geometry
+
+  // A run of parapet with a stone cap on top, plus its collision box.
+  const parapetRun = (x0, x1, z0, z1) => {
+    const w = x1 - x0, d = z1 - z0;
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+    addBox(w, PARAPET_H, d, cx, PARAPET_H / 2, cz, parapetMat);
+    addBox(w + 0.12, 0.1, d + 0.12, cx, PARAPET_H + 0.05, cz, capMat);
+    parapetWalls.push({ x0, x1, z0, z1, y0: 0, y1: PARAPET_H });
+  };
+
+  // Front (-Z, beyond the gateway arc) and back-corner returns.
+  parapetRun(-H, H, -H, -H + PARAPET_T);
+  // -X side, full run up to the café nook.
+  parapetRun(-H, -H + PARAPET_T, -H, BZ - 6.5);
+  // +X side, split around the gap that leads to the landing pad.
+  parapetRun(H - PARAPET_T, H, -H, GAP_Z0);
+  parapetRun(H - PARAPET_T, H, GAP_Z1, BZ - 6.5);
+  // Short stubs framing the gap, so the opening reads as a gate.
+  addBox(1.6, PARAPET_H + 0.5, 0.5, H - 0.8, (PARAPET_H + 0.5) / 2, GAP_Z0, capMat);
+  addBox(1.6, PARAPET_H + 0.5, 0.5, H - 0.8, (PARAPET_H + 0.5) / 2, GAP_Z1, capMat);
+
   // Low planters ringing the terrace edge with shrubs.
   const planterMat = new THREE.MeshStandardMaterial({ color: 0x6b5138, roughness: 0.9 });
   const shrubMat = new THREE.MeshStandardMaterial({ color: 0x4a6b3a, roughness: 0.85 });
@@ -568,15 +846,26 @@ function buildHub(rng) {
     const a = (i / 10) * Math.PI * 2;
     const px = Math.sin(a) * (H - 2.2), pz = Math.cos(a) * (H - 2.2);
     if (pz > BZ - 8) continue; // don't block the café nook
+    // ...nor stand in a gateway. The planter ring passes just behind the arc,
+    // which put a shrub squarely in one of the openings.
+    let blocks = false;
+    for (let g = 0; g < AC.ZONE_COUNT && !blocks; g++) {
+      const p = gatePlacement(g);
+      blocks = Math.hypot(px - p.x, pz - p.z) < 4.0;
+    }
+    if (blocks) continue;
     addBox(2.2, 0.7, 1.0, px, 0.35, pz, planterMat, a);
     const s = new THREE.Mesh(shrubGeo, shrubMat);
     s.position.set(px, 1.0, pz); s.scale.set(1, 0.8, 1); group.add(s);
   }
 
-  // Tables + chairs on the terrace (chair = seat + back + legs).
+  // Tables + chairs on the terrace (chair = seat + back + legs). The backrest
+  // sits on the +ry edge of the seat, so a chair placed on the far side of a
+  // table gets its back to the outside and the sitter looks in at the table —
+  // the offset used to be negated, which sat everyone facing away from it.
   const chairAt = (x, z, ry) => {
     addBox(0.5, 0.08, 0.5, x, 0.5, z, woodDark, ry);
-    const bx = x - Math.sin(ry) * 0.22, bz = z - Math.cos(ry) * 0.22;
+    const bx = x + Math.sin(ry) * 0.22, bz = z + Math.cos(ry) * 0.22;
     addBox(0.5, 0.6, 0.08, bx, 0.8, bz, woodDark, ry);
   };
   const tableAt = (x, z, withChairs = true) => {
@@ -633,54 +922,194 @@ function buildHub(rng) {
     const l = new THREE.Mesh(lanternGeo, lanternMat); l.position.set(lx, WH - 0.5, BZ - 7.4); group.add(l);
   }
 
-  // Local lighting: warm point lights + a soft warm ambient (dawn regardless
-  // of the true sun angle).
-  const key = new THREE.PointLight(AC.COL_WARM_LIGHT, 1.6, 60, 2.0);
-  key.position.set(0, 5, BZ - 6);
-  const fill = new THREE.PointLight(0xffe6c2, 0.9, 50, 2.0);
-  fill.position.set(-4, 3, 2);
-  const amb = new THREE.AmbientLight(0xf0d8b0, 0.55);
-  group.add(key, fill, amb);
-  lights.push(key, fill, amb);
-
-  // Sky dome — cream→gold gradient.
-  const domeTex = gradientTexture('#fbf1dc', '#e9c98c');
-  texs.push(domeTex);
-  const domeGeo = new THREE.SphereGeometry(AC.DOME_RADIUS, 24, 16);
-  const domeMat = new THREE.MeshBasicMaterial({ map: domeTex, side: THREE.BackSide, fog: false });
-  const dome = new THREE.Mesh(domeGeo, domeMat);
-  group.add(dome);
-  geos.push(domeGeo); mats.push(domeMat);
+  // Local lighting. The sun and the sky's ambient now come from
+  // actuality-sky.js (a real directional light plus an environment map), so
+  // these are what they should always have been: practical lights belonging to
+  // the café itself — the glow under the awning, and a soft bounce off the
+  // terrace. Both are far weaker than the old stand-ins for daylight.
+  const key = new THREE.PointLight(AC.COL_WARM_LIGHT, 0.55, 26, 2.0);
+  key.position.set(0, 3.1, BZ - 6);
+  const fill = new THREE.PointLight(0xffe6c2, 0.3, 22, 2.0);
+  fill.position.set(-4, 2.4, 2);
+  group.add(key, fill);
+  lights.push(key, fill);
 
   // The café sits in a city: a distant skyline silhouette wrapped inside the
   // dome, plus a ring of tall building blocks beyond the terrace (this is the
   // "city where his ship awaits" the player drops into from zone 9).
-  const skyTex = silhouetteTexture('skyline');
-  texs.push(skyTex);
-  skyTex.wrapS = THREE.RepeatWrapping; skyTex.repeat.set(6, 1);
-  const skyMat = new THREE.MeshBasicMaterial({ map: skyTex, transparent: true, depthWrite: false, side: THREE.BackSide });
-  const skyGeo = new THREE.CylinderGeometry(110, 110, 34, 48, 1, true);
-  const skyline = new THREE.Mesh(skyGeo, skyMat);
-  skyline.position.y = 14; group.add(skyline);
-  geos.push(skyGeo); mats.push(skyMat);
+  // It used to be fourteen grey boxes with one lit strip glued to each, in a
+  // ring, plus a painted silhouette cylinder — a bunch of weird boxes rather
+  // than a city. A real skyline needs three things the ring had none of:
+  // buildings made of stacked masses instead of single extrusions, facades that
+  // are window GRIDS with individually lit cells, and depth — near blocks you
+  // can read, mid blocks, and far towers dissolving into haze.
   const cityRng = mulberry32(0x0c17);
-  const bldgMat = new THREE.MeshStandardMaterial({ color: 0x6a6470, roughness: 0.9 });
-  mats.push(bldgMat);
-  const winMat = new THREE.MeshStandardMaterial({ color: 0xffe0a0, emissive: 0xffcf80, emissiveIntensity: 0.7, roughness: 0.6 });
-  mats.push(winMat);
-  for (let i = 0; i < 14; i++) {
-    const a = (i / 14) * Math.PI * 2 + 0.2;
-    const rad = 44 + cityRng() * 26;
-    const bx = Math.sin(a) * rad, bz = Math.cos(a) * rad;
-    if (bz > AC.CAFE_BACK_Z + 4 && Math.abs(bx) < 18) continue; // keep the café view open
-    const bh = 14 + cityRng() * 34;
-    const bg = new THREE.BoxGeometry(6 + cityRng() * 6, bh, 6 + cityRng() * 6);
-    const bm = new THREE.Mesh(bg, bldgMat); bm.position.set(bx, bh / 2, bz);
-    group.add(bm); geos.push(bg);
-    const lg = new THREE.BoxGeometry(0.6, bh * 0.7, 0.6); // a lit window strip
-    const lm = new THREE.Mesh(lg, winMat); lm.position.set(bx, bh * 0.5, bz + 3.1 * (bz < 0 ? -1 : 1));
-    group.add(lm); geos.push(lg);
+
+  // Facade materials. The window texture is generated per band so lit cells
+  // differ building to building rather than repeating one pattern citywide.
+  const CITY_HULLS = [0x6e6a72, 0x7a7068, 0x5f6068, 0x746c66, 0x676a70];
+  // Write a flat colour into a geometry's vertex colours, so unrelated shapes
+  // can share one material and still merge.
+  const tintGeo = (g, hex, mul) => {
+    _hullCol.set(hex);
+    const n = g.attributes.position.count;
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      col[i * 3] = _hullCol.r * mul; col[i * 3 + 1] = _hullCol.g * mul; col[i * 3 + 2] = _hullCol.b * mul;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  };
+
+  // Hull colour rides a vertex attribute so every block shares one material and
+  // the whole skyline merges into a single draw call.
+  const hullGeos = [];
+  const winGeos = [];
+  const _hullCol = new THREE.Color();
+
+  // One block of a building: a box, plus a window shell a hair outside it so
+  // the two never z-fight. Both are collected for merging rather than added as
+  // meshes — 60-odd towers of 2-3 tiers is ~400 meshes otherwise.
+  const cityBlock = (bx, by, bz, bw, bh, bd, hullHex) => {
+    const g = new THREE.BoxGeometry(bw, bh, bd);
+    g.translate(bx, by + bh / 2, bz);
+    _hullCol.set(hullHex);
+    // A little per-block value jitter so identical hull colours still read as
+    // separate buildings where they overlap.
+    const j = 0.82 + cityRng() * 0.36;
+    const n = g.attributes.position.count;
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      col[i * 3] = _hullCol.r * j; col[i * 3 + 1] = _hullCol.g * j; col[i * 3 + 2] = _hullCol.b * j;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    hullGeos.push(g);
+
+    const wg = new THREE.BoxGeometry(bw * 1.004, bh * 0.94, bd * 1.004);
+    // Scale UVs per building so a window cell is a consistent real-world size
+    // across a 7 m block and a 24 m one. One UV unit = one window.
+    const uv = wg.attributes.uv;
+    // Half-size windows, at double the grid density per axis. Occupancy in the
+    // shader is halved to match, so the LIT count roughly doubles rather than
+    // quadrupling — smaller lights, more of them, not a wall of glare.
+    const su = Math.max(3, Math.round(bw / 1.6));
+    const sv = Math.max(3, Math.round(bh / 1.8));
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv);
+    // Per-building seed, so no two facades hash the same.
+    const seed = cityRng() * 100;
+    const sa = new Float32Array(uv.count);
+    sa.fill(seed);
+    wg.setAttribute('aSeed', new THREE.BufferAttribute(sa, 1));
+    wg.translate(bx, by + bh / 2, bz);
+    winGeos.push(wg);
+  };
+
+  // A building: two or three stacked masses with setbacks, plus a roof box.
+  const cityTower = (bx, bz, baseW, baseD, totalH) => {
+    const hull = CITY_HULLS[(cityRng() * CITY_HULLS.length) | 0];
+    const tiers = 2 + (cityRng() < 0.45 ? 1 : 0);
+    let y = 0, w = baseW, d = baseD;
+    for (let t = 0; t < tiers; t++) {
+      const share = t === tiers - 1 ? 1 : 0.4 + cityRng() * 0.25;
+      const h = (totalH - y) * share;
+      cityBlock(bx, y, bz, w, h, d, hull);
+      y += h;
+      w *= 0.68 + cityRng() * 0.16;   // setback
+      d *= 0.68 + cityRng() * 0.16;
+    }
+    // Roof plant: a small box and a mast, which is most of what reads as "roof"
+    // at this distance and stops every tower ending in a clean slab. Windowless,
+    // so they go straight into the hull merge.
+    const rh = 1.6 + cityRng() * 2.2;
+    const rg = new THREE.BoxGeometry(w * 0.5, rh, d * 0.5);
+    rg.translate(bx + (cityRng() - 0.5) * w * 0.3, y + rh / 2, bz + (cityRng() - 0.5) * d * 0.3);
+    tintGeo(rg, hull, 0.7);
+    hullGeos.push(rg);
+    if (cityRng() < 0.5) {
+      const mh = 4 + cityRng() * 7;
+      const mg = new THREE.BoxGeometry(0.25, mh, 0.25);
+      mg.translate(bx, y + mh / 2, bz);
+      tintGeo(mg, hull, 0.6);
+      hullGeos.push(mg);
+    }
+  };
+
+  // Three depth bands. Near blocks read as buildings you could walk to; the far
+  // band is what makes the place feel like a city rather than a stage set.
+  const BANDS = [
+    { count: 16, r0: 40, r1: 62, h0: 12, h1: 30, w0: 7, w1: 12 },
+    { count: 22, r0: 66, r1: 100, h0: 20, h1: 52, w0: 9, w1: 16 },
+    { count: 26, r0: 110, r1: 175, h0: 34, h1: 88, w0: 12, w1: 24 },
+  ];
+  const bandScale = quality === 'low' ? 0.5 : 1;
+  for (const b of BANDS) {
+    const count = Math.max(6, Math.round(b.count * bandScale));
+    for (let i = 0; i < count; i++) {
+      // Jittered angular spacing: evenly spaced towers read as a fence.
+      const a = ((i + cityRng() * 0.7) / count) * Math.PI * 2;
+      const rad = b.r0 + cityRng() * (b.r1 - b.r0);
+      const bx = Math.sin(a) * rad, bz = Math.cos(a) * rad;
+      // Keep the café's own view open, and don't build on the gateway arc.
+      if (bz > AC.CAFE_BACK_Z + 4 && Math.abs(bx) < 20) continue;
+      if (rad < 34) continue;
+      cityTower(
+        bx, bz,
+        b.w0 + cityRng() * (b.w1 - b.w0),
+        b.w0 + cityRng() * (b.w1 - b.w0),
+        b.h0 + cityRng() * (b.h1 - b.h0)
+      );
+    }
   }
+
+  // Merge the whole skyline: one draw call for every hull, one for every
+  // window. Built as ~400 separate meshes it was the most expensive thing in
+  // the world by a wide margin, for geometry the player can never reach.
+  const hullGeo = mergeGeometries(hullGeos, false);
+  for (const g of hullGeos) g.dispose();
+  const cityHullMat = new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.88, metalness: 0.05,
+  });
+  mats.push(cityHullMat);
+  const cityHull = new THREE.Mesh(hullGeo, cityHullMat);
+  // Scenery 40-175 m out. The sun's shadow box is 120 m centred on the player,
+  // so a tower can only throw its shadow somewhere the player cannot stand —
+  // pure shadow-pass cost for no image.
+  cityHull.userData.noShadow = true;
+  cityHull.frustumCulled = false;
+  group.add(cityHull); geos.push(hullGeo);
+
+  // Windows: procedural and animated rather than a painted texture. A baked
+  // grid is the same frozen pattern forever, which reads as printed wallpaper
+  // on the side of a building; here each cell is hashed from its own position
+  // plus a per-building seed and keeps its own slow on/off cycle, so lights
+  // come and go while you stand on the terrace and no two facades match.
+  const winGeo = mergeGeometries(winGeos, false);
+  for (const g of winGeos) g.dispose();
+  const cityWinMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: /* glsl */ `
+      attribute float aSeed;
+      varying vec2 vWinUv;
+      varying float vSeed;
+      varying float vFade;
+      void main() {
+        vWinUv = uv;
+        vSeed = aSeed;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        // Far towers dim into the haze rather than staying pin-sharp.
+        vFade = 1.0 - smoothstep(90.0, 210.0, -mv.z);
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: cityWindowsFrag,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.FrontSide,
+  });
+  mats.push(cityWinMat);
+  const cityWin = new THREE.Mesh(winGeo, cityWinMat);
+  cityWin.userData.noShadow = true;
+  cityWin.frustumCulled = false;
+  group.add(cityWin); geos.push(winGeo);
 
   // Gentle breeze: leaves drifting slowly across the terrace.
   const NL = 60;
@@ -696,17 +1125,51 @@ function buildHub(rng) {
   for (let i = 0; i < NL; i++) lbase.push({ x0: (lr() - 0.5) * H * 2, y: 0.5 + lr() * 5, z: (lr() - 0.5) * H * 2, ph: lr() * 6.28, sp: 0.3 + lr() * 0.5 });
   const _lm = new THREE.Matrix4();
 
-  // Collision: the café nook walls (with the terrace open).
+  // Collision: the café nook walls, the terrace parapet, and the gateway
+  // columns. Only the column shafts are solid, not the plinths: the plinth is
+  // a 30 cm kerb the walker steps straight over, and bounding a yawed 1.1 m
+  // block axis-aligned would eat most of the 2.9 m opening once the player's
+  // radius is added on top. The shafts bound to ~0.2 m, leaving the walk-through
+  // clear.
+  const gateWalls = [];
+  for (let i = 0; i < AC.ZONE_COUNT; i++) {
+    const p = gatePlacement(i);
+    const c = Math.abs(Math.cos(p.yaw)), s = Math.abs(Math.sin(p.yaw));
+    const half = (0.30 * c + 0.34 * s) / 2 + 0.03; // rotated column AABB
+    for (const side of [-1, 1]) {
+      const cx = p.x + side * GATE.COL_X * Math.cos(p.yaw);
+      const cz = p.z - side * GATE.COL_X * Math.sin(p.yaw);
+      gateWalls.push({
+        x0: cx - half, x1: cx + half, z0: cz - half, z1: cz + half,
+        y0: 0.42, y1: GATE.HEAD,
+      });
+    }
+  }
   const walls = [
     { x0: -10, x1: 10, z0: BZ - 0.25, z1: BZ + 0.25, y0: 0, y1: WH },
     { x0: -10.25, x1: -9.75, z0: BZ - 6.5, z1: BZ, y0: 0, y1: WH },
     { x0: 9.75, x1: 10.25, z0: BZ - 6.5, z1: BZ, y0: 0, y1: WH },
     { x0: -6, x1: 6, z0: BZ - 1.8, z1: BZ - 0.6, y0: 0, y1: 1.1 }, // counter
+    ...parapetWalls,
+    ...gateWalls,
   ];
-  const surfaces = [{ x0: -H, x1: H, z0: -H, z1: H, y: 0 }];
-  const structure = makeStructure(0, 0, 0, surfaces, walls, H + 1);
+  // The floor now reaches out past the parapet gap to the landing pad, so the
+  // walk between them is solid ground rather than a drop. The pad's walkable
+  // surface sits at its cast height rather than at grade — otherwise you stand
+  // 35 cm inside the concrete. The rise is well under the structure's step-up
+  // allowance, so walking onto it is a kerb step, not a wall.
+  const surfaces = [
+    { x0: -H, x1: H, z0: -H, z1: H, y: 0 },
+    { x0: H, x1: PAD_X + PAD_R + 1, z0: GAP_Z0, z1: GAP_Z1, y: 0 },
+    {
+      x0: PAD_X - PAD_R - 1, x1: PAD_X + PAD_R + 1,
+      z0: PAD_Z - PAD_R - 1, z1: PAD_Z + PAD_R + 1, y: PAD_RISE,
+    },
+  ];
+  const structure = makeStructure(0, 0, 0, surfaces, walls, PAD_X + PAD_R + 4);
 
   function update(t) {
+    cityWinMat.uniforms.uTime.value = t; // city lights switch on their own cycles
     for (let i = 0; i < NL; i++) {
       const b = lbase[i];
       const x = b.x0 + ((t * b.sp * 3) % (H * 2 + 8)) - 4; // drift +X, wrap
@@ -727,6 +1190,8 @@ function buildHub(rng) {
     fillLight: fill,
     update,
     shePos: new THREE.Vector3(-6, 0, 10.4),
+    // Anchor-local landing pad, so the host can set the ship down ON it.
+    pad: { x: PAD_X, y: PAD_RISE, z: PAD_Z, r: PAD_R },
     dispose() {
       for (const g of geos) g.dispose();
       for (const m of mats) m.dispose();
@@ -738,6 +1203,39 @@ function buildHub(rng) {
 /* ----------------------------------------------------------------------
  * Flags — persisted world state (localStorage, fail-open).
  * ------------------------------------------------------------------- */
+// Turn on shadow casting/receiving for real, human-scale set dressing, and
+// leave it off for anything that is really backdrop. The size cutoff is the
+// whole trick: a 2 m chair wants a shadow, a 2700 m sky shell does not, and
+// blindly flagging everything would spend the entire shadow map on scenery the
+// player can never walk up to.
+const SHADOW_MAX_EXTENT = 40; // metres; above this it's backdrop, not furniture
+const _shadowBox = new THREE.Box3();
+const _shadowSize = new THREE.Vector3();
+function markShadowCasters(root) {
+  root.traverse((o) => {
+    if (!o.isMesh || o.userData.noShadow) return;
+    const g = o.geometry;
+    if (!g) return;
+    if (!g.boundingBox) g.computeBoundingBox();
+    _shadowBox.copy(g.boundingBox);
+    _shadowBox.getSize(_shadowSize);
+    _shadowSize.multiply(o.scale); // world-ish size, so a unit box scaled 3000 reads as 3000
+    const extent = Math.max(_shadowSize.x, _shadowSize.y, _shadowSize.z);
+    if (extent > SHADOW_MAX_EXTENT) {
+      // Big flat ground slabs still need to RECEIVE, or nothing lands on them.
+      // Tall things that big are shells and domes — they get neither.
+      o.receiveShadow = _shadowSize.y < 4;
+      return;
+    }
+    // Additive/transparent effect geometry casts nothing useful — flames,
+    // glows, holograms, billboard sprites.
+    const m = o.material;
+    const isEffect = m && (m.blending === THREE.AdditiveBlending || m.depthWrite === false);
+    o.castShadow = !isEffect;
+    o.receiveShadow = !isEffect;
+  });
+}
+
 function defaultFlags() {
   return {
     metCafeWoman: false,
@@ -748,6 +1246,7 @@ function defaultFlags() {
     hyperHoloGridSeen: false,
     zeroHeard: false,
     z6VisionSeen: false,
+    z8DeathbedSeen: false,
     digitsHeard: [],
   };
 }
@@ -793,8 +1292,20 @@ export function createActuality(planet, worldUp, opts = {}) {
 
   const flags = loadFlags();
 
+  // --- Sky, sun, and image-based lighting (actuality-sky.js) ---
+  // Built before the hub so buildHub can drop its old gradient dome: the sky
+  // module owns the sky, the sun, the fog and scene.environment from here on.
+  const sky = opts.scene
+    ? createActualitySky(anchor, opts.scene, { quality: opts.quality })
+    : null;
+
+  // --- Shared PBR materials (procedural; see actuality-materials.js) ---
+  // Built before the hub so the terrace, the pad and all ten gateways draw
+  // with one set of steel/concrete/limestone materials.
+  const materials = createActualityMaterials({ quality: opts.quality });
+
   // --- Hub ---
-  const hub = buildHub(rng);
+  const hub = buildHub(rng, opts.quality, materials);
   anchor.add(hub.group);
 
   // --- Interactables (anchor-local Vector3 positions) ---
@@ -849,11 +1360,13 @@ export function createActuality(planet, worldUp, opts = {}) {
     // semantics own the floor inside this footprint.
     const ZH = AC.ZONE_FLOOR_HALF;
     const slabGeo = new THREE.BoxGeometry(ZH * 2, 1.2, ZH * 2);
-    const slabMat = new THREE.MeshStandardMaterial({ color: 0x2a2620, roughness: 0.95 });
-    const slab = new THREE.Mesh(slabGeo, slabMat);
+    // Same near-black tone every zone was built against — the maps only add
+    // surface, so no zone's palette shifts under it. Zones that want a real
+    // floor (a café's boards, a dorm's lino) lay one over the top.
+    const slab = new THREE.Mesh(slabGeo, materials.make('concrete', { repeat: 12, color: 0x2a2620 }));
     slab.position.set(0, -0.6, 0);
     zg.add(slab);
-    zoneGeos.push(slabGeo); zoneMats.push(slabMat);
+    zoneGeos.push(slabGeo);
 
     // A tinted ambient light so the pad reads as its own place (a stand-in
     // until M5 builds the real per-zone environment).
@@ -863,7 +1376,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     // (registered against the zone's interactable below, once zones are built)
 
     // Return portal at zone-local (0,0,14), facing back toward the pad center.
-    const retArch = buildPortalArch('0', 'CAFÉ', zoneGeos, zoneMats);
+    const retArch = buildPortalArch('0', 'CAFÉ', AC.COL_GOLD, zoneGeos, zoneMats, materials);
     retArch.position.set(0, 0, 14);
     retArch.rotation.y = Math.PI; // face -Z (toward where the player arrives)
     zg.add(retArch);
@@ -917,6 +1430,9 @@ export function createActuality(planet, worldUp, opts = {}) {
   let cityFallEl = null;     // DOM overlay for the fall-to-city sequence
   let cityFallUrl = null;    // data URL of the aerial-city texture
   let mirrorTimer = 0;       // seconds inside the hyper-holo-grid
+  // Live player state from the host (walk.js `walk`), for the mirror copies.
+  let walkState = { mode: 'idle', speed01: 0, facing: new THREE.Vector3(0, 0, -1) };
+  const _mirrorFacing = new THREE.Vector3();
   let pendingReset = false;  // host consumes this → exitWalk + resetToStart (the loop)
   let mirror = null;        // createMirrorRoom handle (hyper-holo-grid)
   let mirrorRec = null;     // its zone record
@@ -933,26 +1449,32 @@ export function createActuality(planet, worldUp, opts = {}) {
     if (rec && rec.zlight) addEventLight(rec.zlight, it.pos);
   }
 
-  // --- Hub portal arches: nine, in a front arc on the terrace, one per zone.
+  // --- Hub gateways: nine, in a front arc on the terrace, one per zone.
   const hubPortals = [];
   for (let i = 0; i < AC.ZONE_COUNT; i++) {
     const meta = ZONE_META[i];
-    const t = AC.ZONE_COUNT > 1 ? i / (AC.ZONE_COUNT - 1) : 0.5;
-    const ang = -AC.ARCH_ARC / 2 + t * AC.ARCH_ARC;
-    const ax = Math.sin(ang) * AC.ARCH_RING;
-    const az = -Math.cos(ang) * AC.ARCH_RING; // front (-Z) arc, clear of the café
-    const arch = buildPortalArch(String(i + 1), meta.word, zoneGeos, zoneMats);
-    arch.position.set(ax, 0, az);
-    arch.rotation.y = Math.atan2(-ax, -az); // face the terrace center
+    const p = gatePlacement(i);
+    const arch = buildPortalArch(String(i + 1), meta.word, meta.tint, zoneGeos, zoneMats, materials);
+    arch.position.set(p.x, 0, p.z);
+    arch.rotation.y = p.yaw;
     anchor.add(arch);
     hubPortals.push({
       targetZone: meta.id,
-      center: new THREE.Vector3(ax, 0, az).applyQuaternion(anchorQ).add(anchorPos),
+      center: new THREE.Vector3(p.x, 0, p.z).applyQuaternion(anchorQ).add(anchorPos),
     });
   }
 
   // Sealed mirror-room door behind the café (registers a gated hub portal).
   buildMirrorDoor();
+
+  // Shadows. three needs these per mesh, and there are several hundred of them
+  // across the hub and nine zones, so it's one sweep at the end of construction
+  // rather than a flag on every addBox call. The sky's own meshes are skipped
+  // (a sky that shadows itself is nonsense and the shadow camera would try to
+  // cover a 3000-unit box), as is anything huge enough to be scenery-at-infinity
+  // — distant skyline shells only cost shadow-map fill they never use.
+  markShadowCasters(anchor);
+  markShadowCasters(group);
 
   // Zone→hub destination (arrive on the terrace facing the café / She).
   const hubReturnDest = new THREE.Vector3(0, 0, -6).applyQuaternion(anchorQ).add(anchorPos);
@@ -991,6 +1513,15 @@ export function createActuality(planet, worldUp, opts = {}) {
 
   // --- Teleport intent queue (consumed by walk.js host) ---
   let pendingTeleport = null;
+
+  // --- Sky intents, drained in preRender (the only hook with a renderer, and
+  // the IBL bake needs one). The hub's sky is queued for the first frame. ---
+  let pendingSkyPreset = HUB_SKY;
+  let pendingSkyBlend = null; // { a, b, k } — zone 8's dusk→night burn-down
+  // update() runs with the player, preRender() runs with the renderer; the sky
+  // needs both, so update stashes its half here. Scratch, never reallocated.
+  let _skyT = 0, _skyDt = 0;
+  const _skyPlayer = new THREE.Vector3();
 
   // --- Audio bed: one AudioContext, a shared looped-noise buffer + oscillators
   // routed per zone through gains that crossfade to the active zone. Fail-open
@@ -1042,17 +1573,28 @@ export function createActuality(planet, worldUp, opts = {}) {
       const chirp = ctx.createOscillator(); chirp.type = 'triangle'; chirp.frequency.value = 1900;
       const chirpGain = ctx.createGain(); chirpGain.gain.value = 0;
       chirp.connect(chirpGain).connect(gainFor('z1')); chirp.start(); started.push(chirp);
-      audio = { ctx, master, zoneGains, started, chirp, chirpGain };
+      audio = { ctx, master, zoneGains, started, chirp, chirpGain, duck: 1, duckTarget: 1 };
       if (ctx.state === 'suspended') ctx.resume().catch(() => {});
     } catch { audio = null; }
+  }
+
+  // Duck the whole bed toward `to` (1 = normal, ~0 = silence). The Zone 8
+  // deathbed uses it: the chapter's scene is "no music, no dialogue, just the
+  // soft rhythm of breathing", and the ambient drone would fight that.
+  function setAudioDuck(to) {
+    if (audio) audio.duckTarget = to;
   }
 
   // Crossfade zone gains toward the active zone; pulse the zone-1 bird chirp.
   function audioUpdate(t, dt) {
     if (!audio) return;
     const k = Math.min(1, dt * 2);
+    // Ease the duck rather than cutting — a hard mute reads as a bug.
+    if (audio.duckTarget !== undefined) {
+      audio.duck += (audio.duckTarget - audio.duck) * Math.min(1, dt * 1.2);
+    }
     for (const id in audio.zoneGains) {
-      const target = id === activeZone ? 1 : 0;
+      const target = (id === activeZone ? 1 : 0) * audio.duck;
       const g = audio.zoneGains[id].gain;
       g.value += (target - g.value) * k;
     }
@@ -1073,10 +1615,19 @@ export function createActuality(planet, worldUp, opts = {}) {
   const zones = [{
     frame: { pos: anchorPos, q: anchorQ, qInv: anchorQInv },
     structures: [hub.structure],
-    r2: (AC.HUB_FLOOR_HALF + 12) ** 2,
+    // Wide enough to cover the landing pad, which sits well outside the
+    // terrace — culling at the terrace radius left the far half of the pad
+    // with no floor under it.
+    r2: (hub.structure.halfExtent + 4) ** 2,
   }];
   for (const z of zoneList) {
-    zones.push({ frame: z.frame, structures: [z.structure], r2: z.r2 });
+    // extraStructures lets a zone add a building with its own local origin
+    // (Zone 8's cabin) without folding its walls into the zone-wide structure.
+    zones.push({
+      frame: z.frame,
+      structures: z.extraStructures ? [z.structure, ...z.extraStructures] : [z.structure],
+      r2: z.r2,
+    });
   }
   const _rc = new THREE.Vector3();
 
@@ -1200,8 +1751,8 @@ export function createActuality(planet, worldUp, opts = {}) {
         flags.talkedJoshuaCaitlynn = true; saveFlags(flags);
         startJoshuaDeparture();
         break;
-      // The dragon's gift is the descent itself: dragonGiftReceived is set when
-      // the player falls through the open box, not by talking.
+      // The dragon's gift is the fall itself: dragonGiftReceived is set when
+      // the player steps into the open box, not by talking.
     }
     entity.pending = null;
   }
@@ -1255,6 +1806,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     fade.phase = 'out';
     fade.t = 0;
     fade.target = target;
+    setAudioDuck(1); // any zone the deathbed ducked, leaving restores
     if (target === 'hub') {
       fade.dest = hubReturnDest;
       fade.heading = hubReturnHeading;
@@ -1287,6 +1839,11 @@ export function createActuality(planet, worldUp, opts = {}) {
         const note = zoneNote(fade.target);
         deferredNote = note ? { text: note, at: 3.0 } : null; // countdown in update()
         if (zoneEnterCallbacks[fade.target]) zoneEnterCallbacks[fade.target]();
+        // Swap the sky for the destination. Queued rather than applied here
+        // because it needs the renderer (one PMREM bake) — preRender picks it
+        // up on the next frame, still deep inside the blackout.
+        pendingSkyPreset = skyForZone(fade.target);
+        pendingSkyBlend = null;
         fade.phase = 'in';
         fade.t = 0;
       }
@@ -1296,7 +1853,13 @@ export function createActuality(planet, worldUp, opts = {}) {
     }
   }
 
-  function update(t, dt, playerPos, sunDot = 1) {
+  // `player` is the host's live walk state ({ mode, speed01, facing, ... }) —
+  // the hyper-holo-grid's copies mimic it.
+  function update(t, dt, playerPos, sunDot = 1, player = null) {
+    if (player) walkState = player;
+    // Stashed for preRender, which drives the sky (it has the renderer).
+    _skyT = t; _skyDt = dt; _skyPlayer.copy(playerPos);
+
     for (let i = 0; i < figures.length; i++) figures[i].update(t);
     hub.update(t); // hub breeze (always visible)
 
@@ -1391,6 +1954,21 @@ export function createActuality(planet, worldUp, opts = {}) {
     return mesh;
   }
 
+  // Shared mapped materials from the registry (actuality-materials.js). The
+  // registry owns these — never push one into zoneMats, or teardown disposes
+  // it twice. Identical requests come back as the same material, so a finish
+  // reused across a zone costs one material and one draw-call state.
+  function zmat(family, opts) { return materials.make(family, opts); }
+
+  // A hemisphere fill reads far better than a flat ambient for the same cost:
+  // sky tone from above, bounce from the ground below, so a surface's facing
+  // still matters in the parts of a zone the key lights don't reach.
+  function addFill(rec, sky, ground, intensity) {
+    const h = new THREE.HemisphereLight(sky, ground, intensity);
+    rec.group.add(h);
+    return h;
+  }
+
   // Box with a caller-supplied material (already tracked in zoneMats).
   function addZoneBox2(rec, w, h, d, x, y, z, mat) {
     const g = new THREE.BoxGeometry(w, h, d);
@@ -1405,13 +1983,13 @@ export function createActuality(planet, worldUp, opts = {}) {
   // window table, everyday clutter, an espresso counter and pastry case.
   function buildZone3() {
     const rec = zoneById['z3'];
-    rec.group.add(new THREE.AmbientLight(0xfff4e0, 0.7));
+    addFill(rec, 0xfff4e0, 0xa08c6e, 0.75);
     const fill = new THREE.PointLight(0xfff0da, 0.5, 40, 2.0);
     fill.position.set(0, 3.5, -2); rec.group.add(fill);
     // Walls + ceiling enclosing the shop (open +Z for the return arch).
-    const RX = 9, RZ = 12, WH = 12.6; // ceiling tripled for the 2× figures
-    const shopMat = new THREE.MeshStandardMaterial({ color: 0xcfc3ac, roughness: 0.9, side: THREE.DoubleSide });
-    zoneMats.push(shopMat);
+    const RX = 9, RZ = 12, WH = 3.2; // a real café ceiling
+    const shopMat = zmat('plaster', { repeat: 4, color: 0xcfc3ac, side: THREE.DoubleSide });
+    const shopFloorMat = zmat('wood', { repeat: 7, color: 0x8a6b4a });
     const wall = (w, h, x, y, z, ry) => {
       const g = new THREE.PlaneGeometry(w, h);
       const m = new THREE.Mesh(g, shopMat); m.position.set(x, y, z); m.rotation.y = ry;
@@ -1423,6 +2001,11 @@ export function createActuality(planet, worldUp, opts = {}) {
     const ceilG = new THREE.PlaneGeometry(RX * 2, RZ * 2);
     const ceil = new THREE.Mesh(ceilG, shopMat); ceil.position.set(0, WH, 0); ceil.rotation.x = Math.PI / 2;
     rec.group.add(ceil); zoneGeos.push(ceilG);
+    // Board floor, over the zone slab.
+    const flrG = new THREE.PlaneGeometry(RX * 2, RZ * 2);
+    const flr = new THREE.Mesh(flrG, shopFloorMat);
+    flr.position.set(0, 0.012, 0); flr.rotation.x = -Math.PI / 2;
+    rec.group.add(flr); zoneGeos.push(flrG);
     // Two big daylight windows.
     const winGeo = new THREE.PlaneGeometry(4, 2.4);
     zoneGeos.push(winGeo);
@@ -1486,34 +2069,62 @@ export function createActuality(planet, worldUp, opts = {}) {
     dormLight.position.set(0, 2.0, 7); rec.group.add(dormLight);
     const aptLight = new THREE.PointLight(0xffcaa0, 1.1, 60, 2.0);
     aptLight.position.set(0, 3.5, -7); rec.group.add(aptLight);
-    rec.group.add(new THREE.AmbientLight(0x2a2c30, 0.35));
+    addFill(rec, 0x3a4050, 0x2a2418, 0.40);
 
-    const dormMat = new THREE.MeshStandardMaterial({ color: 0x6a7078, roughness: 0.92, side: THREE.DoubleSide });
-    const aptMat = new THREE.MeshStandardMaterial({ color: 0xcaa583, roughness: 0.9, side: THREE.DoubleSide });
-    zoneMats.push(dormMat, aptMat);
+    // Same plaster, two coats of paint — the cold institutional grey of the
+    // dorm against the warm distemper of the apartment. Sharing the family is
+    // the point: it's the same building, lived in differently.
+    const dormMat = zmat('plaster', { repeat: 3, color: 0x6a7078, side: THREE.DoubleSide });
+    const aptMat = zmat('plaster', { repeat: 3, color: 0xcaa583, side: THREE.DoubleSide });
     const panel = (mat, w, h, x, y, z, ry, rx = 0) => {
       const g = new THREE.PlaneGeometry(w, h);
       const m = new THREE.Mesh(g, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, 0);
       rec.group.add(m); zoneGeos.push(g);
     };
-    // Dorm shell: 5m wide, 6.6m ceiling (tripled), z 4..9 (door gap on -Z toward corridor).
-    const DCH = 6.6;
-    panel(dormMat, 5, DCH, 0, DCH / 2, 9, 0);          // dorm back
+    // Dorm shell: 5 m wide, z 4..9, real 2.6 m ceiling. The player arrives at
+    // (0,0,10) facing -Z, i.e. straight at the z=9 wall — so that wall is split
+    // around a door rather than being the blank face you used to land against.
+    // Same trick the café's back wall uses for the mirror door.
+    const DCH = 2.6;
+    const DOOR_HW = 0.65; // half-width of a door opening
+    const DOOR_H = 2.05;
+    // Dorm back wall (+Z, the arrival side): two jambs and a lintel.
+    panel(dormMat, 2.5 - DOOR_HW, DCH, -(DOOR_HW + (2.5 - DOOR_HW) / 2), DCH / 2, 9, 0);
+    panel(dormMat, 2.5 - DOOR_HW, DCH, DOOR_HW + (2.5 - DOOR_HW) / 2, DCH / 2, 9, 0);
+    panel(dormMat, DOOR_HW * 2, DCH - DOOR_H, 0, DOOR_H + (DCH - DOOR_H) / 2, 9, 0);
     panel(dormMat, 5, DCH, -2.5, DCH / 2, 6.5, Math.PI / 2);
     panel(dormMat, 5, DCH, 2.5, DCH / 2, 6.5, Math.PI / 2);
     panel(dormMat, 5, 5, 0, DCH, 6.5, 0, Math.PI / 2);  // dorm ceiling
-    // Corridor (z 1..4), cool→warm vertex tint via two short wall segments +
-    // ceiling beams that cross into a "4" (glyph).
-    panel(dormMat, 2.6, 7.8, -1.3, 3.9, 2.5, Math.PI / 2);
-    panel(aptMat, 2.6, 7.8, 1.3, 3.9, 2.5, Math.PI / 2);
-    addZoneBox(rec, 0.12, 0.12, 3, 0, 7.65, 2.5, 0x4a3a2a);         // beam along
-    addZoneBox(rec, 2.4, 0.12, 0.12, 0, 7.65, 1.8, 0x4a3a2a);  // beam across = "4"
-    // Apartment shell: 9m, 10.8m ceiling (tripled), z -12..0 (door gap on +Z).
-    const ACH = 10.8;
+    // Arrival apron: the ground between the return gateway (z=14) and the dorm
+    // door, so you land on a made surface and can see where you're meant to go.
+    addZoneBox2(rec, 12, 0.12, 8, 0, -0.06, 12,
+      zmat('aggregate', { repeat: 4, color: 0x6e675c }));
+    // A frame around the arrival door so the opening reads as a door.
+    const trimMat = zmat('wood', { repeat: 1, color: 0x6a5236 });
+    addZoneBox2(rec, 0.12, DOOR_H, 0.3, -DOOR_HW, DOOR_H / 2, 9, trimMat);
+    addZoneBox2(rec, 0.12, DOOR_H, 0.3, DOOR_HW, DOOR_H / 2, 9, trimMat);
+    addZoneBox2(rec, DOOR_HW * 2 + 0.24, 0.12, 0.3, 0, DOOR_H, 9, trimMat);
+    // Corridor (z 1..4), cool→warm across its two walls + ceiling beams that
+    // cross into a "4" (glyph).
+    panel(dormMat, 2.6, DCH, -1.3, DCH / 2, 2.5, Math.PI / 2);
+    panel(aptMat, 2.6, DCH, 1.3, DCH / 2, 2.5, Math.PI / 2);
+    addZoneBox(rec, 0.1, 0.1, 3, 0, DCH - 0.12, 2.5, 0x4a3a2a);      // beam along
+    addZoneBox(rec, 2.4, 0.1, 0.1, 0, DCH - 0.12, 1.8, 0x4a3a2a);    // beam across = "4"
+    // Apartment shell: 9 m, 3.4 m ceiling, z -12..0 (door gap on +Z).
+    const ACH = 3.4;
     panel(aptMat, 9, ACH, 0, ACH / 2, -12, 0);
     panel(aptMat, 12, ACH, -4.5, ACH / 2, -6, Math.PI / 2);
     panel(aptMat, 12, ACH, 4.5, ACH / 2, -6, Math.PI / 2);
     panel(aptMat, 9, 12, 0, ACH, -6, 0, Math.PI / 2);   // apt ceiling
+    // Floors: sheet lino in the dorm, boards in the apartment.
+    const dormFloor = new THREE.Mesh(new THREE.PlaneGeometry(5, 5),
+      zmat('plaster', { repeat: 2, color: 0x585d63 }));
+    dormFloor.position.set(0, 0.012, 6.5); dormFloor.rotation.x = -Math.PI / 2;
+    rec.group.add(dormFloor); zoneGeos.push(dormFloor.geometry);
+    const aptFloor = new THREE.Mesh(new THREE.PlaneGeometry(9, 12),
+      zmat('wood', { repeat: 4, color: 0x8a6444 }));
+    aptFloor.position.set(0, 0.012, -6); aptFloor.rotation.x = -Math.PI / 2;
+    rec.group.add(aptFloor); zoneGeos.push(aptFloor.geometry);
 
     // Dorm furniture.
     addZoneBox(rec, 0.9, 0.4, 2.0, -1.6, 0.3, 7, 0x9aa0a8);  // narrow bed
@@ -1536,10 +2147,16 @@ export function createActuality(planet, worldUp, opts = {}) {
 
     // Collision: dorm box + apartment box (each with a corridor door gap).
     rec.structure = makeStructure(0, 0, 0,
-      [{ x0: -4.5, x1: 4.5, z0: -12, z1: 9.5, y: 0 }],
+      // Floor runs past the dorm out to z=16 so the arrival point (0,0,10) and
+      // the return gateway at z=14 stand on this zone's floor rather than on
+      // whatever terrain happens to be coplanar with it.
+      [{ x0: -6, x1: 6, z0: -12, z1: 16, y: 0 }],
       [
-        // dorm walls (gap toward -Z corridor mouth at x∈[-1.3,1.3])
-        { x0: -2.5, x1: 2.5, z0: 9, z1: 9.4, y0: 0, y1: DCH },
+        // dorm back wall (+Z, the arrival side) — split around the door you
+        // now walk in through, so the gap in the geometry is a gap in collision
+        { x0: -2.5, x1: -DOOR_HW, z0: 9, z1: 9.4, y0: 0, y1: DCH },
+        { x0: DOOR_HW, x1: 2.5, z0: 9, z1: 9.4, y0: 0, y1: DCH },
+        // dorm side walls (gap toward -Z corridor mouth at x∈[-1.3,1.3])
         { x0: -2.9, x1: -2.5, z0: 4, z1: 9.4, y0: 0, y1: DCH },
         { x0: 2.5, x1: 2.9, z0: 4, z1: 9.4, y0: 0, y1: DCH },
         { x0: -2.5, x1: -1.3, z0: 4, z1: 4.4, y0: 0, y1: DCH },
@@ -1587,67 +2204,87 @@ export function createActuality(planet, worldUp, opts = {}) {
     });
   }
 
-  // Z9 — a monolith door opening onto a switchback shaft that descends to the
-  // granite dragon's chamber.
+  // Z9 — a monolith door opening onto a stepped shaft that CLIMBS to the
+  // granite dragon's chamber. You go up to meet it: the whole zone is an
+  // ascent, and the only way back down is through the black box at its feet.
   function buildZone9() {
     const rec = zoneById['z9'];
-    // Terraced switchback landings at y = 0,-3,-6,-9,-12,-15 down to the
-    // chamber, each a flat slab joined by a short ramp (along -Z).
+    const RISE = 3;                 // height gained per step
+    const STEPS = 5;
+    const CH_Y = RISE * STEPS;      // 15 — the chamber floor
+    // Terraced landings at y = 0,3,6,9,12,15 up to the chamber, each a flat
+    // slab joined by a short ramp (climbing along -Z).
     const surfaces = [{ x0: -30, x1: 30, z0: -6, z1: 30, y: 0 }]; // arrival
     const walls = [];
-    const wallH = { y0: -17, y1: 2 };
-    for (let k = 0; k < 5; k++) {
-      const y = -3 * k, z0 = -6 - k * 6;
+    const shaftH = { y0: -2, y1: CH_Y + 2 };
+    const chamberH = { y0: CH_Y - 1, y1: CH_Y + 18 };
+    for (let k = 0; k < STEPS; k++) {
+      const y = RISE * k, z0 = -6 - k * 6;
       surfaces.push({ x0: -5, x1: 5, z0: z0 - 3, z1: z0, y });                 // landing
-      surfaces.push({ ramp: true, x0: -5, x1: 5, z0: z0 - 6, z1: z0 - 3, zA: z0 - 3, zB: z0 - 6, yA: y, yB: y - 3 }); // ramp down
+      surfaces.push({ ramp: true, x0: -5, x1: 5, z0: z0 - 6, z1: z0 - 3, zA: z0 - 3, zB: z0 - 6, yA: y, yB: y + RISE }); // ramp up
     }
-    surfaces.push({ x0: -16, x1: 16, z0: -72, z1: -36, y: -15 });             // chamber floor
-    // Shaft guard walls down both sides, + chamber shell (door gap at z=-36).
-    walls.push({ x0: -5.4, x1: -5.0, z0: -36, z1: -6, ...wallH });
-    walls.push({ x0: 5.0, x1: 5.4, z0: -36, z1: -6, ...wallH });
-    walls.push({ x0: -16, x1: 16, z0: -72, z1: -71.5, ...wallH });
-    walls.push({ x0: -16, x1: -15.5, z0: -72, z1: -36, ...wallH });
-    walls.push({ x0: 15.5, x1: 16, z0: -72, z1: -36, ...wallH });
-    walls.push({ x0: -16, x1: -5.5, z0: -36, z1: -35.5, ...wallH });
-    walls.push({ x0: 5.5, x1: 16, z0: -36, z1: -35.5, ...wallH });
+    surfaces.push({ x0: -16, x1: 16, z0: -72, z1: -36, y: CH_Y });            // chamber floor
+    // Shaft guard walls up both sides, + chamber shell (door gap at z=-36).
+    walls.push({ x0: -5.4, x1: -5.0, z0: -36, z1: -6, ...shaftH });
+    walls.push({ x0: 5.0, x1: 5.4, z0: -36, z1: -6, ...shaftH });
+    walls.push({ x0: -16, x1: 16, z0: -72, z1: -71.5, ...chamberH });
+    walls.push({ x0: -16, x1: -15.5, z0: -72, z1: -36, ...chamberH });
+    walls.push({ x0: 15.5, x1: 16, z0: -72, z1: -36, ...chamberH });
+    walls.push({ x0: -16, x1: -5.5, z0: -36, z1: -35.5, ...chamberH });
+    walls.push({ x0: 5.5, x1: 16, z0: -36, z1: -35.5, ...chamberH });
     rec.structure = makeStructure(0, 0, 0, surfaces, walls, 78);
     rec.r2 = (78 + 12) ** 2;
 
-    rec.group.add(new THREE.AmbientLight(0x3a4460, 0.95));
+    addFill(rec, 0x4a5a80, 0x1a1e28, 1.05);
     // Dramatic lighting so the black granite dragon reads clearly: a cool key
     // from the front-side, a blue rim from behind, and a soft front fill. Decay
     // 1.0 so the light actually reaches the dragon across the ~14 m chamber.
+    // Everything in the chamber is placed relative to CH_Y, so the whole room
+    // keeps its proportions now that it sits above the arrival platform.
     const dragonKey = new THREE.PointLight(0xcfe0ff, 26, 80, 1.0);
-    dragonKey.position.set(5, -4, -52); rec.group.add(dragonKey);
+    dragonKey.position.set(5, CH_Y + 11, -52); rec.group.add(dragonKey);
     const dragonRim = new THREE.PointLight(0x7fb0ff, 20, 80, 1.0);
-    dragonRim.position.set(-6, 2, -70); rec.group.add(dragonRim);
+    dragonRim.position.set(-6, CH_Y + 17, -70); rec.group.add(dragonRim);
     const dragonFill = new THREE.PointLight(0x9fb8e0, 12, 70, 1.0);
-    dragonFill.position.set(-1, -7, -46); rec.group.add(dragonFill);
-    const dark = 0x14151a;
+    dragonFill.position.set(-1, CH_Y + 8, -46); rec.group.add(dragonFill);
+    // Black granite, cut two ways: a coarse face for the chamber shell and the
+    // shaft, a finer one for the monolith and the treads you walk on.
+    const dark = zmat('rock', { repeat: 5, color: 0x1c1d24 });
+    const treadMat = zmat('rock', { repeat: 2, color: 0x1a1b21, normalScale: 0.7 });
     // Monolith door framing the shaft mouth on the arrival platform.
-    const monoMat = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.9, emissive: 0x0a1420, emissiveIntensity: 0.2 });
-    zoneMats.push(monoMat);
+    const monoMat = zmat('rock', {
+      repeat: 1, color: 0x22242c, normalScale: 0.6,
+      emissive: 0x0a1420, emissiveIntensity: 0.2,
+    });
     addZoneBox2(rec, 1.4, 8, 1.4, -4, 4, -6, monoMat);
     addZoneBox2(rec, 1.4, 8, 1.4, 4, 4, -6, monoMat);
     addZoneBox2(rec, 10, 1.6, 1.4, 0, 8.2, -6, monoMat);
-    // Landing slabs + ramp fill + emissive vein strips down the shaft walls.
-    for (let k = 0; k < 5; k++) {
-      const y = -3 * k, z0 = -6 - k * 6;
-      addZoneBox(rec, 10, 0.4, 3, 0, y - 0.2, z0 - 1.5, dark);
-      const r = addZoneBox(rec, 10, 0.3, 3.4, 0, y - 1.5, z0 - 4.5, dark);
-      r.rotation.x = Math.atan2(3, 3);
+    // Landing slabs + ramp fill. The ramp mesh tilts its -Z end up to match the
+    // walkable ramp above it.
+    for (let k = 0; k < STEPS; k++) {
+      const y = RISE * k, z0 = -6 - k * 6;
+      addZoneBox2(rec, 10, 0.4, 3, 0, y - 0.2, z0 - 1.5, treadMat);
+      const r = addZoneBox2(rec, 10, 0.3, 3.4, 0, y + RISE / 2 - 0.2, z0 - 4.5, treadMat);
+      r.rotation.x = Math.atan2(RISE, 3);
     }
+    // Emissive vein strips climbing the shaft walls beside each landing.
     const veinMat = new THREE.MeshStandardMaterial({ color: 0x2a3a4a, emissive: 0x2a5a7a, emissiveIntensity: 0.5, roughness: 0.6 });
     zoneMats.push(veinMat);
-    for (let k = 0; k < 5; k++) {
-      addZoneBox2(rec, 0.1, 0.1, 2.4, -5.2, -3 * k - 1, -8 - k * 6, veinMat);
-      addZoneBox2(rec, 0.1, 0.1, 2.4, 5.2, -3 * k - 1, -8 - k * 6, veinMat);
+    for (let k = 0; k < STEPS; k++) {
+      addZoneBox2(rec, 0.1, 0.1, 2.4, -5.2, RISE * k + 1.2, -8 - k * 6, veinMat);
+      addZoneBox2(rec, 0.1, 0.1, 2.4, 5.2, RISE * k + 1.2, -8 - k * 6, veinMat);
     }
-    // Chamber shell (matte near-black).
-    addZoneBox(rec, 32, 0.6, 36, 0, -15.3, -54, dark);
-    addZoneBox(rec, 32, 18, 0.6, 0, -8, -71.7, dark);
-    addZoneBox(rec, 0.6, 18, 36, -15.7, -8, -54, dark);
-    addZoneBox(rec, 0.6, 18, 36, 15.7, -8, -54, dark);
+    // Chamber shell (matte near-black). The floor is cut into four slabs around
+    // the black box's shaft, so the opening really does look through the floor.
+    for (const [fx, fz, fw, fd] of [
+      [0, -65.35, 32, 13.3],      // behind the box, back to the far wall
+      [0, -44.65, 32, 17.3],      // in front of the box, out to the doorway
+      [-9.35, -56, 13.3, 5.4],    // left of the shaft
+      [9.35, -56, 13.3, 5.4],     // right of the shaft
+    ]) addZoneBox2(rec, fw, 0.6, fd, fx, CH_Y - 0.3, fz, dark);
+    addZoneBox2(rec, 32, 18, 0.6, 0, CH_Y + 7, -71.7, dark);
+    addZoneBox2(rec, 0.6, 18, 36, -15.7, CH_Y + 7, -54, dark);
+    addZoneBox2(rec, 0.6, 18, 36, 15.7, CH_Y + 7, -54, dark);
 
     // The dragon itself is the owner's artwork, shown as a large luminous
     // billboard (the way the deep nebulae show the owner's paintings) rather than
@@ -1665,7 +2302,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     const graniteMat = new THREE.MeshBasicMaterial({ map: graniteTex, transparent: true, side: THREE.DoubleSide, depthWrite: false });
     zoneMats.push(graniteMat);
     const granite = new THREE.Mesh(dragonGeo, graniteMat);
-    granite.position.set(0, -1.5, -64); rec.group.add(granite);
+    granite.position.set(0, CH_Y + 13.5, -64); rec.group.add(granite);
     // Front layer: the glowing hologram (box removed), additively blended so its
     // dark ground vanishes and only the blue dragon glows over the granite.
     const dragonTex = loader.load(dragonHoloUrl);
@@ -1674,10 +2311,10 @@ export function createActuality(planet, worldUp, opts = {}) {
     const dragonMat = new THREE.MeshBasicMaterial({ map: dragonTex, transparent: true, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
     zoneMats.push(dragonMat);
     const dragon = new THREE.Mesh(dragonGeo, dragonMat);
-    dragon.position.set(0, -1.5, -63.2); rec.group.add(dragon);
+    dragon.position.set(0, CH_Y + 13.5, -63.2); rec.group.add(dragon);
     zoneGeos.push(dragonGeo);
     const holoLight = new THREE.PointLight(0x7fc0ff, 1.0, 30, 2.0);
-    holoLight.position.set(0, -4, -56); rec.group.add(holoLight);
+    holoLight.position.set(0, CH_Y + 11, -56); rec.group.add(holoLight);
     z9Holo = { mat: dragonMat, mat2: graniteMat, light: holoLight };
 
     // The open black box at the dragon's feet — an opening looking down onto a
@@ -1689,44 +2326,49 @@ export function createActuality(planet, worldUp, opts = {}) {
     // Raised open-topped box walls — a prominent black cube with a glowing
     // opening in its top looking down onto the city.
     for (const [dx, dz, w, d] of [[-2.4, 0, 0.8, 5.2], [2.4, 0, 0.8, 5.2], [0, -2.4, 5.2, 0.8], [0, 2.4, 5.2, 0.8]]) {
-      addZoneBox2(rec, w, 2.0, d, BX + dx, -14.0, BZ + dz, boxMat); // rim (top ~ -13.0)
+      addZoneBox2(rec, w, 2.0, d, BX + dx, CH_Y + 1.0, BZ + dz, boxMat); // rim (top ~ CH_Y+2)
     }
     // Corner posts read the cube's edges under the rim/key light.
     const postMat = new THREE.MeshStandardMaterial({ color: 0x08080c, roughness: 0.4, metalness: 0.5, emissive: 0x0c1c30, emissiveIntensity: 0.35 });
     zoneMats.push(postMat);
-    for (const cx of [-2.6, 2.6]) for (const cz of [-2.6, 2.6]) addZoneBox2(rec, 0.55, 2.3, 0.55, BX + cx, -13.85, BZ + cz, postMat);
+    for (const cx of [-2.6, 2.6]) for (const cz of [-2.6, 2.6]) addZoneBox2(rec, 0.55, 2.3, 0.55, BX + cx, CH_Y + 1.15, BZ + cz, postMat);
     // A thin luminous lip framing the opening so it glows like a window.
     const lipMat = new THREE.MeshBasicMaterial({ color: 0x7fb4ff });
     zoneMats.push(lipMat);
     for (const [dx, dz, w, d] of [[-2.0, 0, 0.14, 4.0], [2.0, 0, 0.14, 4.0], [0, -2.0, 4.0, 0.14], [0, 2.0, 4.0, 0.14]]) {
       const lg = new THREE.BoxGeometry(w, 0.1, d);
-      const lm = new THREE.Mesh(lg, lipMat); lm.position.set(BX + dx, -12.95, BZ + dz);
+      const lm = new THREE.Mesh(lg, lipMat); lm.position.set(BX + dx, CH_Y + 2.05, BZ + dz);
       rec.group.add(lm); zoneGeos.push(lg);
     }
-    const shaftMat = new THREE.MeshStandardMaterial({ color: 0x0a0b10, roughness: 0.9, side: THREE.DoubleSide });
-    zoneMats.push(shaftMat);
-    for (const [dx, dz, w, d, ry] of [[-2, 0, 3.4, 0.1, 0], [2, 0, 3.4, 0.1, 0], [0, -2, 3.4, 0.1, Math.PI / 2], [0, 2, 3.4, 0.1, Math.PI / 2]]) {
-      const g = new THREE.PlaneGeometry(w, 3.4);
-      const m = new THREE.Mesh(g, shaftMat); m.position.set(BX + dx, -16.7, BZ + dz); m.rotation.y = ry;
-      rec.group.add(m); zoneGeos.push(g);
-    }
+    const shaftMat = zmat('rock', { repeat: 3, color: 0x0e0f16, side: THREE.DoubleSide });
+    // The shaft under the opening. The chamber is now up in the air, so this is
+    // a closed box hanging below the floor rather than a hole in bedrock —
+    // otherwise the lit city planes inside it would be visible from the ramp,
+    // glowing in the middle of the void.
+    const SHAFT_D = 9;
+    const sy = CH_Y - SHAFT_D / 2;
+    addZoneBox2(rec, 0.3, SHAFT_D, 5.7, BX - 2.85, sy, BZ, shaftMat);
+    addZoneBox2(rec, 0.3, SHAFT_D, 5.7, BX + 2.85, sy, BZ, shaftMat);
+    addZoneBox2(rec, 5.7, SHAFT_D, 0.3, BX, sy, BZ - 2.85, shaftMat);
+    addZoneBox2(rec, 5.7, SHAFT_D, 0.3, BX, sy, BZ + 2.85, shaftMat);
+    addZoneBox2(rec, 6.0, 0.3, 6.0, BX, CH_Y - SHAFT_D - 0.15, BZ, shaftMat);
     const cityTex = cityBelowTexture();
     zoneTextures.push(cityTex);
     cityFallUrl = cityTex.image.toDataURL(); // reused by the fall overlay
     const cityMat = new THREE.MeshBasicMaterial({ map: cityTex, side: THREE.DoubleSide });
     const cityGeo = new THREE.PlaneGeometry(4.2, 4.2); // fills the opening when you look in
     const cityPlane = new THREE.Mesh(cityGeo, cityMat);
-    cityPlane.position.set(BX, -18.0, BZ); cityPlane.rotation.x = -Math.PI / 2;
+    cityPlane.position.set(BX, CH_Y - 3.0, BZ); cityPlane.rotation.x = -Math.PI / 2;
     rec.group.add(cityPlane); zoneGeos.push(cityGeo); zoneMats.push(cityMat);
     // A second, larger faint city layer deeper down for a sense of depth.
     const cityFar = new THREE.Mesh(new THREE.PlaneGeometry(7, 7), new THREE.MeshBasicMaterial({ map: cityTex, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
-    cityFar.position.set(BX, -22.5, BZ); cityFar.rotation.x = -Math.PI / 2;
+    cityFar.position.set(BX, CH_Y - 7.5, BZ); cityFar.rotation.x = -Math.PI / 2;
     rec.group.add(cityFar); zoneGeos.push(cityFar.geometry); zoneMats.push(cityFar.material);
     const upGlow = new THREE.PointLight(0xffd9a0, 1.6, 18, 2.0);
-    upGlow.position.set(BX, -15.5, BZ); rec.group.add(upGlow);
+    upGlow.position.set(BX, CH_Y - 0.5, BZ); rec.group.add(upGlow);
 
     // Dragon dialogue (talk before you jump), placed clear of the box footprint.
-    interactables.push({ id: 'dragon', zone: 'z9', pos: zoneToAnchor(rec, 0, -14, -50), talking: false });
+    interactables.push({ id: 'dragon', zone: 'z9', pos: zoneToAnchor(rec, 0, CH_Y + 1, -50), talking: false });
 
     // Fall trigger: stepping over the box opening drops the player to the city
     // (the hub, where the ship waits). The generic top return arch stays as the
@@ -1811,13 +2453,14 @@ export function createActuality(planet, worldUp, opts = {}) {
   // woman in the light.
   function buildZone1() {
     const rec = zoneById['z1'];
-    rec.group.add(new THREE.AmbientLight(0xffcf9a, 0.5));
-    addDome(rec, 90, '#4a3422', '#d8974e');
+    // Sky, sun and ambient all come from the `goldenLow` preset now — a low
+    // autumn sun with real scattering, not a painted gradient. Only a small
+    // warm fill stays, for the light between the trees.
+    addFill(rec, 0xffd9a8, 0x4a3a22, 0.30);
 
     // Sidewalk slabs + city facades at the entrance (+Z end).
-    const walkMat = new THREE.MeshStandardMaterial({ color: 0x6a6660, roughness: 0.95 });
-    zoneMats.push(walkMat);
-    for (let z = 12; z >= 2; z -= 2) addZoneBox(rec, 6, 0.1, 2, 0, 0.05, z, walkMat);
+    const walkMat = zmat('concrete', { repeat: 2, color: 0x8a857c });
+    for (let z = 12; z >= 2; z -= 2) addZoneBox2(rec, 6, 0.1, 2, 0, 0.05, z, walkMat);
     const facRng = mulberry32(0x1a10);
     for (const [fx, fz, fw] of [[-6, 9, 5], [6, 9, 5], [-7, 4, 4]]) {
       const facTex = facadeTexture(facRng);
@@ -1844,10 +2487,13 @@ export function createActuality(planet, worldUp, opts = {}) {
     }
 
     // Park: a grass patch, benches, and the lone "1" lamppost (glyph motif).
-    addZoneBox(rec, 26, 0.06, 18, 0, 0.03, -20, 0x3f5a30); // grass
-    addZoneBox(rec, 2.0, 0.4, 0.6, -6, 0.5, -20, AC.COL_WOOD);
-    addZoneBox(rec, 2.0, 0.4, 0.6, 6, 0.5, -22, AC.COL_WOOD);
-    addZoneBox(rec, 0.22, 6.5, 0.22, 8, 3.25, -14, 0x2a2620); // lamppost = "1"
+    addZoneBox2(rec, 26, 0.06, 18, 0, 0.03, -20,
+      zmat('groundCover', { repeat: 9, color: 0x4c6b38 }));
+    const benchMat = zmat('wood', { repeat: 1, color: AC.COL_WOOD });
+    addZoneBox2(rec, 2.0, 0.4, 0.6, -6, 0.5, -20, benchMat);
+    addZoneBox2(rec, 2.0, 0.4, 0.6, 6, 0.5, -22, benchMat);
+    addZoneBox2(rec, 0.22, 6.5, 0.22, 8, 3.25, -14,
+      zmat('steel', { color: 0x8a8378 })); // lamppost = "1"
     const lampMat = new THREE.MeshStandardMaterial({ color: 0xffe6b0, emissive: 0xffcf80, emissiveIntensity: 1.1, roughness: 0.5 });
     zoneMats.push(lampMat);
     const lampGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
@@ -1857,10 +2503,9 @@ export function createActuality(planet, worldUp, opts = {}) {
     lampLight.position.set(8, 6.4, -14); rec.group.add(lampLight);
 
     // Autumn forest: denser trunks + warm canopies.
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3324, roughness: 0.95 });
+    const trunkMat = zmat('bark', { repeat: 1, repeatY: 3, color: 0x6a4a34 });
     const leafMats = [0xd9772a, 0xe0a338, 0xc85a26].map((c) =>
-      new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 }));
-    zoneMats.push(trunkMat, ...leafMats);
+      zmat('groundCover', { repeat: 2, color: c, normalScale: 0.5 }));
     const treeRng = mulberry32(0x1111);
     for (let i = 0; i < 45; i++) {
       const tx = (treeRng() - 0.5) * 30;
@@ -1970,11 +2615,11 @@ export function createActuality(planet, worldUp, opts = {}) {
   // into extruding directions", kept abstract/tasteful).
   function buildZone2() {
     const rec = zoneById['z2'];
-    const R = 12, WH = 33; // chamber height tripled; the shell stretches with it
+    const R = 12, WH = 14; // deliberately cathedral-scale, but a buildable one
     // Faceted red-crystal chamber (Ch.2 "Body"): two figures embrace at the
     // centre, silhouetted against a rising burst of light, soul-gems beside them,
     // a sunset window in one wall — "two drawn together as one unit of creation".
-    rec.group.add(new THREE.AmbientLight(0x5a2418, 0.5));
+    addFill(rec, 0x8a3a22, 0x2a0e08, 0.55);
     // Central burst — a hot core low between the figures + a rising light column.
     const burstLight = new THREE.PointLight(0xff8a4a, 2.6, 46, 2.0);
     burstLight.position.set(0, 2.6, -1.4); rec.group.add(burstLight);
@@ -1989,7 +2634,12 @@ export function createActuality(planet, worldUp, opts = {}) {
     zoneGeos.push(beamGeo);
 
     // Faceted crystal shell — a perturbed icosahedron, flat-shaded, inward-facing.
+    // The facets are the whole idea here, so this zone keeps its flat shading
+    // and its authored colour — it only picks up a rock normal map, which puts
+    // micro-relief inside each facet without softening the edges between them.
     const crystalMat = new THREE.MeshStandardMaterial({ color: 0x7a2c1e, roughness: 0.5, metalness: 0.2, emissive: 0x3a0f06, emissiveIntensity: 0.6, flatShading: true, side: THREE.BackSide });
+    crystalMat.normalMap = materials.tiledSet('rock', 6, 6).normalMap;
+    crystalMat.normalScale.set(0.5, 0.5);
     zoneMats.push(crystalMat);
     const shellGeo = new THREE.IcosahedronGeometry(R * 1.15, 3);
     {
@@ -2005,6 +2655,8 @@ export function createActuality(planet, worldUp, opts = {}) {
       for (let i = 0; i < pos.count; i++) { const edge = Math.max(Math.abs(pos.getX(i)), Math.abs(pos.getY(i))) > R * 1.05; pos.setZ(i, edge ? 0 : (cr() - 0.5) * 0.4); }
     }
     const floorMat = new THREE.MeshStandardMaterial({ color: 0x6a2418, roughness: 0.55, metalness: 0.2, emissive: 0x2a0c06, emissiveIntensity: 0.5, flatShading: true, side: THREE.DoubleSide });
+    floorMat.normalMap = materials.tiledSet('rock', 5, 5).normalMap;
+    floorMat.normalScale.set(0.45, 0.45);
     zoneMats.push(floorMat);
     const floor = new THREE.Mesh(floorGeo, floorMat); floor.rotation.x = -Math.PI / 2; floor.position.y = 0.03; rec.group.add(floor);
     zoneGeos.push(floorGeo);
@@ -2123,11 +2775,12 @@ export function createActuality(planet, worldUp, opts = {}) {
   // Z5 Order — a ribbon into a void lined with floating memory frames.
   function buildZone5() {
     const rec = zoneById['z5'];
-    rec.group.add(new THREE.AmbientLight(0x202028, 0.4));
+    addFill(rec, 0x2a2a3a, 0x101018, 0.45);
     addDome(rec, 100, '#050507', '#0a0a12');
-    // A 4 m ribbon walkway extending 80 m into the void.
-    const ribMat = new THREE.MeshStandardMaterial({ color: 0x1a1a20, roughness: 0.9 });
-    zoneMats.push(ribMat);
+    // A 4 m ribbon walkway extending 80 m into the void. Its stone reads only
+    // where a frame's glow falls on it — which is the point of the zone, so the
+    // surface needs to be worth lighting.
+    const ribMat = zmat('stone', { repeat: 2, repeatY: 40, color: 0x30303c });
     addZoneBox2(rec, 4, 0.4, 88, 0, -0.2, -38, ribMat); // z from +6 to -82
     rec.structure = makeStructure(0, 0, 0,
       [{ x0: -2, x1: 2, z0: -82, z1: 6, y: 0 }], [], 90);
@@ -2141,7 +2794,8 @@ export function createActuality(planet, worldUp, opts = {}) {
       const z = -4 - i * 3.8;
       const y = 1.6 + fr() * 2.4;
       const x = side * (2.6 + fr() * 1.4);
-      addZoneBox(rec, 1.7, 1.3, 0.12, x, y, z, 0x2a2622);
+      addZoneBox2(rec, 1.7, 1.3, 0.12, x, y, z,
+        zmat('wood', { repeat: 1, color: 0x3a332c })); // frame
       const imgTex = memoryTexture(fr);
       if (i === glyphFrame) { const g = imgTex.image.getContext('2d'); drawGlyph(g, 5, 64, 64, 90, '#ffffff', 0.5); imgTex.needsUpdate = true; }
       const imgGeo = new THREE.PlaneGeometry(1.4, 1.0);
@@ -2187,8 +2841,10 @@ export function createActuality(planet, worldUp, opts = {}) {
   // Z6 Life — mountain overlook at dusk with a submerged lake below.
   function buildZone6() {
     const rec = zoneById['z6'];
-    rec.group.add(new THREE.AmbientLight(0x30364a, 0.5));
-    const dome = addDome(rec, 95, '#141a2e', '#5a4a6a');
+    // Moonlit night from the `nightMoody` preset — real stars, cloud lit from
+    // behind, deep blue rather than black. The ambient is only a floor so the
+    // crag doesn't go fully unreadable in shadow.
+    addFill(rec, 0x3a4664, 0x14181e, 0.22);
     // Larger skyline + bridge silhouette on the dome.
     const skyTex = silhouetteTexture('skyline');
     const skyGeo = new THREE.PlaneGeometry(90, 30);
@@ -2212,12 +2868,13 @@ export function createActuality(planet, worldUp, opts = {}) {
     rec.group.add(refl); zoneMats.push(reflMat);
     // Lonesome tree at the crag lip (up on the overlook).
     const trunkG = new THREE.CylinderGeometry(0.3, 0.4, 5, 6);
-    const trunkM = new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 0.95 });
+    const trunkM = zmat('bark', { repeat: 1, repeatY: 3, color: 0x4a3a28 });
     const trunk = new THREE.Mesh(trunkG, trunkM); trunk.position.set(9, 8.5, -10);
-    rec.group.add(trunk); zoneGeos.push(trunkG); zoneMats.push(trunkM);
-    const canopy = new THREE.Mesh(new THREE.SphereGeometry(2.2, 8, 6), new THREE.MeshStandardMaterial({ color: 0x243026, roughness: 0.9 }));
+    rec.group.add(trunk); zoneGeos.push(trunkG);
+    const canopy = new THREE.Mesh(new THREE.SphereGeometry(2.2, 8, 6),
+      zmat('groundCover', { repeat: 2, color: 0x2e3c30, normalScale: 0.5 }));
     canopy.position.set(9, 11.5, -10); canopy.scale.y = 0.7; rec.group.add(canopy);
-    zoneGeos.push(canopy.geometry); zoneMats.push(canopy.material);
+    zoneGeos.push(canopy.geometry);
 
     // Crag: climb up from the arrival area to a raised overlook, then descend
     // into the lake below.
@@ -2240,21 +2897,94 @@ export function createActuality(planet, worldUp, opts = {}) {
     ];
     rec.structure = makeStructure(0, 0, 0, surfaces, walls, 60);
     rec.r2 = (60 + 12) ** 2;
+
+    // Build the crag you actually walk on. Every entry in `surfaces` above was
+    // collision-only — the arrival apron, both ramps, the overlook and the lake
+    // bed existed as maths and nothing else, so the route down to the water was
+    // literally invisible and you crossed it on faith. Each plate gets a solid
+    // slab of rock, each ramp a wedge, and the basin gets walls and a floor so
+    // the lake has a bottom to be seen through.
+    const rockMat = zmat('rock', { repeat: 4, color: 0x5e5b53 });
+    const bedMat = zmat('rock', { repeat: 6, color: 0x3a443c, normalScale: 0.7 });
+
+    // Flat plates: a box whose TOP sits at the collision height, dropping well
+    // below so no edge ever opens a gap onto the void.
+    const plate = (x0, x1, z0, z1, y, depth, mat) => {
+      const g = new THREE.BoxGeometry(x1 - x0, depth, z1 - z0);
+      const m = new THREE.Mesh(g, mat);
+      m.position.set((x0 + x1) / 2, y - depth / 2, (z0 + z1) / 2);
+      rec.group.add(m); zoneGeos.push(g);
+      return m;
+    };
+    // A ramp: a box rotated about X so its top face runs from (zA,yA) to (zB,yB).
+    const ramp = (x0, x1, zA, zB, yA, yB, thickness, mat) => {
+      const dz = zB - zA, dy = yB - yA;
+      const len = Math.hypot(dz, dy);
+      const g = new THREE.BoxGeometry(x1 - x0, thickness, len);
+      const m = new THREE.Mesh(g, mat);
+      m.position.set((x0 + x1) / 2, (yA + yB) / 2 - thickness / 2, (zA + zB) / 2);
+      m.rotation.x = -Math.atan2(dy, dz);
+      rec.group.add(m); zoneGeos.push(g);
+      return m;
+    };
+
+    plate(-30, 30, 6, 30, 0, 3, rockMat);          // arrival apron
+    ramp(-5, 5, 6, -4, 0, 8, 2.2, rockMat);        // climb to the overlook
+    plate(-16, 16, -20, -4, 8, 4, rockMat);        // overlook plateau
+    ramp(-3, 3, -20, -38, 8, -6, 2.2, rockMat);    // descent into the basin
+    plate(-12, 12, -56, -38, -6, 3, bedMat);       // lake bed — the thing you
+                                                   // could previously see the
+                                                   // water straight through
+    // Basin walls, so the lake sits in a bowl rather than floating in the dark.
+    plate(-12.6, 12.6, -56.6, -55.4, 2, 9, rockMat);   // far shore
+    plate(-12.6, -11.4, -56.6, -38, 2, 9, rockMat);    // left
+    plate(11.4, 12.6, -56.6, -38, 2, 9, rockMat);      // right
+    // Ramp cheeks, so the descent reads as cut into the rock.
+    plate(-5.6, -4.8, -4, 6, 0, 3, rockMat);
+    plate(4.8, 5.6, -4, 6, 0, 3, rockMat);
+
     // Overlook guard rail + a couple of crag rocks.
-    addZoneBox(rec, 20, 0.5, 0.2, 0, 8.9, -19.8, 0x3a3028);
+    addZoneBox2(rec, 20, 0.5, 0.2, 0, 8.9, -19.8,
+      zmat('rock', { repeat: 6, repeatY: 1, color: 0x4a4038 }));
+    const bouldMat = zmat('rock', { repeat: 1, color: 0x53534e });
     for (const [rx, ry, rz] of [[-13, 8.4, -12], [13, 8.4, -14], [7, 8.3, -6]]) {
-      const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(1.4), new THREE.MeshStandardMaterial({ color: 0x40403c, roughness: 0.95 }));
+      const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(1.4), bouldMat);
       rk.position.set(rx, ry, rz); rk.scale.set(1, 0.7, 1);
-      rec.group.add(rk); zoneGeos.push(rk.geometry); zoneMats.push(rk.material);
+      rec.group.add(rk); zoneGeos.push(rk.geometry);
     }
-    // Dark translucent water disc at the lake rim (y ~ -2).
-    const waterGeo = new THREE.PlaneGeometry(24, 24);
-    const waterMat = new THREE.MeshStandardMaterial({
-      color: 0x0a1420, transparent: true, opacity: 0.72, roughness: 0.3, side: THREE.DoubleSide,
+    // The lake surface. It used to be a flat 72%-opaque plane with nothing
+    // underneath it, so you looked through the water into empty black — and it
+    // was 24 m square centred at z=-46, overhanging a basin that only runs
+    // z -56..-38. Now it's trimmed to the basin, sits over the visible bed
+    // built above, and is a real water material: physically transmissive, with
+    // moving normals so the moon and the sky break up across it.
+    const WATER_Y = -2;
+    const waterGeo = new THREE.PlaneGeometry(23, 17, 40, 30);
+    const waterNormal = waterNormalTexture();
+    zoneTextures.push(waterNormal);
+    const waterMat = new THREE.MeshPhysicalMaterial({
+      color: 0x14263a,
+      roughness: 0.06,
+      metalness: 0.0,
+      transmission: 0.75,      // you can see INTO it, not through it to nothing
+      thickness: 4.0,
+      ior: 1.33,
+      attenuationColor: new THREE.Color(0x0d2436),
+      attenuationDistance: 6.0,
+      normalMap: waterNormal,
+      normalScale: new THREE.Vector2(0.35, 0.35),
+      side: THREE.DoubleSide,
     });
     const water = new THREE.Mesh(waterGeo, waterMat);
-    water.position.set(0, -2, -46); water.rotation.x = -Math.PI / 2;
+    water.position.set(0, WATER_Y, -47); water.rotation.x = -Math.PI / 2;
+    water.userData.noShadow = true; // a transmissive sheet casts nothing useful
     rec.group.add(water); zoneGeos.push(waterGeo); zoneMats.push(waterMat);
+    // Two normal-map layers drifting against each other is the cheapest way to
+    // get water that reads as moving rather than as a frozen bump texture.
+    zoneUpdaters.push((t) => {
+      if (activeZone !== 'z6') return;
+      waterNormal.offset.set(t * 0.012, t * 0.007);
+    });
     // Rebirth vision: god-ray cones + a brightening light (fires once).
     const visionGrp = new THREE.Group();
     visionGrp.position.set(0, -6, -46); visionGrp.visible = false;
@@ -2314,19 +3044,24 @@ export function createActuality(planet, worldUp, opts = {}) {
   // "I won't remember" captions, then returns to the hub.
   function buildZone7() {
     const rec = zoneById['z7'];
-    rec.group.add(new THREE.AmbientLight(0x101018, 0.35));
+    addFill(rec, 0x1a1e2c, 0x0a0a10, 0.40);
     addDome(rec, 60, '#04040a', '#08080f');
     // Enclose the dark room (walls + ceiling, door gap on +Z, window on +X).
-    const RX = 8, RZ = 10, WH = 21.6; // ceiling tripled for the 2× figures
-    const roomMat = new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.95, side: THREE.DoubleSide });
-    zoneMats.push(roomMat);
+    const RX = 8, RZ = 10, WH = 3.0; // a low, close living room
+    const roomMat = zmat('plaster', { repeat: 4, color: 0x14161c, side: THREE.DoubleSide });
     const wall = (w, h, x, y, z, ry, rx = 0) => { const g = new THREE.PlaneGeometry(w, h); const m = new THREE.Mesh(g, roomMat); m.position.set(x, y, z); m.rotation.set(rx, ry, 0); rec.group.add(m); zoneGeos.push(g); };
     wall(RX * 2, WH, 0, WH / 2, -RZ, 0);
     wall(RZ * 2, WH, -RX, WH / 2, 0, Math.PI / 2);
     wall(RZ * 2, WH, RX, WH / 2, 0, Math.PI / 2);
     wall(RX * 2, RZ * 2, 0, WH, 0, 0, Math.PI / 2); // ceiling
+    // Carpet, so the TV's flicker has something with a nap to catch on.
+    const carpG = new THREE.PlaneGeometry(RX * 2, RZ * 2);
+    const carp = new THREE.Mesh(carpG, zmat('groundCover', { repeat: 8, color: 0x1e1a20, normalScale: 0.6 }));
+    carp.position.set(0, 0.012, 0); carp.rotation.x = -Math.PI / 2;
+    rec.group.add(carp); zoneGeos.push(carpG);
     // TV + cabinet.
-    addZoneBox(rec, 2.6, 1.8, 1.6, 0, 1.1, -8.5, 0x1a1a1e);
+    addZoneBox2(rec, 2.6, 1.8, 1.6, 0, 1.1, -8.5,
+      zmat('wood', { repeat: 1, color: 0x24242a }));
     const scr = tvStaticTexture(mulberry32(0x7777));
     const scrGeo = new THREE.PlaneGeometry(2.2, 1.4);
     const scrMat = new THREE.MeshStandardMaterial({ map: scr, emissive: 0xafc8ff, emissiveMap: scr, emissiveIntensity: 0.9 });
@@ -2408,14 +3143,154 @@ export function createActuality(planet, worldUp, opts = {}) {
     z7CaptionEl.textContent = text;
   }
 
+  /* ------------------------------------------------------------------
+   * The cabin at the edge of the Zone 8 clearing, and the scene inside it.
+   *
+   * Adapted from Ch.8 "Eternal Bandwidth": a small boy at his
+   * great-grandmother's bedside, her hand in his, her breathing slowing into
+   * "a strange kind of slumber", then "a sudden stillness".
+   *
+   * The held hands are the shot. The chapter names them as its recurring
+   * symbol — love expressed with no label on it — so the chair is pulled right
+   * up to the bed and both arms are built to meet, legible from the doorway.
+   *
+   * Everything here is real, human-scale architecture: 2.7 m ceiling, a door
+   * you walk through, one window looking back out at the fire.
+   * ---------------------------------------------------------------- */
+  function buildZone8Cabin(rec) {
+    const CX = 14, CZ = -13;        // cabin centre, at the clearing's edge
+    const HW = 3.0, HD = 3.6;       // half-width / half-depth of the interior
+    const CH = 2.7;                 // ceiling
+    const DOOR_HW = 0.6, DOOR_H = 2.05;
+
+    const wallMat = zmat('plaster', { repeat: 3, color: 0xa89880 });
+    const beamMat = zmat('wood', { repeat: 1, color: 0x5a4028 });
+    const floorMat = zmat('wood', { repeat: 3, color: 0x7d5f3e });
+
+    const box = (w, h, d, x, y, z, mat) => {
+      const g = new THREE.BoxGeometry(w, h, d);
+      const m = new THREE.Mesh(g, mat);
+      m.position.set(CX + x, y, CZ + z);
+      rec.group.add(m); zoneGeos.push(g);
+      return m;
+    };
+
+    // Floorboards, walls, ceiling. The door faces the clearing (-X, toward the
+    // fire), so you see the lit window first and walk in facing the bed.
+    box(HW * 2, 0.12, HD * 2, 0, 0.06, 0, floorMat);
+    box(HW * 2, CH, 0.18, 0, CH / 2, HD, wallMat);            // back
+    box(0.18, CH, HD * 2, HW, CH / 2, 0, wallMat);            // far side
+    box(HW * 2, CH, 0.18, 0, CH / 2, -HD, wallMat);           // front
+    // Door wall (-X) split around the opening.
+    const seg = (HD - DOOR_HW) / 2;
+    box(0.18, CH, seg, -HW, CH / 2, -(DOOR_HW + seg / 2 + DOOR_HW * 0), wallMat);
+    box(0.18, CH, seg, -HW, CH / 2, DOOR_HW + seg / 2, wallMat);
+    box(0.18, CH - DOOR_H, DOOR_HW * 2, -HW, DOOR_H + (CH - DOOR_H) / 2, 0, wallMat);
+    box(HW * 2, 0.14, HD * 2, 0, CH, 0, beamMat);             // ceiling
+    // Door frame + a low step, so the threshold reads as one.
+    box(0.24, DOOR_H, 0.12, -HW, DOOR_H / 2, -DOOR_HW, beamMat);
+    box(0.24, DOOR_H, 0.12, -HW, DOOR_H / 2, DOOR_HW, beamMat);
+    box(0.24, 0.12, DOOR_HW * 2, -HW, DOOR_H, 0, beamMat);
+    box(1.0, 0.1, DOOR_HW * 2 + 0.4, -HW - 0.5, 0.05, 0, beamMat);
+
+    // The window in the back wall, looking out at the fire. Emissive so it
+    // reads as warm from outside as well as in.
+    const winMat = new THREE.MeshStandardMaterial({
+      color: 0xffe0b0, emissive: 0xffc078, emissiveIntensity: 0.55, roughness: 0.4,
+    });
+    zoneMats.push(winMat);
+    box(1.2, 0.9, 0.06, -HW + 0.06, 1.5, -1.6, winMat);
+
+    // Bed against the far wall, quilt over it, pillow at the head.
+    const quiltMat = new THREE.MeshStandardMaterial({ color: 0x8a5a52, roughness: 0.95 });
+    const linenMat = new THREE.MeshStandardMaterial({ color: 0xe6ddca, roughness: 0.92 });
+    zoneMats.push(quiltMat, linenMat);
+    box(1.1, 0.42, 2.1, 1.5, 0.33, 0.4, beamMat);      // bedstead
+    box(1.06, 0.16, 2.0, 1.5, 0.60, 0.4, linenMat);    // mattress
+    box(1.08, 0.12, 1.35, 1.5, 0.71, 0.75, quiltMat);  // quilt, folded down
+    box(0.62, 0.16, 0.34, 1.5, 0.73, -0.44, linenMat); // pillow
+
+    // Great-grandmother, lying. Built here rather than via makeFigure because
+    // she is horizontal and half under a quilt — a standing rig on its back
+    // reads as a body dropped on a bed, not a person lying in one.
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0xd8c0a8, roughness: 0.78 });
+    const gownMat = new THREE.MeshStandardMaterial({ color: 0xc8ccd4, roughness: 0.9 });
+    zoneMats.push(skinMat, gownMat);
+    const head = box(0.2, 0.24, 0.24, 1.5, 0.9, -0.48, skinMat);
+    const chest = box(0.42, 0.2, 0.62, 1.5, 0.84, -0.02, gownMat);
+    // Her near arm comes out from under the quilt toward the chair.
+    box(0.12, 0.11, 0.44, 1.16, 0.80, -0.05, gownMat);
+    const granHand = box(0.11, 0.09, 0.13, 1.02, 0.79, 0.14, skinMat);
+
+    // The chair, pulled right up, and the boy in it.
+    box(0.44, 0.06, 0.42, 0.55, 0.46, 0.30, beamMat);   // seat
+    box(0.44, 0.5, 0.06, 0.55, 0.72, 0.52, beamMat);    // back
+    for (const [lx, lz] of [[-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18]])
+      box(0.05, 0.46, 0.05, 0.55 + lx, 0.23, 0.30 + lz, beamMat);
+    const boyCloth = new THREE.MeshStandardMaterial({ color: 0x5a6a80, roughness: 0.9 });
+    zoneMats.push(boyCloth);
+    box(0.26, 0.34, 0.18, 0.55, 0.67, 0.30, boyCloth);  // torso — a small child
+    const boyHead = box(0.19, 0.21, 0.19, 0.55, 0.94, 0.30, skinMat);
+    box(0.1, 0.1, 0.26, 0.55, 0.60, 0.16, boyCloth);    // near leg
+    box(0.1, 0.1, 0.26, 0.44, 0.60, 0.16, boyCloth);
+    // His arm reaches out to hers. The two hands meet at x≈1.0 — this is the
+    // image the whole scene is built around, so it sits clear of the quilt and
+    // square to the doorway.
+    box(0.09, 0.09, 0.34, 0.74, 0.79, 0.26, boyCloth);
+    const boyHand = box(0.1, 0.085, 0.12, 0.92, 0.79, 0.15, skinMat);
+
+    // Nightstand and oil lamp — the only light in the room.
+    box(0.4, 0.5, 0.36, 1.62, 0.25, -1.5, beamMat);
+    const lampMat = new THREE.MeshStandardMaterial({
+      color: 0xffd9a0, emissive: 0xffb860, emissiveIntensity: 1.1, roughness: 0.45,
+    });
+    zoneMats.push(lampMat);
+    const lampMesh = box(0.14, 0.22, 0.14, 1.62, 0.61, -1.5, lampMat);
+    const lamp = new THREE.PointLight(0xffcaa0, 1.5, 9, 2.0);
+    lamp.position.set(CX + 1.55, 1.0, CZ - 1.4);
+    rec.group.add(lamp);
+
+    // Rag rug.
+    const rugMat = zmat('groundCover', { repeat: 3, color: 0x7a4a44, normalScale: 0.5 });
+    box(1.6, 0.03, 1.2, -0.4, 0.13, 0.2, rugMat);
+
+    // The path from the fire to the cabin door, so the cabin is somewhere the
+    // clearing leads rather than something off to one side.
+    const pathMat = zmat('aggregate', { repeat: 2, color: 0x6e625a });
+    for (let i = 0; i < 9; i++) {
+      const t = i / 8;
+      const px = -0.6 + t * (CX - HW - 1.2 - -0.6);
+      const pz = -6 + t * (CZ - -6);
+      const g = new THREE.BoxGeometry(1.1, 0.06, 1.0);
+      const m = new THREE.Mesh(g, pathMat);
+      m.position.set(px, 0.03, pz);
+      m.rotation.y = Math.atan2(CX - HW - px, CZ - pz) * 0.2;
+      rec.group.add(m); zoneGeos.push(g);
+    }
+
+    // Collision: the cabin shell, with the doorway left open.
+    rec.extraStructures = rec.extraStructures || [];
+    rec.extraStructures.push(makeStructure(CX, 0, CZ,
+      [{ x0: -HW, x1: HW, z0: -HD, z1: HD, y: 0.12 }],
+      [
+        { x0: -HW, x1: HW, z0: HD - 0.1, z1: HD + 0.1, y0: 0, y1: CH },
+        { x0: HW - 0.1, x1: HW + 0.1, z0: -HD, z1: HD, y0: 0, y1: CH },
+        { x0: -HW, x1: HW, z0: -HD - 0.1, z1: -HD + 0.1, y0: 0, y1: CH },
+        { x0: -HW - 0.1, x1: -HW + 0.1, z0: -HD, z1: -DOOR_HW, y0: 0, y1: CH },
+        { x0: -HW - 0.1, x1: -HW + 0.1, z0: DOOR_HW, z1: HD, y0: 0, y1: CH },
+      ], Math.max(HW, HD) + 1));
+
+    return { CX, CZ, HW, HD, lamp, lampMesh, head, chest, granHand, boyHand, boyHead };
+  }
+
   // Z8 Eternity — a campfire that burns down while the clearing opens to a
-  // starfield; grandmother's bedside as a quiet side room.
+  // starfield; the cabin at its edge holds the deathbed.
   function buildZone8() {
     const rec = zoneById['z8'];
-    rec.group.add(new THREE.AmbientLight(0x241a12, 0.4));
-    const dusk = addDome(rec, 92, '#2a1c26', '#c07a4a');
-    const night = addDome(rec, 90, '#02030a', '#0a1428');
-    night.mat.transparent = true; night.mat.opacity = 0; // crossfades in as the fire dies
+    // The burn-down drives a real sky transition now (dusk → nightMoody, see
+    // the zone updater), so the two crossfading gradient domes are gone. The
+    // ambient is a bare floor; the firelight is meant to be the light source.
+    addFill(rec, 0x30405a, 0x241a12, 0.18);
     // A ring of dark tree silhouettes around the clearing; they fade out with
     // the burn-down to reveal the open field/starfield.
     const treeMat = new THREE.MeshBasicMaterial({ color: 0x0a0c10, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false });
@@ -2429,8 +3304,7 @@ export function createActuality(planet, worldUp, opts = {}) {
       tr.rotation.y = -a; rec.group.add(tr);
     }
     // Two touching stone fire-rings — the lit one + a cold old one — form an "8".
-    const ringMat = new THREE.MeshStandardMaterial({ color: 0x50463a, roughness: 0.95 });
-    zoneMats.push(ringMat);
+    const ringMat = zmat('rock', { repeat: 1, color: 0x62574a });
     const stoneGeo = new THREE.DodecahedronGeometry(0.35);
     zoneGeos.push(stoneGeo);
     for (const [rcz, n] of [[-6, 10], [-9.4, 9]]) {
@@ -2442,12 +3316,15 @@ export function createActuality(planet, worldUp, opts = {}) {
       }
     }
     // Sitting logs around the fire.
+    const logMat = zmat('bark', { repeat: 3, repeatY: 1, color: 0x5a4028 });
     for (const [lx, lz, lry] of [[-2.4, -4.4, 0.3], [2.4, -5, -0.4], [0, -8.2, 0]]) {
-      addZoneBox(rec, 1.8, 0.4, 0.45, lx, 0.2, lz, 0x4a3524, lry);
+      const lg = addZoneBox2(rec, 1.8, 0.4, 0.45, lx, 0.2, lz, logMat);
+      lg.rotation.y = lry;
     }
     // Campfire: logs + additive flame cones + embers + light.
-    addZoneBox(rec, 2.4, 0.4, 0.5, 0, 0.2, -6, 0x3a2a1c);
-    addZoneBox(rec, 0.5, 0.4, 2.4, 0, 0.2, -6, 0x3a2a1c);
+    const fireLogMat = zmat('bark', { repeat: 3, repeatY: 1, color: 0x46321e });
+    addZoneBox2(rec, 2.4, 0.4, 0.5, 0, 0.2, -6, fireLogMat);
+    addZoneBox2(rec, 0.5, 0.4, 2.4, 0, 0.2, -6, fireLogMat);
     const flameMat = new THREE.MeshBasicMaterial({
       color: 0xffb040, transparent: true, opacity: 0.8, depthWrite: false,
       blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
@@ -2477,18 +3354,20 @@ export function createActuality(planet, worldUp, opts = {}) {
     const eb = [];
     for (let i = 0; i < N; i++) eb.push({ x: (er() - 0.5) * 1.2, z: -6 + (er() - 0.5) * 1.2, ph: er() * 6.28, sp: 0.5 + er() });
     const _em = new THREE.Matrix4();
-    // Grandmother's bedside side room (off to +X).
-    addZoneBox(rec, 0.4, 3, 6, 12, 1.5, -4, 0x4a3e34);   // back wall
-    addZoneBox(rec, 5, 3, 0.4, 15, 1.5, -7, 0x4a3e34);   // side wall
-    addZoneBox(rec, 2.4, 0.5, 1.2, 15, 0.6, -4, 0x8a7060); // bed
-    const candle = new THREE.PointLight(0xffcaa0, 0.7, 14, 2.0);
-    candle.position.set(15, 2, -4); rec.group.add(candle);
-    const gran = makeFigure({ seated: true, skin: 0xd8c0a8, cloth: 0xa0a0b0, seed: 81 });
-    gran.group.position.set(15, 0.4, -4); gran.group.rotation.y = -Math.PI / 2;
-    rec.group.add(gran.group); figures.push(gran);
-    const granPos = zoneToAnchor(rec, 13.2, 0, -4);
+    // --- The cabin, and the deathbed inside it (Ch.8) ---
+    //
+    // This used to be three boxes and a bed dropped in the open twelve metres
+    // to the side of the fire — not a room, no way in, and sitting *beside* the
+    // clearing rather than meaning anything in relation to it. Now the fire and
+    // the bedside are sequential: the clearing is the remembering, and the
+    // cabin at its edge is the memory. You walk a path to it and go inside.
+    const cabin = buildZone8Cabin(rec);
+    const granPos = zoneToAnchor(rec, cabin.CX, 0, cabin.CZ + 1.4);
     interactables.push({ id: 'grandmother', zone: 'z8', pos: granPos, talking: false });
-    addEventLight(candle, granPos);
+    // Deliberately NOT an event light. That system dims a marker light as you
+    // approach so it doesn't wash out the character it marks — but this lamp is
+    // the room's only practical light, and the deathbed beat guttering it down
+    // is the whole point. Two writers on one intensity means neither wins.
 
     // The eternal star — a bright pole star high overhead that kindles as the
     // fire dies (the finite flame giving way to the endless sky). A soft halo +
@@ -2502,12 +3381,89 @@ export function createActuality(planet, worldUp, opts = {}) {
     // A soul-light that lifts from the bedside toward the star once the fire is
     // nearly out — grandmother passing gently into the eternal.
     const soul = new THREE.Mesh(new THREE.SphereGeometry(0.35, 10, 10), new THREE.MeshBasicMaterial({ color: 0xffe6c0, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
-    soul.position.set(15, 1.2, -4); rec.group.add(soul);
+    const SOUL0 = new THREE.Vector3(cabin.CX + 1.5, 0.95, cabin.CZ - 0.1); // her chest
+    soul.position.copy(SOUL0); rec.group.add(soul);
     zoneGeos.push(soul.geometry); zoneMats.push(soul.material);
     const soulLight = new THREE.PointLight(0xffd8a8, 0, 18, 2.0); soul.add(soulLight);
 
     // Reset the burn-down timer each time the player enters zone 8.
     zoneEnterCallbacks['z8'] = () => { z8Burn = 0; };
+
+    /* --- The deathbed beat ---------------------------------------------
+     * Armed by crossing the cabin threshold, not by a timer, so it belongs to
+     * the player walking in. Then, in order: her breathing slows over ~20 s and
+     * changes texture, stops, three seconds of held stillness, the lamp dims,
+     * and the soul lifts out through the roof toward the eternal star.
+     *
+     * The chapter's own beat is that the boy has no words for what happened —
+     * only "a sudden stillness" — so there is no dialogue, no prompt and no
+     * caption anywhere in this. It plays once ever (flagged), because the whole
+     * point is that it is not a thing you can go back and watch again.
+     * ------------------------------------------------------------------ */
+    const BREATH_SLOW = 20.0;  // seconds of breathing, decelerating
+    const STILL_HOLD = 3.0;    // seconds of nothing at all
+    const SOUL_RISE = 9.0;     // seconds for the soul to reach the star
+    const chestY = cabin.chest.position.y;
+    const headY = cabin.head.position.y;
+    let deathbed = null;       // { t } once armed
+    let breathPhase = 0;
+
+    zoneUpdaters.push((t, dt, playerPos) => {
+      if (activeZone !== 'z8') return;
+
+      // Arm on entering the cabin (anchor-frame distance to the bedside).
+      if (!deathbed && !flags.z8DeathbedSeen) {
+        if (playerPos.distanceTo(granPos) < 3.2) {
+          deathbed = { t: 0 };
+          flags.z8DeathbedSeen = true;
+          saveFlags(flags);
+          if (audio) setAudioDuck(0.06); // the room goes quiet
+        }
+      }
+
+      const T = deathbed ? deathbed.t : 0;
+      if (deathbed) deathbed.t += dt;
+
+      // Breathing. Rate decays toward zero across BREATH_SLOW; amplitude sags
+      // with it. Before the beat is armed she simply breathes, slowly.
+      const prog = deathbed ? Math.min(1, T / BREATH_SLOW) : 0;
+      const rate = 0.9 * (1 - prog * 0.92);
+      const amp = 0.012 * (1 - prog * 0.65);
+      const stopped = deathbed && T >= BREATH_SLOW;
+      if (!stopped) {
+        breathPhase += dt * rate;
+        const b = Math.sin(breathPhase * Math.PI * 2);
+        cabin.chest.position.y = chestY + b * amp;
+        cabin.chest.scale.set(1, 1 + b * 0.05, 1);
+        cabin.head.position.y = headY + b * amp * 0.35;
+      } else {
+        // Stillness. Not a slow settle — it stops.
+        cabin.chest.position.y = chestY;
+        cabin.chest.scale.set(1, 1, 1);
+        cabin.head.position.y = headY;
+      }
+
+      if (!deathbed) return;
+      // The lamp gutters down through the held silence.
+      if (T > BREATH_SLOW) {
+        const k = Math.min(1, (T - BREATH_SLOW) / (STILL_HOLD + 2));
+        cabin.lamp.intensity = 1.5 * (1 - k * 0.72);
+        cabin.lampMesh.material.emissiveIntensity = 1.1 * (1 - k * 0.6);
+      }
+      // Then the soul leaves the room for the star.
+      if (T > BREATH_SLOW + STILL_HOLD) {
+        const k = Math.min(1, (T - BREATH_SLOW - STILL_HOLD) / SOUL_RISE);
+        const e = k * k * (3 - 2 * k); // smoothstep: slow to leave, slow to arrive
+        soul.material.opacity = Math.min(0.95, k * 3) * (1 - Math.max(0, (k - 0.85) / 0.15));
+        soulLight.intensity = 1.6 * (1 - Math.max(0, (k - 0.8) / 0.2));
+        soul.position.set(
+          SOUL0.x + (0 - SOUL0.x) * e,
+          SOUL0.y + (46 - SOUL0.y) * e,
+          SOUL0.z + (-30 - SOUL0.z) * e
+        );
+        if (k >= 1) { deathbed = null; setAudioDuck(1); }
+      }
+    });
     zoneUpdaters.push((t, dt, playerPos) => {
       if (activeZone !== 'z8') return;
       z8Burn += dt;
@@ -2518,13 +3474,8 @@ export function createActuality(planet, worldUp, opts = {}) {
       starHalo.lookAt(0, 1.6, 6); // face the clearing
       starCore.scale.setScalar(0.7 + rise * 0.6 + Math.sin(t * 3) * 0.04);
       starLight.intensity = rise * 2.2;
-      // The soul-light lifts from the bedside toward the star once the fire is low.
-      if (rise > 0.5) {
-        const k = Math.min(1, (rise - 0.5) / 0.45);
-        soul.material.opacity = k * 0.9;
-        soulLight.intensity = k * 1.4;
-        soul.position.set(15 - k * 15, 1.2 + k * 42, -4 - k * 24); // arcs up to the star
-      } else { soul.material.opacity = 0; soulLight.intensity = 0; soul.position.set(15, 1.2, -4); }
+      // The soul is no longer driven by the burn-down — it leaves when she does,
+      // in the deathbed beat below, so the two aren't fighting over it.
       for (let i = 0; i < flames.length; i++) {
         const s = burn * (0.9 + Math.sin(t * 8 + i) * 0.12);
         flames[i].scale.set(s, s + Math.sin(t * 6 + i) * 0.1, s);
@@ -2533,9 +3484,10 @@ export function createActuality(planet, worldUp, opts = {}) {
       const fireK = THREE.MathUtils.smoothstep(playerPos.distanceTo(fireAnchor), 4.5, 9);
       fireLight.intensity = (0.3 + burn * 1.6) * (0.12 + 0.88 * fireK);
       flameMat.opacity = 0.3 + burn * 0.5;
-      night.mat.opacity = (1 - burn) * 0.9; // starfield fades in as the fire dies
-      dusk.mat.opacity = 0.4 + burn * 0.6;
-      dusk.mat.transparent = true;
+      // The sky itself burns down with the fire: dusk gives way to a moonlit,
+      // starlit night over ~90 s. preRender applies it (the blend re-bakes the
+      // environment map in steps, so the indirect light follows too).
+      pendingSkyBlend = { a: 'dusk', b: 'nightMoody', k: rise };
       treeMat.opacity = burn * 0.95; // the surrounding trees dissolve into open field
       for (let i = 0; i < N; i++) {
         const b = eb[i];
@@ -2580,18 +3532,28 @@ export function createActuality(planet, worldUp, opts = {}) {
 
     zoneEnterCallbacks['mirror'] = () => {
       if (!flags.hyperHoloGridSeen) { flags.hyperHoloGridSeen = true; saveFlags(flags); }
-      mirrorTimer = 0; // the ~5 s experience begins on entry
+      mirrorTimer = 0; // the 45 s experience begins on entry
     };
 
     // Updater: drive the clone + billboard the lattice. The hyper-holo-grid is
-    // the end: after ~10 s (the "0 = repeat program"), or on touching a wall,
+    // the end: after 45 s (the "0 = repeat program"), or on touching a wall,
     // the program repeats and the host resets the player to the game start.
     zoneUpdaters.push((t, dt, playerPos) => {
       if (activeZone !== 'mirror') return;
       _surf.copy(playerPos).applyQuaternion(anchorQ).add(anchorPos);
       _z6Local.copy(_surf).sub(frame.pos).applyQuaternion(frame.qInv); // player in mirror-local
       _dbgMirror.copy(_z6Local);
-      mirror.update(t, dt, _z6Local, 0);
+      // Feed the copies the player's ACTUAL state, so they mimic rather than
+      // idle: their animation is walk.mode/speed01, and the clone's camera is
+      // orbited by the difference between where the player faces and where the
+      // viewer stands. Both yaws are taken in the mirror's own frame.
+      // `walkState` is handed in by the host each frame rather than imported:
+      // walk.js already imports this module, and closing that loop just to read
+      // three fields would be a circular dependency for nothing.
+      _mirrorFacing.copy(walkState.facing).applyQuaternion(frame.qInv);
+      const facingYaw = Math.atan2(_mirrorFacing.x, _mirrorFacing.z);
+      const viewYaw = Math.atan2(_z6Local.x, _z6Local.z);
+      mirror.update(t, dt, _z6Local, walkState.speed01, walkState.mode, facingYaw, viewYaw);
       mirrorTimer += dt;
       const wall = Math.abs(_z6Local.x) > H - 0.5 || Math.abs(_z6Local.z) > H - 0.5;
       if (!pendingReset && (mirrorTimer > AC.HOLOGRID_SECONDS || wall)) {
@@ -2649,6 +3611,19 @@ export function createActuality(planet, worldUp, opts = {}) {
   // Pre-composer render hook: only the mirror room draws to a render target,
   // and only while the player is inside it.
   function preRender(renderer) {
+    // Sky work lives here because it is the only hook handed a renderer, and
+    // both the preset swap and the burn-down blend need one to bake the
+    // environment map. Preset swaps are queued during a transition blackout, so
+    // the bake cost lands on a frame the player is looking at black.
+    if (sky) {
+      if (pendingSkyPreset) {
+        sky.applyPreset(pendingSkyPreset, renderer);
+        pendingSkyPreset = null;
+      } else if (pendingSkyBlend) {
+        sky.applyBlend(pendingSkyBlend.a, pendingSkyBlend.b, pendingSkyBlend.k, renderer);
+      }
+      sky.update(_skyT, _skyDt, _skyPlayer, renderer);
+    }
     if (mirror && activeZone === 'mirror') mirror.preRender(renderer);
   }
 
@@ -2657,6 +3632,7 @@ export function createActuality(planet, worldUp, opts = {}) {
       flags: JSON.parse(JSON.stringify(flags)),
       activeZone, pendingDigit,
       fadePhase: fade.phase,
+      fadeT: fade.t,
       allZonesVisited: allZonesVisited(),
       // surface-local portal centers, for headless tests to drive the trigger
       portals: hubPortals.map((p) => ({
@@ -2669,6 +3645,7 @@ export function createActuality(planet, worldUp, opts = {}) {
         id: it.id, zone: it.zone, pos: [it.pos.x, it.pos.y, it.pos.z],
       })),
       joshuaVisible: joshuaFig ? joshuaFig.group.visible : null,
+      sky: sky ? sky.tune() : null,
       runtime: {
         z6Submerged, z7Sit, z8Burn, z7Caption: !!z7Caption, z6Vision: !!z6Vision,
         mirrorDoorOpen: mirrorDoor ? mirrorDoor.opened : null,
@@ -2676,6 +3653,27 @@ export function createActuality(planet, worldUp, opts = {}) {
         mirrorTimer, pendingReset,
       },
     };
+  }
+
+  // Test hook: jump straight to a zone with no crossfade. The real transition
+  // spends two seconds of simulated time fading, which on a software renderer
+  // is most of a minute of wall clock per zone — long enough that a headless
+  // sweep of all nine spends its whole budget staring at a black overlay.
+  // Same end state startTransition reaches, minus the fade.
+  function setZone(id) {
+    if (id !== 'hub' && !zoneById[id]) return false;
+    fade.phase = 'idle';
+    fade.t = 0;
+    setOverlay(0);
+    activeZone = id;
+    applyZoneVisibility();
+    pendingSkyPreset = skyForZone(id);
+    pendingSkyBlend = null;
+    if (id !== 'hub' && id !== 'mirror') { flags.visited[id] = true; }
+    pendingTeleport = id === 'hub'
+      ? { pos: hubReturnDest.clone(), heading: hubReturnHeading.clone() }
+      : { pos: zoneById[id].entryDest.clone(), heading: zoneById[id].entryHeading.clone() };
+    return true;
   }
 
   // Test hook: ground radius (and reference terrain radius) at a zone-local
@@ -2697,19 +3695,14 @@ export function createActuality(planet, worldUp, opts = {}) {
   }
 
   function dispose() {
+    if (sky) sky.dispose(); // also restores scene.fog / .environment for the flight sim
     hub.dispose();
+    materials.dispose();
     if (mirror) mirror.dispose();
     for (const f of figures) f.dispose();
     for (const g of zoneGeos) g.dispose();
     for (const m of zoneMats) m.dispose();
     for (const tx of zoneTextures) tx.dispose();
-    // Sign textures live on arch groups' userData.
-    group.traverse((o) => {
-      if (o.userData && o.userData.signTex) o.userData.signTex.dispose();
-    });
-    anchor.traverse((o) => {
-      if (o.userData && o.userData.signTex) o.userData.signTex.dispose();
-    });
     if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
     overlayEl = null;
     if (cityFallEl && cityFallEl.parentNode) cityFallEl.parentNode.removeChild(cityFallEl);
@@ -2743,7 +3736,14 @@ export function createActuality(planet, worldUp, opts = {}) {
     preRender,
     debug,
     probeGround,
+    setZone,
     surfacePoint,
+    // Landing pad in anchor-local space; walk.js parks the ship on it.
+    pad: hub.pad,
+    anchorLocalToSurface(x, y, z) {
+      return new THREE.Vector3(x, y, z).applyQuaternion(anchorQ).add(anchorPos);
+    },
+    sky, // sky/sun/IBL handle — headless calibration + zone-sky assertions
     // exposed for future milestones / tests
     _flags: flags,
   };
