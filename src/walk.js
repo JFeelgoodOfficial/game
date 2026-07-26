@@ -38,7 +38,9 @@ import { createMarineSnow } from './marinesnow.js';
 import { createShip as createParkedShip } from '../world/ship.js';
 import { createCity, CITY_STYLES } from '../world/city.js';
 import { createCrowd } from '../world/aliens.js';
-import { createWonderField } from '../world/wonders.js';
+import { createWonder } from '../world/wonders.js';
+import { nearestCity, wonderLocalDir } from '../world/cityRegistry.js';
+import { createVendors } from '../world/vendors.js';
 import { createCreatures } from '../world/creatures.js';
 import { createWavemallPrime, createCrowd as createWavemallCrowd } from '../world/wavemallprime.js';
 import { createWyattmattoe } from '../world/wyattmattoe.js';
@@ -132,11 +134,15 @@ let boardGroundVel = 0; // radial rate the terrain imposed while grounded
 let boardCamEase = 0; // eased 0..1 board-speed fraction for the TP camera
 let lastSpinAngle = 0; // surface.rotation.y at the previous walk tick (co-rotation)
 
-// Landing-site world entities, spawned per disembark like dressing.
+// Landing-site world entities, spawned per disembark like dressing. The city
+// is PERMANENT (world/cityRegistry.js): fixed site, fixed seed, identical on
+// every visit — only its scene graph is built lazily per landing.
 let parked = null; // parked ship mesh (world/ship.js) — takeoff anchor
-let city = null; // procedural city (world/city.js)
+let city = null; // the adopted registry city (world/city.js), or null (wilderness)
 let crowd = null; // citizens inside the city (world/aliens.js)
-let wonders = null; // megastructure field (world/wonders.js)
+let vendors = null; // named vendor NPCs with static dialogue (world/vendors.js)
+let wonders = null; // the city's unique wonder (world/wonders.js)
+let wonderColliders = null; // surface-local {position,radius,height} cylinders
 let creatures = null; // planet wildlife (world/creatures.js)
 let diamondRain = null; // walker-local diamond-rain volume (cfg.diamondRain)
 let marineSnow = null; // diver-local particulate volume (cfg.divable)
@@ -169,6 +175,7 @@ let beacon = null; // waypoint marker mesh, parented in its source module's fram
 let beaconParent = null;
 let beaconGeo = null; // shared, built on first use, disposed on exitWalk
 const TALK_DIST_CROWD = 2.6; // ~ aliens talkTriggerDist
+const TALK_DIST_VENDOR = 3.2; // named vendors stand still — a touch more reach
 const TALK_DIST_CREATURE = 6; // ~ creatures interactRadius
 const TALK_DIST_ACTUALITY = 6.4; // seated NPCs behind tables / the dragon box
 const TALK_DIST_SHADOWREACH = 5.2; // story figures read from further back
@@ -177,12 +184,10 @@ const PLAYER_RADIUS = 0.7; // body radius for building push-out
 
 // Scratch for the entity transforms (never allocated per frame).
 const _yAxisV = new THREE.Vector3(0, 1, 0);
-const _xAxisV = new THREE.Vector3(1, 0, 0);
 const _cityLocal = new THREE.Vector3();
 const _cityPt = new THREE.Vector3();
 const _localUp = new THREE.Vector3();
 const _siteT1 = new THREE.Vector3();
-const _siteT2 = new THREE.Vector3();
 const _patchUp = new THREE.Vector3();
 const _bestUp = new THREE.Vector3();
 const _parkPos = new THREE.Vector3();
@@ -402,16 +407,6 @@ export function enterWalk(planet) {
   }
 }
 
-// Wonder types that suit each world's character (fallback for any new planet).
-const WONDER_TYPES = {
-  terra: ['arch', 'grove', 'monoliths', 'elevator'],
-  oceana: ['crystals', 'titan', 'arch'],
-  glacia: ['crystals', 'monoliths'],
-  rustia: ['titan', 'arch', 'monoliths', 'ringworld'],
-  neptunia: ['crystals', 'arch', 'titan'],
-  wyattmattoe: ['arch', 'elevator', 'crystals'], // arch = a gate to fly through
-};
-
 // Spawn the landing-site world entities, all riding planet.surface so they
 // spin (and origin-shift) with the planet. Placement happens in the surface's
 // unrotated local frame; sampling helpers take world-space dirs (groundAt) —
@@ -543,128 +538,168 @@ function spawnWorldEntities(planet) {
     return;
   }
 
-  // Tangent frame at the landing dir, for placing the city and wonders.
-  const ref = Math.abs(_up.y) < 0.94 ? _yAxisV : _xAxisV;
-  _siteT1.crossVectors(_up, ref).normalize();
-  _siteT2.crossVectors(_up, _siteT1).normalize();
+  // --- permanent city (world/cityRegistry.js): adopt the nearest registry
+  // city when the landing falls within reach of its fixed site; farther out
+  // is a wilderness landing — dressing, creatures and the parked ship only.
+  // Worlds with no registry entries (a future planet added before its
+  // cities) are all wilderness, so nothing here breaks on a new world.
+  // The pad-targeted auto-land (game.js) puts every assisted landing on a
+  // city pad, so wilderness only happens by deliberate manual touchdown.
+  const near = nearestCity(planet, _up);
+  const cityDef =
+    near && near.angRad * planet.radius <= C.CITY_ATTACH_RANGE ? near.def : null;
 
-  // --- city: probe two rings of directions around the site, stop at the
-  // first dry spot; in a fully wet region (open ocean) keep the driest probe
-  // — the city itself clamps its deck to the sea surface, so it still works.
-  let bestGround = -Infinity;
-  outer: for (let ring = 1; ring <= 2; ring++) {
-    const span = (C.CITY_DISTANCE * ring) / planet.radius;
-    for (let k = 0; k < 8; k++) {
-      const a = (k * Math.PI) / 4 + (ring - 1) * (Math.PI / 8);
-      _patchUp
-        .copy(_up)
-        .addScaledVector(_siteT1, Math.cos(a) * span)
-        .addScaledVector(_siteT2, Math.sin(a) * span)
-        .normalize();
-      const g = planet.body.groundAt(_patchUp);
-      if (g > bestGround) {
-        bestGround = g;
-        _bestUp.copy(_patchUp);
+  if (cityDef) {
+    const style =
+      CITY_STYLES.find((s) => s.name === cityDef.style) ?? CITY_STYLES[0];
+    // createCity takes a WORLD-space dir and un-rotates internally; the
+    // registry site + seed + pad make the layout identical on every visit.
+    _bestUp.copy(cityDef.site).applyAxisAngle(_yAxisV, planet.surface.rotation.y);
+    city = createCity(planet, _bestUp, {
+      radius: cityDef.radius,
+      style,
+      seed: cityDef.seed,
+      padLocal: cityDef.pad,
+    });
+    city.def = cityDef;
+    planet.surface.add(city.group);
+    _cityInvQuat.copy(city.group.quaternion).invert();
+
+    // A landing on or into the city: the parked ship belongs on the landing
+    // pad — never among the fixed buildings. Outskirts landings (inside
+    // attach range but off the footprint) keep the generic PARK_OFFSET spot.
+    playerLocalInto(city.group, _cityInvQuat, _cityLocal);
+    const landD = Math.hypot(_cityLocal.x, _cityLocal.z);
+    if (landD <= cityDef.radius + 10) {
+      _cityPt.copy(city.padLocal)
+        .applyQuaternion(city.group.quaternion)
+        .add(city.group.position); // surface-local pad point
+      _localUp.copy(_cityPt).normalize();
+      parked.group.position
+        .copy(_localUp)
+        .multiplyScalar(_cityPt.length() + C.PARK_LIFT);
+      parked.group.quaternion.setFromUnitVectors(_yAxisV, _localUp);
+      // Nose toward the city center, so it reads as having set down here.
+      _siteT1.copy(city.group.position).sub(parked.group.position)
+        .applyQuaternion(_qTmp.copy(parked.group.quaternion).invert());
+      parked.group.rotateY(Math.atan2(_siteT1.x, _siteT1.z));
+
+      // Came down ON the pad (the auto-land case): step out beside it,
+      // facing town, instead of spawning inside the parked hull.
+      const padD = Math.hypot(
+        _cityLocal.x - cityDef.pad.x, _cityLocal.z - cityDef.pad.z
+      );
+      if (padD < 14) {
+        const toCenter = Math.hypot(cityDef.pad.x, cityDef.pad.z) || 1;
+        const wx = cityDef.pad.x * (1 - 13 / toCenter);
+        const wz = cityDef.pad.z * (1 - 13 / toCenter);
+        _cityPt.set(wx, city.groundLocalYAt(wx, wz) + 0.1, wz)
+          .applyQuaternion(city.group.quaternion)
+          .add(city.group.position)
+          .applyAxisAngle(_yAxisV, planet.surface.rotation.y)
+          .add(planet.body.position);
+        ship.position.copy(_cityPt);
+        _up.subVectors(ship.position, planet.body.position).normalize();
+        // Face the city center from the pad's edge.
+        _cityPt.copy(city.group.position)
+          .applyAxisAngle(_yAxisV, planet.surface.rotation.y)
+          .add(planet.body.position);
+        walk.heading.subVectors(_cityPt, ship.position);
+        projectTangent(walk.heading, _up);
+        if (walk.heading.lengthSq() < 1e-6) walk.heading.set(1, 0, 0);
+        walk.heading.normalize();
+        walk.facing.copy(walk.heading);
       }
-      const dry =
-        !planet.water || planet.water.frozen || g > C.WALK_WATER_LEVEL + 2;
-      if (dry) break outer;
     }
-  }
-  // Each world gets its own city character — stable across landings. Known
-  // worlds map to a fitting preset (terra is the neon-ad metropolis); any
-  // future terra world falls back to cycling the presets by index.
-  const CITY_STYLE_BY_WORLD = {
-    terra: 'neonMetropolis',
-    oceana: 'verdantTerrace',
-    glacia: 'frostHaven',
-    rustia: 'dustOutpost',
-    neptunia: 'tideLuminous',
-    wyattmattoe: 'basecampNeon',
-  };
-  const terraWorlds = planets.filter((p) => p.cfg.type === 'terra');
-  const styleIdx = Math.max(0, terraWorlds.indexOf(planet));
-  const style =
-    CITY_STYLES.find((s) => s.name === CITY_STYLE_BY_WORLD[planet.cfg.name]) ??
-    CITY_STYLES[styleIdx % CITY_STYLES.length];
-  city = createCity(planet, _bestUp, { radius: C.CITY_RADIUS, style });
-  planet.surface.add(city.group);
-  _cityInvQuat.copy(city.group.quaternion).invert();
 
-  // Citizens live inside the city group, in its flat local x/z space.
-  crowd = createCrowd(
-    {
-      groundHeightAt: city.groundLocalYAt,
-      plazaCenters: city.plazaCenters,
-      colliders: city.collidersLocal,
-      cityId: planet.cfg.name,
-    },
-    {}
-  );
-  city.group.add(crowd.group);
-
-  // Interior occupants: a tiny bounded crowd per enterable lobby — a shopkeeper
-  // (stationary) and a browser in shops, a couple of loungers otherwise — plus
-  // a lone caretaker on the tower balcony. Each shares the city's local frame.
-  interiorCrowds = [];
-  for (const l of city.lobbies ?? []) {
-    const isShop = l.flavor === 'shop';
-    const m = createCrowd(
+    // Citizens live inside the city group, in its flat local x/z space.
+    // cityId is the registry id, so each city keeps its own culture, species
+    // and name pool (aliens.js hashes the id) — stable across landings.
+    crowd = createCrowd(
       {
-        cityId: planet.cfg.name,
-        plazaCenters: [{ x: l.x, z: l.z, r: 1 }],
-        colliders: [],
-        groundHeightAt: () => l.floorY,
+        groundHeightAt: city.groundLocalYAt,
+        plazaCenters: city.plazaCenters,
+        colliders: city.collidersLocal,
+        cityId: cityDef.id,
       },
-      {
-        population: isShop ? 2 : 3, maxRigs: 3, seed: l.seed, questChance: 0,
-        culture: isShop ? 'shopkeeper' : 'lounge', stationaryFirst: isShop,
-      }
+      {}
     );
-    city.group.add(m.group);
-    interiorCrowds.push(m);
-  }
-  if (city.balconySpot) {
-    const b = city.balconySpot;
-    const m = createCrowd(
-      {
-        cityId: planet.cfg.name,
-        plazaCenters: [{ x: b.x, z: b.z, r: 1 }],
-        colliders: [],
-        groundHeightAt: () => b.y,
-      },
-      { population: 1, maxRigs: 1, seed: (city.lobbies?.length ?? 0) + 101, questChance: 0, culture: 'caretaker', stationaryFirst: true }
-    );
-    city.group.add(m.group);
-    interiorCrowds.push(m);
-  }
+    city.group.add(crowd.group);
 
-  // --- wonders: mirrored to the far side of the landing site from the city ---
-  _siteT1.subVectors(_bestUp, _up); // tangent offset toward the city
-  _patchUp
-    .copy(_up)
-    .addScaledVector(_siteT1, -C.WONDER_DISTANCE / C.CITY_DISTANCE)
-    .normalize();
-  wonders = createWonderField(planet, _patchUp, {
-    count: C.WONDER_COUNT,
-    materials: surfaceMaterials,
-    types: WONDER_TYPES[planet.cfg.name] ?? ['arch', 'crystals', 'monoliths'],
-    // Wonders share the city's neon identity: glacia goes ice-blue, rustia
-    // amber, oceana teal (wonders.js palette.accent/secondary hooks).
-    palette: {
-      accent: style.palette.neonPrimary,
-      secondary: style.palette.neonSecondaryA,
-    },
-  }); // adds its group to planet.surface itself
+    // Interior occupants: a tiny bounded crowd per enterable lobby — a
+    // shopkeeper (stationary) and a browser in shops, a couple of loungers
+    // otherwise — plus a lone caretaker on the tower balcony. Each shares
+    // the city's local frame.
+    interiorCrowds = [];
+    for (const l of city.lobbies ?? []) {
+      const isShop = l.flavor === 'shop';
+      const m = createCrowd(
+        {
+          cityId: cityDef.id,
+          plazaCenters: [{ x: l.x, z: l.z, r: 1 }],
+          colliders: [],
+          groundHeightAt: () => l.floorY,
+        },
+        {
+          population: isShop ? 2 : 3, maxRigs: 3, seed: l.seed, questChance: 0,
+          culture: isShop ? 'shopkeeper' : 'lounge', stationaryFirst: isShop,
+        }
+      );
+      city.group.add(m.group);
+      interiorCrowds.push(m);
+    }
+    if (city.balconySpot) {
+      const b = city.balconySpot;
+      const m = createCrowd(
+        {
+          cityId: cityDef.id,
+          plazaCenters: [{ x: b.x, z: b.z, r: 1 }],
+          colliders: [],
+          groundHeightAt: () => b.y,
+        },
+        { population: 1, maxRigs: 1, seed: (city.lobbies?.length ?? 0) + 101, questChance: 0, culture: 'caretaker', stationaryFirst: true }
+      );
+      city.group.add(m.group);
+      interiorCrowds.push(m);
+    }
+
+    // Named vendors with static hand-authored dialogue trees, at fixed
+    // registry spots (plazas, lobbies, the pad, the tower balcony).
+    vendors = createVendors(planet, cityDef, city, {
+      neon: style.palette.neonPrimary,
+    });
+    city.group.add(vendors.group);
+
+    // --- the city's unique wonder: one globally-unique type per city, at a
+    // fixed bearing/distance from the site (visible from town, a short walk).
+    wonderLocalDir(planet, cityDef, _patchUp)
+      .applyAxisAngle(_yAxisV, planet.surface.rotation.y); // -> world dir
+    wonders = createWonder(cityDef.wonder.type, planet, _patchUp, {
+      seed: cityDef.wonder.seed,
+      materials: surfaceMaterials,
+      // Wonders share the city's neon identity (palette.accent/secondary).
+      palette: {
+        accent: style.palette.neonPrimary,
+        secondary: style.palette.neonSecondaryA,
+      },
+    }); // adds its group to planet.surface itself
+    wonderColliders = Array.isArray(wonders.collider)
+      ? wonders.collider
+      : wonders.collider ? [wonders.collider] : null;
+  }
 
   // --- wyattmattoe only: the Highline Basecamp — an ADDITIVE textured scene
-  // (lodge, gondola lift, real people) alongside the pop-up city, snowboard
-  // and Ridge Kites. avoidDir keeps it off the city's probe bearing.
+  // (lodge, gondola lift, real people) alongside the permanent cities,
+  // snowboard and Ridge Kites. avoidDir keeps it off the nearest city site
+  // even on a wilderness landing, so it never builds over a permanent city.
   if (planet.cfg.name === 'wyattmattoe') {
+    const avoid = near
+      ? near.def.site.clone().applyAxisAngle(_yAxisV, planet.surface.rotation.y)
+      : _up;
     wyattmattoe = createWyattmattoe(planet, _up, {
       materials: surfaceMaterials,
       quality: settings.quality,
-      avoidDir: _bestUp,
+      avoidDir: avoid,
     });
     planet.surface.add(wyattmattoe.group);
   }
@@ -748,6 +783,11 @@ export function exitWalk(camera) {
     m.dispose();
   }
   interiorCrowds = [];
+  if (vendors) {
+    city.group.remove(vendors.group);
+    vendors.dispose();
+    vendors = null;
+  }
   if (city) {
     city.dispose();
     planet.surface.remove(city.group);
@@ -756,6 +796,7 @@ export function exitWalk(camera) {
   if (wonders) {
     wonders.dispose(); // removes its own group from planet.surface
     wonders = null;
+    wonderColliders = null;
   }
   if (creatures) {
     creatures.dispose();
@@ -1027,10 +1068,11 @@ export function stepWalk(dt) {
   let wavemallGroundR = -1;
   let actualityGroundR = -1;
   let cityD = Infinity;
+  const cityR = city?.def?.radius ?? C.CITY_RADIUS; // per-city footprint (registry)
   if (city) {
     playerLocalInto(city.group, _cityInvQuat, _cityLocal);
     cityD = Math.hypot(_cityLocal.x, _cityLocal.z);
-    if (cityD < C.CITY_RADIUS + 8) {
+    if (cityD < cityR + 8) {
       let pushed = false;
       const cols = city.collidersLocal;
       for (let i = 0; i < cols.length; i++) {
@@ -1067,7 +1109,7 @@ export function stepWalk(dt) {
         ship.position.copy(_cityPt);
         cityD = Math.hypot(_cityLocal.x, _cityLocal.z);
       }
-      if (cityD < C.CITY_RADIUS) {
+      if (cityD < cityR) {
         let gy = city.groundLocalYAt(_cityLocal.x, _cityLocal.z);
         // Rooftop standing: inside a tower footprint with feet at roof level.
         for (let i = 0; i < cols.length; i++) {
@@ -1142,6 +1184,37 @@ export function stepWalk(dt) {
     }
   }
 
+  // --- wonder keep-out: the city's unique wonder is solid on foot. Cylinder
+  // push-out in surface-local space (collider positions come from the
+  // builders before their group is parented, so they're already local).
+  if (wonderColliders && wonderColliders.length) {
+    _cityLocal
+      .subVectors(ship.position, planet.body.position)
+      .applyAxisAngle(_yAxisV, -planet.surface.rotation.y); // world -> surface-local
+    let pushed = false;
+    for (let i = 0; i < wonderColliders.length; i++) {
+      const c = wonderColliders[i];
+      _patchUp.copy(c.position).normalize(); // the cylinder's up axis (radial)
+      _cityPt.subVectors(_cityLocal, c.position);
+      const along = _cityPt.dot(_patchUp); // height above the collider base
+      if (along < -4 || along > (c.height ?? 20) + 2) continue;
+      _cityPt.addScaledVector(_patchUp, -along); // tangent-plane offset
+      const rr = c.radius + PLAYER_RADIUS;
+      const dd = _cityPt.lengthSq();
+      if (dd < rr * rr && dd > 1e-6) {
+        const dist = Math.sqrt(dd);
+        _cityLocal.addScaledVector(_cityPt, (rr - dist) / dist);
+        pushed = true;
+      }
+    }
+    if (pushed) {
+      _cityPt.copy(_cityLocal)
+        .applyAxisAngle(_yAxisV, planet.surface.rotation.y) // surface-local -> world
+        .add(planet.body.position);
+      ship.position.copy(_cityPt);
+    }
+  }
+
   // Recompute up / radius after the horizontal step.
   _up.subVectors(ship.position, planet.body.position);
   r = _up.length();
@@ -1149,7 +1222,7 @@ export function stepWalk(dt) {
   let surfaceR = floorRadius(planet, _up);
   if (cityGroundR > 0) {
     // City deck inside, blending back to raw terrain across the outer rim.
-    const t = THREE.MathUtils.smoothstep(cityD, C.CITY_RADIUS * 0.92, C.CITY_RADIUS);
+    const t = THREE.MathUtils.smoothstep(cityD, cityR * 0.92, cityR);
     surfaceR = THREE.MathUtils.lerp(cityGroundR, surfaceR, t);
   } else if (actualityGroundR > 0) {
     // Interiors own the floor outright (incl. below-grade shafts): replace,
@@ -1348,6 +1421,11 @@ export function updateWalkVisuals(dt, t) {
       m.update(dt, _playerLocal, sunDot);
       scanModule(m, TALK_DIST_CROWD);
     }
+    // Named vendors share the city-local frame too.
+    if (vendors) {
+      vendors.update(dt, _playerLocal, sunDot);
+      scanModule(vendors, TALK_DIST_VENDOR);
+    }
   }
   if (wyattmattoe) {
     // The module group sits at identity under planet.surface, so the identity
@@ -1490,17 +1568,22 @@ export function walkPromptText() {
 
 // An accepted Quest offer (interaction.js): the module only described intent;
 // the journal records it, and waypoints also get a visible beacon.
+// A 'choice' may return a FOLLOW-UP DialoguePayload from the module (vendor
+// branching menus) — forwarded to dialogue.js, which keeps the panel open.
+// Tags prefixed 'menu:' are pure navigation, never journaled: walking a
+// vendor's dialogue tree isn't a consequence.
 function applyOffer(offer, module) {
-  if (!offer) return;
+  if (!offer) return null;
   if (offer.kind === 'codex') {
     addCodex(offer.subject);
   } else if (offer.kind === 'choice') {
-    addOutcome(offer.outcomeTag);
-    module.onOutcome?.(offer.outcomeTag); // module learns which option resolved
+    if (!offer.outcomeTag?.startsWith('menu:')) addOutcome(offer.outcomeTag);
+    return module.onOutcome?.(offer.outcomeTag) ?? null; // module learns which option resolved
   } else if (offer.kind === 'waypoint') {
     setWaypoint(offer.targetHint);
     spawnBeacon(offer.marker, module);
   }
+  return null;
 }
 
 // Waypoint beacon: an emissive column at the quest marker. The marker is a
@@ -1586,7 +1669,8 @@ export function promptReturnToShip() {
 // dev/verification handle (main.js __debug): the landing-site entities.
 export function walkSite() {
   return {
-    city, parked, crowd, dressing, wavemall, actuality, shadowreach, interiorCrowds,
+    city, parked, crowd, vendors, wonders, dressing, wavemall, actuality,
+    shadowreach, interiorCrowds,
     creatures, diamondRain, marineSnow, planetSky, wyattmattoe,
     station: stationWalk.stationSite(),
   };

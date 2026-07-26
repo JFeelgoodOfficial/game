@@ -109,15 +109,54 @@ const C = {
   RINGWORLD_WIDTH: 60,
   RINGWORLD_SEGMENTS: 96,
 
-  // Scatter field
-  FIELD_DEFAULT_COUNT: 3,
-  FIELD_MIN_SEPARATION: 250,
-  FIELD_PLACEMENT_RADIUS: 900,    // how far out backdrop wonders may roam
-  EXPLORABLE_PLACEMENT_RADIUS: 320,
+  // Geyser organ (glacia — Hearthfall)
+  GEYSER_CHIMNEYS: 9,
+  GEYSER_MOUND_RADIUS: 46,
+  GEYSER_MIN_H: 15,
+  GEYSER_MAX_H: 60,
+  GEYSER_CYCLE: 20,               // seconds between a chimney's vents
+  GEYSER_PLUME_SECONDS: 4,
+
+  // Colossal sundial (rustia — Solmara)
+  SUNDIAL_GNOMON_H: 90,
+  SUNDIAL_RING_RADIUS: 65,
+  SUNDIAL_MARKERS: 12,
+  SUNDIAL_DAY: 600,               // seconds for the bright marker's circuit
+
+  // Leviathan ribs (neptunia — Indigo Reach)
+  LEVIATHAN_RIB_PAIRS: 7,         // paired arcs -> 14 ribs
+  LEVIATHAN_LENGTH: 200,          // nave length along the spine
+  LEVIATHAN_RIB_MIN_H: 40,
+  LEVIATHAN_RIB_MAX_H: 120,
+
+  // Diamond veil (neptunia — Diamondwake)
+  VEIL_RING_RADIUS: 30,
+  VEIL_HOVER: 110,
+  VEIL_POOL_RADIUS: 42,
+  VEIL_STREAMS: 4,
+  VEIL_STREAM_COUNT: 50,          // instanced glitter per stream
+
+  // Ridge harp (wyattmattoe — Kite Saddle)
+  HARP_PYLON_H: 80,
+  HARP_SPAN: 120,
+  HARP_STRINGS: 12,
+
+  // Cirque bell (wyattmattoe — Cirquehollow)
+  BELL_HEIGHT: 35,
+  BELL_FRAME_H: 70,
+  BELL_TOLL_PERIOD: 30,           // seconds between silent tolls
+  BELL_TOLL_SECONDS: 4,
+
+  // Frozen cascade (wyattmattoe — Icefall Landing)
+  ICEFALL_CLIFF_H: 100,
+  ICEFALL_WIDTH: 70,
+  ICEFALL_SHEETS: 7,
+  ICEFALL_POOL_RADIUS: 34,
 };
 
 const ALL_TYPES = [
   'elevator', 'arch', 'crystals', 'grove', 'monoliths', 'titan', 'ringworld',
+  'geyser', 'sundial', 'leviathan', 'diamondveil', 'skyharp', 'bell', 'icefall',
 ];
 const BACKDROP_TYPES = new Set(['elevator', 'ringworld']);
 
@@ -199,7 +238,7 @@ function emissiveMat(color, intensity, opts = {}) {
 }
 
 // Walk-session material registry (world/actuality-materials.js), installed by
-// createWonderField for the duration of its builders. The 'rock' family bakes
+// createWonder for the duration of its builder. The 'rock' family bakes
 // luminance only, so the per-wonder tint colors below keep driving the hue —
 // the maps just stop the megastructures reading as flat plastic. The registry
 // owns the map clones; disposeGroup's material.dispose() never frees textures.
@@ -867,6 +906,582 @@ function buildRingworld(planet, localDir, seed, palette) {
   return { group, update, dispose: () => disposeGroup(group), collider: null };
 }
 
+// ===========================================================================
+// TYPE 8 — The Geyser Organ (glacia): a travertine mound carrying a rank of
+// hollow ice chimneys the planet plays like organ pipes — each vents a lit
+// steam plume on a staggered cycle, its core light swelling a beat early.
+// ===========================================================================
+function buildGeyser(planet, localDir, seed, palette) {
+  const rng = mulberry32(seed);
+  const group = placeOnSurface(planet, localDir, rng() * Math.PI * 2);
+  const accent = palette.accent ?? C.CYAN;
+
+  // Travertine terrace mound: stacked squashed cones.
+  const moundGeos = [];
+  for (let i = 0; i < 4; i++) {
+    const r = C.GEYSER_MOUND_RADIUS * (1 - i * 0.22);
+    const geo = new THREE.ConeGeometry(r, 4 + i * 1.5, 24);
+    geo.translate(0, i * 3 + 2, 0);
+    moundGeos.push(geo);
+  }
+  const mound = new THREE.Mesh(mergeGeometries(moundGeos, false), stoneMat(0x9fb3c0));
+  group.add(mound);
+
+  // The pipe rank: hollow-looking tapered chimneys in a rough line across the
+  // mound, each with an emissive core column inside.
+  const chimneys = [];
+  const coreMat = emissiveMat(accent, 0.4, { baseColor: 0x0d1a20 });
+  const iceMat = new THREE.MeshStandardMaterial({
+    color: 0xcfe6f2, roughness: 0.25, metalness: 0.05,
+    transparent: true, opacity: 0.82,
+  });
+  for (let i = 0; i < C.GEYSER_CHIMNEYS; i++) {
+    const t = i / (C.GEYSER_CHIMNEYS - 1);
+    const h = THREE.MathUtils.lerp(C.GEYSER_MIN_H, C.GEYSER_MAX_H,
+      Math.sin(t * Math.PI) * (0.7 + rng() * 0.3));
+    const x = (t - 0.5) * C.GEYSER_MOUND_RADIUS * 1.7;
+    const z = (rng() - 0.5) * 14;
+    const shell = new THREE.Mesh(
+      new THREE.CylinderGeometry(2.2 + rng() * 1.2, 4.2 + rng() * 1.6, h, 10, 1, true),
+      iceMat
+    );
+    shell.position.set(x, h / 2 + 6, z);
+    group.add(shell);
+    const core = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.9, 1.3, h * 0.9, 6), coreMat.clone()
+    );
+    core.position.set(x, h * 0.45 + 6, z);
+    group.add(core);
+    // Vent plume: stacked additive ring shells, scaled/faded in update().
+    const plumeMat = new THREE.MeshBasicMaterial({
+      color: accent, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    });
+    const plumeGeos = [];
+    for (let s = 0; s < 4; s++) {
+      const ring = new THREE.TorusGeometry(1.6 + s * 0.9, 0.35, 6, 16);
+      ring.rotateX(Math.PI / 2);
+      ring.translate(0, s * 3.4, 0);
+      plumeGeos.push(ring);
+    }
+    const plume = new THREE.Mesh(mergeGeometries(plumeGeos, false), plumeMat);
+    plume.position.set(x, h + 6, z);
+    plume.visible = false;
+    group.add(plume);
+    chimneys.push({ core, plume, phase: (i * 2.31) % C.GEYSER_CYCLE, h });
+  }
+
+  const worldPos = new THREE.Vector3();
+  const colliders = [];
+  for (const ch of chimneys) {
+    worldPos.copy(ch.plume.position).setY(0).applyQuaternion(group.quaternion)
+      .add(group.position);
+    colliders.push(radialCollider(worldPos.clone(), 4.5, ch.h + 8));
+  }
+
+  function update(t, sunDot) {
+    const night = Math.max(1 - Math.max(sunDot, 0), 0.25);
+    for (let i = 0; i < chimneys.length; i++) {
+      const ch = chimneys[i];
+      const cycle = (t + ch.phase) % C.GEYSER_CYCLE;
+      // Core light swells one second before the vent blows.
+      const preroll = THREE.MathUtils.clamp(
+        (cycle - (C.GEYSER_CYCLE - C.GEYSER_PLUME_SECONDS - 1)) / 1, 0, 1
+      );
+      const venting = cycle > C.GEYSER_CYCLE - C.GEYSER_PLUME_SECONDS;
+      const k = venting
+        ? (cycle - (C.GEYSER_CYCLE - C.GEYSER_PLUME_SECONDS)) / C.GEYSER_PLUME_SECONDS
+        : 0;
+      ch.core.material.emissiveIntensity =
+        (0.35 + preroll * 1.1 + (venting ? (1 - k) * 0.8 : 0)) * night;
+      ch.plume.visible = venting;
+      if (venting) {
+        const grow = 1 + k * 2.2;
+        ch.plume.scale.set(grow, 1 + k * 3.5, grow);
+        ch.plume.material.opacity = (1 - k) * 0.5;
+      }
+    }
+  }
+
+  return { group, update, dispose: () => disposeGroup(group), collider: colliders };
+}
+
+// ===========================================================================
+// TYPE 9 — The Colossal Sundial (rustia): a tilted gnomon blade over an
+// inlaid ring of glyph markers. The bright marker walks the ring through the
+// day — the whole settlement keeps time by it. The ring plaza is walkable.
+// ===========================================================================
+function buildSundial(planet, localDir, seed, palette) {
+  const rng = mulberry32(seed);
+  const group = placeOnSurface(planet, localDir, rng() * Math.PI * 2);
+  const amber = palette.accent ?? C.AMBER;
+
+  // Inlaid plaza disc + rim.
+  const plaza = new THREE.Mesh(
+    new THREE.CylinderGeometry(C.SUNDIAL_RING_RADIUS + 8, C.SUNDIAL_RING_RADIUS + 8, 1.2, 48),
+    stoneMat(0x4d3626)
+  );
+  plaza.position.y = 0.6;
+  group.add(plaza);
+
+  // The gnomon: a tilted oxide-dark blade.
+  const gnomon = new THREE.Mesh(
+    new THREE.BoxGeometry(6, C.SUNDIAL_GNOMON_H, 14), stoneMat(0x2e1a10)
+  );
+  gnomon.position.y = C.SUNDIAL_GNOMON_H / 2 + 1;
+  gnomon.rotation.z = 0.42; // the timekeeping tilt
+  group.add(gnomon);
+  const edge = new THREE.Mesh(
+    new THREE.BoxGeometry(1.2, C.SUNDIAL_GNOMON_H, 1.6), emissiveMat(amber, 0.9)
+  );
+  edge.position.set(-3.2, C.SUNDIAL_GNOMON_H / 2 + 1, 0);
+  gnomon.add(edge);
+
+  // Twelve glyph marker slabs around the ring.
+  const markers = [];
+  for (let i = 0; i < C.SUNDIAL_MARKERS; i++) {
+    const a = (i / C.SUNDIAL_MARKERS) * Math.PI * 2;
+    const slab = new THREE.Mesh(
+      new THREE.BoxGeometry(7, 1.6, 4), emissiveMat(amber, 0.25, { baseColor: 0x33200f })
+    );
+    slab.position.set(Math.cos(a) * C.SUNDIAL_RING_RADIUS, 1.6, Math.sin(a) * C.SUNDIAL_RING_RADIUS);
+    slab.rotation.y = -a;
+    group.add(slab);
+    markers.push(slab);
+  }
+
+  const worldPos = new THREE.Vector3();
+  group.getWorldPosition(worldPos);
+  const collider = radialCollider(worldPos, 7, C.SUNDIAL_GNOMON_H); // gnomon base only
+
+  function update(t, sunDot) {
+    const night = Math.max(1 - Math.max(sunDot, 0), 0.2);
+    // The lit marker circles once per SUNDIAL_DAY; neighbors get a soft falloff.
+    const cursor = ((t / C.SUNDIAL_DAY) % 1) * C.SUNDIAL_MARKERS;
+    for (let i = 0; i < markers.length; i++) {
+      let d = Math.abs(i - cursor);
+      d = Math.min(d, C.SUNDIAL_MARKERS - d);
+      const lit = Math.max(0, 1 - d);
+      markers[i].material.emissiveIntensity = (0.18 + lit * 1.4) * (0.4 + night * 0.6);
+    }
+    edge.material.emissiveIntensity = (0.5 + Math.sin(t * 0.3) * 0.2) * (0.4 + night * 0.6);
+  }
+
+  return { group, update, dispose: () => disposeGroup(group), collider };
+}
+
+// ===========================================================================
+// TYPE 10 — Ribs of the Sound-Leviathan (neptunia): the bleached ribcage of
+// something the size of a village, arched into a nave over the shore. The
+// barnacle clusters along the bone still glow — brightest in the dark.
+// ===========================================================================
+function buildLeviathan(planet, localDir, seed, palette) {
+  const rng = mulberry32(seed);
+  const group = placeOnSurface(planet, localDir, rng() * Math.PI * 2);
+  const violet = palette.accent ?? 0x9a6aff;
+  const boneMat = stoneMat(0xcac0d8);
+
+  const colliders = [];
+  const worldPos = new THREE.Vector3();
+  const barnacleMat = emissiveMat(violet, 0.6, { baseColor: 0x1a1430 });
+  const barnacles = [];
+
+  for (let i = 0; i < C.LEVIATHAN_RIB_PAIRS * 2; i++) {
+    const pair = Math.floor(i / 2);
+    const side = i % 2 ? 1 : -1;
+    const tz = pair / (C.LEVIATHAN_RIB_PAIRS - 1);
+    const z = (tz - 0.5) * C.LEVIATHAN_LENGTH;
+    const h = THREE.MathUtils.lerp(
+      C.LEVIATHAN_RIB_MIN_H, C.LEVIATHAN_RIB_MAX_H, Math.sin(tz * Math.PI)
+    ) * (0.9 + rng() * 0.2);
+    // A rib: a torus arc leaning inward, foot planted wide of the spine.
+    const rib = new THREE.Mesh(
+      new THREE.TorusGeometry(h, 1.8 + (1 - tz) * 0.8, 8, 24, Math.PI * 0.52), boneMat
+    );
+    rib.position.set(side * h * 0.72, 0, z);
+    rib.rotation.y = side > 0 ? Math.PI : 0; // arc curls over the spine
+    rib.rotation.z = side > 0 ? -0.18 : 0.18;
+    group.add(rib);
+    // Barnacle clusters part-way up the bone.
+    const count = 2 + Math.floor(rng() * 3);
+    for (let b = 0; b < count; b++) {
+      const knot = new THREE.Mesh(new THREE.IcosahedronGeometry(1.2 + rng() * 1.4, 0), barnacleMat.clone());
+      const a = 0.5 + rng() * 1.2;
+      knot.position.set(
+        side * (h * 0.72 - Math.cos(a) * h), Math.sin(a) * h, z + (rng() - 0.5) * 4
+      );
+      knot.userData.phase = rng() * Math.PI * 2;
+      group.add(knot);
+      barnacles.push(knot);
+    }
+    worldPos.set(side * h * 0.72, 0, z).applyQuaternion(group.quaternion).add(group.position);
+    colliders.push(radialCollider(worldPos.clone(), 3.2, 10));
+  }
+
+  // Spine walkway: flat slabs down the centerline.
+  const slabGeos = [];
+  for (let s = 0; s < 12; s++) {
+    const geo = new THREE.BoxGeometry(8, 0.8, C.LEVIATHAN_LENGTH / 13);
+    geo.translate((rng() - 0.5) * 1.2, 0.4, (s / 11 - 0.5) * C.LEVIATHAN_LENGTH);
+    slabGeos.push(geo);
+  }
+  group.add(new THREE.Mesh(mergeGeometries(slabGeos, false), stoneMat(0x8a80a0)));
+
+  function update(t, sunDot) {
+    const night = Math.max(1 - Math.max(sunDot, 0), 0.15);
+    for (let i = 0; i < barnacles.length; i++) {
+      const b = barnacles[i];
+      b.material.emissiveIntensity =
+        (0.35 + Math.sin(t * 0.6 + b.userData.phase) * 0.25 + night * 0.9);
+    }
+  }
+
+  return { group, update, dispose: () => disposeGroup(group), collider: colliders };
+}
+
+// ===========================================================================
+// TYPE 11 — The Diamond Veil (neptunia): a levitating faceted crown ring
+// high over a mirror pool, shedding four perpetual glitter streams — the
+// diamond rain made monumental. The pool rides above the sea if wet.
+// ===========================================================================
+function buildDiamondveil(planet, localDir, seed, palette) {
+  const rng = mulberry32(seed);
+  const group = placeOnSurface(planet, localDir, rng() * Math.PI * 2);
+  const accent = palette.accent ?? C.CYAN;
+
+  // A wet site: lift the whole wonder so the pool sits above the sea.
+  if (planet.water?.r && group.position.length() < planet.water.r + 0.6) {
+    group.position.setLength(planet.water.r + 0.6);
+  }
+
+  // Mirror pool disc.
+  const pool = new THREE.Mesh(
+    new THREE.CylinderGeometry(C.VEIL_POOL_RADIUS, C.VEIL_POOL_RADIUS, 1, 48),
+    new THREE.MeshStandardMaterial({ color: 0x10142e, roughness: 0.05, metalness: 0.9 })
+  );
+  pool.position.y = 0.5;
+  group.add(pool);
+  const rim = new THREE.Mesh(
+    new THREE.TorusGeometry(C.VEIL_POOL_RADIUS, 1.2, 8, 48), stoneMat(0x8a80a0)
+  );
+  rim.rotation.x = -Math.PI / 2;
+  rim.position.y = 1;
+  group.add(rim);
+
+  // The crown: a levitating torus studded with spike octahedra.
+  const crown = new THREE.Group();
+  crown.position.y = C.VEIL_HOVER;
+  const band = new THREE.Mesh(
+    new THREE.TorusGeometry(C.VEIL_RING_RADIUS, 2.2, 8, 40),
+    emissiveMat(accent, 0.7, { baseColor: 0x141838, metalness: 0.6, roughness: 0.3 })
+  );
+  band.rotation.x = Math.PI / 2;
+  crown.add(band);
+  const spikeMat = emissiveMat(0xffffff, 0.5, { baseColor: 0x202848, metalness: 0.8, roughness: 0.15 });
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2;
+    const spike = new THREE.Mesh(new THREE.OctahedronGeometry(2.4 + rng() * 2.2, 0), spikeMat);
+    spike.position.set(Math.cos(a) * C.VEIL_RING_RADIUS, (rng() - 0.5) * 3, Math.sin(a) * C.VEIL_RING_RADIUS);
+    crown.add(spike);
+  }
+  group.add(crown);
+
+  // Glitter streams: instanced octahedra falling ring -> pool, respawning.
+  const streamMesh = new THREE.InstancedMesh(
+    new THREE.OctahedronGeometry(0.35, 0),
+    emissiveMat(0xffffff, 1.1, { baseColor: 0x101020 }),
+    C.VEIL_STREAMS * C.VEIL_STREAM_COUNT
+  );
+  streamMesh.frustumCulled = false;
+  const glitter = [];
+  const dummy = new THREE.Object3D();
+  for (let s = 0; s < C.VEIL_STREAMS; s++) {
+    const a = (s / C.VEIL_STREAMS) * Math.PI * 2 + 0.4;
+    for (let i = 0; i < C.VEIL_STREAM_COUNT; i++) {
+      glitter.push({
+        x: Math.cos(a) * C.VEIL_RING_RADIUS + (rng() - 0.5) * 3,
+        z: Math.sin(a) * C.VEIL_RING_RADIUS + (rng() - 0.5) * 3,
+        phase: rng(),
+        speed: 0.10 + rng() * 0.08, // fraction of the drop per second
+        spin: rng() * Math.PI * 2,
+      });
+    }
+  }
+  group.add(streamMesh);
+
+  const worldPos = new THREE.Vector3();
+  group.getWorldPosition(worldPos);
+  const collider = radialCollider(worldPos, C.VEIL_POOL_RADIUS + 1.5, 3);
+
+  function update(t, sunDot) {
+    const night = Math.max(1 - Math.max(sunDot, 0), 0.2);
+    crown.rotation.y = t * 0.08;
+    band.material.emissiveIntensity = (0.55 + Math.sin(t * 0.7) * 0.2) * (0.5 + night * 0.5);
+    for (let i = 0; i < glitter.length; i++) {
+      const g = glitter[i];
+      const p = (t * g.speed + g.phase) % 1;
+      dummy.position.set(g.x, C.VEIL_HOVER - p * (C.VEIL_HOVER - 1.5), g.z);
+      dummy.rotation.set(0, g.spin + t * 2, 0);
+      const tw = 0.7 + Math.sin(t * 6 + g.phase * 40) * 0.3;
+      dummy.scale.setScalar(tw);
+      dummy.updateMatrix();
+      streamMesh.setMatrixAt(i, dummy.matrix);
+    }
+    streamMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  return { group, update, dispose: () => disposeGroup(group), collider };
+}
+
+// ===========================================================================
+// TYPE 12 — The Ridge Harp (wyattmattoe): two granite pylons strung across
+// the saddle with emissive strings the wind plays — brightness pulses run
+// down the strings in phase-offset shimmer. Prayer flags on the guys.
+// ===========================================================================
+function buildSkyharp(planet, localDir, seed, palette) {
+  const rng = mulberry32(seed);
+  const group = placeOnSurface(planet, localDir, rng() * Math.PI * 2);
+  const amber = palette.accent ?? C.AMBER;
+  const half = C.HARP_SPAN / 2;
+
+  const pylonGeoL = new THREE.CylinderGeometry(2.2, 5.5, C.HARP_PYLON_H, 8);
+  pylonGeoL.translate(-half, C.HARP_PYLON_H / 2, 0);
+  const pylonGeoR = new THREE.CylinderGeometry(2.2, 5.5, C.HARP_PYLON_H, 8);
+  pylonGeoR.translate(half, C.HARP_PYLON_H / 2, 0);
+  const pylons = new THREE.Mesh(mergeGeometries([pylonGeoL, pylonGeoR], false), stoneMat(0x4a4f58));
+  group.add(pylons);
+
+  // Strings: thin emissive cylinders spanning pylon to pylon.
+  const strings = [];
+  for (let i = 0; i < C.HARP_STRINGS; i++) {
+    const y = 12 + (i / (C.HARP_STRINGS - 1)) * (C.HARP_PYLON_H - 18);
+    const s = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.12, 0.12, C.HARP_SPAN - 4, 5),
+      emissiveMat(i % 3 === 0 ? 0xf4f8ff : amber, 0.5, { baseColor: 0x1a1a20 })
+    );
+    s.rotation.z = Math.PI / 2;
+    s.position.y = y;
+    s.userData.phase = i * 0.55;
+    group.add(s);
+    strings.push(s);
+  }
+
+  // Prayer-flag quads along the lower guys.
+  const flagColors = [0xd44040, 0x40a0d4, 0xf7d06a, 0x60c060, 0xffffff];
+  const flags = [];
+  for (let i = 0; i < 16; i++) {
+    const f = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.2, 1.6),
+      new THREE.MeshStandardMaterial({
+        color: flagColors[i % flagColors.length], side: THREE.DoubleSide, roughness: 0.9,
+      })
+    );
+    const t = i / 15;
+    f.position.set(THREE.MathUtils.lerp(-half, half, t), 9 + Math.sin(t * Math.PI) * -2.5, 0.4);
+    f.userData.phase = rng() * Math.PI * 2;
+    group.add(f);
+    flags.push(f);
+  }
+
+  const worldPosL = new THREE.Vector3(-half, 0, 0).applyQuaternion(group.quaternion).add(group.position);
+  const worldPosR = new THREE.Vector3(half, 0, 0).applyQuaternion(group.quaternion).add(group.position);
+  const collider = [
+    radialCollider(worldPosL, 6, C.HARP_PYLON_H),
+    radialCollider(worldPosR, 6, C.HARP_PYLON_H),
+  ];
+
+  function update(t, sunDot) {
+    const night = Math.max(1 - Math.max(sunDot, 0), 0.25);
+    for (let i = 0; i < strings.length; i++) {
+      const s = strings[i];
+      const pulse = Math.sin(t * 1.8 - s.userData.phase) * 0.5 + 0.5;
+      s.material.emissiveIntensity = (0.25 + pulse * pulse * 1.1) * (0.45 + night * 0.55);
+    }
+    for (let i = 0; i < flags.length; i++) {
+      const f = flags[i];
+      f.rotation.x = Math.sin(t * 2.2 + f.userData.phase) * 0.35;
+      f.rotation.y = Math.sin(t * 1.4 + f.userData.phase) * 0.2;
+    }
+  }
+
+  return { group, update, dispose: () => disposeGroup(group), collider };
+}
+
+// ===========================================================================
+// TYPE 13 — The Cirque Bell (wyattmattoe): a bronze bell the size of a house
+// hung in a granite trilithon over the lake ice. Every half minute it swings
+// through a silent toll — an expanding ring of light instead of sound.
+// ===========================================================================
+function buildBell(planet, localDir, seed, palette) {
+  const rng = mulberry32(seed);
+  const group = placeOnSurface(planet, localDir, rng() * Math.PI * 2);
+  const amber = palette.accent ?? C.AMBER;
+
+  // Trilithon frame: two granite legs and a lintel.
+  const legGeoL = new THREE.BoxGeometry(8, C.BELL_FRAME_H, 10);
+  legGeoL.translate(-22, C.BELL_FRAME_H / 2, 0);
+  const legGeoR = new THREE.BoxGeometry(8, C.BELL_FRAME_H, 10);
+  legGeoR.translate(22, C.BELL_FRAME_H / 2, 0);
+  const lintel = new THREE.BoxGeometry(56, 8, 12);
+  lintel.translate(0, C.BELL_FRAME_H + 4, 0);
+  const frame = new THREE.Mesh(
+    mergeGeometries([legGeoL, legGeoR, lintel], false), stoneMat(0x4a4f58)
+  );
+  group.add(frame);
+
+  // The bell: a lathe profile, hung from the lintel; pivot at the top so the
+  // pendulum swing reads correctly.
+  const pivot = new THREE.Group();
+  pivot.position.y = C.BELL_FRAME_H;
+  const profile = [];
+  const steps = 9;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    // Bell curve: narrow shoulder to flared mouth.
+    const r = 3 + Math.pow(t, 2.2) * (C.BELL_HEIGHT * 0.36);
+    profile.push(new THREE.Vector2(r, -t * C.BELL_HEIGHT));
+  }
+  const bell = new THREE.Mesh(
+    new THREE.LatheGeometry(profile, 24),
+    new THREE.MeshStandardMaterial({ color: 0x8a5c28, roughness: 0.35, metalness: 0.9 })
+  );
+  bell.position.y = -2;
+  pivot.add(bell);
+  const clapper = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(2.2, 0), emissiveMat(amber, 0.5, { baseColor: 0x33200f })
+  );
+  clapper.position.y = -C.BELL_HEIGHT + 2;
+  pivot.add(clapper);
+  group.add(pivot);
+
+  // The silent toll: an expanding additive light ring at mouth height.
+  const tollMat = new THREE.MeshBasicMaterial({
+    color: amber, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  });
+  const toll = new THREE.Mesh(new THREE.RingGeometry(0.92, 1.0, 48), tollMat);
+  toll.rotation.x = -Math.PI / 2;
+  toll.position.y = C.BELL_FRAME_H - C.BELL_HEIGHT;
+  toll.visible = false;
+  group.add(toll);
+
+  const worldPos = new THREE.Vector3();
+  const colliders = [];
+  for (const x of [-22, 22]) {
+    worldPos.set(x, 0, 0).applyQuaternion(group.quaternion).add(group.position);
+    colliders.push(radialCollider(worldPos.clone(), 6, C.BELL_FRAME_H));
+  }
+  group.getWorldPosition(worldPos);
+  colliders.push(radialCollider(worldPos.clone(), C.BELL_HEIGHT * 0.38, 4)); // under the mouth
+
+  function update(t, sunDot) {
+    const night = Math.max(1 - Math.max(sunDot, 0), 0.2);
+    pivot.rotation.z = Math.sin(t * 0.9) * 0.07; // slow ±4° pendulum
+    const cycle = t % C.BELL_TOLL_PERIOD;
+    const tolling = cycle < C.BELL_TOLL_SECONDS;
+    toll.visible = tolling;
+    if (tolling) {
+      const k = cycle / C.BELL_TOLL_SECONDS;
+      const grow = 2 + k * 60;
+      toll.scale.set(grow, grow, 1);
+      toll.material.opacity = (1 - k) * 0.55;
+    }
+    clapper.material.emissiveIntensity = (tolling ? 1.4 : 0.35) * (0.4 + night * 0.6);
+  }
+
+  return { group, update, dispose: () => disposeGroup(group), collider: colliders };
+}
+
+// ===========================================================================
+// TYPE 14 — The Frozen Cascade (wyattmattoe): a waterfall flash-frozen
+// mid-leap down a cliff fin — stacked translucent sheets with icicle
+// fringes and emissive veins that come alive at night. The plunge-pool
+// disc at the base is walkable.
+// ===========================================================================
+function buildIcefall(planet, localDir, seed, palette) {
+  const rng = mulberry32(seed);
+  const group = placeOnSurface(planet, localDir, rng() * Math.PI * 2);
+  const accent = palette.secondary ?? C.CYAN;
+
+  // Cliff fin the cascade hangs from.
+  const cliff = new THREE.Mesh(
+    new THREE.BoxGeometry(C.ICEFALL_WIDTH, C.ICEFALL_CLIFF_H, 16), stoneMat(0x4a4f58)
+  );
+  cliff.position.set(0, C.ICEFALL_CLIFF_H / 2, -10);
+  cliff.rotation.y = (rng() - 0.5) * 0.2;
+  group.add(cliff);
+
+  // Frozen sheets: stepped translucent slabs pouring over the lip.
+  const iceMat = new THREE.MeshStandardMaterial({
+    color: 0xd8ecf7, roughness: 0.18, metalness: 0.05,
+    transparent: true, opacity: 0.8,
+  });
+  const sheetGeos = [];
+  for (let i = 0; i < C.ICEFALL_SHEETS; i++) {
+    const t = i / (C.ICEFALL_SHEETS - 1);
+    const w = C.ICEFALL_WIDTH * (0.55 + rng() * 0.25) * (1 - t * 0.3);
+    const h = (C.ICEFALL_CLIFF_H / C.ICEFALL_SHEETS) * 1.5;
+    const geo = new THREE.BoxGeometry(w, h, 3 + t * 3);
+    geo.translate(
+      (rng() - 0.5) * 8,
+      C.ICEFALL_CLIFF_H * (1 - t) - h * 0.3,
+      -2 + t * 5 + Math.sin(t * Math.PI) * 2
+    );
+    sheetGeos.push(geo);
+  }
+  const sheets = new THREE.Mesh(mergeGeometries(sheetGeos, false), iceMat);
+  group.add(sheets);
+
+  // Icicle fringes along the sheet lips.
+  const icicleGeos = [];
+  for (let i = 0; i < 26; i++) {
+    const geo = new THREE.ConeGeometry(0.5 + rng() * 0.5, 3 + rng() * 6, 5);
+    geo.rotateX(Math.PI);
+    geo.translate(
+      (rng() - 0.5) * C.ICEFALL_WIDTH * 0.8,
+      C.ICEFALL_CLIFF_H * (0.15 + rng() * 0.75),
+      2 + rng() * 4
+    );
+    icicleGeos.push(geo);
+  }
+  group.add(new THREE.Mesh(mergeGeometries(icicleGeos, false), iceMat));
+
+  // Emissive veins inside the fall — moonlight caught mid-drop.
+  const veinGeos = [];
+  for (let i = 0; i < 9; i++) {
+    const geo = new THREE.BoxGeometry(0.8, 10 + rng() * 22, 0.8);
+    geo.translate(
+      (rng() - 0.5) * C.ICEFALL_WIDTH * 0.6,
+      C.ICEFALL_CLIFF_H * (0.2 + rng() * 0.6),
+      1 + rng() * 3
+    );
+    veinGeos.push(geo);
+  }
+  const veins = new THREE.Mesh(
+    mergeGeometries(veinGeos, false), emissiveMat(accent, 0.5, { baseColor: 0x102030 })
+  );
+  group.add(veins);
+
+  // Walkable plunge-pool disc at the base.
+  const pool = new THREE.Mesh(
+    new THREE.CylinderGeometry(C.ICEFALL_POOL_RADIUS, C.ICEFALL_POOL_RADIUS, 1, 32),
+    new THREE.MeshStandardMaterial({ color: 0xbfd8e8, roughness: 0.12, metalness: 0.1 })
+  );
+  pool.position.set(0, 0.5, 14);
+  group.add(pool);
+
+  const worldPos = new THREE.Vector3();
+  worldPos.set(0, 0, -10).applyQuaternion(group.quaternion).add(group.position);
+  const collider = radialCollider(worldPos, C.ICEFALL_WIDTH * 0.45, C.ICEFALL_CLIFF_H);
+
+  function update(t, sunDot) {
+    const night = Math.max(1 - Math.max(sunDot, 0), 0.15);
+    veins.material.emissiveIntensity = (0.25 + Math.sin(t * 0.5) * 0.12 + night * 0.9);
+  }
+
+  return { group, update, dispose: () => disposeGroup(group), collider };
+}
+
 // ---------------------------------------------------------------------------
 // Type registry
 // ---------------------------------------------------------------------------
@@ -878,17 +1493,27 @@ const BUILDERS = {
   monoliths: buildMonoliths,
   titan: buildTitan,
   ringworld: buildRingworld,
+  geyser: buildGeyser,
+  sundial: buildSundial,
+  leviathan: buildLeviathan,
+  diamondveil: buildDiamondveil,
+  skyharp: buildSkyharp,
+  bell: buildBell,
+  icefall: buildIcefall,
 };
 
 // ---------------------------------------------------------------------------
 // Public API — single wonder
 // ---------------------------------------------------------------------------
 /**
- * Build a single wonder of the given type.
+ * Build a single wonder of the given type. This is the only public entry:
+ * every permanent city (world/cityRegistry.js) places exactly one, globally
+ * unique wonder at a registry-fixed bearing/distance. The old scatter-field
+ * API went away with the pop-up cities.
  * @param {string} type - one of ALL_TYPES
  * @param {object} planet - { radius, surface, body:{groundAt} }
- * @param {THREE.Vector3} worldUp - world-space landing/placement direction
- * @param {object} opts - { seed, palette:{accent,secondary}, yaw }
+ * @param {THREE.Vector3} worldUp - world-space placement direction
+ * @param {object} opts - { seed, palette:{accent,secondary}, materials }
  * @returns {{group:THREE.Group, update:Function, dispose:Function, collider:any}}
  */
 export function createWonder(type, planet, worldUp, opts = {}) {
@@ -897,103 +1522,32 @@ export function createWonder(type, planet, worldUp, opts = {}) {
   const localDir = toLocalUp(planet, worldUp);
   const seed = opts.seed ?? hashSeed(worldUp, type.length);
   const palette = opts.palette ?? {};
+  _registry = opts.materials ?? null; // stoneMat picks up the maps in here
   const result = builder(planet, localDir, seed, palette);
+  _registry = null;
+  result.group.userData.wonderType = type;
+  // Shadow flags for the isolated render mode: opaque structure casts and
+  // catches; transparent/additive FX shells are left alone.
+  result.group.traverse((obj) => {
+    if (obj.isMesh && obj.material && !obj.material.transparent) {
+      obj.castShadow = true;
+      obj.receiveShadow = true;
+    }
+  });
   planet.surface.add(result.group);
   return result;
 }
 
 // ---------------------------------------------------------------------------
-// Public API — scatter field
-// ---------------------------------------------------------------------------
-/**
- * Deterministically scatter a curated set of wonders around a region.
- * @param {object} planet
- * @param {THREE.Vector3} worldUp - region center direction
- * @param {object} opts - {
- *   seed, count, types: string[] (allow-list, defaults to ALL_TYPES),
- *   palette, spreadRadius
- * }
- * @returns {{group:THREE.Group, update:Function, dispose:Function, wonders:Array}}
- */
-export function createWonderField(planet, worldUp, opts = {}) {
-  const seed = opts.seed ?? hashSeed(worldUp, 999);
-  const rng = mulberry32(seed);
-  const allow = (opts.types && opts.types.length) ? opts.types : ALL_TYPES;
-  const count = opts.count ?? C.FIELD_DEFAULT_COUNT;
-  const palette = opts.palette ?? {};
-
-  const group = new THREE.Group();
-  const wonders = [];
-  const placedLocalDirs = [];
-  const baseLocalDir = toLocalUp(planet, worldUp);
-  const radius = (planet.radius ?? 900);
-
-  let attempts = 0;
-  while (wonders.length < count && attempts < count * 12) {
-    attempts++;
-    const type = allow[Math.floor(rng() * allow.length)];
-    const isBackdrop = BACKDROP_TYPES.has(type);
-    const maxR = isBackdrop ? C.FIELD_PLACEMENT_RADIUS : C.EXPLORABLE_PLACEMENT_RADIUS;
-    const ang = rng() * Math.PI * 2;
-    const dist = Math.sqrt(rng()) * maxR;
-
-    // Offset a tangent point around baseLocalDir, then renormalize onto sphere.
-    const tangentA = new THREE.Vector3().crossVectors(baseLocalDir, _yAxis).normalize();
-    if (tangentA.lengthSq() < 1e-6) tangentA.set(1, 0, 0);
-    const tangentB = new THREE.Vector3().crossVectors(baseLocalDir, tangentA).normalize();
-    const offset = tangentA.multiplyScalar(Math.cos(ang) * dist / radius)
-      .add(tangentB.multiplyScalar(Math.sin(ang) * dist / radius));
-    const candidate = baseLocalDir.clone().add(offset).normalize();
-
-    let tooClose = false;
-    for (const placed of placedLocalDirs) {
-      const worldDist = placed.angleTo(candidate) * radius;
-      if (worldDist < C.FIELD_MIN_SEPARATION) { tooClose = true; break; }
-    }
-    if (tooClose) continue;
-
-    const wSeed = Math.floor(rng() * 0xffffffff);
-    const builder = BUILDERS[type];
-    _registry = opts.materials ?? null; // stoneMat picks up the maps in here
-    const result = builder(planet, candidate, wSeed, palette);
-    _registry = null;
-    result.group.userData.wonderType = type;
-    // Shadow flags for the isolated render mode: opaque structure casts and
-    // catches; transparent/additive FX shells are left alone.
-    result.group.traverse((obj) => {
-      if (obj.isMesh && obj.material && !obj.material.transparent) {
-        obj.castShadow = true;
-        obj.receiveShadow = true;
-      }
-    });
-    group.add(result.group);
-    wonders.push(result);
-    placedLocalDirs.push(candidate);
-  }
-
-  function update(t, sunDot) {
-    for (let i = 0; i < wonders.length; i++) wonders[i].update(t, sunDot);
-  }
-
-  function dispose() {
-    for (let i = 0; i < wonders.length; i++) wonders[i].dispose();
-    disposeGroup(group);
-  }
-
-  planet.surface.add(group);
-  return { group, update, dispose, wonders };
-}
-
-// ---------------------------------------------------------------------------
 // Wiring example (host main loop):
 //
-//   import { createWonderField, createWonder } from './wonders.js';
-//   const field = createWonderField(planet, landingUp, {
-//     seed: cityLandingSeed, count: 3,
-//     types: ['crystals', 'monoliths', 'grove'],   // e.g. ice-world allow-list
+//   import { createWonder } from './wonders.js';
+//   const wonder = createWonder('geyser', planet, wonderWorldDir, {
+//     seed: cityDef.wonder.seed,
 //     palette: { accent: 0xd4408f, secondary: 0x40d4c8 },
+//     materials: surfaceMaterials,
 //   });
-//   // per frame: field.update(elapsedTime, sunDot);
-//   // on teardown: field.dispose();
-//   // colliders: field.wonders.flatMap(w => Array.isArray(w.collider) ? w.collider : (w.collider ? [w.collider] : []));
+//   // per frame: wonder.update(elapsedTime, sunDot);
+//   // on teardown: wonder.dispose();   (detaches its own group)
+//   // colliders: Array.isArray(wonder.collider) ? wonder.collider : [wonder.collider]
 // ---------------------------------------------------------------------------

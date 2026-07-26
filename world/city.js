@@ -109,13 +109,6 @@ function mulberry32(seed) {
   };
 }
 
-function seedFromDirection(dir, extra = 0) {
-  const s = Math.abs(
-    Math.sin(dir.x * 12.9898 + dir.y * 78.233 + dir.z * 37.719 + extra) * 43758.5453
-  );
-  return Math.floor((s - Math.floor(s)) * 4294967296) >>> 0;
-}
-
 // ---------------------------------------------------------------------------
 // Small canvas texture helpers (no external assets — windows moved to a
 // fully procedural per-cell shader, world/shaders/cityWindows.frag)
@@ -295,6 +288,58 @@ export const CITY_STYLES = [
       windowWarm: '#ffe9b0',
     },
   },
+  {
+    name: 'reefNeon', // oceana port capital — reef teal/green over wet basalt
+    heightScale: 1.35,
+    density: 1.15,
+    signChance: 0.8,
+    adBillboards: true,
+    flickerAmount: 0.28,
+    palette: {
+      neonPrimary: 0x2fffb8, neonSecondaryA: 0x7dff6a, neonSecondaryB: 0x2fe8ff,
+      hullA: 0x27333a, hullB: 0x1b262c, street: 0x131c21, plaza: 0x1a262c,
+      windowWarm: '#d8fff0',
+    },
+  },
+  {
+    name: 'abyssGlow', // neptunia trench port — bioluminescent violet strobe
+    heightScale: 1.45,
+    density: 1.1,
+    signChance: 0.75,
+    adBillboards: true,
+    flickerAmount: 0.35,
+    palette: {
+      neonPrimary: 0x9a6aff, neonSecondaryA: 0x4adfff, neonSecondaryB: 0x304aff,
+      hullA: 0x141838, hullB: 0x0e1128, street: 0x0a0d20, plaza: 0x101430,
+      windowWarm: '#9ab8ff',
+    },
+  },
+  {
+    name: 'auroraHold', // glacia vent town — aurora green with warm doorlight
+    heightScale: 0.6,
+    density: 0.75,
+    signChance: 0.4,
+    adBillboards: false,
+    flickerAmount: 0.12,
+    palette: {
+      neonPrimary: 0x6affc8, neonSecondaryA: 0x6ac8ff, neonSecondaryB: 0xffa347,
+      hullA: 0x3d4a5c, hullB: 0x2c3847, street: 0x1e2733, plaza: 0x26313e,
+      windowWarm: '#ffd9a0',
+    },
+  },
+  {
+    name: 'graniteCamp', // wyattmattoe stone village — lantern amber on granite
+    heightScale: 0.45,
+    density: 0.65,
+    signChance: 0.3,
+    adBillboards: false,
+    flickerAmount: 0.1,
+    palette: {
+      neonPrimary: 0xffb347, neonSecondaryA: 0xf4f8ff, neonSecondaryB: 0x4adfff,
+      hullA: 0x4a4f58, hullB: 0x343941, street: 0x22262c, plaza: 0x2b3037,
+      windowWarm: '#ffe9b0',
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -364,7 +409,10 @@ export function createCity(planet, worldUp, opts = {}) {
   const signChance = style?.signChance ?? 0.6;
   const flickerAmount = style?.flickerAmount ?? C.SIGN_FLICKER_AMOUNT;
   const dirSeeded = worldUp.clone().normalize();
-  const seed = opts.seed ?? seedFromDirection(dirSeeded);
+  // Cities are permanent: the layout seed always comes from the registry
+  // (world/cityRegistry.js), never from the landing direction — a player who
+  // lands twice must find the same streets both times.
+  const seed = opts.seed ?? 0;
   const rng = mulberry32(seed);
 
   const group = new THREE.Group();
@@ -439,8 +487,11 @@ export function createCity(planet, worldUp, opts = {}) {
 
   // Is the terrain under this local point below the sea surface? (Buildings,
   // dressing, and the landing pad never go in the water; streets bridge it.)
+  // A FROZEN sea is solid ground: ice-sheet worlds (glacia, wyattmattoe)
+  // build straight onto the ice — that's what lets a village sit on a
+  // canyon-floor lake — and the deck clamp above already keeps it level.
   function isWetLocal(localX, localZ) {
-    if (!planet.water?.r) return false;
+    if (!planet.water?.r || planet.water.frozen) return false;
     tmpWorldPos.set(localX, 0, localZ).applyQuaternion(quat).add(group.position);
     tmpDir.copy(tmpWorldPos).normalize();
     const h = planet.body?.groundAtLocal ? planet.body.groundAtLocal(tmpDir) : 0;
@@ -488,14 +539,21 @@ export function createCity(planet, worldUp, opts = {}) {
     plazaCenters.push({ x: px, z: pz, r: C.PLAZA_RADIUS });
   }
 
-  // landing pad: pick an open ring position near mid-radius, on dry ground
-  // (keep the last candidate as a fallback on a mostly-wet site)
+  // landing pad: the registry pins it (opts.padLocal, city-local {x,z} —
+  // the auto-land arc in game.js targets the same coordinates through
+  // cityRegistry.padLocalDir, so the two must agree). Fallback for callers
+  // without a registry entry: pick an open ring position near mid-radius,
+  // on dry ground (keep the last candidate on a mostly-wet site).
   const padCenter = new THREE.Vector2();
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const ang = rng() * Math.PI * 2;
-    const dist = radius * (0.55 + rng() * 0.2);
-    padCenter.set(Math.cos(ang) * dist, Math.sin(ang) * dist);
-    if (!isWetLocal(padCenter.x, padCenter.y)) break;
+  if (opts.padLocal) {
+    padCenter.set(opts.padLocal.x, opts.padLocal.z);
+  } else {
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const ang = rng() * Math.PI * 2;
+      const dist = radius * (0.55 + rng() * 0.2);
+      padCenter.set(Math.cos(ang) * dist, Math.sin(ang) * dist);
+      if (!isWetLocal(padCenter.x, padCenter.y)) break;
+    }
   }
   flattenPads.push({ x: padCenter.x, z: padCenter.y, r: Math.max(C.PAD_LENGTH, C.PAD_WIDTH) * 0.75, y: sampleGroundLocalY(padCenter.x, padCenter.y) });
   for (const pz of plazaCenters) {
@@ -1222,17 +1280,6 @@ export function createCity(planet, worldUp, opts = {}) {
   ringMesh.position.set(padCenter.x, padY + 0.25, padCenter.y);
   padGroup.add(ringMesh);
 
-  // Arrival pulse: an expanding, fading ring that plays for a few seconds
-  // after the city spawns (i.e. right as the player lands), then hides.
-  const padPulseMat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(palette.neonPrimary),
-    transparent: true, opacity: 0.6,
-    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
-  });
-  const padPulse = new THREE.Mesh(new THREE.RingGeometry(0.92, 1.0, 48), padPulseMat);
-  padPulse.rotation.x = -Math.PI / 2;
-  padPulse.position.set(padCenter.x, padY + 0.35, padCenter.y);
-  padGroup.add(padPulse);
   group.add(padGroup);
 
   const boardingPadLocal = new THREE.Vector3(padCenter.x, padY + 0.3, padCenter.y);
@@ -1413,14 +1460,13 @@ export function createCity(planet, worldUp, opts = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // update(t, sunDot) — day/night neon, mote drift, traffic lanes, arrival
-  // pulse; zero per-frame allocs. Shader-driven elements (windows, signs,
-  // ads, haze) only need the two shared fx uniforms written.
+  // update(t, sunDot) — day/night neon, mote drift, traffic lanes; zero
+  // per-frame allocs. Shader-driven elements (windows, signs, ads, haze)
+  // only need the two shared fx uniforms written.
   // -------------------------------------------------------------------------
   const emissiveMeshes = [ringMesh.material, lightHeadMat, moteMat, trafficMat, ...adMats];
   const baseEmissive = emissiveMeshes.map((m) => m.emissiveIntensity);
   const moteDummy = new THREE.Object3D();
-  let spawnT = null; // first update() timestamp — drives the arrival pulse
 
   function update(t, sunDot) {
     const nightLift = THREE.MathUtils.clamp(1 - Math.max(sunDot ?? 0, 0), 0, 1);
@@ -1455,18 +1501,6 @@ export function createCity(planet, worldUp, opts = {}) {
     }
     moteDummy.rotation.y = 0; // motes reuse the dummy next frame
     trafficMesh.instanceMatrix.needsUpdate = true;
-
-    // arrival pulse: a few expanding rings right after landing, then done
-    if (spawnT === null) spawnT = t;
-    const age = t - spawnT;
-    if (age < 6) {
-      const k = (age % 1.6) / 1.6;
-      const grow = 1 + k * C.PAD_LENGTH * 0.9;
-      padPulse.scale.set(grow, grow, 1);
-      padPulseMat.opacity = (1 - k) * 0.6;
-    } else if (padPulse.visible) {
-      padPulse.visible = false;
-    }
   }
 
   // -------------------------------------------------------------------------
@@ -1500,6 +1534,7 @@ export function createCity(planet, worldUp, opts = {}) {
     groundLocalYAt: flattenedHeight, // (x,z) -> local Y — for aliens.js
     plazaCenters, // city-flat {x,z,r} — aliens.js waypoints
     boardingPad: boardingPadWorld,
+    padLocal: boardingPadLocal, // city-flat pad center {x,y,z} — ship parking
     landmark, // enterable observation tower (surfaceYAt/resolveWalls) or null
     structures, // all enterable buildings (landmark + lobbies), for walk.js
     lobbies, // interior manifests {x,z,floorY,half,flavor,seed} for occupants

@@ -236,10 +236,16 @@ export const C = {
   WALK_BOARD_RADIUS: 18.0, // must be this close to the parked ship to take off (G)
   PARK_OFFSET: 14.0, // parked ship sits this far behind the disembark point
   PARK_LIFT: 2.8, // ship-origin height above ground so the gear pads touch
-  CITY_DISTANCE: 320.0, // city center this far from the landing site
-  CITY_RADIUS: 150.0, // city footprint radius (createCity opts.radius)
-  WONDER_DISTANCE: 350.0, // wonder-field center, opposite side from the city
-  WONDER_COUNT: 3, // wonders scattered per landing site
+  CITY_RADIUS: 150.0, // default city footprint radius (createCity opts.radius)
+  // Permanent cities (world/cityRegistry.js): a landing within this surface
+  // distance of a registry site adopts that city; farther out is a
+  // wilderness landing (dressing + creatures only, no city).
+  CITY_ATTACH_RANGE: 600.0,
+  // Pad-targeted auto-land: arc time grows with great-circle distance to the
+  // chosen pad at this cruise rate, capped so a far-side approach still
+  // lands promptly.
+  AUTOLAND_CRUISE: 400.0, // surface units/sec used to scale the arc duration
+  AUTOLAND_MAX_TIME: 12.0, // longest assisted arc, seconds
 
   // --- altitude floor (GDD 5.1) ---
   // Strictly a Phase 5 mechanic, pulled forward on request so the test mass

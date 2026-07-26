@@ -5,9 +5,9 @@
  * a timber-and-granite lodge with a warm glass front, a fire ring on the
  * deck, board racks, and a gondola lift climbing the fall line on steel
  * lattice towers — staffed and visited by real people (world/people.js) in
- * linechaser parkas. ADDITIVE, not a total conversion: the pop-up city,
- * the snowboard, the Ridge Kites and the dressing all still spawn; this
- * module adds the place they'd all hang out.
+ * linechaser parkas. ADDITIVE, not a total conversion: the permanent cities
+ * (world/cityRegistry.js), the snowboard, the Ridge Kites and the dressing
+ * all still spawn; this module adds the place they'd all hang out.
  *
  * Coordinate conventions match city.js/creatures.js: everything is parented
  * to planet.surface and built in UNROTATED object space; the anchor group's
@@ -16,9 +16,9 @@
  * world/interaction.js.
  *
  * Site pick: a flattish shelf 100-140 m from the landing point, on a bearing
- * rotated away from the pop-up city probe (opts.avoidDir) so the two never
- * collide — the wonders already took the opposite bearing, so the basecamp
- * takes the perpendicular with the least slope.
+ * rotated away from the nearest permanent city's site (opts.avoidDir) so the
+ * two never collide — the basecamp takes the bearing with the least slope
+ * that clears it.
  *
  * Materials come from the walk-session registry (opts.materials). The
  * registry owns what it hands out — nothing from it goes into `owned`.

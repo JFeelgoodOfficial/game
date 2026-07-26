@@ -326,6 +326,8 @@ Acceptance: three planets that read as different places using one shader.
 
 **Recorded exception — wyattmattoe.** The extreme-alpine world is still one config object (palette + thresholds + the shared shader; the tallest `terrainHeight` and heaviest ridge weight in the system), but it carries one opt-in system on top of the archetype contract: the snowboard, gated by `boardable: true` and implemented as a branch of the on-foot walker (`walk.boarding` in walk.js, `BOARD_*` block in constants.js — the diving precedent, not a separate loop). No new shaders, no new render passes, no per-frame allocation. Any future planet can opt in with the flag alone.
 
+**Recorded addition — permanent cities.** Cities stopped being pop-up (seeded from the landing direction, rebuilt differently every landing) and became registry entries: `world/cityRegistry.js` pins 2–3 cities per landable world (fixed site, fixed seed, fixed landing pad, one globally-unique wonder, named vendors with static dialogue trees), following a water rule — more water means fewer, denser, more neon-vertical cities; arid worlds spread into three frontier outposts. The G auto-land arcs to the nearest city pad; manual touchdown anywhere still works and far-from-city landings are wilderness. The story worlds (actuality, shadowreach, wavemall prime) have no registry entries and keep their total conversions. The city geometry pipeline is unchanged — one procedural system, styled per city by preset; a planet's cities are content, not code.
+
 ---
 
 ## 6. Build sequence

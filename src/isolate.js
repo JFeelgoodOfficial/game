@@ -115,8 +115,8 @@ const iso = {
 // exposure per frame once walking starts — the value here is only the opening
 // stop. soleLight: the planetsky sun + hemisphere + environment map replace
 // the system-wide globals, exactly like shadowreach. Bloom threshold sits
-// above the daylit sky's luminance but below the city neon so the pop-up
-// cities still glow at night.
+// above the daylit sky's luminance but below the city neon so the permanent
+// registry cities still glow at night.
 const GENERIC_RENDER = { exposure: 0.4, bloomThreshold: 2.2, bloomStrength: 0.5, soleLight: true };
 const WORLD_RENDER = {
   actuality: { exposure: 0.32, bloomThreshold: 2.4, bloomStrength: 0.5 },
