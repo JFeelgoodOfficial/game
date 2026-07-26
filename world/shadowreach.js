@@ -45,7 +45,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildRig, poseRig } from './aliens.js';
 import { createActualitySky } from './actuality-sky.js';
 import { createActualityMaterials } from './actuality-materials.js';
-import { createCrowd } from './shadowreach-people.js';
+import { createCrowd } from './people.js';
 import { Astronaut } from '../src/astronaut.js';
 
 // The owner's paintings (repo-root /artgallery, same pipeline as the Orbital
