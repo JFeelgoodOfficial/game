@@ -39,7 +39,7 @@ import { createCity, CITY_STYLES } from '../world/city.js';
 import { createCrowd } from '../world/aliens.js';
 import { createWonderField } from '../world/wonders.js';
 import { createCreatures } from '../world/creatures.js';
-import { createWavemallPrime } from '../world/wavemallprime.js';
+import { createWavemallPrime, createCrowd as createWavemallCrowd } from '../world/wavemallprime.js';
 import { createActuality, ACTUALITY_SITE } from '../world/actuality.js';
 import { settings } from './settings.js';
 import { createShadowreach } from '../world/shadowreach.js';
@@ -429,24 +429,24 @@ function spawnWorldEntities(planet) {
   // guard downstream short-circuits.
   if (planet.cfg.name === 'wavemall prime') {
     toSurfaceLocal(planet, _up, _localUp);
-    wavemall = createWavemallPrime(planet, _localUp.clone(), {});
+    wavemall = createWavemallPrime(planet, _localUp.clone(), {
+      materials: surfaceMaterials,
+      quality: settings.quality,
+    });
     planet.surface.add(wavemall.group);
     _wavemallInvQuat.copy(wavemall.crowd.group.quaternion).invert();
     // Shopkeepers inside the enterable department stores: one tiny bounded
     // crowd per lobby, living in its wing's district-local frame (each entry
-    // carries the wing group + inverse quaternion for playerLocalInto).
+    // carries the wing group + inverse quaternion for playerLocalInto). Real
+    // people (the mall's own people-backed crowd), all in uniform — they pace
+    // a counter-width disc and greet with the employee dialogue bank.
     interiorCrowds = [];
     for (const l of wavemall.lobbies ?? []) {
-      const m = createCrowd(
+      const m = createWavemallCrowd(
+        { radius: 0.9, cx: l.x, cz: l.z, avoid: [], groundHeightAt: () => l.floorY },
         {
-          cityId: planet.cfg.name,
-          plazaCenters: [{ x: l.x, z: l.z, r: 1 }],
-          colliders: [],
-          groundHeightAt: () => l.floorY,
-        },
-        {
-          population: 2, maxRigs: 3, seed: l.seed, questChance: 0,
-          culture: 'shopkeeper', stationaryFirst: true,
+          seedKey: `lobby-${l.seed}`, count: 2, maxRigs: 3,
+          materials: surfaceMaterials, employeeRatio: 1,
         }
       );
       l.group.add(m.group);

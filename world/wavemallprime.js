@@ -27,6 +27,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeStructure } from './city.js';
+import { createCrowd as createPeople } from './people.js';
 import marqueeVert from '../src/shaders/wavemallmarquee.vert?raw';
 import marqueeFrag from '../src/shaders/wavemallmarquee.frag?raw';
 import orbPulseVert from '../src/shaders/orbpulse.vert?raw';
@@ -50,6 +51,27 @@ const GALLERIA_ART = Object.entries(
     return !/^IMG_|^\d/i.test(base);
   })
   .map(([, url]) => url);
+
+/* ----------------------------------------------------------------------
+ * Registry relief (world/actuality-materials.js, optional): tiling normal +
+ * roughness maps bolted onto a structural material. Albedo stays the mall's
+ * own — CanvasTexture signage and the authored palette are the identity —
+ * but under the isolated render mode's environment map and shadows, the
+ * micro-relief is what stops the concourse reading as flat plastic. The
+ * registry owns the map clones; material.dispose() never frees textures.
+ * ------------------------------------------------------------------- */
+function relief(mat, materials, family, repeat, normalScale = 0.5) {
+  if (!materials) return mat;
+  const set = materials.tiledSet(family, repeat, repeat);
+  mat.normalMap = set.normalMap;
+  mat.normalScale = new THREE.Vector2(normalScale, normalScale);
+  mat.roughnessMap = set.roughnessMap;
+  return mat;
+}
+
+// The standalone wonder builders take only (rng) — the session registry rides
+// this module slot for the duration of createWavemallPrime's build.
+let _sessionMats = null;
 
 /* ----------------------------------------------------------------------
  * Tunables â€” every magic number lives here.
@@ -725,7 +747,10 @@ function buildDistrict(planet, worldUp, dept, index, rng, opts) {
   }
   carpetGeo.computeVertexNormals();
   const carpetTex = makeCarpetTexture(C.COLORS.concourseCarpet, dept.accent);
-  const carpetMat = new THREE.MeshStandardMaterial({ map: carpetTex, roughness: 0.95 });
+  const carpetMat = relief(
+    new THREE.MeshStandardMaterial({ map: carpetTex, roughness: 0.95 }),
+    opts.materials, 'aggregate', 6, 0.35
+  );
   const carpet = new THREE.Mesh(carpetGeo, carpetMat);
   carpet.frustumCulled = false;
   group.add(carpet);
@@ -858,23 +883,23 @@ function buildDistrict(planet, worldUp, dept, index, rng, opts) {
 
   // Merge the buckets — one draw call per material per wing.
   const accentColor = new THREE.Color(dept.accent);
-  const hullMat = new THREE.MeshStandardMaterial({
+  const hullMat = relief(new THREE.MeshStandardMaterial({
     color: C.COLORS.terrazzo, roughness: 0.7, metalness: 0.1,
     emissive: accentColor, emissiveIntensity: 0.12,
-  });
+  }), opts.materials, 'concrete', 4, 0.4);
   const glowMat = new THREE.MeshStandardMaterial({
     color: 0x14101a, emissive: accentColor, emissiveIntensity: 1.0, roughness: 0.4,
   });
-  const propMat = new THREE.MeshStandardMaterial({
+  const propMat = relief(new THREE.MeshStandardMaterial({
     color: 0x241e2c, roughness: 0.8, metalness: 0.15,
-  });
-  const foliageMat = new THREE.MeshStandardMaterial({
+  }), opts.materials, 'steel', 3, 0.5);
+  const foliageMat = relief(new THREE.MeshStandardMaterial({
     color: 0x3c6b46, roughness: 0.9,
-  });
-  const accentMat = new THREE.MeshStandardMaterial({
+  }), opts.materials, 'groundCover', 2, 0.6);
+  const accentMat = relief(new THREE.MeshStandardMaterial({
     color: dept.accent, roughness: 0.6,
     emissive: accentColor, emissiveIntensity: C.TRIM_EMISSIVE,
-  });
+  }), opts.materials, 'plaster', 3, 0.4);
   const signMat = new THREE.MeshStandardMaterial({
     map: atlas.tex, emissive: 0xffffff, emissiveMap: atlas.tex,
     emissiveIntensity: C.SIGN_EMISSIVE, roughness: 0.5,
@@ -1080,10 +1105,10 @@ export function createGrandEntrance(planet, worldUp, opts = {}) {
   arch.translate(0, H - 0.3, 0);
   glowGeos.push(arch);
 
-  const hullMat = new THREE.MeshStandardMaterial({
+  const hullMat = relief(new THREE.MeshStandardMaterial({
     color: C.COLORS.terrazzo, roughness: 0.65, metalness: 0.15,
     emissive: new THREE.Color(C.COLORS.magenta), emissiveIntensity: 0.1,
-  });
+  }), opts.materials, 'concrete', 4, 0.4);
   const glowMat = new THREE.MeshStandardMaterial({
     color: 0x220016, emissive: new THREE.Color(C.COLORS.magenta),
     emissiveIntensity: 1.2, roughness: 0.4,
@@ -1176,9 +1201,9 @@ export function createAnchorStructure(planet, worldUp, opts = {}) {
   group.quaternion.copy(frame.q);
 
   // Hex dais, walkable.
-  const daisMat = new THREE.MeshStandardMaterial({
+  const daisMat = relief(new THREE.MeshStandardMaterial({
     color: 0x241e2c, roughness: 0.8, metalness: 0.15,
-  });
+  }), opts.materials, 'stone', 3, 0.55);
   const dais = new THREE.Mesh(new THREE.CylinderGeometry(7, 7.8, 1.6, 6), daisMat);
   dais.position.y = -0.2; // top at +0.6, base buried
   group.add(dais);
@@ -1414,9 +1439,9 @@ export function createGalleria(planet, worldUp, opts = {}) {
   }
 
   // Merge all posts/boards into one prop mesh (one draw call).
-  const propMat = new THREE.MeshStandardMaterial({
+  const propMat = relief(new THREE.MeshStandardMaterial({
     color: 0x241e2c, roughness: 0.8, metalness: 0.15,
-  });
+  }), opts.materials, 'steel', 3, 0.5);
   const propMesh = new THREE.Mesh(mergeGeometries(propGeos, false), propMat);
   propMesh.frustumCulled = false;
   group.add(propMesh);
@@ -1470,7 +1495,10 @@ function buildWaveSpaceArch(rng) {
 function buildGlastelleSpire(rng) {
   const group = new THREE.Group();
   const coreGeo = new THREE.ConeGeometry(10, C.SPIRE_HEIGHT, 8);
-  const coreMat = new THREE.MeshStandardMaterial({ color: 0x3a2f38, roughness: 0.5 });
+  const coreMat = relief(
+    new THREE.MeshStandardMaterial({ color: 0x3a2f38, roughness: 0.5 }),
+    _sessionMats, 'steel', 4, 0.5
+  );
   const core = new THREE.Mesh(coreGeo, coreMat);
   core.position.y = C.SPIRE_HEIGHT / 2;
   group.add(core);
@@ -1548,7 +1576,10 @@ function buildRamdaGarden(rng) {
 function buildFeluziaStage(rng) {
   const group = new THREE.Group();
   const daisGeo = new THREE.CylinderGeometry(C.STAGE_RADIUS * 0.4, C.STAGE_RADIUS * 0.4, 2, 32);
-  const daisMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.6 });
+  const daisMat = relief(
+    new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.6 }),
+    _sessionMats, 'concrete', 4, 0.55
+  );
   const dais = new THREE.Mesh(daisGeo, daisMat);
   dais.position.y = 1;
   group.add(dais);
@@ -1700,62 +1731,11 @@ const DIALOGUE_BANK = {
   ],
 };
 
-function buildHumanoidRig(rng, isEmployee, accent) {
-  const group = new THREE.Group();
-  const height = C.CITIZEN_HEIGHT_MIN + rng() * (C.CITIZEN_HEIGHT_MAX - C.CITIZEN_HEIGHT_MIN);
-  const skinHex = isEmployee ? 0xd9c7b8 : 0xc9b8cf;
-
-  const torso = new THREE.Group();
-  const torsoMesh = new THREE.Mesh(
-    new THREE.CapsuleGeometry(height * 0.14, height * 0.35, 4, 8),
-    new THREE.MeshStandardMaterial({ color: skinHex, roughness: 0.8 })
-  );
-  torsoMesh.position.y = height * 0.55;
-  torso.add(torsoMesh);
-
-  const head = new THREE.Mesh(
-    new THREE.IcosahedronGeometry(height * 0.09, 1),
-    new THREE.MeshStandardMaterial({ color: skinHex, roughness: 0.7 })
-  );
-  head.position.y = height * 0.85;
-  torso.add(head);
-
-  if (isEmployee) {
-    const badge = new THREE.Mesh(
-      new THREE.PlaneGeometry(height * 0.06, height * 0.03),
-      new THREE.MeshStandardMaterial({
-        color: accent,
-        emissive: new THREE.Color(accent),
-        emissiveIntensity: 0.5,
-      })
-    );
-    badge.position.set(height * 0.08, height * 0.6, height * 0.1);
-    torso.add(badge);
-  } else {
-    const slip = new THREE.Mesh(
-      new THREE.PlaneGeometry(height * 0.05, height * 0.08),
-      new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        emissive: new THREE.Color(C.COLORS.teal),
-        emissiveIntensity: 0.3,
-      })
-    );
-    slip.position.set(height * 0.12, height * 0.4, height * 0.05);
-    torso.add(slip);
-  }
-
-  const legL = new THREE.Mesh(
-    new THREE.CapsuleGeometry(height * 0.05, height * 0.35, 4, 6),
-    new THREE.MeshStandardMaterial({ color: 0x2a2530 })
-  );
-  legL.position.set(-height * 0.06, height * 0.2, 0);
-  const legR = legL.clone();
-  legR.position.x = height * 0.06;
-
-  group.add(torso, legL, legR);
-  group.userData = { torso, legL, legR, height };
-  return group;
-}
+// Caller clothing: muted mall-goer tones. Employees wear their department's
+// accent — the uniform IS the badge now that the crowd is real people
+// (world/people.js) instead of the old two-capsule rigs.
+const CALLER_CLOTH = [0x8a7f98, 0x6d7a8c, 0x9c8fa5, 0x5e6b74, 0xb0a4b8, 0x7d8a6f];
+const _qIdent = new THREE.Quaternion();
 
 export function createCrowd(host, opts = {}) {
   const seed = hashSeed((opts.seedKey ?? 'wavemallprime') + '::crowd');
@@ -1764,22 +1744,23 @@ export function createCrowd(host, opts = {}) {
   group.name = 'wavemall_crowd';
 
   const count = opts.count ?? 60;
-  let simT = 0; // accumulated sim time — drives leg swing (dt alone is ~constant)
+  let simT = 0; // accumulated sim time — drives the stride phase
+  let frameIx = 0; // staggers the far-citizen ground conform
   const citizens = [];
-  const activePool = [];
-  const impostorGeo = new THREE.SphereGeometry(0.4, 4, 4);
-  const impostorMat = new THREE.MeshStandardMaterial({ color: 0xd0c0d0 });
-  const impostorMesh = new THREE.InstancedMesh(impostorGeo, impostorMat, count);
-  impostorMesh.frustumCulled = false;
-  group.add(impostorMesh);
+
+  // Optional wander-disc centre (host.cx/cz) — lobby crowds live at their
+  // lobby's coordinates in the wing's district-local frame, so interaction
+  // distances and the crowd share one frame with the host's player-local.
+  const cx = host.cx ?? 0;
+  const cz = host.cz ?? 0;
 
   for (let i = 0; i < count; i++) {
-    const isEmployee = rng() < C.EMPLOYEE_RATIO;
+    const isEmployee = rng() < (opts.employeeRatio ?? C.EMPLOYEE_RATIO);
     const accent = C.DEPARTMENTS[Math.floor(rng() * C.DEPARTMENTS.length)].accent;
     const speed = C.WANDER_SPEED_MIN + rng() * (C.WANDER_SPEED_MAX - C.WANDER_SPEED_MIN);
     const angle = rng() * Math.PI * 2;
     const dist = rng() * (host.radius ?? C.DISTRICT_RADIUS);
-    const pos = new THREE.Vector3(Math.cos(angle) * dist, 0, Math.sin(angle) * dist);
+    const pos = new THREE.Vector3(cx + Math.cos(angle) * dist, 0, cz + Math.sin(angle) * dist);
     const hasQuest = rng() < C.QUEST_CHANCE;
 
     citizens.push({
@@ -1789,14 +1770,32 @@ export function createCrowd(host, opts = {}) {
       speed,
       pos,
       waypoint: pos.clone(),
+      yaw: rng() * Math.PI * 2,
       phase: rng() * Math.PI * 2,
-      rig: null,
       quest: hasQuest
         ? { kind: 'codex', subject: `wavemall-lore-${i}`, }
         : null,
       seed: rng() * 1000,
     });
   }
+
+  // The visuals: a real crowd (world/people.js) over the citizen sim above.
+  // The sim keeps owning positions, waypoints, dialogue and quests; the people
+  // module owns bodies, faces, skin/hair variety and the promote-to-rig pass
+  // (head tracking, walking carriage) — driven per frame via setPersonPose.
+  let clothIdx = 0;
+  const people = createPeople({
+    count,
+    rng: mulberry32(seed ^ 0x517cc1),
+    materials: opts.materials,
+    place: (i) => ({ pos: citizens[i].pos, quat: _qIdent }),
+    cloth: (r) => {
+      const c = citizens[clothIdx++ % count];
+      return c.isEmployee ? c.accent : CALLER_CLOTH[Math.floor(r * CALLER_CLOTH.length)];
+    },
+    maxRigs: opts.maxRigs ?? 10,
+  });
+  group.add(people.group);
 
   function pickWaypoint(c) {
     // Steer clear of the entrance arch / crystal centerpiece footprints
@@ -1805,8 +1804,8 @@ export function createCrowd(host, opts = {}) {
     for (let tries = 0; tries < 8; tries++) {
       const angle = rng() * Math.PI * 2;
       const dist = rng() * (host.radius ?? C.DISTRICT_RADIUS);
-      x = Math.cos(angle) * dist;
-      z = Math.sin(angle) * dist;
+      x = cx + Math.cos(angle) * dist;
+      z = cz + Math.sin(angle) * dist;
       let blocked = false;
       if (host.avoid) {
         for (const a of host.avoid) {
@@ -1819,72 +1818,43 @@ export function createCrowd(host, opts = {}) {
     c.waypoint.set(x, 0, z);
   }
 
-  function ensureRig(c) {
-    if (c.rig) return;
-    if (activePool.length >= C.MAX_ACTIVE_RIGS) return;
-    const rig = buildHumanoidRig(mulberry32(c.seed | 0), c.isEmployee, c.accent);
-    group.add(rig);
-    c.rig = rig;
-    activePool.push(c);
-  }
-
-  function releaseRig(c) {
-    if (!c.rig) return;
-    // buildHumanoidRig allocates fresh geometry/materials per citizen; free
-    // them here so cycling rigs through the pool doesn't leak (double-dispose
-    // from legR = legL.clone() sharing geometry is safe).
-    c.rig.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
-    group.remove(c.rig);
-    c.rig = null;
-    const idx = activePool.indexOf(c);
-    if (idx >= 0) activePool.splice(idx, 1);
-  }
-
   function update(dt, playerPos, sunDot = 1) {
     simT += dt;
-    let idx = 0;
+    frameIx++;
     for (let ci = 0; ci < citizens.length; ci++) {
       const c = citizens[ci];
-      // A citizen in dialogue holds still so the speaker doesn't wander off.
+      let moving = false;
+      // A citizen in dialogue holds still (facing the player) so the speaker
+      // doesn't wander off.
       if (!c.talking) {
         _toWp.copy(c.waypoint).sub(c.pos);
         const dist = _toWp.length();
         if (dist < 1) pickWaypoint(c);
         else {
-          _toWp.normalize().multiplyScalar(c.speed * dt);
-          c.pos.add(_toWp);
+          _toWp.normalize();
+          c.yaw = Math.atan2(_toWp.x, _toWp.z);
+          c.pos.addScaledVector(_toWp, c.speed * dt);
+          moving = true;
         }
+      } else if (playerPos) {
+        c.yaw = Math.atan2(playerPos.x - c.pos.x, playerPos.z - c.pos.z);
       }
 
+      // Conform to terrain height (curvature + terrain). The people instances
+      // always draw, so everyone needs a real y — near citizens every frame,
+      // far ones staggered across ~30 frames to bound the noise sampling.
       const distToPlayer = playerPos ? c.pos.distanceTo(playerPos) : Infinity;
-
-      // Conform to terrain height (curvature + terrain), only near the player
-      // to bound cost — far citizens stay at their disc y and never draw.
-      if (host.groundHeightAt && distToPlayer < C.CULL_DIST) {
+      if (host.groundHeightAt &&
+          (distToPlayer < C.CULL_DIST || (frameIx + ci) % 30 === 0)) {
         c.pos.y = host.groundHeightAt(c.pos.x, c.pos.z);
       }
 
-      if (distToPlayer < C.IMPOSTOR_DIST && distToPlayer < C.CULL_DIST) {
-        ensureRig(c);
-        if (c.rig) {
-          c.rig.position.copy(c.pos);
-          const swing = c.talking ? 0 : Math.sin(simT * 6 + c.phase) * 0.3;
-          c.rig.userData.legL.rotation.x = swing;
-          c.rig.userData.legR.rotation.x = -swing;
-        }
-      } else {
-        releaseRig(c);
-      }
-
-      if (distToPlayer < C.CULL_DIST) {
-        impostorMesh.setMatrixAt(idx, _m4.setPosition(c.pos));
-        impostorMesh.setColorAt(idx, _col.set(c.accent).multiplyScalar(Math.max(0.3, sunDot)));
-        idx++;
-      }
+      people.setPersonPose(
+        ci, c.pos.x, c.pos.y, c.pos.z, c.yaw,
+        moving ? c.speed / C.WANDER_SPEED_MAX : 0, simT
+      );
     }
-    impostorMesh.count = idx;
-    impostorMesh.instanceMatrix.needsUpdate = true;
-    if (impostorMesh.instanceColor) impostorMesh.instanceColor.needsUpdate = true;
+    if (playerPos) people.update(simT, dt, playerPos);
   }
 
   function nearestInteractable(playerPos, maxDist = 4) {
@@ -1922,12 +1892,10 @@ export function createCrowd(host, opts = {}) {
   }
 
   function dispose() {
-    citizens.forEach((c) => releaseRig(c));
-    impostorGeo.dispose();
-    impostorMat.dispose();
+    people.dispose();
   }
 
-  return { group, update, sunDot: 1, dispose, count, nearestInteractable, interact, endInteract, citizens };
+  return { group, update, sunDot: 1, dispose, count, nearestInteractable, interact, endInteract, citizens, people };
 }
 
 /* ----------------------------------------------------------------------
@@ -2020,6 +1988,7 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
   const seedKey = opts.seedKey ?? 'wavemallprime';
   const group = new THREE.Group();
   group.name = 'wavemallprime';
+  _sessionMats = opts.materials ?? null; // standalone wonder builders read this
 
   const districts = createDepartmentDistrict(planet, worldUp, { ...opts, seedKey });
   const wonders = createWonderField(planet, worldUp, { ...opts, seedKey });
@@ -2075,6 +2044,7 @@ export function createWavemallPrime(planet, worldUp, opts = {}) {
     districts.group, wonders.group, entrance.group, centerpiece.group,
     galleria.group, crowd.group, holdMusic.group
   );
+  _sessionMats = null; // build done — don't leak the registry across sessions
 
   // Per-lobby manifest for interior shopkeepers (walk.js): each entry carries
   // its wing's group + inverse quaternion so the host can compute the player
