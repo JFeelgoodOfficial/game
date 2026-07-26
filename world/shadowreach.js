@@ -2745,6 +2745,13 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     if (queueCrowd) queueCrowd.startFade(2.5);
   }
 
+  // Which two presets the sky is currently between, and how far. `force` starts
+  // the ending brightening without playing seven flags' worth of story.
+  function debugSky(force = false) {
+    if (force && endingSky < 0) endingSky = 0;
+    return { a: _skyBlend.a, b: _skyBlend.b, k: +_skyBlend.k.toFixed(3), ending: endingSky };
+  }
+
   function canBoard() { return stage === 0 || has('mask_removed'); }
   function isComplete() { return has('mask_removed'); }
   const marks = {
@@ -2799,6 +2806,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     debugState,
     debugCrowds,
     debugFadeCrowds,
+    debugSky,
   };
 }
 
