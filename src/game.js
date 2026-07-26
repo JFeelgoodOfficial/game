@@ -91,6 +91,7 @@ import {
   enterStationWalk,
 } from './walkLazy.js';
 import { initJournal, journalState } from './journal.js';
+import { initInventory, inventoryState } from './inventory.js';
 import { CITIES, citiesForWorld, padLocalDir } from '../world/cityRegistry.js';
 import { initSun, sunAltitude } from './sun.js';
 import { initStations, updateStations, nearestDockableStation } from './stations.js';
@@ -164,6 +165,7 @@ initControls();
 initCapture(renderer);
 initCredits();
 initJournal();
+initInventory();
 initSettingsPanel();
 
 // --- composer (GDD 4.4) ---
@@ -494,6 +496,7 @@ if (import.meta.env.DEV) {
     player: playerState,
     // Quest/codex record (interaction system), for headless verification.
     journal: journalState,
+    inventory: inventoryState,
     recordFrame(delta) {
       frameTimes[frameCount % frameTimes.length] = delta;
       frameCount++;

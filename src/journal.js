@@ -14,6 +14,11 @@ const STORE_KEY = 'fgsf.journal';
 let codex = new Set(); // codex subjects discovered (persisted)
 let outcomes = new Set(); // choice outcomeTags taken (persisted)
 let waypoint = null; // { targetHint } — session-only
+// Governor wonder-tour progress, per city id (persisted): the number of tour
+// stops reached so far, or 'done' once the reward has been claimed. The chain
+// logic (which wonder is next, re-arming the beacon on re-land) lives with
+// the city spawn code — the journal only stores the stage.
+let quests = {};
 
 function load() {
   try {
@@ -22,6 +27,7 @@ function load() {
     const data = JSON.parse(raw);
     if (Array.isArray(data.codex)) codex = new Set(data.codex);
     if (Array.isArray(data.outcomes)) outcomes = new Set(data.outcomes);
+    if (data.quests && typeof data.quests === 'object') quests = { ...data.quests };
   } catch {
     /* corrupt or unavailable — start empty, session-only */
   }
@@ -29,7 +35,9 @@ function load() {
 
 function save() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ codex: [...codex], outcomes: [...outcomes] }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      codex: [...codex], outcomes: [...outcomes], quests,
+    }));
   } catch {
     /* session-only */
   }
@@ -77,7 +85,19 @@ export function hasWaypoint() {
   return waypoint !== null;
 }
 
+// Quest stage accessors. Stage is undefined (never accepted), a number
+// (accepted; count of tour stops reached), or 'done' (reward claimed).
+export function questStage(cityId) {
+  return quests[cityId];
+}
+
+export function setQuestStage(cityId, stage) {
+  if (!cityId) return;
+  quests[cityId] = stage;
+  save();
+}
+
 // Debug/inspection hook (__debug.journal()).
 export function journalState() {
-  return { codex: [...codex], outcomes: [...outcomes], waypoint };
+  return { codex: [...codex], outcomes: [...outcomes], waypoint, quests: { ...quests } };
 }
