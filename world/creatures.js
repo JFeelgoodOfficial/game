@@ -36,6 +36,7 @@
  */
 
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -1181,37 +1182,85 @@ function buildNeptunia(planet, worldUp, opts, seed) {
 
   const density = opts.density ?? cfg.density;
   const siteRadius = opts.radius ?? 200;
+  const low = opts.quality === 'low';
 
-  // --- Neon fish schools: one InstancedMesh per school, hue from a
-  // violet-cyan-magenta wheel, wandering a sine orbit in the water column ---
-  const fishGeo = new THREE.ConeGeometry(0.05, 0.22, 4);
+  // One clock drives every underwater vertex hook (tail beats, tentacle sway,
+  // kelp) — a single uniform write per frame for the whole reef.
+  const uwTime = { value: 0 };
+
+  // --- Fish: a real fusiform body — lathe spindle, laterally compressed,
+  // tail and dorsal fins — swimming along +Y so the existing align-to-heading
+  // convention holds. The tail beat runs in the vertex shader, phase seeded
+  // from each instance's own origin so no two fish beat in sync. ---
+  const fishGeo = (() => {
+    const profile = [
+      new THREE.Vector2(0.004, -0.14),
+      new THREE.Vector2(0.02, -0.08),
+      new THREE.Vector2(0.045, -0.01),
+      new THREE.Vector2(0.05, 0.05),
+      new THREE.Vector2(0.032, 0.1),
+      new THREE.Vector2(0.004, 0.145),
+    ];
+    const body = new THREE.LatheGeometry(profile, 8);
+    body.scale(0.6, 1, 1); // laterally compressed — the fin plane is YZ
+    const tail = new THREE.PlaneGeometry(0.1, 0.09).rotateY(Math.PI / 2)
+      .translate(0, -0.17, 0);
+    const dorsal = new THREE.PlaneGeometry(0.05, 0.05).rotateY(Math.PI / 2)
+      .translate(0, 0.02, 0.05);
+    const parts = [body, tail, dorsal].map((g) => (g.index ? g.toNonIndexed() : g));
+    const merged = mergeGeometries(parts, false);
+    parts.forEach((g) => g.dispose());
+    return merged;
+  })();
+  const addTailBeat = (mat) => {
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = uwTime;
+      shader.vertexShader = 'uniform float uTime;\n' + shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        {
+          vec4 ip = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+          float ph = ip.x * 2.13 + ip.z * 1.71 + ip.y * 0.9;
+          float tail = clamp(-transformed.y * 6.0, 0.0, 1.0);
+          transformed.x += sin(uTime * 9.0 + ph) * tail * tail * 0.05;
+        }`
+      );
+    };
+    mat.needsUpdate = true;
+  };
   const SCHOOL_HUES = [0.52, 0.58, 0.68, 0.78, 0.85, 0.93]; // cyan → violet → magenta
   const schools = [];
-  const schoolCount = Math.round(cfg.schoolCount * density);
+  const schoolCount = Math.round(cfg.schoolCount * density * (low ? 0.7 : 1));
+  const fishPerSchool = low ? 40 : cfg.fishPerSchool;
   for (let i = 0; i < schoolCount; i++) {
     const hue = SCHOOL_HUES[i % SCHOOL_HUES.length];
-    _color0.setHSL(hue, 0.95, 0.6);
+    _color0.setHSL(hue, 0.85, 0.55);
     const mat = new THREE.MeshStandardMaterial({
       color: _color0.clone(),
       emissive: _color0.clone(),
-      emissiveIntensity: 0.5,
-      metalness: 0.4,
-      roughness: 0.35,
+      emissiveIntensity: 0.35,
+      metalness: 0.35,
+      roughness: 0.4,
+      side: THREE.DoubleSide, // the fins are single planes
     });
-    const fish = new THREE.InstancedMesh(fishGeo, mat, cfg.fishPerSchool);
+    addTailBeat(mat);
+    const fish = new THREE.InstancedMesh(fishGeo, mat, fishPerSchool);
     fish.frustumCulled = false;
     group.add(fish);
     const offsets = [];
-    for (let f = 0; f < cfg.fishPerSchool; f++) {
-      // Loose ellipsoid cloud around the school center.
+    for (let f = 0; f < fishPerSchool; f++) {
+      // Loose ellipsoid cloud around the school center; each fish also swims
+      // its own small analytic ellipse, so the school shimmers instead of
+      // translating as a solid.
       const fa = rand() * Math.PI * 2;
-      const fr = Math.pow(rand(), 0.5) * 2.4;
+      const fr = Math.pow(rand(), 0.5) * 2.6;
       offsets.push({
         x: Math.cos(fa) * fr,
-        y: (rand() - 0.5) * 1.6,
+        y: (rand() - 0.5) * 1.8,
         z: Math.sin(fa) * fr,
         phase: rand() * Math.PI * 2,
-        speed: 1.5 + rand() * 2,
+        speed: 1.2 + rand() * 1.8,
+        s: 0.75 + rand() * 0.6,
       });
     }
     const a = rand() * Math.PI * 2;
@@ -1224,13 +1273,37 @@ function buildNeptunia(planet, worldUp, opts, seed) {
       orbitSpeed: 0.08 + rand() * 0.1,
       bob: 2 + rand() * 3,
       phase: rand() * Math.PI * 2,
+      startle: 0,                   // 1 at a scare, exponential reform
+      dart: new THREE.Vector3(),    // flee direction, set when startled
     });
   }
 
-  // --- Jellyfish: instanced half-spheres, emissive violet, pulsing, slowly
-  // rising and wrapping back down ---
-  const jellyCount = Math.round(cfg.jellyfishCount * density);
-  const jellyGeo = new THREE.SphereGeometry(0.55, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+  // --- Jellyfish: a bell with trailing tentacles and oral arms, not a bare
+  // hemisphere. The tentacles sway in the vertex shader (weight grows with
+  // hang depth, phase off the instance origin); the bell pulse stays on the
+  // instance's Y scale. Rising jellies shrink out near the surface and grow
+  // back in at the deep end of the wrap, so the loop never pops. ---
+  const jellyCount = Math.round(cfg.jellyfishCount * density * (low ? 0.5 : 1));
+  const jellyGeo = (() => {
+    const bell = new THREE.SphereGeometry(0.55, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+    const parts = [bell];
+    for (let k = 0; k < 7; k++) {
+      const a = (k / 7) * Math.PI * 2;
+      const tent = new THREE.CylinderGeometry(0.006, 0.018, 1.1, 4, 4, true);
+      tent.translate(Math.cos(a) * 0.34, -0.55, Math.sin(a) * 0.34);
+      parts.push(tent);
+    }
+    for (let k = 0; k < 2; k++) {
+      const arm = new THREE.PlaneGeometry(0.16, 0.9, 1, 4)
+        .rotateY(k * Math.PI * 0.5)
+        .translate(0, -0.45, 0);
+      parts.push(arm);
+    }
+    const flat = parts.map((g) => (g.index ? g.toNonIndexed() : g));
+    const merged = mergeGeometries(flat, false);
+    flat.forEach((g) => g.dispose());
+    return merged;
+  })();
   const jellyMat = new THREE.MeshStandardMaterial({
     color: 0x9a6aff,
     emissive: new THREE.Color(0x9a6aff),
@@ -1240,6 +1313,21 @@ function buildNeptunia(planet, worldUp, opts, seed) {
     depthWrite: false,
     side: THREE.DoubleSide,
   });
+  jellyMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = uwTime;
+    shader.vertexShader = 'uniform float uTime;\n' + shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+      {
+        vec4 ip = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+        float ph = ip.x * 1.37 + ip.z * 0.91;
+        float hang = clamp(-transformed.y * 1.2, 0.0, 1.0);
+        transformed.x += sin(uTime * 1.1 + ph) * hang * hang * 0.16;
+        transformed.z += cos(uTime * 0.9 + ph * 1.4) * hang * hang * 0.16;
+      }`
+    );
+  };
+  jellyMat.needsUpdate = true;
   const jellies = new THREE.InstancedMesh(jellyGeo, jellyMat, jellyCount);
   jellies.frustumCulled = false;
   group.add(jellies);
@@ -1256,6 +1344,152 @@ function buildNeptunia(planet, worldUp, opts, seed) {
       s: 0.7 + rand() * 1.1,
     });
   }
+
+  // --- Seabed flora: kelp ribbons and coral clusters standing on the REAL
+  // trench relief (planet.body.terrainAtLocal along this group's frame), so
+  // nothing floats and nothing buries. Kelp sways in the vertex shader like
+  // the dressing grass; coral holds still. Registry maps when available. ---
+  const registry = opts.materials ?? null;
+  const rotYF = planet.surface?.rotation?.y ?? 0;
+  const _fUp = worldUp.clone().applyAxisAngle(_yAxis, -rotYF).normalize();
+  const _fQ = new THREE.Quaternion().setFromUnitVectors(_yAxis, _fUp);
+  const anchorRF = planet.water?.r ?? planet.radius;
+  const _fS = new THREE.Vector3();
+  const seabedYAt = (x, z) => {
+    _fS.set(x, 0, z).applyQuaternion(_fQ).addScaledVector(_fUp, anchorRF).normalize();
+    const r = planet.radius + (planet.body?.terrainAtLocal ? planet.body.terrainAtLocal(_fS) : 0);
+    return r * _fS.dot(_fUp) - anchorRF;
+  };
+  const floraGeos = [];
+  const floraMats = [];
+  const kelpMat = new THREE.MeshStandardMaterial({
+    color: 0x2a6a5f,
+    roughness: 0.85,
+    side: THREE.DoubleSide,
+    emissive: new THREE.Color(0x123830),
+    emissiveIntensity: 0.25,
+  });
+  if (registry) {
+    const set = registry.tiledSet('groundCover', 2, 2);
+    kelpMat.normalMap = set.normalMap;
+    kelpMat.normalScale = new THREE.Vector2(0.5, 0.5);
+    kelpMat.roughnessMap = set.roughnessMap;
+  }
+  kelpMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = uwTime;
+    shader.vertexShader = 'uniform float uTime;\n' + shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+      {
+        vec4 ip = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+        float ph = ip.x * 0.61 + ip.z * 0.83;
+        float up01 = clamp(transformed.y, 0.0, 1.0);
+        float bend = up01 * up01;
+        transformed.x += (sin(uTime * 0.7 + ph) * 0.22 + sin(uTime * 1.9 + ph * 2.1) * 0.06) * bend;
+        transformed.z += (cos(uTime * 0.55 + ph * 1.3) * 0.18) * bend;
+      }`
+    );
+  };
+  kelpMat.needsUpdate = true;
+  floraMats.push(kelpMat);
+  const kelpGeo = (() => {
+    const g = new THREE.PlaneGeometry(0.42, 1, 1, 6);
+    g.translate(0, 0.5, 0); // base at y=0, unit tall — instance scale sets height
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i);
+      p.setX(i, p.getX(i) * (1 - y * 0.55)); // taper toward the tip
+    }
+    return g;
+  })();
+  floraGeos.push(kelpGeo);
+  const kelpCount = low ? 60 : 140;
+  const kelp = new THREE.InstancedMesh(kelpGeo, kelpMat, kelpCount);
+  kelp.frustumCulled = false;
+  {
+    let placed = 0, tries = 0;
+    while (placed < kelpCount && tries < kelpCount * 10) {
+      tries++;
+      const a = rand() * Math.PI * 2;
+      const r = Math.sqrt(rand()) * siteRadius * 0.75;
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      const y = seabedYAt(x, z);
+      if (y > -5 || y < -60) continue; // shallows and abyss stay bare
+      _v1.set(x, y - 0.15, z);
+      _q0.setFromAxisAngle(_yAxis, rand() * Math.PI * 2);
+      const sy = 2.4 + rand() * 3.4;
+      const sxz = 0.8 + rand() * 0.6;
+      _m0.compose(_v1, _q0, _v0.set(sxz, sy, sxz));
+      kelp.setMatrixAt(placed, _m0);
+      _color0.setHSL(0.44 + rand() * 0.1, 0.5, 0.32 + rand() * 0.12);
+      kelp.setColorAt(placed, _color0);
+      placed++;
+    }
+    kelp.count = placed;
+    kelp.instanceMatrix.needsUpdate = true;
+    if (kelp.instanceColor) kelp.instanceColor.needsUpdate = true;
+  }
+  group.add(kelp);
+  const coralGeo = (() => {
+    const parts = [];
+    for (let k = 0; k < 2; k++) {
+      const blob = new THREE.IcosahedronGeometry(0.5 - k * 0.16, 1);
+      blob.translate((k - 0.5) * 0.5, 0.25 + k * 0.3, (rand() - 0.5) * 0.3);
+      parts.push(blob);
+    }
+    for (let k = 0; k < 3; k++) {
+      const branch = new THREE.ConeGeometry(0.1, 0.9, 5);
+      branch.rotateX((rand() - 0.5) * 0.8);
+      branch.rotateZ((rand() - 0.5) * 0.8);
+      branch.translate((rand() - 0.5) * 0.7, 0.6, (rand() - 0.5) * 0.7);
+      parts.push(branch);
+    }
+    const flat = parts.map((g) => (g.index ? g.toNonIndexed() : g));
+    const merged = mergeGeometries(flat, false);
+    flat.forEach((g) => g.dispose());
+    return merged;
+  })();
+  floraGeos.push(coralGeo);
+  const coralMat = new THREE.MeshStandardMaterial({
+    color: 0x8a68c8,
+    roughness: 0.9,
+    emissive: new THREE.Color(0xb08aff),
+    emissiveIntensity: 0.18,
+    flatShading: true,
+  });
+  if (registry) {
+    const set = registry.tiledSet('rock', 2, 2);
+    coralMat.normalMap = set.normalMap;
+    coralMat.normalScale = new THREE.Vector2(0.7, 0.7);
+    coralMat.roughnessMap = set.roughnessMap;
+  }
+  floraMats.push(coralMat);
+  const coralCount = low ? 30 : 70;
+  const coral = new THREE.InstancedMesh(coralGeo, coralMat, coralCount);
+  coral.frustumCulled = false;
+  {
+    let placed = 0, tries = 0;
+    while (placed < coralCount && tries < coralCount * 10) {
+      tries++;
+      const a = rand() * Math.PI * 2;
+      const r = Math.sqrt(rand()) * siteRadius * 0.7;
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      const y = seabedYAt(x, z);
+      if (y > -4 || y < -55) continue;
+      _v1.set(x, y - 0.1, z);
+      _q0.setFromAxisAngle(_yAxis, rand() * Math.PI * 2);
+      const s = 0.4 + rand() * 1.3;
+      _m0.compose(_v1, _q0, _v0.set(s, s * (0.8 + rand() * 0.5), s));
+      coral.setMatrixAt(placed, _m0);
+      _color0.setHSL(0.7 + rand() * 0.14, 0.45, 0.4 + rand() * 0.15);
+      coral.setColorAt(placed, _color0);
+      placed++;
+    }
+    coral.count = placed;
+    coral.instanceMatrix.needsUpdate = true;
+    if (coral.instanceColor) coral.instanceColor.needsUpdate = true;
+  }
+  group.add(coral);
 
   // --- The Meridian Leviathan: one gentle silhouette patrolling the site.
   // Its orbit radius breathes between ~10 and ~90 u, so every couple of
@@ -1318,36 +1552,72 @@ function buildNeptunia(planet, worldUp, opts, seed) {
   function update(dt, playerPos, sunDot) {
     const t = performance.now() * 0.001;
     const night = 1 - Math.max(sunDot, 0);
+    uwTime.value = t; // tail beats, tentacle sway, kelp — one write
 
-    // Fish schools — the deep glows brighter at night and at depth.
+    // Fish schools — per-fish heading from analytic velocity, a startle that
+    // scatters the school away from a lunging player, and the deep glowing
+    // brighter at night.
     for (const s of schools) {
-      s.mat.emissiveIntensity = 0.5 + night * 0.5;
+      s.mat.emissiveIntensity = 0.35 + night * 0.55;
       const oa = s.phase + t * s.orbitSpeed;
       const cx = Math.cos(s.baseA) * s.baseR + Math.cos(oa) * s.orbitR;
       const cz = Math.sin(s.baseA) * s.baseR + Math.sin(oa) * s.orbitR;
       const cy = s.depth + Math.sin(t * 0.3 + s.phase) * s.bob;
-      // School heading = tangent of the wander orbit; every fish aligns to it.
-      _v2.set(-Math.sin(oa), 0, Math.cos(oa)).normalize();
-      _q0.setFromUnitVectors(_yAxis, _v2); // cone +Y → swim direction
+
+      // Startle: a player inside the school's cloud sends everyone darting
+      // away from them; the school reforms over a few seconds.
+      _v2.set(cx - playerPos.x, (cy - playerPos.y) * 0.4, cz - playerPos.z);
+      const pd = _v2.length();
+      if (pd < 6.5 && s.startle < 0.35) {
+        s.startle = 1;
+        s.dart.copy(_v2).normalize();
+      }
+      s.startle *= Math.exp(-dt * 0.85);
+      const flee = s.startle;
+      const spread = 1 + 1.3 * flee;
+
+      // School drift velocity (orbit tangent) — the base of every heading.
+      const cvx = -Math.sin(oa) * s.orbitR * s.orbitSpeed;
+      const cvz = Math.cos(oa) * s.orbitR * s.orbitSpeed;
+
       for (let f = 0; f < s.offsets.length; f++) {
         const o = s.offsets[f];
-        const wob = Math.sin(t * o.speed + o.phase) * 0.35;
-        _v1.set(cx + o.x + wob, cy + o.y + Math.sin(t * o.speed * 0.7 + o.phase) * 0.3, cz + o.z);
-        _m0.compose(_v1, _q0, _v0.set(1, 1, 1));
+        // Each fish swims its own analytic ellipse around its slot.
+        const wA = 0.55 * (1 + flee);
+        const sx = Math.sin(t * o.speed + o.phase) * wA;
+        const sy = Math.sin(t * o.speed * 0.7 + o.phase * 1.3) * 0.3;
+        const sz = Math.cos(t * o.speed * 0.85 + o.phase) * wA;
+        _v1.set(
+          cx + (o.x + sx) * spread + s.dart.x * 9 * flee,
+          cy + (o.y + sy) * spread + s.dart.y * 5 * flee,
+          cz + (o.z + sz) * spread + s.dart.z * 9 * flee
+        );
+        // Heading = school drift + the fish's own swim velocity.
+        _v2.set(
+          cvx + Math.cos(t * o.speed + o.phase) * wA * o.speed + s.dart.x * 4 * flee,
+          Math.cos(t * o.speed * 0.7 + o.phase * 1.3) * 0.3 * o.speed * 0.7,
+          cvz - Math.sin(t * o.speed * 0.85 + o.phase) * wA * o.speed * 0.85 + s.dart.z * 4 * flee
+        );
+        if (_v2.lengthSq() < 1e-8) _v2.set(0, 0, 1);
+        _q0.setFromUnitVectors(_yAxis, _v2.normalize());
+        _m0.compose(_v1, _q0, _v0.setScalar(o.s));
         s.fish.setMatrixAt(f, _m0);
       }
       s.fish.instanceMatrix.needsUpdate = true;
     }
 
-    // Jellyfish — pulse and rise, wrap back to the deep.
+    // Jellyfish — pulse, drift and rise; shrink out near the surface and grow
+    // back in at the deep end so the wrap never pops.
     jellyMat.emissiveIntensity = 0.6 + night * 0.6;
     for (let i = 0; i < jellyData.length; i++) {
       const j = jellyData[i];
       j.y += j.rise * dt;
       if (j.y > -3) j.y = -40;
+      const edge = Math.min((-j.y - 3) / 4, (j.y + 40) / 3);
+      const k = Math.max(0.02, Math.min(1, edge));
       const pulse = 0.8 + 0.3 * Math.sin(t * j.pulse + j.phase);
       _v1.set(j.x + Math.sin(t * 0.2 + j.phase) * 1.5, j.y, j.z);
-      _m0.compose(_v1, _q0.identity(), _v0.set(j.s, j.s * pulse, j.s));
+      _m0.compose(_v1, _q0.identity(), _v0.set(j.s * k, j.s * k * pulse, j.s * k));
       jellies.setMatrixAt(i, _m0);
     }
     jellies.instanceMatrix.needsUpdate = true;
@@ -1414,6 +1684,8 @@ function buildNeptunia(planet, worldUp, opts, seed) {
     fishGeo.dispose();
     for (const s of schools) s.mat.dispose();
     jellyGeo.dispose(); jellyMat.dispose();
+    for (const g of floraGeos) g.dispose();
+    for (const m of floraMats) m.dispose();
     whaleGeo.dispose(); whaleMat.dispose();
     leviBody.geometry.dispose(); leviTail.geometry.dispose(); leviMat.dispose();
     group.clear();

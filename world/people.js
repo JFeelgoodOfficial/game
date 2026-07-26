@@ -1,9 +1,12 @@
 /**
- * shadowreach-people.js
+ * people.js — realistic human crowds for any world.
  *
- * The crowd in the confession circle and the queue through the desert — the two
- * places in Shadowreach where the player walks in among a hundred and eighty
- * strangers and has to believe they are strangers.
+ * Born as shadowreach-people.js for the confession circle and the desert queue —
+ * the two places in Shadowreach where the player walks in among a hundred and
+ * eighty strangers and has to believe they are strangers. Nothing in it was
+ * shadowreach-specific, so it now serves every world that wants real people
+ * (wavemall prime's shoppers, wyattmattoe's basecamp riders). Callers that
+ * move their people drive setPersonPose(); everyone else is exactly as before.
  *
  * They were a cone with a sphere on top, and a capsule with a sphere on top.
  * From across the zone that reads as bollards; from two metres away it reads as
@@ -106,6 +109,7 @@ const _scale = new THREE.Vector3(1, 1, 1);
 const _zero = new THREE.Matrix4().makeScale(0, 0, 0);
 const _toPlayer = new THREE.Vector3();
 const _invQ = new THREE.Quaternion();
+const _yUp = new THREE.Vector3(0, 1, 0);
 
 /* ----------------------------------------------------------------------
  * Geometry
@@ -365,14 +369,27 @@ function buildPersonRig(parts, mats) {
 
 // Idle pose for one articulated body. Breath and weight shift are matched to the
 // shader above so nobody visibly changes gait when they promote, plus the head
-// turn the instances cannot do.
+// turn the instances cannot do. A moving person (rig.speed01, fed through
+// setPersonPose) trades the idle sway for a walking carriage: forward lean,
+// step-frequency roll, the stride bob riding in via the group position. The
+// legs are merged geometry and cannot swing — at crowd range the carriage is
+// what sells the walk, and the stationary rig is the documented fallback.
 function posePerson(rig, t, playerLocal) {
   const ph = rig.phase;
+  const speed = rig.speed01 ?? 0;
   const breath = Math.sin(t * 0.9 + ph) * 0.5 + 0.5;
   const shift = Math.sin(t * 0.31 + ph * 0.7);
-  rig.body.position.y = breath * 0.006;
-  rig.body.position.x = shift * 0.022;
-  rig.body.rotation.z = -shift * 0.012;
+  if (speed > 0.05) {
+    rig.body.position.y = breath * 0.004;
+    rig.body.position.x = 0;
+    rig.body.rotation.x = -0.10 * speed;
+    rig.body.rotation.z = Math.sin(t * 7.2 + ph) * 0.055 * speed;
+  } else {
+    rig.body.position.y = breath * 0.006;
+    rig.body.position.x = shift * 0.022;
+    rig.body.rotation.x = 0;
+    rig.body.rotation.z = -shift * 0.012;
+  }
 
   // The head follows the player, but only as far as a neck goes. Past that a
   // person turns their body or lets you pass; a head tracking you round the back
@@ -462,7 +479,7 @@ export function createCrowd(opts) {
     const v = variants.find((x) => x.robed === robed) ?? variants[0];
     people.push({
       spec, pos: p.pos.clone(), quat: p.quat.clone(),
-      variant: v, slot: v.slots.length, rig: null, matrix: null,
+      variant: v, slot: v.slots.length, rig: null, matrix: null, speed01: 0,
     });
     v.slots.push(i);
   }
@@ -542,6 +559,7 @@ export function createCrowd(opts) {
     rig.group.quaternion.copy(person.quat);
     rig.group.scale.setScalar(person.spec.scale);
     rig.group.visible = true;
+    rig.speed01 = person.speed01;
     person.rig = rig;
     setInstanceShown(person, false);
   }
@@ -590,13 +608,40 @@ export function createCrowd(opts) {
       }
     }
     for (const person of people) {
-      if (person.rig) posePerson(person.rig, t, playerLocal);
+      if (person.rig) {
+        person.rig.speed01 = person.speed01;
+        posePerson(person.rig, t, playerLocal);
+      }
+    }
+  }
+
+  // Mobile crowds (a citizen sim that owns positions — wavemall's shoppers):
+  // re-seat person `i` at (x, y, z) facing `yaw` (about local +Y), moving at
+  // speed01 of walking pace. The stride bob rides the position, so instances
+  // and promoted rigs stay in step through a promote/demote. Call every frame
+  // for people that move; stationary people never need it.
+  function setPersonPose(i, x, y, z, yaw, speed01 = 0, t = 0) {
+    const person = people[i];
+    if (!person) return;
+    const bob = speed01 > 0.02
+      ? Math.abs(Math.sin(t * 7.2 + person.spec.phase)) * 0.05 * speed01
+      : 0;
+    person.pos.set(x, y + bob, z);
+    person.quat.setFromAxisAngle(_yUp, yaw);
+    person.speed01 = speed01;
+    person.matrix.compose(person.pos, person.quat, _scale.setScalar(person.spec.scale));
+    if (person.rig) {
+      person.rig.group.position.copy(person.pos);
+      person.rig.group.quaternion.copy(person.quat);
+    } else {
+      setInstanceShown(person, true);
     }
   }
 
   return {
     group,
     update,
+    setPersonPose,
     // Start the dissolve. The circle vanishes when its confession ends and the
     // queue breaks when the girl takes your hand; both need everyone gone.
     startFade(seconds = 2.5) { if (fade < 0 && !gone) { fade = 0; fadeTime = seconds; } },

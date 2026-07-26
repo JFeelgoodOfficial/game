@@ -336,6 +336,13 @@ function makeSurfaceUniforms(cfg, radius) {
     uColLow: { value: new THREE.Color(p.low) },
     uColMid: { value: new THREE.Color(p.mid) },
     uColHigh: { value: new THREE.Color(p.high) },
+    // Custom fog hook (world/planetsky.js underwater grading): raw
+    // ShaderMaterials can't read scene.fog. Density 0 = off.
+    uFogColor: { value: new THREE.Color(0) },
+    uFogDensity: { value: 0 },
+    // Divable worlds run the detail grain + relief shading below sea level
+    // too — a diver looks at that ground from arm's length.
+    uSeabedDetail: { value: cfg.divable ? 1 : 0 },
   };
 }
 
@@ -348,6 +355,7 @@ export function initPlanets(scene) {
     const spinning = [];
     let surface;
     let clouds = null;
+    let waterMesh = null;
 
     if (cfg.type === 'terra') {
       const surfaceMat = new THREE.ShaderMaterial({
@@ -374,6 +382,9 @@ export function initPlanets(scene) {
               ...shapeZeroUniforms(),
               uWaterColor: { value: new THREE.Color(cfg.water.color) },
               uGloss: { value: cfg.water.gloss },
+              uFogColor: { value: new THREE.Color(0) },
+              uFogDensity: { value: 0 },
+              uTime: { value: 0 },
             },
             // Divable worlds: the sea surface must render from below too.
             side: cfg.divable ? THREE.DoubleSide : THREE.FrontSide,
@@ -381,6 +392,7 @@ export function initPlanets(scene) {
         );
         spinning.push(water);
         group.add(water);
+        waterMesh = water;
       }
 
       if (cfg.clouds) {
@@ -484,7 +496,7 @@ export function initPlanets(scene) {
     // `atmosphere` is kept on the record so an isolated world (src/isolate.js)
     // can hide the limb shell: it's an additive haze meant to be seen from
     // orbit, and standing inside it just washes the whole surface out.
-    const p = { cfg, group, surface, clouds, atmosphere, spinning, radius, body: null };
+    const p = { cfg, group, surface, clouds, waterMesh, atmosphere, spinning, radius, body: null };
 
     // gravity + altitude floor. Rocky floors follow the terrain: sample the
     // shared noise field in unrotated object space (undo the spin) with this
@@ -630,6 +642,7 @@ export function updatePlanets(t, camPos, only = null) {
         p.clouds.material.uniforms.uTime.value = t;
         p.clouds.material.uniforms.uCover.value = C.CLOUD_COVER;
       }
+      if (p.waterMesh) p.waterMesh.material.uniforms.uTime.value = t;
     } else {
       p.surface.material.uniforms.uTime.value = t;
     }

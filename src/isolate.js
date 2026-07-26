@@ -47,10 +47,22 @@ import { setStarfieldVisible } from './starfield.js';
 import { setNebulaVisible } from './nebula.js';
 import { settings } from './settings.js';
 
-// Worlds that own their sky and light outright, and so can isolate. Both are
-// total conversions dispatched by name in walk.js; keeping the list here means
-// adding a third world is a one-line change.
-const ISOLATING_WORLDS = new Set(['actuality', 'shadowreach']);
+// Worlds that own their sky and light outright, and so can isolate. The story
+// worlds bring their own sky modules; every other landable world gets the
+// generic player-riding sky from world/planetsky.js (created in enterWalk, so
+// the sky exists before acquireSurface hides the flight sim's) — which is what
+// lets the whole roster pause the universe the way shadowreach does.
+const ISOLATING_WORLDS = new Set([
+  'actuality',
+  'shadowreach',
+  'terra',
+  'oceana',
+  'glacia',
+  'rustia',
+  'neptunia',
+  'wyattmattoe',
+  'wavemall prime',
+]);
 
 export function isIsolatingWorld(name) {
   return ISOLATING_WORLDS.has(name);
@@ -99,9 +111,23 @@ const iso = {
 // flat ambient underneath an environment map that is already doing that job
 // properly. Actuality does NOT take this — it was calibrated with the globals in
 // place and its materials expect them.
+// Generic worlds run world/planetsky.js, whose day/night presets drive the
+// exposure per frame once walking starts — the value here is only the opening
+// stop. soleLight: the planetsky sun + hemisphere + environment map replace
+// the system-wide globals, exactly like shadowreach. Bloom threshold sits
+// above the daylit sky's luminance but below the city neon so the pop-up
+// cities still glow at night.
+const GENERIC_RENDER = { exposure: 0.4, bloomThreshold: 2.2, bloomStrength: 0.5, soleLight: true };
 const WORLD_RENDER = {
   actuality: { exposure: 0.32, bloomThreshold: 2.4, bloomStrength: 0.5 },
   shadowreach: { exposure: 0.62, bloomThreshold: 1.15, bloomStrength: 0.62, soleLight: true },
+  terra: GENERIC_RENDER,
+  oceana: GENERIC_RENDER,
+  glacia: GENERIC_RENDER,
+  rustia: GENERIC_RENDER,
+  neptunia: GENERIC_RENDER,
+  wyattmattoe: GENERIC_RENDER,
+  'wavemall prime': { ...GENERIC_RENDER, bloomThreshold: 1.2 },
 };
 const DEFAULT_RENDER = WORLD_RENDER.actuality;
 

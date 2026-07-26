@@ -30,6 +30,7 @@ import {
   setViewGetter,
 } from './terraform.js';
 import { createDiamondRain } from './diamondrain.js';
+import { createMarineSnow } from './marinesnow.js';
 // World entities spawned around the landing site. All parented (directly or
 // via the city group) to planet.surface, so planet spin and floating-origin
 // rebases carry them — the world never moves without them. Aliased import:
@@ -39,10 +40,13 @@ import { createCity, CITY_STYLES } from '../world/city.js';
 import { createCrowd } from '../world/aliens.js';
 import { createWonderField } from '../world/wonders.js';
 import { createCreatures } from '../world/creatures.js';
-import { createWavemallPrime } from '../world/wavemallprime.js';
+import { createWavemallPrime, createCrowd as createWavemallCrowd } from '../world/wavemallprime.js';
+import { createWyattmattoe } from '../world/wyattmattoe.js';
 import { createActuality, ACTUALITY_SITE } from '../world/actuality.js';
 import { settings } from './settings.js';
 import { createShadowreach } from '../world/shadowreach.js';
+import { createPlanetSky } from '../world/planetsky.js';
+import { createActualityMaterials } from '../world/actuality-materials.js';
 import {
   getViewPref,
   showViewChooser,
@@ -135,9 +139,20 @@ let crowd = null; // citizens inside the city (world/aliens.js)
 let wonders = null; // megastructure field (world/wonders.js)
 let creatures = null; // planet wildlife (world/creatures.js)
 let diamondRain = null; // walker-local diamond-rain volume (cfg.diamondRain)
+let marineSnow = null; // diver-local particulate volume (cfg.divable)
+let wyattmattoe = null; // additive basecamp scene for 'wyattmattoe' (world/wyattmattoe.js)
 let wavemall = null; // total-conversion content for 'wavemall prime' only
 let actuality = null; // total-conversion content for 'actuality' only
 let shadowreach = null; // total-conversion narrative world for 'shadowreach' only
+// Generic real sky (world/planetsky.js): every landable world that doesn't
+// bring its own sky module. Must exist before beginWalk's acquireSurface hides
+// the flight sim's sky, which enterWalk's creation order guarantees.
+let planetSky = null;
+// Walk-session PBR material registry (world/actuality-materials.js) for the
+// same worlds — threaded into dressing/wonders (and the dedicated modules that
+// take real people). The registry owns everything it hands out; it is disposed
+// LAST in exitWalk, after every consumer has torn down.
+let surfaceMaterials = null;
 // Interior occupants: one small crowd per enterable lobby (+ tower balcony).
 // Each rides city.group's local frame, so it shares the crowd's player-local.
 let interiorCrowds = []; // [{ module, groupParent }]
@@ -346,13 +361,29 @@ export function enterWalk(planet) {
   // This world carries the snowboard — say so once per disembark.
   if (planet.cfg.boardable) showViewToast('B — SNOWBOARD');
 
+  // Walk-session material registry for the generic worlds (the story worlds
+  // build their own instance). ~8 ms of canvas work, spawn-time only.
+  if (planet.cfg.name !== 'actuality' && planet.cfg.name !== 'shadowreach') {
+    surfaceMaterials = createActualityMaterials({ quality: settings.quality });
+  }
+
   // Dress the landing site (terra/oceana get the full valley; ice and rock
   // worlds get boulders; gasless of course never reach here).
-  dressing = createDressing(planet, _up);
+  dressing = createDressing(planet, _up, surfaceMaterials);
 
   // Populate the site: parked ship, city + citizens, wonders, wildlife.
   // _up still holds the world-space landing dir here.
   spawnWorldEntities(planet);
+
+  // The generic real sky (Preetham + clouds + stars + PMREM environment) for
+  // every world that doesn't bring its own sky module. Created here so it
+  // exists before beginWalk's acquireSurface hides the flight sim's sky.
+  if (planet.cfg.name !== 'actuality' && planet.cfg.name !== 'shadowreach') {
+    planetSky = createPlanetSky(planet, worldScene, { quality: settings.quality });
+    planet.surface.add(planetSky.group);
+    // The basecamp's lodge and lift towers need the shadow box to reach them.
+    if (planet.cfg.name === 'wyattmattoe') planetSky.setShadowExtent(90, 300);
+  }
 
   // Terrain manipulator (terra only): reticle, handheld prop, RAISE/LOWER UI.
   terraformEnter(planet, astronaut.group);
@@ -361,6 +392,13 @@ export function enterWalk(planet) {
   if (planet.cfg.diamondRain) {
     diamondRain = createDiamondRain();
     astronaut.group.parent.add(diamondRain.group); // the scene
+  }
+
+  // Marine snow + bubbles (divable worlds): a diver-local particulate volume,
+  // visible only below the surface.
+  if (planet.cfg.divable) {
+    marineSnow = createMarineSnow();
+    astronaut.group.parent.add(marineSnow.group); // the scene
   }
 }
 
@@ -404,24 +442,24 @@ function spawnWorldEntities(planet) {
   // guard downstream short-circuits.
   if (planet.cfg.name === 'wavemall prime') {
     toSurfaceLocal(planet, _up, _localUp);
-    wavemall = createWavemallPrime(planet, _localUp.clone(), {});
+    wavemall = createWavemallPrime(planet, _localUp.clone(), {
+      materials: surfaceMaterials,
+      quality: settings.quality,
+    });
     planet.surface.add(wavemall.group);
     _wavemallInvQuat.copy(wavemall.crowd.group.quaternion).invert();
     // Shopkeepers inside the enterable department stores: one tiny bounded
     // crowd per lobby, living in its wing's district-local frame (each entry
-    // carries the wing group + inverse quaternion for playerLocalInto).
+    // carries the wing group + inverse quaternion for playerLocalInto). Real
+    // people (the mall's own people-backed crowd), all in uniform — they pace
+    // a counter-width disc and greet with the employee dialogue bank.
     interiorCrowds = [];
     for (const l of wavemall.lobbies ?? []) {
-      const m = createCrowd(
+      const m = createWavemallCrowd(
+        { radius: 0.9, cx: l.x, cz: l.z, avoid: [], groundHeightAt: () => l.floorY },
         {
-          cityId: planet.cfg.name,
-          plazaCenters: [{ x: l.x, z: l.z, r: 1 }],
-          colliders: [],
-          groundHeightAt: () => l.floorY,
-        },
-        {
-          population: 2, maxRigs: 3, seed: l.seed, questChance: 0,
-          culture: 'shopkeeper', stationaryFirst: true,
+          seedKey: `lobby-${l.seed}`, count: 2, maxRigs: 3,
+          materials: surfaceMaterials, employeeRatio: 1,
         }
       );
       l.group.add(m.group);
@@ -609,6 +647,7 @@ function spawnWorldEntities(planet) {
     .normalize();
   wonders = createWonderField(planet, _patchUp, {
     count: C.WONDER_COUNT,
+    materials: surfaceMaterials,
     types: WONDER_TYPES[planet.cfg.name] ?? ['arch', 'crystals', 'monoliths'],
     // Wonders share the city's neon identity: glacia goes ice-blue, rustia
     // amber, oceana teal (wonders.js palette.accent/secondary hooks).
@@ -618,8 +657,24 @@ function spawnWorldEntities(planet) {
     },
   }); // adds its group to planet.surface itself
 
+  // --- wyattmattoe only: the Highline Basecamp — an ADDITIVE textured scene
+  // (lodge, gondola lift, real people) alongside the pop-up city, snowboard
+  // and Ridge Kites. avoidDir keeps it off the city's probe bearing.
+  if (planet.cfg.name === 'wyattmattoe') {
+    wyattmattoe = createWyattmattoe(planet, _up, {
+      materials: surfaceMaterials,
+      quality: settings.quality,
+      avoidDir: _bestUp,
+    });
+    planet.surface.add(wyattmattoe.group);
+  }
+
   // --- creatures: scattered around the landing site itself ---
-  creatures = createCreatures(planet, _up, { radius: C.DRESS_RADIUS });
+  creatures = createCreatures(planet, _up, {
+    radius: C.DRESS_RADIUS,
+    quality: settings.quality,
+    materials: surfaceMaterials,
+  });
   toSurfaceLocal(planet, _up, _localUp);
   creatures.group.quaternion.setFromUnitVectors(_yAxisV, _localUp);
   let creatR = planet.radius + planet.body.groundAt(_up);
@@ -658,6 +713,10 @@ export function exitWalk(camera) {
   if (diamondRain) {
     diamondRain.dispose();
     diamondRain = null;
+  }
+  if (marineSnow) {
+    marineSnow.dispose();
+    marineSnow = null;
   }
 
   if (dressing) {
@@ -703,6 +762,11 @@ export function exitWalk(camera) {
     planet.surface.remove(creatures.group);
     creatures = null;
   }
+  if (wyattmattoe) {
+    wyattmattoe.dispose();
+    planet.surface.remove(wyattmattoe.group);
+    wyattmattoe = null;
+  }
   if (wavemall) {
     wavemall.dispose(); // stops the hold-music oscillator + closes its AudioContext
     planet.surface.remove(wavemall.group); // dispose() clears children but doesn't detach
@@ -722,6 +786,16 @@ export function exitWalk(camera) {
     shadowreach.dispose(); // frees geometry/materials, stops the drone, closes its AudioContext
     planet.surface.remove(shadowreach.group);
     shadowreach = null;
+  }
+  if (planetSky) {
+    planetSky.dispose(); // restores scene.fog/environment, zeroes the terrain fog hooks
+    planet.surface.remove(planetSky.group);
+    planetSky = null;
+  }
+  // The registry goes down LAST — every consumer above borrowed from it.
+  if (surfaceMaterials) {
+    surfaceMaterials.dispose();
+    surfaceMaterials = null;
   }
   if (parked) {
     parked.dispose(); // removes its own group from planet.surface
@@ -1211,8 +1285,22 @@ export function updateWalkVisuals(dt, t) {
   const planet = walk.planet;
   _up.subVectors(ship.position, planet.body.position).normalize();
 
+  // Dive depth of the walker below the sea surface, 0..1 over the same 80 u
+  // band the old skyfog grading used (0.4 u threshold keeps surface swimming
+  // in air). Shared by the sky grading, the marine snow and the rain gate.
+  let uwDepth = 0;
+  if (planet.cfg.divable && planet.water) {
+    const d = planet.water.r - ship.position.distanceTo(planet.body.position);
+    if (d > 0.4) uwDepth = Math.min(d / 80, 1);
+  }
+
   // Diamond rain rides the walker: one uniform write + a transform per frame.
-  if (diamondRain) diamondRain.update(t, ship.position, _up);
+  // It is a sky storm — underwater it yields to the marine snow.
+  if (diamondRain) {
+    diamondRain.update(t, ship.position, _up);
+    diamondRain.group.visible = uwDepth === 0;
+  }
+  if (marineSnow) marineSnow.update(t, ship.position, _up, uwDepth);
 
   astronaut.group.position.copy(ship.position);
   // Tangent basis with the model's +Z on the body facing and +Y on planet-up.
@@ -1229,6 +1317,16 @@ export function updateWalkVisuals(dt, t) {
   if (dressing) dressing.update(t, sunDot);
   if (parked) parked.update(dt, t, sunDot);
   if (wonders) wonders.update(t, sunDot);
+
+  if (planetSky) {
+    // The sky anchor wants the player in planet.surface's unrotated frame —
+    // the same transform playerLocalInto runs, against an identity group.
+    _playerLocal
+      .subVectors(ship.position, planet.body.position)
+      .applyAxisAngle(_yAxisV, -planet.surface.rotation.y);
+    planetSky.update(t, dt, _playerLocal);
+    if (planet.cfg.divable) planetSky.setUnderwater(uwDepth);
+  }
 
   // Interaction focus: re-scanned below in each module's own player-local
   // frame, while _playerLocal still holds it (the frames are rigid transforms
@@ -1250,6 +1348,13 @@ export function updateWalkVisuals(dt, t) {
       m.update(dt, _playerLocal, sunDot);
       scanModule(m, TALK_DIST_CROWD);
     }
+  }
+  if (wyattmattoe) {
+    // The module group sits at identity under planet.surface, so the identity
+    // transform yields the raw surface-local player point its anchor math expects.
+    playerLocalInto(wyattmattoe.group, _identityQuat, _playerLocal);
+    wyattmattoe.update(t, dt, _playerLocal, sunDot);
+    scanModule(wyattmattoe, TALK_DIST_CREATURE);
   }
   if (creatures) {
     creatures.update(
@@ -1482,7 +1587,7 @@ export function promptReturnToShip() {
 export function walkSite() {
   return {
     city, parked, crowd, dressing, wavemall, actuality, shadowreach, interiorCrowds,
-    creatures, diamondRain,
+    creatures, diamondRain, marineSnow, planetSky, wyattmattoe,
     station: stationWalk.stationSite(),
   };
 }
@@ -1495,6 +1600,7 @@ export function walkPreRender(renderer) {
   if (!walk.active) return;
   if (actuality) actuality.preRender(renderer);
   if (shadowreach) shadowreach.preRender(renderer);
+  if (planetSky) planetSky.preRender(renderer);
 }
 
 // The actuality world's hyper-holo-grid finale asks the host to loop the whole
