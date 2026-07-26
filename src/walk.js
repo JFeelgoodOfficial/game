@@ -435,6 +435,31 @@ function spawnWorldEntities(planet) {
     sm.polygonOffset = true;
     sm.polygonOffsetFactor = 3;
     sm.polygonOffsetUnits = 3;
+
+    // Move the parked ship off the café terrace. You land AT the anchor, and
+    // the generic parking rule puts the ship one PARK_OFFSET behind the
+    // disembark point — which on this world is the middle of the terrace, with
+    // the third-person camera spawning inside the hull. Park it off to the side
+    // instead: clear of the 18 m terrace, clear of the nine-gateway arc at the
+    // front (-Z) and of the café nook at the back (+Z), and still an easy walk
+    // back for boarding.
+    _target.set(26, 0, 6)
+      .applyQuaternion(actuality.anchor.quaternion)
+      .add(actuality.anchor.position);           // surface-local
+    _patchUp.copy(_target).normalize();
+    // The module OWNS the ground inside its footprint (groundRadiusAt), so ask
+    // it rather than the terrain sphere — otherwise the ship sinks into or
+    // floats above the terrace paving.
+    const parkR = actuality.groundRadiusAt(_target);
+    parked.group.position.copy(_patchUp).multiplyScalar(
+      (parkR > 0 ? parkR : _target.length()) + C.PARK_LIFT
+    );
+    parked.group.quaternion.setFromUnitVectors(_yAxisV, _patchUp);
+    // Nose pointing back at the terrace, so it reads as having set down here.
+    _siteT1.copy(actuality.anchor.position).sub(parked.group.position)
+      .applyQuaternion(_qTmp.copy(parked.group.quaternion).invert());
+    parked.group.rotateY(Math.atan2(_siteT1.x, _siteT1.z));
+
     return; // city/crowd/wonders/creatures stay null (guards short-circuit)
   }
 

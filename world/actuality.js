@@ -366,6 +366,35 @@ function tvStaticTexture(rng) {
   return tex;
 }
 
+// A tiling window grid for the hub city's facades: transparent where the wall
+// is, opaque warm where a window is lit. Buildings read as buildings because of
+// window rhythm and because only SOME windows are on — a uniform glow reads as
+// a lightbox. Floors are banded (a whole storey tends to be lit or dark) with
+// per-cell variation on top, which is what an office block actually looks like.
+function cityWindowTexture(rng, litChance = 0.25) {
+  const W = 64, H = 64;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, W, H);
+  const cols = 6, rows = 8;
+  const cw = W / cols, ch = H / rows;
+  for (let r = 0; r < rows; r++) {
+    // Storey bias: some floors are mostly working late, some are mostly dark.
+    const floorBias = rng() < 0.35 ? 2.2 : 0.55;
+    for (let col = 0; col < cols; col++) {
+      if (rng() > litChance * floorBias) continue;
+      const warm = 200 + ((rng() * 55) | 0);
+      const a = 0.55 + rng() * 0.45;
+      g.fillStyle = `rgba(255,${warm},${(warm * 0.72) | 0},${a})`;
+      g.fillRect(col * cw + cw * 0.22, r * ch + ch * 0.22, cw * 0.56, ch * 0.5);
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 // Tiling ripple normal map for the Zone 6 lake. Built from summed directional
 // waves rather than noise: real water has coherent wavefronts, and noise-based
 // normals read as sand. The height field is differentiated analytically so the
@@ -718,31 +747,97 @@ function buildHub(rng) {
   // The café sits in a city: a distant skyline silhouette wrapped inside the
   // dome, plus a ring of tall building blocks beyond the terrace (this is the
   // "city where his ship awaits" the player drops into from zone 9).
-  const skyTex = silhouetteTexture('skyline');
-  texs.push(skyTex);
-  skyTex.wrapS = THREE.RepeatWrapping; skyTex.repeat.set(6, 1);
-  const skyMat = new THREE.MeshBasicMaterial({ map: skyTex, transparent: true, depthWrite: false, side: THREE.BackSide });
-  const skyGeo = new THREE.CylinderGeometry(110, 110, 34, 48, 1, true);
-  const skyline = new THREE.Mesh(skyGeo, skyMat);
-  skyline.position.y = 14; group.add(skyline);
-  geos.push(skyGeo); mats.push(skyMat);
+  // It used to be fourteen grey boxes with one lit strip glued to each, in a
+  // ring, plus a painted silhouette cylinder — a bunch of weird boxes rather
+  // than a city. A real skyline needs three things the ring had none of:
+  // buildings made of stacked masses instead of single extrusions, facades that
+  // are window GRIDS with individually lit cells, and depth — near blocks you
+  // can read, mid blocks, and far towers dissolving into haze.
   const cityRng = mulberry32(0x0c17);
-  const bldgMat = new THREE.MeshStandardMaterial({ color: 0x6a6470, roughness: 0.9 });
-  mats.push(bldgMat);
-  const winMat = new THREE.MeshStandardMaterial({ color: 0xffe0a0, emissive: 0xffcf80, emissiveIntensity: 0.7, roughness: 0.6 });
-  mats.push(winMat);
-  for (let i = 0; i < 14; i++) {
-    const a = (i / 14) * Math.PI * 2 + 0.2;
-    const rad = 44 + cityRng() * 26;
-    const bx = Math.sin(a) * rad, bz = Math.cos(a) * rad;
-    if (bz > AC.CAFE_BACK_Z + 4 && Math.abs(bx) < 18) continue; // keep the café view open
-    const bh = 14 + cityRng() * 34;
-    const bg = new THREE.BoxGeometry(6 + cityRng() * 6, bh, 6 + cityRng() * 6);
-    const bm = new THREE.Mesh(bg, bldgMat); bm.position.set(bx, bh / 2, bz);
-    group.add(bm); geos.push(bg);
-    const lg = new THREE.BoxGeometry(0.6, bh * 0.7, 0.6); // a lit window strip
-    const lm = new THREE.Mesh(lg, winMat); lm.position.set(bx, bh * 0.5, bz + 3.1 * (bz < 0 ? -1 : 1));
-    group.add(lm); geos.push(lg);
+
+  // Facade materials. The window texture is generated per band so lit cells
+  // differ building to building rather than repeating one pattern citywide.
+  const CITY_HULLS = [0x6e6a72, 0x7a7068, 0x5f6068, 0x746c66, 0x676a70];
+  const hullMats = CITY_HULLS.map((c) => {
+    const m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.88, metalness: 0.05 });
+    mats.push(m);
+    return m;
+  });
+
+  // One block of a building: a box wearing a window-grid facade on all sides.
+  const cityBlock = (bx, by, bz, bw, bh, bd, litChance, hull) => {
+    const g = new THREE.BoxGeometry(bw, bh, bd);
+    const m = new THREE.Mesh(g, hull);
+    m.position.set(bx, by + bh / 2, bz);
+    group.add(m); geos.push(g);
+    // Windows as a separate emissive shell, inset a hair so it never z-fights.
+    const winTex = cityWindowTexture(cityRng, litChance);
+    winTex.wrapS = winTex.wrapT = THREE.RepeatWrapping;
+    winTex.repeat.set(Math.max(1, Math.round(bw / 3)), Math.max(1, Math.round(bh / 3.4)));
+    texs.push(winTex);
+    const wm = new THREE.MeshStandardMaterial({
+      map: winTex, emissive: 0xffd9a0, emissiveMap: winTex, emissiveIntensity: 0.9,
+      roughness: 0.35, metalness: 0.1, transparent: true,
+    });
+    mats.push(wm);
+    const wg = new THREE.BoxGeometry(bw * 1.002, bh * 0.94, bd * 1.002);
+    const wmesh = new THREE.Mesh(wg, wm);
+    wmesh.position.set(bx, by + bh / 2, bz);
+    group.add(wmesh); geos.push(wg);
+    return m;
+  };
+
+  // A building: two or three stacked masses with setbacks, plus a roof box.
+  const cityTower = (bx, bz, baseW, baseD, totalH, litChance) => {
+    const hull = hullMats[(cityRng() * hullMats.length) | 0];
+    const tiers = 2 + (cityRng() < 0.45 ? 1 : 0);
+    let y = 0, w = baseW, d = baseD;
+    for (let t = 0; t < tiers; t++) {
+      const share = t === tiers - 1 ? 1 : 0.4 + cityRng() * 0.25;
+      const h = (totalH - y) * share;
+      cityBlock(bx, y, bz, w, h, d, litChance, hull);
+      y += h;
+      w *= 0.68 + cityRng() * 0.16;   // setback
+      d *= 0.68 + cityRng() * 0.16;
+    }
+    // Roof plant: a small box and a mast, which is most of what reads as "roof"
+    // at this distance and stops every tower ending in a clean slab.
+    const rg = new THREE.BoxGeometry(w * 0.5, 1.6 + cityRng() * 2.2, d * 0.5);
+    const rm = new THREE.Mesh(rg, hull);
+    rm.position.set(bx + (cityRng() - 0.5) * w * 0.3, y + 1.0, bz + (cityRng() - 0.5) * d * 0.3);
+    group.add(rm); geos.push(rg);
+    if (cityRng() < 0.5) {
+      const mg = new THREE.BoxGeometry(0.25, 4 + cityRng() * 7, 0.25);
+      const mm = new THREE.Mesh(mg, hull);
+      mm.position.set(bx, y + 4, bz);
+      group.add(mm); geos.push(mg);
+    }
+  };
+
+  // Three depth bands. Near blocks read as buildings you could walk to; the far
+  // band is what makes the place feel like a city rather than a stage set.
+  const BANDS = [
+    { count: 16, r0: 40, r1: 62, h0: 12, h1: 30, w0: 7, w1: 12, lit: 0.30 },
+    { count: 22, r0: 66, r1: 100, h0: 20, h1: 52, w0: 9, w1: 16, lit: 0.22 },
+    { count: 26, r0: 110, r1: 175, h0: 34, h1: 88, w0: 12, w1: 24, lit: 0.16 },
+  ];
+  for (const b of BANDS) {
+    for (let i = 0; i < b.count; i++) {
+      // Jittered angular spacing: evenly spaced towers read as a fence.
+      const a = ((i + cityRng() * 0.7) / b.count) * Math.PI * 2;
+      const rad = b.r0 + cityRng() * (b.r1 - b.r0);
+      const bx = Math.sin(a) * rad, bz = Math.cos(a) * rad;
+      // Keep the café's own view open, and don't build on the gateway arc.
+      if (bz > AC.CAFE_BACK_Z + 4 && Math.abs(bx) < 20) continue;
+      if (rad < 34) continue;
+      cityTower(
+        bx, bz,
+        b.w0 + cityRng() * (b.w1 - b.w0),
+        b.w0 + cityRng() * (b.w1 - b.w0),
+        b.h0 + cityRng() * (b.h1 - b.h0),
+        b.lit
+      );
+    }
   }
 
   // Gentle breeze: leaves drifting slowly across the terrace.
