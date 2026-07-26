@@ -37,10 +37,10 @@ import { createMarineSnow } from './marinesnow.js';
 // world/ship.js is the parked-ship MESH, unrelated to ./ship.js (flight model).
 import { createShip as createParkedShip } from '../world/ship.js';
 import { createCity, CITY_STYLES } from '../world/city.js';
-import { createCrowd } from '../world/aliens.js';
+import { createCrowd } from '../world/aliens.js'; // wavemall interior crowds only
+import { createCitizens } from '../world/citizens.js';
 import { createWonder } from '../world/wonders.js';
 import { nearestCity, wonderLocalDir } from '../world/cityRegistry.js';
-import { createVendors } from '../world/vendors.js';
 import { createCreatures } from '../world/creatures.js';
 import { createWavemallPrime, createCrowd as createWavemallCrowd } from '../world/wavemallprime.js';
 import { createWyattmattoe } from '../world/wyattmattoe.js';
@@ -139,8 +139,7 @@ let lastSpinAngle = 0; // surface.rotation.y at the previous walk tick (co-rotat
 // every visit — only its scene graph is built lazily per landing.
 let parked = null; // parked ship mesh (world/ship.js) — takeoff anchor
 let city = null; // the adopted registry city (world/city.js), or null (wilderness)
-let crowd = null; // citizens inside the city (world/aliens.js)
-let vendors = null; // named vendor NPCs with static dialogue (world/vendors.js)
+let citizens = null; // the town's residents — real people (world/citizens.js)
 let wonders = null; // the city's wonders, one module each (world/wonders.js)
 let wonderColliders = null; // surface-local {position,radius,height} cylinders (all wonders, flat)
 let creatures = null; // planet wildlife (world/creatures.js)
@@ -159,8 +158,8 @@ let planetSky = null;
 // take real people). The registry owns everything it hands out; it is disposed
 // LAST in exitWalk, after every consumer has torn down.
 let surfaceMaterials = null;
-// Interior occupants: one small crowd per enterable lobby (+ tower balcony).
-// Each rides city.group's local frame, so it shares the crowd's player-local.
+// Interior occupants (wavemall prime only): one small crowd per store lobby.
+// Each rides its wing's district-local frame.
 let interiorCrowds = []; // [{ module, groupParent }]
 
 // Interaction state (world/interaction.js contract, host side). The focus is
@@ -615,63 +614,15 @@ function spawnWorldEntities(planet) {
       }
     }
 
-    // Citizens live inside the city group, in its flat local x/z space.
-    // cityId is the registry id, so each city keeps its own culture, species
-    // and name pool (aliens.js hashes the id) — stable across landings.
-    crowd = createCrowd(
-      {
-        groundHeightAt: city.groundLocalYAt,
-        plazaCenters: city.plazaCenters,
-        colliders: city.collidersLocal,
-        cityId: cityDef.id,
-      },
-      {}
-    );
-    city.group.add(crowd.group);
-
-    // Interior occupants: a tiny bounded crowd per enterable lobby — a
-    // shopkeeper (stationary) and a browser in shops, a couple of loungers
-    // otherwise — plus a lone caretaker on the tower balcony. Each shares
-    // the city's local frame.
-    interiorCrowds = [];
-    for (const l of city.lobbies ?? []) {
-      const isShop = l.flavor === 'shop';
-      const m = createCrowd(
-        {
-          cityId: cityDef.id,
-          plazaCenters: [{ x: l.x, z: l.z, r: 1 }],
-          colliders: [],
-          groundHeightAt: () => l.floorY,
-        },
-        {
-          population: isShop ? 2 : 3, maxRigs: 3, seed: l.seed, questChance: 0,
-          culture: isShop ? 'shopkeeper' : 'lounge', stationaryFirst: isShop,
-        }
-      );
-      city.group.add(m.group);
-      interiorCrowds.push(m);
-    }
-    if (city.balconySpot) {
-      const b = city.balconySpot;
-      const m = createCrowd(
-        {
-          cityId: cityDef.id,
-          plazaCenters: [{ x: b.x, z: b.z, r: 1 }],
-          colliders: [],
-          groundHeightAt: () => b.y,
-        },
-        { population: 1, maxRigs: 1, seed: (city.lobbies?.length ?? 0) + 101, questChance: 0, culture: 'caretaker', stationaryFirst: true }
-      );
-      city.group.add(m.group);
-      interiorCrowds.push(m);
-    }
-
-    // Named vendors with static hand-authored dialogue trees, at fixed
-    // registry spots (plazas, lobbies, the pad, the tower balcony).
-    vendors = createVendors(planet, cityDef, city, {
-      neon: style.palette.neonPrimary,
+    // The town's residents: one named REAL PERSON per building (people.js
+    // anatomy through world/citizens.js), each standing in their own home —
+    // walk in through the open doorway and talk. Vendor-tree speakers,
+    // procedural residents, and the penthouse governor all live here.
+    citizens = createCitizens(planet, cityDef, city, {
+      materials: surfaceMaterials,
+      palette: style.palette,
     });
-    city.group.add(vendors.group);
+    city.group.add(citizens.group);
 
     // --- the city's wonders: each registry entry at a fixed bearing/distance
     // from the site (visible from town, a short walk; the governor's tour
@@ -781,21 +732,16 @@ export function exitWalk(camera) {
   // Tear down the landing-site entities. dispose() clears children but (except
   // ship/wonders) doesn't detach from planet.surface — remove explicitly so
   // empty groups don't accumulate across repeated landings.
-  if (crowd) {
-    city.group.remove(crowd.group);
-    crowd.dispose();
-    crowd = null;
+  if (citizens) {
+    city.group.remove(citizens.group);
+    citizens.dispose();
+    citizens = null;
   }
   for (const m of interiorCrowds) {
-    m.group.parent?.remove(m.group); // city lobby or wavemall wing group
+    m.group.parent?.remove(m.group); // wavemall wing group
     m.dispose();
   }
   interiorCrowds = [];
-  if (vendors) {
-    city.group.remove(vendors.group);
-    vendors.dispose();
-    vendors = null;
-  }
   if (city) {
     city.dispose();
     planet.surface.remove(city.group);
@@ -1424,25 +1370,14 @@ export function updateWalkVisuals(dt, t) {
   focusD2 = Infinity;
 
   if (city) {
-    city.update(t, sunDot); // advances the elevator cab too
-    // The elevator's buttons share the city-local frame the citizens use.
+    city.update(t, sunDot); // neon/motes/traffic (the elevator steps in stepWalk)
+    // Citizens and the elevator buttons share the city's flat local frame.
     playerLocalInto(city.group, _cityInvQuat, _playerLocal);
     if (city.elevator) scanModule(city.elevator, 2.6);
-    // Citizens want the player in the city's flat local x/z frame.
-    if (crowd) {
-      crowd.update(dt, playerLocalInto(city.group, _cityInvQuat, _playerLocal), sunDot);
-      scanModule(crowd, TALK_DIST_CROWD);
+    if (citizens) {
+      citizens.update(dt, _playerLocal, sunDot);
+      scanModule(citizens, TALK_DIST_VENDOR);
       if (beacon && beaconParent === city.group) updateBeacon(t);
-    }
-    // Interior occupants share the same city-local player position — reuse it.
-    for (const m of interiorCrowds) {
-      m.update(dt, _playerLocal, sunDot);
-      scanModule(m, TALK_DIST_CROWD);
-    }
-    // Named vendors share the city-local frame too.
-    if (vendors) {
-      vendors.update(dt, _playerLocal, sunDot);
-      scanModule(vendors, TALK_DIST_VENDOR);
     }
   }
   if (wyattmattoe) {
@@ -1688,7 +1623,7 @@ export function promptReturnToShip() {
 // dev/verification handle (main.js __debug): the landing-site entities.
 export function walkSite() {
   return {
-    city, parked, crowd, vendors, wonders, dressing, wavemall, actuality,
+    city, parked, citizens, wonders, dressing, wavemall, actuality,
     shadowreach, interiorCrowds,
     creatures, diamondRain, marineSnow, planetSky, wyattmattoe,
     station: stationWalk.stationSite(),
