@@ -297,20 +297,236 @@ export function createActualityMaterials(opts = {}) {
     };
   })();
 
+  /* --- Tintable families -------------------------------------------
+   * Everything below bakes LUMINANCE only — a mid-grey albedo carrying the
+   * pattern and nothing else — so one generated map serves every tint a zone
+   * asks for through the material's `color`. That is what makes a single
+   * plaster family cover a café's cream walls, a dorm's cold grey and a
+   * cabin's warm lime without generating three sets of textures. */
+
+  // Shared helper: grey albedo from a 0..1 field, `spread` levels either side
+  // of `base`, plus its roughness/normal companions.
+  function greyFamily(field, height, roughField, opts) {
+    const { base = 190, spread = 26, roughLo, roughHi, normalStrength } = opts;
+    const map = buildTexture(size, true, 1, (data) => {
+      for (let i = 0; i < field.length; i++) {
+        const v = clamp01((base + (field[i] - 0.5) * 2 * spread) / 255) * 255;
+        const j = i * 4;
+        data[j] = data[j + 1] = data[j + 2] = v;
+        data[j + 3] = 255;
+      }
+    });
+    return {
+      map: keep(map),
+      roughnessMap: keep(scalarTexture(roughField, size, roughLo, roughHi, 1)),
+      normalMap: keep(normalTexture(height, size, normalStrength, 1)),
+    };
+  }
+
+  // Painted plaster / render: interior walls everywhere in the nine zones.
+  // Almost flat, which is the point — the tell is a fine stipple and a slow
+  // roller mottle, not visible relief.
+  const plaster = (() => {
+    const rng = mulberry32(0x91a57);
+    const roller = fbm(size, 3, 4, rng);
+    const stipple = fbm(size, 48, 2, rng);
+    const field = new Float32Array(size * size);
+    const height = new Float32Array(size * size);
+    const rough = new Float32Array(size * size);
+    for (let i = 0; i < field.length; i++) {
+      field[i] = roller[i] * 0.6 + stipple[i] * 0.4;
+      height[i] = stipple[i] * 0.8 + roller[i] * 0.2;
+      rough[i] = clamp01(stipple[i] * 0.6 + roller[i] * 0.4);
+    }
+    return greyFamily(field, height, rough, {
+      base: 198, spread: 10, roughLo: 0.80, roughHi: 0.97, normalStrength: size * 0.010,
+    });
+  })();
+
+  // Sawn boards: floors, beams, benches, the cabin. Four planks per tile, each
+  // with its own tone, separated by a dark seam, with the grain running along
+  // the board (U in texture space).
+  const wood = (() => {
+    const rng = mulberry32(0x0d00d);
+    const PLANKS = 4;
+    const pw = size / PLANKS;
+    const tone = [];
+    for (let p = 0; p < PLANKS; p++) tone.push(0.42 + rng() * 0.34);
+    const grain = fbm(size, 64, 3, rng);       // fine along-board fibre
+    const knots = fbm(size, 6, 3, rng);        // slow figure
+    const field = new Float32Array(size * size);
+    const height = new Float32Array(size * size);
+    const rough = new Float32Array(size * size);
+    for (let y = 0; y < size; y++) {
+      const p = Math.floor(y / pw);
+      const inPlank = (y % pw) / pw;
+      // Seam at the plank boundary, plus a soft chamfer either side of it.
+      const seam = inPlank < 0.035 || inPlank > 0.965 ? 1 : 0;
+      const edge = Math.min(inPlank, 1 - inPlank) < 0.10 ? 1 : 0;
+      for (let x = 0; x < size; x++) {
+        const i = y * size + x;
+        const fibre = grain[i] * 0.55 + knots[i] * 0.45;
+        field[i] = clamp01(tone[p] * 0.55 + fibre * 0.45 - seam * 0.26);
+        height[i] = fibre * 0.5 - seam * 0.45 - edge * 0.10;
+        rough[i] = clamp01(0.35 + fibre * 0.5 + seam * 0.4);
+      }
+    }
+    return greyFamily(field, height, rough, {
+      base: 176, spread: 38, roughLo: 0.58, roughHi: 0.93, normalStrength: size * 0.030,
+    });
+  })();
+
+  // Natural rock: crags, boulders, the granite chamber. Chunky and high-relief,
+  // the opposite end of the range from plaster.
+  const rock = (() => {
+    const rng = mulberry32(0x30c4);
+    const mass = fbm(size, 3, 6, rng);
+    const chip = fbm(size, 14, 4, rng);
+    const field = new Float32Array(size * size);
+    const height = new Float32Array(size * size);
+    const rough = new Float32Array(size * size);
+    for (let i = 0; i < field.length; i++) {
+      // Sharpen the mass so the rock breaks into faces rather than blobs.
+      const faceted = Math.abs(mass[i] - 0.5) * 2;
+      field[i] = clamp01(0.30 + faceted * 0.45 + chip[i] * 0.3);
+      height[i] = faceted * 0.75 + chip[i] * 0.35;
+      rough[i] = clamp01(0.5 + chip[i] * 0.4 + faceted * 0.2);
+    }
+    return greyFamily(field, height, rough, {
+      base: 168, spread: 44, roughLo: 0.72, roughHi: 0.99, normalStrength: size * 0.11,
+    });
+  })();
+
+  // Asphalt / gravel / packed path: dark, fine, uniformly coarse.
+  const aggregate = (() => {
+    const rng = mulberry32(0xa66);
+    const bed = fbm(size, 8, 4, rng);
+    const stones = fbm(size, 40, 3, rng);
+    const speck = new Float32Array(size * size);
+    for (let i = 0; i < speck.length; i++) speck[i] = rng() < 0.09 ? rng() : 0;
+    const field = new Float32Array(size * size);
+    const height = new Float32Array(size * size);
+    const rough = new Float32Array(size * size);
+    for (let i = 0; i < field.length; i++) {
+      field[i] = clamp01(bed[i] * 0.35 + stones[i] * 0.45 + speck[i] * 0.5);
+      height[i] = stones[i] * 0.7 + speck[i] * 0.6 + bed[i] * 0.2;
+      rough[i] = clamp01(0.55 + stones[i] * 0.35 + bed[i] * 0.2);
+    }
+    return greyFamily(field, height, rough, {
+      base: 150, spread: 36, roughLo: 0.80, roughHi: 1.0, normalStrength: size * 0.045,
+    });
+  })();
+
+  // Ground cover: grass, moss, undergrowth. Clumped rather than noisy, so it
+  // reads as vegetation at a distance instead of static.
+  const groundCover = (() => {
+    const rng = mulberry32(0x67a55);
+    const clump = fbm(size, 6, 4, rng);
+    const blades = fbm(size, 56, 2, rng);
+    const field = new Float32Array(size * size);
+    const height = new Float32Array(size * size);
+    const rough = new Float32Array(size * size);
+    for (let i = 0; i < field.length; i++) {
+      field[i] = clamp01(clump[i] * 0.55 + blades[i] * 0.45);
+      height[i] = blades[i] * 0.7 + clump[i] * 0.3;
+      rough[i] = clamp01(0.6 + blades[i] * 0.4);
+    }
+    return greyFamily(field, height, rough, {
+      base: 168, spread: 40, roughLo: 0.88, roughHi: 1.0, normalStrength: size * 0.038,
+    });
+  })();
+
+  // Bark: ridges running up the trunk (V in texture space on a cylinder).
+  const bark = (() => {
+    const rng = mulberry32(0xba2c);
+    const ridgeLane = periodicNoise1D(size, 26, rng); // across the trunk
+    const along = fbm(size, 20, 3, rng);
+    const field = new Float32Array(size * size);
+    const height = new Float32Array(size * size);
+    const rough = new Float32Array(size * size);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const i = y * size + x;
+        const r = ridgeLane[x] * 0.7 + along[i] * 0.3;
+        field[i] = clamp01(r);
+        height[i] = r;
+        rough[i] = clamp01(0.6 + (1 - r) * 0.4);
+      }
+    }
+    return greyFamily(field, height, rough, {
+      base: 172, spread: 48, roughLo: 0.82, roughHi: 1.0, normalStrength: size * 0.085,
+    });
+  })();
+
   /* --- Materials ----------------------------------------------------- */
 
   // Repeats are per-consumer, so each caller clones the shared maps rather
-  // than mutating them. Clones share the same GPU upload; only the transform
-  // differs, which is exactly what we want.
-  function tiled(maps, repeat) {
+  // than mutating them. A clone is its own GPU upload, so the sets are cached
+  // per (family, repeat) — every material asking for, say, plaster at repeat 3
+  // shares one set of three textures and differs only in colour.
+  const families = { steel, concrete, stone, plaster, wood, rock, aggregate, groundCover, bark };
+  const tiledCache = new Map();
+
+  function tiled(maps, repeatX, repeatY = repeatX) {
     const out = {};
     for (const k of Object.keys(maps)) {
       const t = maps[k].clone();
       t.needsUpdate = true;
-      t.repeat.set(repeat, repeat);
+      t.repeat.set(repeatX, repeatY);
       out[k] = keep(t);
     }
     return out;
+  }
+
+  function tiledSet(family, repeatX, repeatY) {
+    const maps = families[family];
+    if (!maps) throw new Error(`actuality-materials: unknown family "${family}"`);
+    const key = `${family}|${repeatX}|${repeatY}`;
+    let set = tiledCache.get(key);
+    if (!set) {
+      set = repeatX === 1 && repeatY === 1 ? maps : tiled(maps, repeatX, repeatY);
+      tiledCache.set(key, set);
+    }
+    return set;
+  }
+
+  /**
+   * A mapped MeshStandardMaterial from one of the families above.
+   *
+   *   make('plaster', { repeat: 3, color: 0xcfc3ac })
+   *
+   * Identical requests return the same material, so a zone that asks for the
+   * same wall finish in five places gets one material and one draw-call state.
+   * The registry owns every material it hands out — callers must NOT push them
+   * into their own disposal lists.
+   */
+  const matCache = new Map();
+  function make(family, opts = {}) {
+    const {
+      repeat = 1, repeatY = repeat, color = 0xffffff, roughness = 1.0,
+      metalness = 0.0, normalScale = 0.45, emissive, emissiveIntensity,
+      side, transparent, opacity, flatShading, envMapIntensity,
+    } = opts;
+    const key = `${family}|${repeat}|${repeatY}|${color}|${roughness}|${metalness}|` +
+      `${normalScale}|${emissive}|${emissiveIntensity}|${side}|${transparent}|` +
+      `${opacity}|${flatShading}|${envMapIntensity}`;
+    let m = matCache.get(key);
+    if (m) return m;
+    const params = {
+      ...tiledSet(family, repeat, repeatY),
+      color, roughness, metalness,
+      normalScale: new THREE.Vector2(normalScale, normalScale),
+    };
+    if (emissive !== undefined) params.emissive = emissive;
+    if (emissiveIntensity !== undefined) params.emissiveIntensity = emissiveIntensity;
+    if (side !== undefined) params.side = side;
+    if (transparent !== undefined) params.transparent = transparent;
+    if (opacity !== undefined) params.opacity = opacity;
+    if (flatShading !== undefined) params.flatShading = flatShading;
+    if (envMapIntensity !== undefined) params.envMapIntensity = envMapIntensity;
+    m = own(new THREE.MeshStandardMaterial(params));
+    matCache.set(key, m);
+    return m;
   }
 
   const steelMat = own(new THREE.MeshStandardMaterial({
@@ -452,8 +668,12 @@ export function createActualityMaterials(opts = {}) {
     coping: copingMat,
     glassFor,
     plateTexture,
-    // Raw map sets, for callers that want their own repeat/tint.
-    maps: { steel, concrete, stone },
+    make,
+    // Raw map sets, for callers that want their own repeat/tint. tiledSet is
+    // the cached clone-per-(family, repeat) accessor make() uses — reach for it
+    // when you want to bolt one map onto a material you already have.
+    maps: families,
+    tiledSet,
     tiled,
     dispose() {
       for (const t of textures) t.dispose();
@@ -461,6 +681,8 @@ export function createActualityMaterials(opts = {}) {
       textures.length = 0;
       materials.length = 0;
       glassCache.clear();
+      tiledCache.clear();
+      matCache.clear();
     },
   };
 }

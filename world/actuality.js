@@ -1360,11 +1360,13 @@ export function createActuality(planet, worldUp, opts = {}) {
     // semantics own the floor inside this footprint.
     const ZH = AC.ZONE_FLOOR_HALF;
     const slabGeo = new THREE.BoxGeometry(ZH * 2, 1.2, ZH * 2);
-    const slabMat = new THREE.MeshStandardMaterial({ color: 0x2a2620, roughness: 0.95 });
-    const slab = new THREE.Mesh(slabGeo, slabMat);
+    // Same near-black tone every zone was built against — the maps only add
+    // surface, so no zone's palette shifts under it. Zones that want a real
+    // floor (a café's boards, a dorm's lino) lay one over the top.
+    const slab = new THREE.Mesh(slabGeo, materials.make('concrete', { repeat: 12, color: 0x2a2620 }));
     slab.position.set(0, -0.6, 0);
     zg.add(slab);
-    zoneGeos.push(slabGeo); zoneMats.push(slabMat);
+    zoneGeos.push(slabGeo);
 
     // A tinted ambient light so the pad reads as its own place (a stand-in
     // until M5 builds the real per-zone environment).
@@ -1952,6 +1954,21 @@ export function createActuality(planet, worldUp, opts = {}) {
     return mesh;
   }
 
+  // Shared mapped materials from the registry (actuality-materials.js). The
+  // registry owns these — never push one into zoneMats, or teardown disposes
+  // it twice. Identical requests come back as the same material, so a finish
+  // reused across a zone costs one material and one draw-call state.
+  function zmat(family, opts) { return materials.make(family, opts); }
+
+  // A hemisphere fill reads far better than a flat ambient for the same cost:
+  // sky tone from above, bounce from the ground below, so a surface's facing
+  // still matters in the parts of a zone the key lights don't reach.
+  function addFill(rec, sky, ground, intensity) {
+    const h = new THREE.HemisphereLight(sky, ground, intensity);
+    rec.group.add(h);
+    return h;
+  }
+
   // Box with a caller-supplied material (already tracked in zoneMats).
   function addZoneBox2(rec, w, h, d, x, y, z, mat) {
     const g = new THREE.BoxGeometry(w, h, d);
@@ -1966,13 +1983,13 @@ export function createActuality(planet, worldUp, opts = {}) {
   // window table, everyday clutter, an espresso counter and pastry case.
   function buildZone3() {
     const rec = zoneById['z3'];
-    rec.group.add(new THREE.AmbientLight(0xfff4e0, 0.7));
+    addFill(rec, 0xfff4e0, 0xa08c6e, 0.75);
     const fill = new THREE.PointLight(0xfff0da, 0.5, 40, 2.0);
     fill.position.set(0, 3.5, -2); rec.group.add(fill);
     // Walls + ceiling enclosing the shop (open +Z for the return arch).
     const RX = 9, RZ = 12, WH = 3.2; // a real café ceiling
-    const shopMat = new THREE.MeshStandardMaterial({ color: 0xcfc3ac, roughness: 0.9, side: THREE.DoubleSide });
-    zoneMats.push(shopMat);
+    const shopMat = zmat('plaster', { repeat: 4, color: 0xcfc3ac, side: THREE.DoubleSide });
+    const shopFloorMat = zmat('wood', { repeat: 7, color: 0x8a6b4a });
     const wall = (w, h, x, y, z, ry) => {
       const g = new THREE.PlaneGeometry(w, h);
       const m = new THREE.Mesh(g, shopMat); m.position.set(x, y, z); m.rotation.y = ry;
@@ -1984,6 +2001,11 @@ export function createActuality(planet, worldUp, opts = {}) {
     const ceilG = new THREE.PlaneGeometry(RX * 2, RZ * 2);
     const ceil = new THREE.Mesh(ceilG, shopMat); ceil.position.set(0, WH, 0); ceil.rotation.x = Math.PI / 2;
     rec.group.add(ceil); zoneGeos.push(ceilG);
+    // Board floor, over the zone slab.
+    const flrG = new THREE.PlaneGeometry(RX * 2, RZ * 2);
+    const flr = new THREE.Mesh(flrG, shopFloorMat);
+    flr.position.set(0, 0.012, 0); flr.rotation.x = -Math.PI / 2;
+    rec.group.add(flr); zoneGeos.push(flrG);
     // Two big daylight windows.
     const winGeo = new THREE.PlaneGeometry(4, 2.4);
     zoneGeos.push(winGeo);
@@ -2047,11 +2069,13 @@ export function createActuality(planet, worldUp, opts = {}) {
     dormLight.position.set(0, 2.0, 7); rec.group.add(dormLight);
     const aptLight = new THREE.PointLight(0xffcaa0, 1.1, 60, 2.0);
     aptLight.position.set(0, 3.5, -7); rec.group.add(aptLight);
-    rec.group.add(new THREE.AmbientLight(0x2a2c30, 0.35));
+    addFill(rec, 0x3a4050, 0x2a2418, 0.40);
 
-    const dormMat = new THREE.MeshStandardMaterial({ color: 0x6a7078, roughness: 0.92, side: THREE.DoubleSide });
-    const aptMat = new THREE.MeshStandardMaterial({ color: 0xcaa583, roughness: 0.9, side: THREE.DoubleSide });
-    zoneMats.push(dormMat, aptMat);
+    // Same plaster, two coats of paint — the cold institutional grey of the
+    // dorm against the warm distemper of the apartment. Sharing the family is
+    // the point: it's the same building, lived in differently.
+    const dormMat = zmat('plaster', { repeat: 3, color: 0x6a7078, side: THREE.DoubleSide });
+    const aptMat = zmat('plaster', { repeat: 3, color: 0xcaa583, side: THREE.DoubleSide });
     const panel = (mat, w, h, x, y, z, ry, rx = 0) => {
       const g = new THREE.PlaneGeometry(w, h);
       const m = new THREE.Mesh(g, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, 0);
@@ -2073,11 +2097,13 @@ export function createActuality(planet, worldUp, opts = {}) {
     panel(dormMat, 5, 5, 0, DCH, 6.5, 0, Math.PI / 2);  // dorm ceiling
     // Arrival apron: the ground between the return gateway (z=14) and the dorm
     // door, so you land on a made surface and can see where you're meant to go.
-    addZoneBox(rec, 12, 0.12, 8, 0, -0.06, 12, 0x5c554c);
+    addZoneBox2(rec, 12, 0.12, 8, 0, -0.06, 12,
+      zmat('aggregate', { repeat: 4, color: 0x6e675c }));
     // A frame around the arrival door so the opening reads as a door.
-    addZoneBox(rec, 0.12, DOOR_H, 0.3, -DOOR_HW, DOOR_H / 2, 9, 0x4a3a2a);
-    addZoneBox(rec, 0.12, DOOR_H, 0.3, DOOR_HW, DOOR_H / 2, 9, 0x4a3a2a);
-    addZoneBox(rec, DOOR_HW * 2 + 0.24, 0.12, 0.3, 0, DOOR_H, 9, 0x4a3a2a);
+    const trimMat = zmat('wood', { repeat: 1, color: 0x6a5236 });
+    addZoneBox2(rec, 0.12, DOOR_H, 0.3, -DOOR_HW, DOOR_H / 2, 9, trimMat);
+    addZoneBox2(rec, 0.12, DOOR_H, 0.3, DOOR_HW, DOOR_H / 2, 9, trimMat);
+    addZoneBox2(rec, DOOR_HW * 2 + 0.24, 0.12, 0.3, 0, DOOR_H, 9, trimMat);
     // Corridor (z 1..4), cool→warm across its two walls + ceiling beams that
     // cross into a "4" (glyph).
     panel(dormMat, 2.6, DCH, -1.3, DCH / 2, 2.5, Math.PI / 2);
@@ -2090,6 +2116,15 @@ export function createActuality(planet, worldUp, opts = {}) {
     panel(aptMat, 12, ACH, -4.5, ACH / 2, -6, Math.PI / 2);
     panel(aptMat, 12, ACH, 4.5, ACH / 2, -6, Math.PI / 2);
     panel(aptMat, 9, 12, 0, ACH, -6, 0, Math.PI / 2);   // apt ceiling
+    // Floors: sheet lino in the dorm, boards in the apartment.
+    const dormFloor = new THREE.Mesh(new THREE.PlaneGeometry(5, 5),
+      zmat('plaster', { repeat: 2, color: 0x585d63 }));
+    dormFloor.position.set(0, 0.012, 6.5); dormFloor.rotation.x = -Math.PI / 2;
+    rec.group.add(dormFloor); zoneGeos.push(dormFloor.geometry);
+    const aptFloor = new THREE.Mesh(new THREE.PlaneGeometry(9, 12),
+      zmat('wood', { repeat: 4, color: 0x8a6444 }));
+    aptFloor.position.set(0, 0.012, -6); aptFloor.rotation.x = -Math.PI / 2;
+    rec.group.add(aptFloor); zoneGeos.push(aptFloor.geometry);
 
     // Dorm furniture.
     addZoneBox(rec, 0.9, 0.4, 2.0, -1.6, 0.3, 7, 0x9aa0a8);  // narrow bed
@@ -2200,7 +2235,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     rec.structure = makeStructure(0, 0, 0, surfaces, walls, 78);
     rec.r2 = (78 + 12) ** 2;
 
-    rec.group.add(new THREE.AmbientLight(0x3a4460, 0.95));
+    addFill(rec, 0x4a5a80, 0x1a1e28, 1.05);
     // Dramatic lighting so the black granite dragon reads clearly: a cool key
     // from the front-side, a blue rim from behind, and a soft front fill. Decay
     // 1.0 so the light actually reaches the dragon across the ~14 m chamber.
@@ -2212,10 +2247,15 @@ export function createActuality(planet, worldUp, opts = {}) {
     dragonRim.position.set(-6, CH_Y + 17, -70); rec.group.add(dragonRim);
     const dragonFill = new THREE.PointLight(0x9fb8e0, 12, 70, 1.0);
     dragonFill.position.set(-1, CH_Y + 8, -46); rec.group.add(dragonFill);
-    const dark = 0x14151a;
+    // Black granite, cut two ways: a coarse face for the chamber shell and the
+    // shaft, a finer one for the monolith and the treads you walk on.
+    const dark = zmat('rock', { repeat: 5, color: 0x1c1d24 });
+    const treadMat = zmat('rock', { repeat: 2, color: 0x1a1b21, normalScale: 0.7 });
     // Monolith door framing the shaft mouth on the arrival platform.
-    const monoMat = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.9, emissive: 0x0a1420, emissiveIntensity: 0.2 });
-    zoneMats.push(monoMat);
+    const monoMat = zmat('rock', {
+      repeat: 1, color: 0x22242c, normalScale: 0.6,
+      emissive: 0x0a1420, emissiveIntensity: 0.2,
+    });
     addZoneBox2(rec, 1.4, 8, 1.4, -4, 4, -6, monoMat);
     addZoneBox2(rec, 1.4, 8, 1.4, 4, 4, -6, monoMat);
     addZoneBox2(rec, 10, 1.6, 1.4, 0, 8.2, -6, monoMat);
@@ -2223,8 +2263,8 @@ export function createActuality(planet, worldUp, opts = {}) {
     // walkable ramp above it.
     for (let k = 0; k < STEPS; k++) {
       const y = RISE * k, z0 = -6 - k * 6;
-      addZoneBox(rec, 10, 0.4, 3, 0, y - 0.2, z0 - 1.5, dark);
-      const r = addZoneBox(rec, 10, 0.3, 3.4, 0, y + RISE / 2 - 0.2, z0 - 4.5, dark);
+      addZoneBox2(rec, 10, 0.4, 3, 0, y - 0.2, z0 - 1.5, treadMat);
+      const r = addZoneBox2(rec, 10, 0.3, 3.4, 0, y + RISE / 2 - 0.2, z0 - 4.5, treadMat);
       r.rotation.x = Math.atan2(RISE, 3);
     }
     // Emissive vein strips climbing the shaft walls beside each landing.
@@ -2241,10 +2281,10 @@ export function createActuality(planet, worldUp, opts = {}) {
       [0, -44.65, 32, 17.3],      // in front of the box, out to the doorway
       [-9.35, -56, 13.3, 5.4],    // left of the shaft
       [9.35, -56, 13.3, 5.4],     // right of the shaft
-    ]) addZoneBox(rec, fw, 0.6, fd, fx, CH_Y - 0.3, fz, dark);
-    addZoneBox(rec, 32, 18, 0.6, 0, CH_Y + 7, -71.7, dark);
-    addZoneBox(rec, 0.6, 18, 36, -15.7, CH_Y + 7, -54, dark);
-    addZoneBox(rec, 0.6, 18, 36, 15.7, CH_Y + 7, -54, dark);
+    ]) addZoneBox2(rec, fw, 0.6, fd, fx, CH_Y - 0.3, fz, dark);
+    addZoneBox2(rec, 32, 18, 0.6, 0, CH_Y + 7, -71.7, dark);
+    addZoneBox2(rec, 0.6, 18, 36, -15.7, CH_Y + 7, -54, dark);
+    addZoneBox2(rec, 0.6, 18, 36, 15.7, CH_Y + 7, -54, dark);
 
     // The dragon itself is the owner's artwork, shown as a large luminous
     // billboard (the way the deep nebulae show the owner's paintings) rather than
@@ -2300,8 +2340,7 @@ export function createActuality(planet, worldUp, opts = {}) {
       const lm = new THREE.Mesh(lg, lipMat); lm.position.set(BX + dx, CH_Y + 2.05, BZ + dz);
       rec.group.add(lm); zoneGeos.push(lg);
     }
-    const shaftMat = new THREE.MeshStandardMaterial({ color: 0x0a0b10, roughness: 0.9, side: THREE.DoubleSide });
-    zoneMats.push(shaftMat);
+    const shaftMat = zmat('rock', { repeat: 3, color: 0x0e0f16, side: THREE.DoubleSide });
     // The shaft under the opening. The chamber is now up in the air, so this is
     // a closed box hanging below the floor rather than a hole in bedrock —
     // otherwise the lit city planes inside it would be visible from the ramp,
@@ -2417,12 +2456,11 @@ export function createActuality(planet, worldUp, opts = {}) {
     // Sky, sun and ambient all come from the `goldenLow` preset now — a low
     // autumn sun with real scattering, not a painted gradient. Only a small
     // warm fill stays, for the light between the trees.
-    rec.group.add(new THREE.AmbientLight(0xffcf9a, 0.12));
+    addFill(rec, 0xffd9a8, 0x4a3a22, 0.30);
 
     // Sidewalk slabs + city facades at the entrance (+Z end).
-    const walkMat = new THREE.MeshStandardMaterial({ color: 0x6a6660, roughness: 0.95 });
-    zoneMats.push(walkMat);
-    for (let z = 12; z >= 2; z -= 2) addZoneBox(rec, 6, 0.1, 2, 0, 0.05, z, walkMat);
+    const walkMat = zmat('concrete', { repeat: 2, color: 0x8a857c });
+    for (let z = 12; z >= 2; z -= 2) addZoneBox2(rec, 6, 0.1, 2, 0, 0.05, z, walkMat);
     const facRng = mulberry32(0x1a10);
     for (const [fx, fz, fw] of [[-6, 9, 5], [6, 9, 5], [-7, 4, 4]]) {
       const facTex = facadeTexture(facRng);
@@ -2449,10 +2487,13 @@ export function createActuality(planet, worldUp, opts = {}) {
     }
 
     // Park: a grass patch, benches, and the lone "1" lamppost (glyph motif).
-    addZoneBox(rec, 26, 0.06, 18, 0, 0.03, -20, 0x3f5a30); // grass
-    addZoneBox(rec, 2.0, 0.4, 0.6, -6, 0.5, -20, AC.COL_WOOD);
-    addZoneBox(rec, 2.0, 0.4, 0.6, 6, 0.5, -22, AC.COL_WOOD);
-    addZoneBox(rec, 0.22, 6.5, 0.22, 8, 3.25, -14, 0x2a2620); // lamppost = "1"
+    addZoneBox2(rec, 26, 0.06, 18, 0, 0.03, -20,
+      zmat('groundCover', { repeat: 9, color: 0x4c6b38 }));
+    const benchMat = zmat('wood', { repeat: 1, color: AC.COL_WOOD });
+    addZoneBox2(rec, 2.0, 0.4, 0.6, -6, 0.5, -20, benchMat);
+    addZoneBox2(rec, 2.0, 0.4, 0.6, 6, 0.5, -22, benchMat);
+    addZoneBox2(rec, 0.22, 6.5, 0.22, 8, 3.25, -14,
+      zmat('steel', { color: 0x8a8378 })); // lamppost = "1"
     const lampMat = new THREE.MeshStandardMaterial({ color: 0xffe6b0, emissive: 0xffcf80, emissiveIntensity: 1.1, roughness: 0.5 });
     zoneMats.push(lampMat);
     const lampGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
@@ -2462,10 +2503,9 @@ export function createActuality(planet, worldUp, opts = {}) {
     lampLight.position.set(8, 6.4, -14); rec.group.add(lampLight);
 
     // Autumn forest: denser trunks + warm canopies.
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3324, roughness: 0.95 });
+    const trunkMat = zmat('bark', { repeat: 1, repeatY: 3, color: 0x6a4a34 });
     const leafMats = [0xd9772a, 0xe0a338, 0xc85a26].map((c) =>
-      new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 }));
-    zoneMats.push(trunkMat, ...leafMats);
+      zmat('groundCover', { repeat: 2, color: c, normalScale: 0.5 }));
     const treeRng = mulberry32(0x1111);
     for (let i = 0; i < 45; i++) {
       const tx = (treeRng() - 0.5) * 30;
@@ -2579,7 +2619,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     // Faceted red-crystal chamber (Ch.2 "Body"): two figures embrace at the
     // centre, silhouetted against a rising burst of light, soul-gems beside them,
     // a sunset window in one wall — "two drawn together as one unit of creation".
-    rec.group.add(new THREE.AmbientLight(0x5a2418, 0.5));
+    addFill(rec, 0x8a3a22, 0x2a0e08, 0.55);
     // Central burst — a hot core low between the figures + a rising light column.
     const burstLight = new THREE.PointLight(0xff8a4a, 2.6, 46, 2.0);
     burstLight.position.set(0, 2.6, -1.4); rec.group.add(burstLight);
@@ -2594,7 +2634,12 @@ export function createActuality(planet, worldUp, opts = {}) {
     zoneGeos.push(beamGeo);
 
     // Faceted crystal shell — a perturbed icosahedron, flat-shaded, inward-facing.
+    // The facets are the whole idea here, so this zone keeps its flat shading
+    // and its authored colour — it only picks up a rock normal map, which puts
+    // micro-relief inside each facet without softening the edges between them.
     const crystalMat = new THREE.MeshStandardMaterial({ color: 0x7a2c1e, roughness: 0.5, metalness: 0.2, emissive: 0x3a0f06, emissiveIntensity: 0.6, flatShading: true, side: THREE.BackSide });
+    crystalMat.normalMap = materials.tiledSet('rock', 6, 6).normalMap;
+    crystalMat.normalScale.set(0.5, 0.5);
     zoneMats.push(crystalMat);
     const shellGeo = new THREE.IcosahedronGeometry(R * 1.15, 3);
     {
@@ -2610,6 +2655,8 @@ export function createActuality(planet, worldUp, opts = {}) {
       for (let i = 0; i < pos.count; i++) { const edge = Math.max(Math.abs(pos.getX(i)), Math.abs(pos.getY(i))) > R * 1.05; pos.setZ(i, edge ? 0 : (cr() - 0.5) * 0.4); }
     }
     const floorMat = new THREE.MeshStandardMaterial({ color: 0x6a2418, roughness: 0.55, metalness: 0.2, emissive: 0x2a0c06, emissiveIntensity: 0.5, flatShading: true, side: THREE.DoubleSide });
+    floorMat.normalMap = materials.tiledSet('rock', 5, 5).normalMap;
+    floorMat.normalScale.set(0.45, 0.45);
     zoneMats.push(floorMat);
     const floor = new THREE.Mesh(floorGeo, floorMat); floor.rotation.x = -Math.PI / 2; floor.position.y = 0.03; rec.group.add(floor);
     zoneGeos.push(floorGeo);
@@ -2728,11 +2775,12 @@ export function createActuality(planet, worldUp, opts = {}) {
   // Z5 Order — a ribbon into a void lined with floating memory frames.
   function buildZone5() {
     const rec = zoneById['z5'];
-    rec.group.add(new THREE.AmbientLight(0x202028, 0.4));
+    addFill(rec, 0x2a2a3a, 0x101018, 0.45);
     addDome(rec, 100, '#050507', '#0a0a12');
-    // A 4 m ribbon walkway extending 80 m into the void.
-    const ribMat = new THREE.MeshStandardMaterial({ color: 0x1a1a20, roughness: 0.9 });
-    zoneMats.push(ribMat);
+    // A 4 m ribbon walkway extending 80 m into the void. Its stone reads only
+    // where a frame's glow falls on it — which is the point of the zone, so the
+    // surface needs to be worth lighting.
+    const ribMat = zmat('stone', { repeat: 2, repeatY: 40, color: 0x30303c });
     addZoneBox2(rec, 4, 0.4, 88, 0, -0.2, -38, ribMat); // z from +6 to -82
     rec.structure = makeStructure(0, 0, 0,
       [{ x0: -2, x1: 2, z0: -82, z1: 6, y: 0 }], [], 90);
@@ -2746,7 +2794,8 @@ export function createActuality(planet, worldUp, opts = {}) {
       const z = -4 - i * 3.8;
       const y = 1.6 + fr() * 2.4;
       const x = side * (2.6 + fr() * 1.4);
-      addZoneBox(rec, 1.7, 1.3, 0.12, x, y, z, 0x2a2622);
+      addZoneBox2(rec, 1.7, 1.3, 0.12, x, y, z,
+        zmat('wood', { repeat: 1, color: 0x3a332c })); // frame
       const imgTex = memoryTexture(fr);
       if (i === glyphFrame) { const g = imgTex.image.getContext('2d'); drawGlyph(g, 5, 64, 64, 90, '#ffffff', 0.5); imgTex.needsUpdate = true; }
       const imgGeo = new THREE.PlaneGeometry(1.4, 1.0);
@@ -2795,7 +2844,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     // Moonlit night from the `nightMoody` preset — real stars, cloud lit from
     // behind, deep blue rather than black. The ambient is only a floor so the
     // crag doesn't go fully unreadable in shadow.
-    rec.group.add(new THREE.AmbientLight(0x30364a, 0.15));
+    addFill(rec, 0x3a4664, 0x14181e, 0.22);
     // Larger skyline + bridge silhouette on the dome.
     const skyTex = silhouetteTexture('skyline');
     const skyGeo = new THREE.PlaneGeometry(90, 30);
@@ -2819,12 +2868,13 @@ export function createActuality(planet, worldUp, opts = {}) {
     rec.group.add(refl); zoneMats.push(reflMat);
     // Lonesome tree at the crag lip (up on the overlook).
     const trunkG = new THREE.CylinderGeometry(0.3, 0.4, 5, 6);
-    const trunkM = new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 0.95 });
+    const trunkM = zmat('bark', { repeat: 1, repeatY: 3, color: 0x4a3a28 });
     const trunk = new THREE.Mesh(trunkG, trunkM); trunk.position.set(9, 8.5, -10);
-    rec.group.add(trunk); zoneGeos.push(trunkG); zoneMats.push(trunkM);
-    const canopy = new THREE.Mesh(new THREE.SphereGeometry(2.2, 8, 6), new THREE.MeshStandardMaterial({ color: 0x243026, roughness: 0.9 }));
+    rec.group.add(trunk); zoneGeos.push(trunkG);
+    const canopy = new THREE.Mesh(new THREE.SphereGeometry(2.2, 8, 6),
+      zmat('groundCover', { repeat: 2, color: 0x2e3c30, normalScale: 0.5 }));
     canopy.position.set(9, 11.5, -10); canopy.scale.y = 0.7; rec.group.add(canopy);
-    zoneGeos.push(canopy.geometry); zoneMats.push(canopy.material);
+    zoneGeos.push(canopy.geometry);
 
     // Crag: climb up from the arrival area to a raised overlook, then descend
     // into the lake below.
@@ -2854,9 +2904,8 @@ export function createActuality(planet, worldUp, opts = {}) {
     // literally invisible and you crossed it on faith. Each plate gets a solid
     // slab of rock, each ramp a wedge, and the basin gets walls and a floor so
     // the lake has a bottom to be seen through.
-    const rockMat = new THREE.MeshStandardMaterial({ color: 0x4a4842, roughness: 0.96 });
-    const bedMat = new THREE.MeshStandardMaterial({ color: 0x2e3630, roughness: 0.92 });
-    zoneMats.push(rockMat, bedMat);
+    const rockMat = zmat('rock', { repeat: 4, color: 0x5e5b53 });
+    const bedMat = zmat('rock', { repeat: 6, color: 0x3a443c, normalScale: 0.7 });
 
     // Flat plates: a box whose TOP sits at the collision height, dropping well
     // below so no edge ever opens a gap onto the void.
@@ -2895,11 +2944,13 @@ export function createActuality(planet, worldUp, opts = {}) {
     plate(4.8, 5.6, -4, 6, 0, 3, rockMat);
 
     // Overlook guard rail + a couple of crag rocks.
-    addZoneBox(rec, 20, 0.5, 0.2, 0, 8.9, -19.8, 0x3a3028);
+    addZoneBox2(rec, 20, 0.5, 0.2, 0, 8.9, -19.8,
+      zmat('rock', { repeat: 6, repeatY: 1, color: 0x4a4038 }));
+    const bouldMat = zmat('rock', { repeat: 1, color: 0x53534e });
     for (const [rx, ry, rz] of [[-13, 8.4, -12], [13, 8.4, -14], [7, 8.3, -6]]) {
-      const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(1.4), new THREE.MeshStandardMaterial({ color: 0x40403c, roughness: 0.95 }));
+      const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(1.4), bouldMat);
       rk.position.set(rx, ry, rz); rk.scale.set(1, 0.7, 1);
-      rec.group.add(rk); zoneGeos.push(rk.geometry); zoneMats.push(rk.material);
+      rec.group.add(rk); zoneGeos.push(rk.geometry);
     }
     // The lake surface. It used to be a flat 72%-opaque plane with nothing
     // underneath it, so you looked through the water into empty black — and it
@@ -2993,19 +3044,24 @@ export function createActuality(planet, worldUp, opts = {}) {
   // "I won't remember" captions, then returns to the hub.
   function buildZone7() {
     const rec = zoneById['z7'];
-    rec.group.add(new THREE.AmbientLight(0x101018, 0.35));
+    addFill(rec, 0x1a1e2c, 0x0a0a10, 0.40);
     addDome(rec, 60, '#04040a', '#08080f');
     // Enclose the dark room (walls + ceiling, door gap on +Z, window on +X).
     const RX = 8, RZ = 10, WH = 3.0; // a low, close living room
-    const roomMat = new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.95, side: THREE.DoubleSide });
-    zoneMats.push(roomMat);
+    const roomMat = zmat('plaster', { repeat: 4, color: 0x14161c, side: THREE.DoubleSide });
     const wall = (w, h, x, y, z, ry, rx = 0) => { const g = new THREE.PlaneGeometry(w, h); const m = new THREE.Mesh(g, roomMat); m.position.set(x, y, z); m.rotation.set(rx, ry, 0); rec.group.add(m); zoneGeos.push(g); };
     wall(RX * 2, WH, 0, WH / 2, -RZ, 0);
     wall(RZ * 2, WH, -RX, WH / 2, 0, Math.PI / 2);
     wall(RZ * 2, WH, RX, WH / 2, 0, Math.PI / 2);
     wall(RX * 2, RZ * 2, 0, WH, 0, 0, Math.PI / 2); // ceiling
+    // Carpet, so the TV's flicker has something with a nap to catch on.
+    const carpG = new THREE.PlaneGeometry(RX * 2, RZ * 2);
+    const carp = new THREE.Mesh(carpG, zmat('groundCover', { repeat: 8, color: 0x1e1a20, normalScale: 0.6 }));
+    carp.position.set(0, 0.012, 0); carp.rotation.x = -Math.PI / 2;
+    rec.group.add(carp); zoneGeos.push(carpG);
     // TV + cabinet.
-    addZoneBox(rec, 2.6, 1.8, 1.6, 0, 1.1, -8.5, 0x1a1a1e);
+    addZoneBox2(rec, 2.6, 1.8, 1.6, 0, 1.1, -8.5,
+      zmat('wood', { repeat: 1, color: 0x24242a }));
     const scr = tvStaticTexture(mulberry32(0x7777));
     const scrGeo = new THREE.PlaneGeometry(2.2, 1.4);
     const scrMat = new THREE.MeshStandardMaterial({ map: scr, emissive: 0xafc8ff, emissiveMap: scr, emissiveIntensity: 0.9 });
@@ -3107,10 +3163,9 @@ export function createActuality(planet, worldUp, opts = {}) {
     const CH = 2.7;                 // ceiling
     const DOOR_HW = 0.6, DOOR_H = 2.05;
 
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0xa89880, roughness: 0.94 });
-    const beamMat = new THREE.MeshStandardMaterial({ color: 0x4a3524, roughness: 0.9 });
-    const floorMat = new THREE.MeshStandardMaterial({ color: 0x6b5138, roughness: 0.88 });
-    zoneMats.push(wallMat, beamMat, floorMat);
+    const wallMat = zmat('plaster', { repeat: 3, color: 0xa89880 });
+    const beamMat = zmat('wood', { repeat: 1, color: 0x5a4028 });
+    const floorMat = zmat('wood', { repeat: 3, color: 0x7d5f3e });
 
     const box = (w, h, d, x, y, z, mat) => {
       const g = new THREE.BoxGeometry(w, h, d);
@@ -3196,14 +3251,12 @@ export function createActuality(planet, worldUp, opts = {}) {
     rec.group.add(lamp);
 
     // Rag rug.
-    const rugMat = new THREE.MeshStandardMaterial({ color: 0x7a4a44, roughness: 0.97 });
-    zoneMats.push(rugMat);
+    const rugMat = zmat('groundCover', { repeat: 3, color: 0x7a4a44, normalScale: 0.5 });
     box(1.6, 0.03, 1.2, -0.4, 0.13, 0.2, rugMat);
 
     // The path from the fire to the cabin door, so the cabin is somewhere the
     // clearing leads rather than something off to one side.
-    const pathMat = new THREE.MeshStandardMaterial({ color: 0x5a5048, roughness: 0.96 });
-    zoneMats.push(pathMat);
+    const pathMat = zmat('aggregate', { repeat: 2, color: 0x6e625a });
     for (let i = 0; i < 9; i++) {
       const t = i / 8;
       const px = -0.6 + t * (CX - HW - 1.2 - -0.6);
@@ -3237,7 +3290,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     // The burn-down drives a real sky transition now (dusk → nightMoody, see
     // the zone updater), so the two crossfading gradient domes are gone. The
     // ambient is a bare floor; the firelight is meant to be the light source.
-    rec.group.add(new THREE.AmbientLight(0x241a12, 0.12));
+    addFill(rec, 0x30405a, 0x241a12, 0.18);
     // A ring of dark tree silhouettes around the clearing; they fade out with
     // the burn-down to reveal the open field/starfield.
     const treeMat = new THREE.MeshBasicMaterial({ color: 0x0a0c10, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false });
@@ -3251,8 +3304,7 @@ export function createActuality(planet, worldUp, opts = {}) {
       tr.rotation.y = -a; rec.group.add(tr);
     }
     // Two touching stone fire-rings — the lit one + a cold old one — form an "8".
-    const ringMat = new THREE.MeshStandardMaterial({ color: 0x50463a, roughness: 0.95 });
-    zoneMats.push(ringMat);
+    const ringMat = zmat('rock', { repeat: 1, color: 0x62574a });
     const stoneGeo = new THREE.DodecahedronGeometry(0.35);
     zoneGeos.push(stoneGeo);
     for (const [rcz, n] of [[-6, 10], [-9.4, 9]]) {
@@ -3264,12 +3316,15 @@ export function createActuality(planet, worldUp, opts = {}) {
       }
     }
     // Sitting logs around the fire.
+    const logMat = zmat('bark', { repeat: 3, repeatY: 1, color: 0x5a4028 });
     for (const [lx, lz, lry] of [[-2.4, -4.4, 0.3], [2.4, -5, -0.4], [0, -8.2, 0]]) {
-      addZoneBox(rec, 1.8, 0.4, 0.45, lx, 0.2, lz, 0x4a3524, lry);
+      const lg = addZoneBox2(rec, 1.8, 0.4, 0.45, lx, 0.2, lz, logMat);
+      lg.rotation.y = lry;
     }
     // Campfire: logs + additive flame cones + embers + light.
-    addZoneBox(rec, 2.4, 0.4, 0.5, 0, 0.2, -6, 0x3a2a1c);
-    addZoneBox(rec, 0.5, 0.4, 2.4, 0, 0.2, -6, 0x3a2a1c);
+    const fireLogMat = zmat('bark', { repeat: 3, repeatY: 1, color: 0x46321e });
+    addZoneBox2(rec, 2.4, 0.4, 0.5, 0, 0.2, -6, fireLogMat);
+    addZoneBox2(rec, 0.5, 0.4, 2.4, 0, 0.2, -6, fireLogMat);
     const flameMat = new THREE.MeshBasicMaterial({
       color: 0xffb040, transparent: true, opacity: 0.8, depthWrite: false,
       blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
@@ -3600,6 +3655,27 @@ export function createActuality(planet, worldUp, opts = {}) {
     };
   }
 
+  // Test hook: jump straight to a zone with no crossfade. The real transition
+  // spends two seconds of simulated time fading, which on a software renderer
+  // is most of a minute of wall clock per zone — long enough that a headless
+  // sweep of all nine spends its whole budget staring at a black overlay.
+  // Same end state startTransition reaches, minus the fade.
+  function setZone(id) {
+    if (id !== 'hub' && !zoneById[id]) return false;
+    fade.phase = 'idle';
+    fade.t = 0;
+    setOverlay(0);
+    activeZone = id;
+    applyZoneVisibility();
+    pendingSkyPreset = skyForZone(id);
+    pendingSkyBlend = null;
+    if (id !== 'hub' && id !== 'mirror') { flags.visited[id] = true; }
+    pendingTeleport = id === 'hub'
+      ? { pos: hubReturnDest.clone(), heading: hubReturnHeading.clone() }
+      : { pos: zoneById[id].entryDest.clone(), heading: zoneById[id].entryHeading.clone() };
+    return true;
+  }
+
   // Test hook: ground radius (and reference terrain radius) at a zone-local
   // point, for verifying below-grade descent.
   function probeGround(zoneId, x, y, z) {
@@ -3660,6 +3736,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     preRender,
     debug,
     probeGround,
+    setZone,
     surfacePoint,
     // Landing pad in anchor-local space; walk.js parks the ship on it.
     pad: hub.pad,
