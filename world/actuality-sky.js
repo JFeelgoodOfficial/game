@@ -60,7 +60,7 @@ export const SKY_PRESETS = {
     turbidity: 2.0, rayleigh: 1.35, mie: 0.004, mieG: 0.82,
     elevation: 34, azimuth: 145,
     sunColor: 0xfff2dc, sunIntensity: 3.4,
-    cloud: { cover: 0.34, altitude: 1150, thickness: 420, drift: 0.9, tint: 0xffffff },
+    cloud: { cover: 0.34, altitude: 1150, thickness: 420, drift: 0.9, tint: 0xffffff, ambient: 2.6 },
     fog: { color: 0xbfd4e8, density: 0.0016 },
     exposure: 0.32,
     // Outdoors the sun is several times the sky's contribution; matching them
@@ -73,7 +73,7 @@ export const SKY_PRESETS = {
     turbidity: 4.2, rayleigh: 2.4, mie: 0.006, mieG: 0.84,
     elevation: 11, azimuth: 200,
     sunColor: 0xffc98a, sunIntensity: 2.9,
-    cloud: { cover: 0.42, altitude: 1000, thickness: 440, drift: 0.7, tint: 0xffd9b0 },
+    cloud: { cover: 0.42, altitude: 1000, thickness: 440, drift: 0.7, tint: 0xffd9b0, ambient: 1.9 },
     fog: { color: 0xd8b489, density: 0.0034 },
     exposure: 0.40,
     envIntensity: 0.5,
@@ -82,7 +82,7 @@ export const SKY_PRESETS = {
     turbidity: 6.5, rayleigh: 3.0, mie: 0.007, mieG: 0.86,
     elevation: 1.6, azimuth: 250,
     sunColor: 0xff9a56, sunIntensity: 2.4,
-    cloud: { cover: 0.5, altitude: 1050, thickness: 460, drift: 0.55, tint: 0xffb27a },
+    cloud: { cover: 0.5, altitude: 1050, thickness: 460, drift: 0.55, tint: 0xffb27a, ambient: 0.85 },
     fog: { color: 0x8a6a70, density: 0.0042 },
     exposure: 0.62,
     envIntensity: 0.6,
@@ -94,7 +94,7 @@ export const SKY_PRESETS = {
     turbidity: 8.0, rayleigh: 2.2, mie: 0.004, mieG: 0.80,
     elevation: -7, azimuth: 250,
     sunColor: 0x9fb6e0, sunIntensity: 0.9, // moonlight: cool, weak, but a real key
-    cloud: { cover: 0.62, altitude: 1100, thickness: 480, drift: 0.4, tint: 0x8fa4c8 },
+    cloud: { cover: 0.62, altitude: 1100, thickness: 480, drift: 0.4, tint: 0x8fa4c8, ambient: 0.16 },
     fog: { color: 0x1a2438, density: 0.0060 },
     exposure: 0.95,
     stars: 0.9,
@@ -234,6 +234,7 @@ export function createActualitySky(anchor, scene, opts = {}) {
       uUp: { value: new THREE.Vector3(0, 1, 0) },
       uSteps: { value: lowQuality ? 12 : 28 },
       uOpacity: { value: 1 },
+      uAmbient: { value: 2.6 },
     },
     vertexShader: /* glsl */ `
       varying vec3 vDir;
@@ -248,7 +249,12 @@ export function createActualitySky(anchor, scene, opts = {}) {
     side: THREE.BackSide,
     transparent: true,
     depthWrite: false,
-    depthTest: false,
+    // depthTest MUST stay on. Transparent objects render after all opaque
+    // geometry regardless of renderOrder, so a depth-test-free cloud dome
+    // paints itself over the entire world — walls, people, everything. The
+    // dome sits at 2700 and the Sky writes no depth, so honouring depth costs
+    // nothing and correctly puts the clouds behind the scene.
+    depthTest: true,
   });
   mats.push(cloudMat);
   const clouds = new THREE.Mesh(cloudGeo, cloudMat);
@@ -308,7 +314,7 @@ export function createActualitySky(anchor, scene, opts = {}) {
     `,
     transparent: true,
     depthWrite: false,
-    depthTest: false,
+    depthTest: true, // same reason as the clouds — stars must not overpaint the world
     blending: THREE.AdditiveBlending,
   });
   mats.push(starMat);
@@ -412,6 +418,7 @@ export function createActualitySky(anchor, scene, opts = {}) {
         cu.uTint.value.set(p.cloud.tint);
         cu.uSunColor.value.set(p.sunColor);
         cu.uSunDir.value.copy(_sunLocal);
+        cu.uAmbient.value = p.cloud.ambient ?? 2.6;
       }
       starMat.uniforms.uAmount.value = p.stars || 0;
       refreshWorldFrame();
@@ -469,6 +476,7 @@ export function createActualitySky(anchor, scene, opts = {}) {
     cu.uTint.value.set(a.cloud.tint).lerp(_c.set(b.cloud.tint), k);
     cu.uSunColor.value.copy(sunLight.color);
     cu.uSunDir.value.copy(_sunLocal);
+    cu.uAmbient.value = L(a.cloud.ambient ?? 2.6, b.cloud.ambient ?? 2.6);
     starMat.uniforms.uAmount.value = L(a.stars || 0, b.stars || 0);
 
     if (!(scene.fog instanceof THREE.FogExp2)) scene.fog = new THREE.FogExp2(0, 0);

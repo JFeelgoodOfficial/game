@@ -25,6 +25,7 @@ uniform vec3  uSunDir;     // anchor-local, normalized
 uniform vec3  uSunColor;
 uniform float uSteps;
 uniform float uOpacity;
+uniform float uAmbient;   // sky's own contribution to cloud lighting
 
 varying vec3 vDir;
 
@@ -113,11 +114,11 @@ void main() {
       // from height in the slab rather than a second march toward the sun.
       float sun = mix(0.22, 1.0, h) * phase;
       // The sky itself is the other half of a cloud's light, and the bigger
-      // half when you aren't looking toward the sun. Without a generous ambient
-      // term the clouds come out mid-grey against a bright sky, which reads as
-      // smog. These are radiance values feeding a 0.32-exposure ACES curve, so
-      // "white" lives well above 1.
-      vec3 lit = uSunColor * sun * 2.2 + uTint * 2.6;
+      // half when you aren't looking toward the sun. It has to scale with the
+      // preset: a constant bright enough for noon paints daylight cumulus into
+      // a midnight sky. These are radiance values feeding an ACES curve whose
+      // exposure is also per-preset, so "white" lives well above 1.
+      vec3 lit = uSunColor * sun * 2.2 + uTint * uAmbient;
       // Energy-conserving accumulation: what this step scatters is what it
       // removes from the beam.
       scattered += transmittance * (1.0 - stepT) * lit;

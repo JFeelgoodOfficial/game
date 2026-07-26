@@ -366,6 +366,53 @@ function tvStaticTexture(rng) {
   return tex;
 }
 
+// Tiling ripple normal map for the Zone 6 lake. Built from summed directional
+// waves rather than noise: real water has coherent wavefronts, and noise-based
+// normals read as sand. The height field is differentiated analytically so the
+// result is a true normal map, and every wave uses an integer number of periods
+// across the tile so it repeats seamlessly.
+function waterNormalTexture(size = 256) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  const img = g.createImageData(size, size);
+  const waves = [
+    { kx: 3, ky: 1, amp: 1.00, ph: 0.0 },
+    { kx: -2, ky: 3, amp: 0.65, ph: 1.7 },
+    { kx: 5, ky: -2, amp: 0.40, ph: 3.1 },
+    { kx: 1, ky: 6, amp: 0.28, ph: 5.2 },
+    { kx: -7, ky: -4, amp: 0.16, ph: 2.4 },
+  ];
+  const TAU = Math.PI * 2;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = x / size, v = y / size;
+      let dhdu = 0, dhdv = 0;
+      for (const w of waves) {
+        const a = TAU * (w.kx * u + w.ky * v) + w.ph;
+        const s = Math.cos(a) * w.amp;
+        dhdu += s * TAU * w.kx;
+        dhdv += s * TAU * w.ky;
+      }
+      // Normal of the height field, packed into RGB.
+      const sc = 0.02;
+      let nx = -dhdu * sc, ny = -dhdv * sc, nz = 1;
+      const len = Math.hypot(nx, ny, nz);
+      nx /= len; ny /= len; nz /= len;
+      const i = (y * size + x) * 4;
+      img.data[i] = (nx * 0.5 + 0.5) * 255;
+      img.data[i + 1] = (ny * 0.5 + 0.5) * 255;
+      img.data[i + 2] = (nz * 0.5 + 0.5) * 255;
+      img.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(3, 2);
+  return tex;
+}
+
 // Simple black silhouette on transparent (skyline / swing set / crescent moon).
 function silhouetteTexture(kind) {
   const c = document.createElement('canvas');
@@ -797,6 +844,7 @@ function defaultFlags() {
     hyperHoloGridSeen: false,
     zeroHeard: false,
     z6VisionSeen: false,
+    z8DeathbedSeen: false,
     digitsHeard: [],
   };
 }
@@ -1116,17 +1164,28 @@ export function createActuality(planet, worldUp, opts = {}) {
       const chirp = ctx.createOscillator(); chirp.type = 'triangle'; chirp.frequency.value = 1900;
       const chirpGain = ctx.createGain(); chirpGain.gain.value = 0;
       chirp.connect(chirpGain).connect(gainFor('z1')); chirp.start(); started.push(chirp);
-      audio = { ctx, master, zoneGains, started, chirp, chirpGain };
+      audio = { ctx, master, zoneGains, started, chirp, chirpGain, duck: 1, duckTarget: 1 };
       if (ctx.state === 'suspended') ctx.resume().catch(() => {});
     } catch { audio = null; }
+  }
+
+  // Duck the whole bed toward `to` (1 = normal, ~0 = silence). The Zone 8
+  // deathbed uses it: the chapter's scene is "no music, no dialogue, just the
+  // soft rhythm of breathing", and the ambient drone would fight that.
+  function setAudioDuck(to) {
+    if (audio) audio.duckTarget = to;
   }
 
   // Crossfade zone gains toward the active zone; pulse the zone-1 bird chirp.
   function audioUpdate(t, dt) {
     if (!audio) return;
     const k = Math.min(1, dt * 2);
+    // Ease the duck rather than cutting — a hard mute reads as a bug.
+    if (audio.duckTarget !== undefined) {
+      audio.duck += (audio.duckTarget - audio.duck) * Math.min(1, dt * 1.2);
+    }
     for (const id in audio.zoneGains) {
-      const target = id === activeZone ? 1 : 0;
+      const target = (id === activeZone ? 1 : 0) * audio.duck;
       const g = audio.zoneGains[id].gain;
       g.value += (target - g.value) * k;
     }
@@ -1150,7 +1209,13 @@ export function createActuality(planet, worldUp, opts = {}) {
     r2: (AC.HUB_FLOOR_HALF + 12) ** 2,
   }];
   for (const z of zoneList) {
-    zones.push({ frame: z.frame, structures: [z.structure], r2: z.r2 });
+    // extraStructures lets a zone add a building with its own local origin
+    // (Zone 8's cabin) without folding its walls into the zone-wide structure.
+    zones.push({
+      frame: z.frame,
+      structures: z.extraStructures ? [z.structure, ...z.extraStructures] : [z.structure],
+      r2: z.r2,
+    });
   }
   const _rc = new THREE.Vector3();
 
@@ -1329,6 +1394,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     fade.phase = 'out';
     fade.t = 0;
     fade.target = target;
+    setAudioDuck(1); // any zone the deathbed ducked, leaving restores
     if (target === 'hub') {
       fade.dest = hubReturnDest;
       fade.heading = hubReturnHeading;
@@ -2347,6 +2413,53 @@ export function createActuality(planet, worldUp, opts = {}) {
     ];
     rec.structure = makeStructure(0, 0, 0, surfaces, walls, 60);
     rec.r2 = (60 + 12) ** 2;
+
+    // Build the crag you actually walk on. Every entry in `surfaces` above was
+    // collision-only — the arrival apron, both ramps, the overlook and the lake
+    // bed existed as maths and nothing else, so the route down to the water was
+    // literally invisible and you crossed it on faith. Each plate gets a solid
+    // slab of rock, each ramp a wedge, and the basin gets walls and a floor so
+    // the lake has a bottom to be seen through.
+    const rockMat = new THREE.MeshStandardMaterial({ color: 0x4a4842, roughness: 0.96 });
+    const bedMat = new THREE.MeshStandardMaterial({ color: 0x2e3630, roughness: 0.92 });
+    zoneMats.push(rockMat, bedMat);
+
+    // Flat plates: a box whose TOP sits at the collision height, dropping well
+    // below so no edge ever opens a gap onto the void.
+    const plate = (x0, x1, z0, z1, y, depth, mat) => {
+      const g = new THREE.BoxGeometry(x1 - x0, depth, z1 - z0);
+      const m = new THREE.Mesh(g, mat);
+      m.position.set((x0 + x1) / 2, y - depth / 2, (z0 + z1) / 2);
+      rec.group.add(m); zoneGeos.push(g);
+      return m;
+    };
+    // A ramp: a box rotated about X so its top face runs from (zA,yA) to (zB,yB).
+    const ramp = (x0, x1, zA, zB, yA, yB, thickness, mat) => {
+      const dz = zB - zA, dy = yB - yA;
+      const len = Math.hypot(dz, dy);
+      const g = new THREE.BoxGeometry(x1 - x0, thickness, len);
+      const m = new THREE.Mesh(g, mat);
+      m.position.set((x0 + x1) / 2, (yA + yB) / 2 - thickness / 2, (zA + zB) / 2);
+      m.rotation.x = -Math.atan2(dy, dz);
+      rec.group.add(m); zoneGeos.push(g);
+      return m;
+    };
+
+    plate(-30, 30, 6, 30, 0, 3, rockMat);          // arrival apron
+    ramp(-5, 5, 6, -4, 0, 8, 2.2, rockMat);        // climb to the overlook
+    plate(-16, 16, -20, -4, 8, 4, rockMat);        // overlook plateau
+    ramp(-3, 3, -20, -38, 8, -6, 2.2, rockMat);    // descent into the basin
+    plate(-12, 12, -56, -38, -6, 3, bedMat);       // lake bed — the thing you
+                                                   // could previously see the
+                                                   // water straight through
+    // Basin walls, so the lake sits in a bowl rather than floating in the dark.
+    plate(-12.6, 12.6, -56.6, -55.4, 2, 9, rockMat);   // far shore
+    plate(-12.6, -11.4, -56.6, -38, 2, 9, rockMat);    // left
+    plate(11.4, 12.6, -56.6, -38, 2, 9, rockMat);      // right
+    // Ramp cheeks, so the descent reads as cut into the rock.
+    plate(-5.6, -4.8, -4, 6, 0, 3, rockMat);
+    plate(4.8, 5.6, -4, 6, 0, 3, rockMat);
+
     // Overlook guard rail + a couple of crag rocks.
     addZoneBox(rec, 20, 0.5, 0.2, 0, 8.9, -19.8, 0x3a3028);
     for (const [rx, ry, rz] of [[-13, 8.4, -12], [13, 8.4, -14], [7, 8.3, -6]]) {
@@ -2354,14 +2467,39 @@ export function createActuality(planet, worldUp, opts = {}) {
       rk.position.set(rx, ry, rz); rk.scale.set(1, 0.7, 1);
       rec.group.add(rk); zoneGeos.push(rk.geometry); zoneMats.push(rk.material);
     }
-    // Dark translucent water disc at the lake rim (y ~ -2).
-    const waterGeo = new THREE.PlaneGeometry(24, 24);
-    const waterMat = new THREE.MeshStandardMaterial({
-      color: 0x0a1420, transparent: true, opacity: 0.72, roughness: 0.3, side: THREE.DoubleSide,
+    // The lake surface. It used to be a flat 72%-opaque plane with nothing
+    // underneath it, so you looked through the water into empty black — and it
+    // was 24 m square centred at z=-46, overhanging a basin that only runs
+    // z -56..-38. Now it's trimmed to the basin, sits over the visible bed
+    // built above, and is a real water material: physically transmissive, with
+    // moving normals so the moon and the sky break up across it.
+    const WATER_Y = -2;
+    const waterGeo = new THREE.PlaneGeometry(23, 17, 40, 30);
+    const waterNormal = waterNormalTexture();
+    zoneTextures.push(waterNormal);
+    const waterMat = new THREE.MeshPhysicalMaterial({
+      color: 0x14263a,
+      roughness: 0.06,
+      metalness: 0.0,
+      transmission: 0.75,      // you can see INTO it, not through it to nothing
+      thickness: 4.0,
+      ior: 1.33,
+      attenuationColor: new THREE.Color(0x0d2436),
+      attenuationDistance: 6.0,
+      normalMap: waterNormal,
+      normalScale: new THREE.Vector2(0.35, 0.35),
+      side: THREE.DoubleSide,
     });
     const water = new THREE.Mesh(waterGeo, waterMat);
-    water.position.set(0, -2, -46); water.rotation.x = -Math.PI / 2;
+    water.position.set(0, WATER_Y, -47); water.rotation.x = -Math.PI / 2;
+    water.userData.noShadow = true; // a transmissive sheet casts nothing useful
     rec.group.add(water); zoneGeos.push(waterGeo); zoneMats.push(waterMat);
+    // Two normal-map layers drifting against each other is the cheapest way to
+    // get water that reads as moving rather than as a frozen bump texture.
+    zoneUpdaters.push((t) => {
+      if (activeZone !== 'z6') return;
+      waterNormal.offset.set(t * 0.012, t * 0.007);
+    });
     // Rebirth vision: god-ray cones + a brightening light (fires once).
     const visionGrp = new THREE.Group();
     visionGrp.position.set(0, -6, -46); visionGrp.visible = false;
@@ -2515,8 +2653,151 @@ export function createActuality(planet, worldUp, opts = {}) {
     z7CaptionEl.textContent = text;
   }
 
+  /* ------------------------------------------------------------------
+   * The cabin at the edge of the Zone 8 clearing, and the scene inside it.
+   *
+   * Adapted from Ch.8 "Eternal Bandwidth": a small boy at his
+   * great-grandmother's bedside, her hand in his, her breathing slowing into
+   * "a strange kind of slumber", then "a sudden stillness".
+   *
+   * The held hands are the shot. The chapter names them as its recurring
+   * symbol — love expressed with no label on it — so the chair is pulled right
+   * up to the bed and both arms are built to meet, legible from the doorway.
+   *
+   * Everything here is real, human-scale architecture: 2.7 m ceiling, a door
+   * you walk through, one window looking back out at the fire.
+   * ---------------------------------------------------------------- */
+  function buildZone8Cabin(rec) {
+    const CX = 14, CZ = -13;        // cabin centre, at the clearing's edge
+    const HW = 3.0, HD = 3.6;       // half-width / half-depth of the interior
+    const CH = 2.7;                 // ceiling
+    const DOOR_HW = 0.6, DOOR_H = 2.05;
+
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0xa89880, roughness: 0.94 });
+    const beamMat = new THREE.MeshStandardMaterial({ color: 0x4a3524, roughness: 0.9 });
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x6b5138, roughness: 0.88 });
+    zoneMats.push(wallMat, beamMat, floorMat);
+
+    const box = (w, h, d, x, y, z, mat) => {
+      const g = new THREE.BoxGeometry(w, h, d);
+      const m = new THREE.Mesh(g, mat);
+      m.position.set(CX + x, y, CZ + z);
+      rec.group.add(m); zoneGeos.push(g);
+      return m;
+    };
+
+    // Floorboards, walls, ceiling. The door faces the clearing (-X, toward the
+    // fire), so you see the lit window first and walk in facing the bed.
+    box(HW * 2, 0.12, HD * 2, 0, 0.06, 0, floorMat);
+    box(HW * 2, CH, 0.18, 0, CH / 2, HD, wallMat);            // back
+    box(0.18, CH, HD * 2, HW, CH / 2, 0, wallMat);            // far side
+    box(HW * 2, CH, 0.18, 0, CH / 2, -HD, wallMat);           // front
+    // Door wall (-X) split around the opening.
+    const seg = (HD - DOOR_HW) / 2;
+    box(0.18, CH, seg, -HW, CH / 2, -(DOOR_HW + seg / 2 + DOOR_HW * 0), wallMat);
+    box(0.18, CH, seg, -HW, CH / 2, DOOR_HW + seg / 2, wallMat);
+    box(0.18, CH - DOOR_H, DOOR_HW * 2, -HW, DOOR_H + (CH - DOOR_H) / 2, 0, wallMat);
+    box(HW * 2, 0.14, HD * 2, 0, CH, 0, beamMat);             // ceiling
+    // Door frame + a low step, so the threshold reads as one.
+    box(0.24, DOOR_H, 0.12, -HW, DOOR_H / 2, -DOOR_HW, beamMat);
+    box(0.24, DOOR_H, 0.12, -HW, DOOR_H / 2, DOOR_HW, beamMat);
+    box(0.24, 0.12, DOOR_HW * 2, -HW, DOOR_H, 0, beamMat);
+    box(1.0, 0.1, DOOR_HW * 2 + 0.4, -HW - 0.5, 0.05, 0, beamMat);
+
+    // The window in the back wall, looking out at the fire. Emissive so it
+    // reads as warm from outside as well as in.
+    const winMat = new THREE.MeshStandardMaterial({
+      color: 0xffe0b0, emissive: 0xffc078, emissiveIntensity: 0.55, roughness: 0.4,
+    });
+    zoneMats.push(winMat);
+    box(1.2, 0.9, 0.06, -HW + 0.06, 1.5, -1.6, winMat);
+
+    // Bed against the far wall, quilt over it, pillow at the head.
+    const quiltMat = new THREE.MeshStandardMaterial({ color: 0x8a5a52, roughness: 0.95 });
+    const linenMat = new THREE.MeshStandardMaterial({ color: 0xe6ddca, roughness: 0.92 });
+    zoneMats.push(quiltMat, linenMat);
+    box(1.1, 0.42, 2.1, 1.5, 0.33, 0.4, beamMat);      // bedstead
+    box(1.06, 0.16, 2.0, 1.5, 0.60, 0.4, linenMat);    // mattress
+    box(1.08, 0.12, 1.35, 1.5, 0.71, 0.75, quiltMat);  // quilt, folded down
+    box(0.62, 0.16, 0.34, 1.5, 0.73, -0.44, linenMat); // pillow
+
+    // Great-grandmother, lying. Built here rather than via makeFigure because
+    // she is horizontal and half under a quilt — a standing rig on its back
+    // reads as a body dropped on a bed, not a person lying in one.
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0xd8c0a8, roughness: 0.78 });
+    const gownMat = new THREE.MeshStandardMaterial({ color: 0xc8ccd4, roughness: 0.9 });
+    zoneMats.push(skinMat, gownMat);
+    const head = box(0.2, 0.24, 0.24, 1.5, 0.9, -0.48, skinMat);
+    const chest = box(0.42, 0.2, 0.62, 1.5, 0.84, -0.02, gownMat);
+    // Her near arm comes out from under the quilt toward the chair.
+    box(0.12, 0.11, 0.44, 1.16, 0.80, -0.05, gownMat);
+    const granHand = box(0.11, 0.09, 0.13, 1.02, 0.79, 0.14, skinMat);
+
+    // The chair, pulled right up, and the boy in it.
+    box(0.44, 0.06, 0.42, 0.55, 0.46, 0.30, beamMat);   // seat
+    box(0.44, 0.5, 0.06, 0.55, 0.72, 0.52, beamMat);    // back
+    for (const [lx, lz] of [[-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18]])
+      box(0.05, 0.46, 0.05, 0.55 + lx, 0.23, 0.30 + lz, beamMat);
+    const boyCloth = new THREE.MeshStandardMaterial({ color: 0x5a6a80, roughness: 0.9 });
+    zoneMats.push(boyCloth);
+    box(0.26, 0.34, 0.18, 0.55, 0.67, 0.30, boyCloth);  // torso — a small child
+    const boyHead = box(0.19, 0.21, 0.19, 0.55, 0.94, 0.30, skinMat);
+    box(0.1, 0.1, 0.26, 0.55, 0.60, 0.16, boyCloth);    // near leg
+    box(0.1, 0.1, 0.26, 0.44, 0.60, 0.16, boyCloth);
+    // His arm reaches out to hers. The two hands meet at x≈1.0 — this is the
+    // image the whole scene is built around, so it sits clear of the quilt and
+    // square to the doorway.
+    box(0.09, 0.09, 0.34, 0.74, 0.79, 0.26, boyCloth);
+    const boyHand = box(0.1, 0.085, 0.12, 0.92, 0.79, 0.15, skinMat);
+
+    // Nightstand and oil lamp — the only light in the room.
+    box(0.4, 0.5, 0.36, 1.62, 0.25, -1.5, beamMat);
+    const lampMat = new THREE.MeshStandardMaterial({
+      color: 0xffd9a0, emissive: 0xffb860, emissiveIntensity: 1.1, roughness: 0.45,
+    });
+    zoneMats.push(lampMat);
+    const lampMesh = box(0.14, 0.22, 0.14, 1.62, 0.61, -1.5, lampMat);
+    const lamp = new THREE.PointLight(0xffcaa0, 1.5, 9, 2.0);
+    lamp.position.set(CX + 1.55, 1.0, CZ - 1.4);
+    rec.group.add(lamp);
+
+    // Rag rug.
+    const rugMat = new THREE.MeshStandardMaterial({ color: 0x7a4a44, roughness: 0.97 });
+    zoneMats.push(rugMat);
+    box(1.6, 0.03, 1.2, -0.4, 0.13, 0.2, rugMat);
+
+    // The path from the fire to the cabin door, so the cabin is somewhere the
+    // clearing leads rather than something off to one side.
+    const pathMat = new THREE.MeshStandardMaterial({ color: 0x5a5048, roughness: 0.96 });
+    zoneMats.push(pathMat);
+    for (let i = 0; i < 9; i++) {
+      const t = i / 8;
+      const px = -0.6 + t * (CX - HW - 1.2 - -0.6);
+      const pz = -6 + t * (CZ - -6);
+      const g = new THREE.BoxGeometry(1.1, 0.06, 1.0);
+      const m = new THREE.Mesh(g, pathMat);
+      m.position.set(px, 0.03, pz);
+      m.rotation.y = Math.atan2(CX - HW - px, CZ - pz) * 0.2;
+      rec.group.add(m); zoneGeos.push(g);
+    }
+
+    // Collision: the cabin shell, with the doorway left open.
+    rec.extraStructures = rec.extraStructures || [];
+    rec.extraStructures.push(makeStructure(CX, 0, CZ,
+      [{ x0: -HW, x1: HW, z0: -HD, z1: HD, y: 0.12 }],
+      [
+        { x0: -HW, x1: HW, z0: HD - 0.1, z1: HD + 0.1, y0: 0, y1: CH },
+        { x0: HW - 0.1, x1: HW + 0.1, z0: -HD, z1: HD, y0: 0, y1: CH },
+        { x0: -HW, x1: HW, z0: -HD - 0.1, z1: -HD + 0.1, y0: 0, y1: CH },
+        { x0: -HW - 0.1, x1: -HW + 0.1, z0: -HD, z1: -DOOR_HW, y0: 0, y1: CH },
+        { x0: -HW - 0.1, x1: -HW + 0.1, z0: DOOR_HW, z1: HD, y0: 0, y1: CH },
+      ], Math.max(HW, HD) + 1));
+
+    return { CX, CZ, HW, HD, lamp, lampMesh, head, chest, granHand, boyHand, boyHead };
+  }
+
   // Z8 Eternity — a campfire that burns down while the clearing opens to a
-  // starfield; grandmother's bedside as a quiet side room.
+  // starfield; the cabin at its edge holds the deathbed.
   function buildZone8() {
     const rec = zoneById['z8'];
     // The burn-down drives a real sky transition now (dusk → nightMoody, see
@@ -2584,18 +2865,20 @@ export function createActuality(planet, worldUp, opts = {}) {
     const eb = [];
     for (let i = 0; i < N; i++) eb.push({ x: (er() - 0.5) * 1.2, z: -6 + (er() - 0.5) * 1.2, ph: er() * 6.28, sp: 0.5 + er() });
     const _em = new THREE.Matrix4();
-    // Grandmother's bedside side room (off to +X).
-    addZoneBox(rec, 0.4, 3, 6, 12, 1.5, -4, 0x4a3e34);   // back wall
-    addZoneBox(rec, 5, 3, 0.4, 15, 1.5, -7, 0x4a3e34);   // side wall
-    addZoneBox(rec, 2.4, 0.5, 1.2, 15, 0.6, -4, 0x8a7060); // bed
-    const candle = new THREE.PointLight(0xffcaa0, 0.7, 14, 2.0);
-    candle.position.set(15, 2, -4); rec.group.add(candle);
-    const gran = makeFigure({ seated: true, skin: 0xd8c0a8, cloth: 0xa0a0b0, seed: 81 });
-    gran.group.position.set(15, 0.4, -4); gran.group.rotation.y = -Math.PI / 2;
-    rec.group.add(gran.group); figures.push(gran);
-    const granPos = zoneToAnchor(rec, 13.2, 0, -4);
+    // --- The cabin, and the deathbed inside it (Ch.8) ---
+    //
+    // This used to be three boxes and a bed dropped in the open twelve metres
+    // to the side of the fire — not a room, no way in, and sitting *beside* the
+    // clearing rather than meaning anything in relation to it. Now the fire and
+    // the bedside are sequential: the clearing is the remembering, and the
+    // cabin at its edge is the memory. You walk a path to it and go inside.
+    const cabin = buildZone8Cabin(rec);
+    const granPos = zoneToAnchor(rec, cabin.CX, 0, cabin.CZ + 1.4);
     interactables.push({ id: 'grandmother', zone: 'z8', pos: granPos, talking: false });
-    addEventLight(candle, granPos);
+    // Deliberately NOT an event light. That system dims a marker light as you
+    // approach so it doesn't wash out the character it marks — but this lamp is
+    // the room's only practical light, and the deathbed beat guttering it down
+    // is the whole point. Two writers on one intensity means neither wins.
 
     // The eternal star — a bright pole star high overhead that kindles as the
     // fire dies (the finite flame giving way to the endless sky). A soft halo +
@@ -2609,12 +2892,89 @@ export function createActuality(planet, worldUp, opts = {}) {
     // A soul-light that lifts from the bedside toward the star once the fire is
     // nearly out — grandmother passing gently into the eternal.
     const soul = new THREE.Mesh(new THREE.SphereGeometry(0.35, 10, 10), new THREE.MeshBasicMaterial({ color: 0xffe6c0, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
-    soul.position.set(15, 1.2, -4); rec.group.add(soul);
+    const SOUL0 = new THREE.Vector3(cabin.CX + 1.5, 0.95, cabin.CZ - 0.1); // her chest
+    soul.position.copy(SOUL0); rec.group.add(soul);
     zoneGeos.push(soul.geometry); zoneMats.push(soul.material);
     const soulLight = new THREE.PointLight(0xffd8a8, 0, 18, 2.0); soul.add(soulLight);
 
     // Reset the burn-down timer each time the player enters zone 8.
     zoneEnterCallbacks['z8'] = () => { z8Burn = 0; };
+
+    /* --- The deathbed beat ---------------------------------------------
+     * Armed by crossing the cabin threshold, not by a timer, so it belongs to
+     * the player walking in. Then, in order: her breathing slows over ~20 s and
+     * changes texture, stops, three seconds of held stillness, the lamp dims,
+     * and the soul lifts out through the roof toward the eternal star.
+     *
+     * The chapter's own beat is that the boy has no words for what happened —
+     * only "a sudden stillness" — so there is no dialogue, no prompt and no
+     * caption anywhere in this. It plays once ever (flagged), because the whole
+     * point is that it is not a thing you can go back and watch again.
+     * ------------------------------------------------------------------ */
+    const BREATH_SLOW = 20.0;  // seconds of breathing, decelerating
+    const STILL_HOLD = 3.0;    // seconds of nothing at all
+    const SOUL_RISE = 9.0;     // seconds for the soul to reach the star
+    const chestY = cabin.chest.position.y;
+    const headY = cabin.head.position.y;
+    let deathbed = null;       // { t } once armed
+    let breathPhase = 0;
+
+    zoneUpdaters.push((t, dt, playerPos) => {
+      if (activeZone !== 'z8') return;
+
+      // Arm on entering the cabin (anchor-frame distance to the bedside).
+      if (!deathbed && !flags.z8DeathbedSeen) {
+        if (playerPos.distanceTo(granPos) < 3.2) {
+          deathbed = { t: 0 };
+          flags.z8DeathbedSeen = true;
+          saveFlags(flags);
+          if (audio) setAudioDuck(0.06); // the room goes quiet
+        }
+      }
+
+      const T = deathbed ? deathbed.t : 0;
+      if (deathbed) deathbed.t += dt;
+
+      // Breathing. Rate decays toward zero across BREATH_SLOW; amplitude sags
+      // with it. Before the beat is armed she simply breathes, slowly.
+      const prog = deathbed ? Math.min(1, T / BREATH_SLOW) : 0;
+      const rate = 0.9 * (1 - prog * 0.92);
+      const amp = 0.012 * (1 - prog * 0.65);
+      const stopped = deathbed && T >= BREATH_SLOW;
+      if (!stopped) {
+        breathPhase += dt * rate;
+        const b = Math.sin(breathPhase * Math.PI * 2);
+        cabin.chest.position.y = chestY + b * amp;
+        cabin.chest.scale.set(1, 1 + b * 0.05, 1);
+        cabin.head.position.y = headY + b * amp * 0.35;
+      } else {
+        // Stillness. Not a slow settle — it stops.
+        cabin.chest.position.y = chestY;
+        cabin.chest.scale.set(1, 1, 1);
+        cabin.head.position.y = headY;
+      }
+
+      if (!deathbed) return;
+      // The lamp gutters down through the held silence.
+      if (T > BREATH_SLOW) {
+        const k = Math.min(1, (T - BREATH_SLOW) / (STILL_HOLD + 2));
+        cabin.lamp.intensity = 1.5 * (1 - k * 0.72);
+        cabin.lampMesh.material.emissiveIntensity = 1.1 * (1 - k * 0.6);
+      }
+      // Then the soul leaves the room for the star.
+      if (T > BREATH_SLOW + STILL_HOLD) {
+        const k = Math.min(1, (T - BREATH_SLOW - STILL_HOLD) / SOUL_RISE);
+        const e = k * k * (3 - 2 * k); // smoothstep: slow to leave, slow to arrive
+        soul.material.opacity = Math.min(0.95, k * 3) * (1 - Math.max(0, (k - 0.85) / 0.15));
+        soulLight.intensity = 1.6 * (1 - Math.max(0, (k - 0.8) / 0.2));
+        soul.position.set(
+          SOUL0.x + (0 - SOUL0.x) * e,
+          SOUL0.y + (46 - SOUL0.y) * e,
+          SOUL0.z + (-30 - SOUL0.z) * e
+        );
+        if (k >= 1) { deathbed = null; setAudioDuck(1); }
+      }
+    });
     zoneUpdaters.push((t, dt, playerPos) => {
       if (activeZone !== 'z8') return;
       z8Burn += dt;
@@ -2625,13 +2985,8 @@ export function createActuality(planet, worldUp, opts = {}) {
       starHalo.lookAt(0, 1.6, 6); // face the clearing
       starCore.scale.setScalar(0.7 + rise * 0.6 + Math.sin(t * 3) * 0.04);
       starLight.intensity = rise * 2.2;
-      // The soul-light lifts from the bedside toward the star once the fire is low.
-      if (rise > 0.5) {
-        const k = Math.min(1, (rise - 0.5) / 0.45);
-        soul.material.opacity = k * 0.9;
-        soulLight.intensity = k * 1.4;
-        soul.position.set(15 - k * 15, 1.2 + k * 42, -4 - k * 24); // arcs up to the star
-      } else { soul.material.opacity = 0; soulLight.intensity = 0; soul.position.set(15, 1.2, -4); }
+      // The soul is no longer driven by the burn-down — it leaves when she does,
+      // in the deathbed beat below, so the two aren't fighting over it.
       for (let i = 0; i < flames.length; i++) {
         const s = burn * (0.9 + Math.sin(t * 8 + i) * 0.12);
         flames[i].scale.set(s, s + Math.sin(t * 6 + i) * 0.1, s);
