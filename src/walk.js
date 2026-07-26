@@ -41,6 +41,7 @@ import { createCrowd } from '../world/aliens.js';
 import { createWonderField } from '../world/wonders.js';
 import { createCreatures } from '../world/creatures.js';
 import { createWavemallPrime, createCrowd as createWavemallCrowd } from '../world/wavemallprime.js';
+import { createWyattmattoe } from '../world/wyattmattoe.js';
 import { createActuality, ACTUALITY_SITE } from '../world/actuality.js';
 import { settings } from './settings.js';
 import { createShadowreach } from '../world/shadowreach.js';
@@ -139,6 +140,7 @@ let wonders = null; // megastructure field (world/wonders.js)
 let creatures = null; // planet wildlife (world/creatures.js)
 let diamondRain = null; // walker-local diamond-rain volume (cfg.diamondRain)
 let marineSnow = null; // diver-local particulate volume (cfg.divable)
+let wyattmattoe = null; // additive basecamp scene for 'wyattmattoe' (world/wyattmattoe.js)
 let wavemall = null; // total-conversion content for 'wavemall prime' only
 let actuality = null; // total-conversion content for 'actuality' only
 let shadowreach = null; // total-conversion narrative world for 'shadowreach' only
@@ -379,6 +381,8 @@ export function enterWalk(planet) {
   if (planet.cfg.name !== 'actuality' && planet.cfg.name !== 'shadowreach') {
     planetSky = createPlanetSky(planet, worldScene, { quality: settings.quality });
     planet.surface.add(planetSky.group);
+    // The basecamp's lodge and lift towers need the shadow box to reach them.
+    if (planet.cfg.name === 'wyattmattoe') planetSky.setShadowExtent(90, 300);
   }
 
   // Terrain manipulator (terra only): reticle, handheld prop, RAISE/LOWER UI.
@@ -653,6 +657,18 @@ function spawnWorldEntities(planet) {
     },
   }); // adds its group to planet.surface itself
 
+  // --- wyattmattoe only: the Highline Basecamp — an ADDITIVE textured scene
+  // (lodge, gondola lift, real people) alongside the pop-up city, snowboard
+  // and Ridge Kites. avoidDir keeps it off the city's probe bearing.
+  if (planet.cfg.name === 'wyattmattoe') {
+    wyattmattoe = createWyattmattoe(planet, _up, {
+      materials: surfaceMaterials,
+      quality: settings.quality,
+      avoidDir: _bestUp,
+    });
+    planet.surface.add(wyattmattoe.group);
+  }
+
   // --- creatures: scattered around the landing site itself ---
   creatures = createCreatures(planet, _up, {
     radius: C.DRESS_RADIUS,
@@ -745,6 +761,11 @@ export function exitWalk(camera) {
     creatures.dispose();
     planet.surface.remove(creatures.group);
     creatures = null;
+  }
+  if (wyattmattoe) {
+    wyattmattoe.dispose();
+    planet.surface.remove(wyattmattoe.group);
+    wyattmattoe = null;
   }
   if (wavemall) {
     wavemall.dispose(); // stops the hold-music oscillator + closes its AudioContext
@@ -1328,6 +1349,13 @@ export function updateWalkVisuals(dt, t) {
       scanModule(m, TALK_DIST_CROWD);
     }
   }
+  if (wyattmattoe) {
+    // The module group sits at identity under planet.surface, so the identity
+    // transform yields the raw surface-local player point its anchor math expects.
+    playerLocalInto(wyattmattoe.group, _identityQuat, _playerLocal);
+    wyattmattoe.update(t, dt, _playerLocal, sunDot);
+    scanModule(wyattmattoe, TALK_DIST_CREATURE);
+  }
   if (creatures) {
     creatures.update(
       dt,
@@ -1559,7 +1587,7 @@ export function promptReturnToShip() {
 export function walkSite() {
   return {
     city, parked, crowd, dressing, wavemall, actuality, shadowreach, interiorCrowds,
-    creatures, diamondRain, marineSnow, planetSky,
+    creatures, diamondRain, marineSnow, planetSky, wyattmattoe,
     station: stationWalk.stationSite(),
   };
 }
