@@ -40,7 +40,7 @@ import { createCrowd } from '../world/aliens.js';
 import { createWonderField } from '../world/wonders.js';
 import { createCreatures } from '../world/creatures.js';
 import { createWavemallPrime } from '../world/wavemallprime.js';
-import { createActuality } from '../world/actuality.js';
+import { createActuality, ACTUALITY_SITE } from '../world/actuality.js';
 import { settings } from './settings.js';
 import { createShadowreach } from '../world/shadowreach.js';
 import {
@@ -285,15 +285,37 @@ export function enterWalk(planet) {
 
   _up.subVectors(ship.position, planet.body.position).normalize();
 
-  // Seed heading from the ship's forward (-Z), projected onto the tangent
-  // plane. Fall back to an arbitrary tangent if it was pointing straight up.
-  walk.heading.set(0, 0, -1).applyQuaternion(ship.quaternion);
-  projectTangent(walk.heading, _up);
-  if (walk.heading.lengthSq() < 1e-6) {
-    walk.heading.set(1, 0, 0);
-    projectTangent(walk.heading, _up);
+  // Actuality has ONE landing site. Its café, gateways and landing pad are a
+  // fixed piece of architecture on the planet, so the disembark point is the
+  // site rather than wherever the ship came down — land anywhere and you step
+  // out onto the same terrace, with the ship on the same pad. ACTUALITY_SITE
+  // is surface-local (the planet's unrotated frame), so rotate it into world
+  // space before anything downstream reads _up.
+  const fixedSite = planet.cfg.name === 'actuality';
+  if (fixedSite) {
+    _up.copy(ACTUALITY_SITE).applyAxisAngle(_yAxisV, planet.surface.rotation.y).normalize();
   }
-  walk.heading.normalize();
+
+  if (fixedSite) {
+    // Step out facing the café — the site anchor's +Z — rather than wherever
+    // the nose happened to point when we came down somewhere else entirely.
+    // Same frame actuality.js builds its anchor in: +Y to the site direction.
+    _qTmp.setFromUnitVectors(_yAxisV, ACTUALITY_SITE);
+    walk.heading.set(0, 0, 1).applyQuaternion(_qTmp)
+      .applyAxisAngle(_yAxisV, planet.surface.rotation.y);
+    projectTangent(walk.heading, _up);
+    walk.heading.normalize();
+  } else {
+    // Seed heading from the ship's forward (-Z), projected onto the tangent
+    // plane. Fall back to an arbitrary tangent if it was pointing straight up.
+    walk.heading.set(0, 0, -1).applyQuaternion(ship.quaternion);
+    projectTangent(walk.heading, _up);
+    if (walk.heading.lengthSq() < 1e-6) {
+      walk.heading.set(1, 0, 0);
+      projectTangent(walk.heading, _up);
+    }
+    walk.heading.normalize();
+  }
   walk.facing.copy(walk.heading);
 
   // Snap onto the surface directly below: feet on the ground, or afloat at
@@ -451,9 +473,12 @@ function spawnWorldEntities(planet) {
     // The module OWNS the ground inside its footprint (groundRadiusAt), so ask
     // it rather than the terrain sphere — otherwise the ship sinks into or
     // floats above the terrace paving.
+    // The module's ground query already returns the pad's cast surface (its
+    // collision slab sits at the pad top), so pad.y is only the fallback for
+    // the case where the query misses and we're measuring bare terrain.
     const parkR = actuality.groundRadiusAt(_target);
     parked.group.position.copy(_patchUp).multiplyScalar(
-      (parkR > 0 ? parkR : _target.length()) + pad.y + C.PARK_LIFT
+      parkR > 0 ? parkR + C.PARK_LIFT : _target.length() + pad.y + C.PARK_LIFT
     );
     parked.group.quaternion.setFromUnitVectors(_yAxisV, _patchUp);
     // Nose pointing back at the terrace, so it reads as having set down here.

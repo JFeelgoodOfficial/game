@@ -39,6 +39,7 @@ import { makeStructure } from './city.js';
 import * as DLG from './actuality-dialogue.js';
 import { createMirrorRoom } from './actuality-mirrorroom.js';
 import { createActualitySky } from './actuality-sky.js';
+import { createActualityMaterials } from './actuality-materials.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import cityWindowsFrag from './shaders/actualityCityWindows.frag?raw';
 // The owner's dragon artwork, shown in Zone 9 the way the deep nebulae show the
@@ -58,8 +59,8 @@ const AC = {
   DOME_RADIUS: 140,          // hub sky dome
   ZONE_DIST: 315,            // zones sit this far from the hub along ring bearings (was 420; −25%)
   ZONE_FLOOR_HALF: 30,       // zone landing-pad half-extent
-  ARCH_RING: 15,             // hub portal arches this far from the anchor
-  ARCH_ARC: 2.6,             // arc (radians) the nine arches span, front of terrace
+  ARCH_RING: 15,             // hub gateways this far from the anchor
+  ARCH_ARC: 2.9,             // arc (radians) the nine gateways span, front of terrace
   PORTAL_R: 2.0,             // portal trigger radius
   FADE_OUT: 0.6,             // seconds to black
   FADE_IN: 1.4,              // seconds back from black (~2 s total transition)
@@ -315,8 +316,9 @@ function crescentTexture(flip = false) {
   return tex;
 }
 
-// Portal sign: the digit glyph + its word, glowing warm on dark. Used on the
-// hub arches (a quiet reward for players tracking the cipher).
+// Sign plate: the digit glyph + its word, glowing warm on dark. The gateways
+// use the engraved steel plate in actuality-materials.js; this simpler one is
+// the hidden mirror door's "0 / REPEAT".
 function signTexture(digit, word) {
   const c = document.createElement('canvas');
   c.width = 256; c.height = 128;
@@ -461,6 +463,21 @@ const ZONE_META = [
   { id: 'z9', word: 'DEATH / REBIRTH', tint: 0x707078, sky: 'none', note: 'THE DRAGON — LEAP INTO THE BLACK BOX TO BE REBORN' },
 ];
 
+/**
+ * The one place on Actuality the story happens.
+ *
+ * Every other world builds its landing site wherever you happen to touch down.
+ * This one can't: the café, the nine gateways and the landing pad are a fixed
+ * piece of architecture, and a player who lands twice should find them in the
+ * same place both times — the pad is a landmark, not a thing that follows the
+ * ship around. So the anchor is pinned to this direction in the planet's
+ * UNROTATED surface-local frame, and walk.js snaps the touchdown to it.
+ *
+ * Any unit vector works; this one is off-equator so the terrace doesn't sit on
+ * the seam of the terrain's latitude bands.
+ */
+export const ACTUALITY_SITE = new THREE.Vector3(0.42, 0.31, 0.85).normalize();
+
 // The café itself: the headline look — a real blue sky with clouds here and
 // there, sun low enough that the light across the terrace stays warm.
 const HUB_SKY = 'clearBlue';
@@ -473,29 +490,122 @@ function skyForZone(id) {
   return ZONE_META[idx]?.sky ?? 'interior';
 }
 
-// One portal arch (two posts + a lintel + a glowing sign), built facing +Z in
-// its own local frame; caller positions/yaws it.
-function buildPortalArch(digit, word, geos, mats) {
+// Gateway footprint, shared by the geometry, the collision boxes buildHub
+// registers, and the trigger placement. Half-width out to the outside face of
+// a plinth: the arches must not crowd each other on the arc.
+const GATE = {
+  COL_X: 1.45,       // column centre offset from the opening's centreline
+  HALF: 2.0,         // outer half-width (plinth face)
+  HEAD: 4.42,        // underside of the lintel
+  TOP: 4.96,         // top of the cap flashing
+};
+
+/**
+ * One gateway — blackened steel and glass, built facing +Z in its own local
+ * frame; the caller positions and yaws it.
+ *
+ * The read from across the terrace is a heavy steel portal frame: two I-section
+ * columns on concrete plinths, a deep lintel, and glazing that carries the
+ * destination zone's colour — a lit head transom over the opening and a slot of
+ * light let into each column's inner web. The opening itself stays clear, so
+ * it's obvious you walk through rather than into it, and a flush sill plate
+ * with a glowing inlay marks exactly where the threshold is.
+ *
+ * `tint` is the zone's colour; every gate is the same steel and differs only in
+ * what colour is burning inside it.
+ */
+function buildPortalArch(digit, word, tint, geos, mats, M) {
   const grp = new THREE.Group();
-  const postMat = new THREE.MeshStandardMaterial({ color: 0x3a2c20, roughness: 0.85 });
-  mats.push(postMat);
-  const box = (w, h, d, x, y, z, mat) => {
+  const glass = M.glassFor(tint);
+  const box = (w, h, d, x, y, z, mat, rz = 0) => {
     const g = new THREE.BoxGeometry(w, h, d);
     geos.push(g);
-    const m = new THREE.Mesh(g, mat); m.position.set(x, y, z); grp.add(m); return m;
+    const m = new THREE.Mesh(g, mat);
+    m.position.set(x, y, z);
+    if (rz) m.rotation.z = rz;
+    grp.add(m);
+    return m;
   };
-  box(0.4, 3.4, 0.4, -1.3, 1.7, 0, postMat);
-  box(0.4, 3.4, 0.4, 1.3, 1.7, 0, postMat);
-  box(3.4, 0.5, 0.4, 0, 3.55, 0, postMat);
-  const signTex = signTexture(digit, word);
-  const signGeo = new THREE.PlaneGeometry(2.6, 0.9);
-  const signMat = new THREE.MeshBasicMaterial({ map: signTex, transparent: true });
-  const sign = new THREE.Mesh(signGeo, signMat);
-  sign.position.set(0, 3.55, 0.25);
-  grp.add(sign);
-  geos.push(signGeo); mats.push(signMat);
-  grp.userData.signTex = signTex;
+  const plane = (w, h, x, y, z, mat) => {
+    const g = new THREE.PlaneGeometry(w, h);
+    geos.push(g);
+    const m = new THREE.Mesh(g, mat);
+    m.position.set(x, y, z);
+    grp.add(m);
+    return m;
+  };
+
+  const X = GATE.COL_X;
+  for (const s of [-1, 1]) {
+    // Cast plinth, with a chamfered top course so the column doesn't grow
+    // straight out of the paving.
+    box(1.10, 0.30, 1.10, s * X, 0.15, 0, M.concrete);
+    box(0.88, 0.14, 0.88, s * X, 0.37, 0, M.concrete);
+    // I-section column: web plus inner/outer flanges, so the profile reads as
+    // rolled steel rather than a stick.
+    box(0.30, 3.98, 0.34, s * X, 2.43, 0, M.steel);
+    box(0.13, 3.86, 0.66, s * X - s * 0.21, 2.43, 0, M.steel);
+    box(0.13, 3.86, 0.66, s * X + s * 0.21, 2.43, 0, M.steel);
+    // Base plate + visible bolt heads where the column meets the plinth.
+    box(0.74, 0.06, 0.74, s * X, 0.47, 0, M.steelBright);
+    for (const bz of [-0.28, 0.28]) {
+      box(0.10, 0.09, 0.10, s * X - 0.28, 0.53, bz, M.steelBright);
+      box(0.10, 0.09, 0.10, s * X + 0.28, 0.53, bz, M.steelBright);
+    }
+    // Slot of zone light let into the column's inner web.
+    plane(0.20, 2.60, s * (X - 0.155), 2.30, 0.001, glass.scrim);
+    plane(0.20, 2.60, s * (X - 0.155), 2.30, -0.001, glass.scrim);
+    // Corner gusset under the lintel.
+    box(0.46, 0.46, 0.28, s * (X - 0.42), GATE.HEAD - 0.30, 0, M.steel, Math.PI / 4);
+  }
+
+  // Lintel: a deep beam, a bright soffit plate under it (catches the light
+  // coming up off the terrace), and a cap flashing over the top.
+  box(2 * GATE.HALF - 0.1, 0.46, 0.70, 0, GATE.HEAD + 0.23, 0, M.steel);
+  box(2 * X - 0.34, 0.05, 0.52, 0, GATE.HEAD - 0.02, 0, M.steelBright);
+  box(2 * GATE.HALF + 0.14, 0.09, 0.86, 0, GATE.HEAD + 0.50, 0, M.steel);
+
+  // Head transom: a glazed panel over the opening, between a crossbeam and the
+  // lintel soffit. This is the lantern of the whole thing.
+  box(2 * X - 0.30, 0.16, 0.34, 0, 3.44, 0, M.steelBright);
+  const TW = 2 * X - 0.44, TH = GATE.HEAD - 3.60;
+  const TY = (3.52 + GATE.HEAD) / 2;
+  plane(TW, TH, 0, TY, 0.04, glass.pane);
+  plane(TW, TH, 0, TY, -0.03, glass.scrim);
+  // Two mullions across the transom.
+  for (const mx of [-0.44, 0.44]) box(0.07, TH, 0.16, mx, TY, 0, M.steelBright);
+
+  // Sill: a flush steel threshold plate with a glowing inlay each side, so the
+  // trigger has a visible edge to step over.
+  box(2 * X + 0.2, 0.07, 1.02, 0, 0.035, 0, M.steelBright);
+  for (const sz of [-0.34, 0.34]) {
+    const inlay = plane(2 * X - 0.24, 0.15, 0, 0.072, sz, glass.scrim);
+    inlay.rotation.x = -Math.PI / 2;
+  }
+
+  // Engraved nameplate on the lintel face.
+  const plateTex = M.plateTexture(digit, word, tint);
+  const plateGeo = new THREE.PlaneGeometry(2.30, 0.72);
+  const plateMat = new THREE.MeshStandardMaterial({
+    map: plateTex, roughness: 0.55, metalness: 0.8,
+    emissiveMap: plateTex, emissive: 0xffffff, emissiveIntensity: 0.30,
+  });
+  const plate = new THREE.Mesh(plateGeo, plateMat);
+  plate.position.set(0, GATE.HEAD + 0.23, 0.36);
+  grp.add(plate);
+  geos.push(plateGeo); mats.push(plateMat);
   return grp;
+}
+
+// Where hub gateway `i` of `count` stands on the terrace, in anchor-local
+// space. Shared by buildHub (which registers the columns as collision) and by
+// createActuality (geometry + trigger centres), so the two can never drift.
+function gatePlacement(i, count = AC.ZONE_COUNT) {
+  const t = count > 1 ? i / (count - 1) : 0.5;
+  const ang = -AC.ARCH_ARC / 2 + t * AC.ARCH_ARC;
+  const x = Math.sin(ang) * AC.ARCH_RING;
+  const z = -Math.cos(ang) * AC.ARCH_RING; // front (-Z) arc, clear of the café
+  return { x, z, yaw: Math.atan2(-x, -z) }; // yaw faces the terrace centre
 }
 
 /* ----------------------------------------------------------------------
@@ -568,7 +678,7 @@ function makeFigure(opts = {}) {
  * Built in anchor-local space (added under `anchor`). Returns geometry group,
  * a makeStructure for collision, lights, and the She interactable position.
  * ------------------------------------------------------------------- */
-function buildHub(rng, quality = 'high') {
+function buildHub(rng, quality = 'high', M) {
   const group = new THREE.Group();
   group.name = 'actuality.hub';
   const geos = [];
@@ -640,12 +750,12 @@ function buildHub(rng, quality = 'high') {
   // The parapet's opening, which the walk out to the pad runs through. Declared
   // with the pad because both the walkway and the wall runs below need it.
   const GAP_Z0 = 1.5, GAP_Z1 = 10.5;
-  const padMat = new THREE.MeshStandardMaterial({ color: 0x6f6a63, roughness: 0.93 });
+  const padMat = M.pad; // shared concrete (registry owns it)
   const padPaint = new THREE.MeshStandardMaterial({ color: 0xd8c88a, roughness: 0.8 });
   const padLightMat = new THREE.MeshStandardMaterial({
     color: 0xbfe6ff, emissive: 0x7fd0ff, emissiveIntensity: 1.4, roughness: 0.4,
   });
-  mats.push(padMat, padPaint, padLightMat);
+  mats.push(padPaint, padLightMat);
 
   const padGeo = new THREE.CylinderGeometry(PAD_R, PAD_R + 0.5, PAD_RISE + 1.0, 40);
   geos.push(padGeo);
@@ -702,9 +812,8 @@ function buildHub(rng, quality = 'high') {
   // that end already.
   const PARAPET_H = 1.05;
   const PARAPET_T = 0.42;
-  const parapetMat = new THREE.MeshStandardMaterial({ color: 0xa89b86, roughness: 0.9 });
-  const capMat = new THREE.MeshStandardMaterial({ color: 0x8c8172, roughness: 0.72 });
-  mats.push(parapetMat, capMat);
+  const parapetMat = M.stone;   // shared limestone (registry owns both)
+  const capMat = M.coping;
   const parapetWalls = []; // collision, filled alongside the geometry
 
   // A run of parapet with a stone cap on top, plus its collision box.
@@ -737,15 +846,26 @@ function buildHub(rng, quality = 'high') {
     const a = (i / 10) * Math.PI * 2;
     const px = Math.sin(a) * (H - 2.2), pz = Math.cos(a) * (H - 2.2);
     if (pz > BZ - 8) continue; // don't block the café nook
+    // ...nor stand in a gateway. The planter ring passes just behind the arc,
+    // which put a shrub squarely in one of the openings.
+    let blocks = false;
+    for (let g = 0; g < AC.ZONE_COUNT && !blocks; g++) {
+      const p = gatePlacement(g);
+      blocks = Math.hypot(px - p.x, pz - p.z) < 4.0;
+    }
+    if (blocks) continue;
     addBox(2.2, 0.7, 1.0, px, 0.35, pz, planterMat, a);
     const s = new THREE.Mesh(shrubGeo, shrubMat);
     s.position.set(px, 1.0, pz); s.scale.set(1, 0.8, 1); group.add(s);
   }
 
-  // Tables + chairs on the terrace (chair = seat + back + legs).
+  // Tables + chairs on the terrace (chair = seat + back + legs). The backrest
+  // sits on the +ry edge of the seat, so a chair placed on the far side of a
+  // table gets its back to the outside and the sitter looks in at the table —
+  // the offset used to be negated, which sat everyone facing away from it.
   const chairAt = (x, z, ry) => {
     addBox(0.5, 0.08, 0.5, x, 0.5, z, woodDark, ry);
-    const bx = x - Math.sin(ry) * 0.22, bz = z - Math.cos(ry) * 0.22;
+    const bx = x + Math.sin(ry) * 0.22, bz = z + Math.cos(ry) * 0.22;
     addBox(0.5, 0.6, 0.08, bx, 0.8, bz, woodDark, ry);
   };
   const tableAt = (x, z, withChairs = true) => {
@@ -1005,20 +1125,46 @@ function buildHub(rng, quality = 'high') {
   for (let i = 0; i < NL; i++) lbase.push({ x0: (lr() - 0.5) * H * 2, y: 0.5 + lr() * 5, z: (lr() - 0.5) * H * 2, ph: lr() * 6.28, sp: 0.3 + lr() * 0.5 });
   const _lm = new THREE.Matrix4();
 
-  // Collision: the café nook walls, plus the terrace parapet.
+  // Collision: the café nook walls, the terrace parapet, and the gateway
+  // columns. Only the column shafts are solid, not the plinths: the plinth is
+  // a 30 cm kerb the walker steps straight over, and bounding a yawed 1.1 m
+  // block axis-aligned would eat most of the 2.9 m opening once the player's
+  // radius is added on top. The shafts bound to ~0.2 m, leaving the walk-through
+  // clear.
+  const gateWalls = [];
+  for (let i = 0; i < AC.ZONE_COUNT; i++) {
+    const p = gatePlacement(i);
+    const c = Math.abs(Math.cos(p.yaw)), s = Math.abs(Math.sin(p.yaw));
+    const half = (0.30 * c + 0.34 * s) / 2 + 0.03; // rotated column AABB
+    for (const side of [-1, 1]) {
+      const cx = p.x + side * GATE.COL_X * Math.cos(p.yaw);
+      const cz = p.z - side * GATE.COL_X * Math.sin(p.yaw);
+      gateWalls.push({
+        x0: cx - half, x1: cx + half, z0: cz - half, z1: cz + half,
+        y0: 0.42, y1: GATE.HEAD,
+      });
+    }
+  }
   const walls = [
     { x0: -10, x1: 10, z0: BZ - 0.25, z1: BZ + 0.25, y0: 0, y1: WH },
     { x0: -10.25, x1: -9.75, z0: BZ - 6.5, z1: BZ, y0: 0, y1: WH },
     { x0: 9.75, x1: 10.25, z0: BZ - 6.5, z1: BZ, y0: 0, y1: WH },
     { x0: -6, x1: 6, z0: BZ - 1.8, z1: BZ - 0.6, y0: 0, y1: 1.1 }, // counter
     ...parapetWalls,
+    ...gateWalls,
   ];
   // The floor now reaches out past the parapet gap to the landing pad, so the
-  // walk between them is solid ground rather than a drop.
+  // walk between them is solid ground rather than a drop. The pad's walkable
+  // surface sits at its cast height rather than at grade — otherwise you stand
+  // 35 cm inside the concrete. The rise is well under the structure's step-up
+  // allowance, so walking onto it is a kerb step, not a wall.
   const surfaces = [
     { x0: -H, x1: H, z0: -H, z1: H, y: 0 },
     { x0: H, x1: PAD_X + PAD_R + 1, z0: GAP_Z0, z1: GAP_Z1, y: 0 },
-    { x0: PAD_X - PAD_R - 1, x1: PAD_X + PAD_R + 1, z0: PAD_Z - PAD_R - 1, z1: PAD_Z + PAD_R + 1, y: 0 },
+    {
+      x0: PAD_X - PAD_R - 1, x1: PAD_X + PAD_R + 1,
+      z0: PAD_Z - PAD_R - 1, z1: PAD_Z + PAD_R + 1, y: PAD_RISE,
+    },
   ];
   const structure = makeStructure(0, 0, 0, surfaces, walls, PAD_X + PAD_R + 4);
 
@@ -1153,8 +1299,13 @@ export function createActuality(planet, worldUp, opts = {}) {
     ? createActualitySky(anchor, opts.scene, { quality: opts.quality })
     : null;
 
+  // --- Shared PBR materials (procedural; see actuality-materials.js) ---
+  // Built before the hub so the terrace, the pad and all ten gateways draw
+  // with one set of steel/concrete/limestone materials.
+  const materials = createActualityMaterials({ quality: opts.quality });
+
   // --- Hub ---
-  const hub = buildHub(rng, opts.quality);
+  const hub = buildHub(rng, opts.quality, materials);
   anchor.add(hub.group);
 
   // --- Interactables (anchor-local Vector3 positions) ---
@@ -1223,7 +1374,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     // (registered against the zone's interactable below, once zones are built)
 
     // Return portal at zone-local (0,0,14), facing back toward the pad center.
-    const retArch = buildPortalArch('0', 'CAFÉ', zoneGeos, zoneMats);
+    const retArch = buildPortalArch('0', 'CAFÉ', AC.COL_GOLD, zoneGeos, zoneMats, materials);
     retArch.position.set(0, 0, 14);
     retArch.rotation.y = Math.PI; // face -Z (toward where the player arrives)
     zg.add(retArch);
@@ -1296,21 +1447,18 @@ export function createActuality(planet, worldUp, opts = {}) {
     if (rec && rec.zlight) addEventLight(rec.zlight, it.pos);
   }
 
-  // --- Hub portal arches: nine, in a front arc on the terrace, one per zone.
+  // --- Hub gateways: nine, in a front arc on the terrace, one per zone.
   const hubPortals = [];
   for (let i = 0; i < AC.ZONE_COUNT; i++) {
     const meta = ZONE_META[i];
-    const t = AC.ZONE_COUNT > 1 ? i / (AC.ZONE_COUNT - 1) : 0.5;
-    const ang = -AC.ARCH_ARC / 2 + t * AC.ARCH_ARC;
-    const ax = Math.sin(ang) * AC.ARCH_RING;
-    const az = -Math.cos(ang) * AC.ARCH_RING; // front (-Z) arc, clear of the café
-    const arch = buildPortalArch(String(i + 1), meta.word, zoneGeos, zoneMats);
-    arch.position.set(ax, 0, az);
-    arch.rotation.y = Math.atan2(-ax, -az); // face the terrace center
+    const p = gatePlacement(i);
+    const arch = buildPortalArch(String(i + 1), meta.word, meta.tint, zoneGeos, zoneMats, materials);
+    arch.position.set(p.x, 0, p.z);
+    arch.rotation.y = p.yaw;
     anchor.add(arch);
     hubPortals.push({
       targetZone: meta.id,
-      center: new THREE.Vector3(ax, 0, az).applyQuaternion(anchorQ).add(anchorPos),
+      center: new THREE.Vector3(p.x, 0, p.z).applyQuaternion(anchorQ).add(anchorPos),
     });
   }
 
@@ -1465,7 +1613,10 @@ export function createActuality(planet, worldUp, opts = {}) {
   const zones = [{
     frame: { pos: anchorPos, q: anchorQ, qInv: anchorQInv },
     structures: [hub.structure],
-    r2: (AC.HUB_FLOOR_HALF + 12) ** 2,
+    // Wide enough to cover the landing pad, which sits well outside the
+    // terrace — culling at the terrace radius left the far half of the pad
+    // with no floor under it.
+    r2: (hub.structure.halfExtent + 4) ** 2,
   }];
   for (const z of zoneList) {
     // extraStructures lets a zone add a building with its own local origin
@@ -1598,8 +1749,8 @@ export function createActuality(planet, worldUp, opts = {}) {
         flags.talkedJoshuaCaitlynn = true; saveFlags(flags);
         startJoshuaDeparture();
         break;
-      // The dragon's gift is the descent itself: dragonGiftReceived is set when
-      // the player falls through the open box, not by talking.
+      // The dragon's gift is the fall itself: dragonGiftReceived is set when
+      // the player steps into the open box, not by talking.
     }
     entity.pending = null;
   }
@@ -2018,29 +2169,34 @@ export function createActuality(planet, worldUp, opts = {}) {
     });
   }
 
-  // Z9 — a monolith door opening onto a switchback shaft that descends to the
-  // granite dragon's chamber.
+  // Z9 — a monolith door opening onto a stepped shaft that CLIMBS to the
+  // granite dragon's chamber. You go up to meet it: the whole zone is an
+  // ascent, and the only way back down is through the black box at its feet.
   function buildZone9() {
     const rec = zoneById['z9'];
-    // Terraced switchback landings at y = 0,-3,-6,-9,-12,-15 down to the
-    // chamber, each a flat slab joined by a short ramp (along -Z).
+    const RISE = 3;                 // height gained per step
+    const STEPS = 5;
+    const CH_Y = RISE * STEPS;      // 15 — the chamber floor
+    // Terraced landings at y = 0,3,6,9,12,15 up to the chamber, each a flat
+    // slab joined by a short ramp (climbing along -Z).
     const surfaces = [{ x0: -30, x1: 30, z0: -6, z1: 30, y: 0 }]; // arrival
     const walls = [];
-    const wallH = { y0: -17, y1: 2 };
-    for (let k = 0; k < 5; k++) {
-      const y = -3 * k, z0 = -6 - k * 6;
+    const shaftH = { y0: -2, y1: CH_Y + 2 };
+    const chamberH = { y0: CH_Y - 1, y1: CH_Y + 18 };
+    for (let k = 0; k < STEPS; k++) {
+      const y = RISE * k, z0 = -6 - k * 6;
       surfaces.push({ x0: -5, x1: 5, z0: z0 - 3, z1: z0, y });                 // landing
-      surfaces.push({ ramp: true, x0: -5, x1: 5, z0: z0 - 6, z1: z0 - 3, zA: z0 - 3, zB: z0 - 6, yA: y, yB: y - 3 }); // ramp down
+      surfaces.push({ ramp: true, x0: -5, x1: 5, z0: z0 - 6, z1: z0 - 3, zA: z0 - 3, zB: z0 - 6, yA: y, yB: y + RISE }); // ramp up
     }
-    surfaces.push({ x0: -16, x1: 16, z0: -72, z1: -36, y: -15 });             // chamber floor
-    // Shaft guard walls down both sides, + chamber shell (door gap at z=-36).
-    walls.push({ x0: -5.4, x1: -5.0, z0: -36, z1: -6, ...wallH });
-    walls.push({ x0: 5.0, x1: 5.4, z0: -36, z1: -6, ...wallH });
-    walls.push({ x0: -16, x1: 16, z0: -72, z1: -71.5, ...wallH });
-    walls.push({ x0: -16, x1: -15.5, z0: -72, z1: -36, ...wallH });
-    walls.push({ x0: 15.5, x1: 16, z0: -72, z1: -36, ...wallH });
-    walls.push({ x0: -16, x1: -5.5, z0: -36, z1: -35.5, ...wallH });
-    walls.push({ x0: 5.5, x1: 16, z0: -36, z1: -35.5, ...wallH });
+    surfaces.push({ x0: -16, x1: 16, z0: -72, z1: -36, y: CH_Y });            // chamber floor
+    // Shaft guard walls up both sides, + chamber shell (door gap at z=-36).
+    walls.push({ x0: -5.4, x1: -5.0, z0: -36, z1: -6, ...shaftH });
+    walls.push({ x0: 5.0, x1: 5.4, z0: -36, z1: -6, ...shaftH });
+    walls.push({ x0: -16, x1: 16, z0: -72, z1: -71.5, ...chamberH });
+    walls.push({ x0: -16, x1: -15.5, z0: -72, z1: -36, ...chamberH });
+    walls.push({ x0: 15.5, x1: 16, z0: -72, z1: -36, ...chamberH });
+    walls.push({ x0: -16, x1: -5.5, z0: -36, z1: -35.5, ...chamberH });
+    walls.push({ x0: 5.5, x1: 16, z0: -36, z1: -35.5, ...chamberH });
     rec.structure = makeStructure(0, 0, 0, surfaces, walls, 78);
     rec.r2 = (78 + 12) ** 2;
 
@@ -2048,12 +2204,14 @@ export function createActuality(planet, worldUp, opts = {}) {
     // Dramatic lighting so the black granite dragon reads clearly: a cool key
     // from the front-side, a blue rim from behind, and a soft front fill. Decay
     // 1.0 so the light actually reaches the dragon across the ~14 m chamber.
+    // Everything in the chamber is placed relative to CH_Y, so the whole room
+    // keeps its proportions now that it sits above the arrival platform.
     const dragonKey = new THREE.PointLight(0xcfe0ff, 26, 80, 1.0);
-    dragonKey.position.set(5, -4, -52); rec.group.add(dragonKey);
+    dragonKey.position.set(5, CH_Y + 11, -52); rec.group.add(dragonKey);
     const dragonRim = new THREE.PointLight(0x7fb0ff, 20, 80, 1.0);
-    dragonRim.position.set(-6, 2, -70); rec.group.add(dragonRim);
+    dragonRim.position.set(-6, CH_Y + 17, -70); rec.group.add(dragonRim);
     const dragonFill = new THREE.PointLight(0x9fb8e0, 12, 70, 1.0);
-    dragonFill.position.set(-1, -7, -46); rec.group.add(dragonFill);
+    dragonFill.position.set(-1, CH_Y + 8, -46); rec.group.add(dragonFill);
     const dark = 0x14151a;
     // Monolith door framing the shaft mouth on the arrival platform.
     const monoMat = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.9, emissive: 0x0a1420, emissiveIntensity: 0.2 });
@@ -2061,24 +2219,32 @@ export function createActuality(planet, worldUp, opts = {}) {
     addZoneBox2(rec, 1.4, 8, 1.4, -4, 4, -6, monoMat);
     addZoneBox2(rec, 1.4, 8, 1.4, 4, 4, -6, monoMat);
     addZoneBox2(rec, 10, 1.6, 1.4, 0, 8.2, -6, monoMat);
-    // Landing slabs + ramp fill + emissive vein strips down the shaft walls.
-    for (let k = 0; k < 5; k++) {
-      const y = -3 * k, z0 = -6 - k * 6;
+    // Landing slabs + ramp fill. The ramp mesh tilts its -Z end up to match the
+    // walkable ramp above it.
+    for (let k = 0; k < STEPS; k++) {
+      const y = RISE * k, z0 = -6 - k * 6;
       addZoneBox(rec, 10, 0.4, 3, 0, y - 0.2, z0 - 1.5, dark);
-      const r = addZoneBox(rec, 10, 0.3, 3.4, 0, y - 1.5, z0 - 4.5, dark);
-      r.rotation.x = Math.atan2(3, 3);
+      const r = addZoneBox(rec, 10, 0.3, 3.4, 0, y + RISE / 2 - 0.2, z0 - 4.5, dark);
+      r.rotation.x = Math.atan2(RISE, 3);
     }
+    // Emissive vein strips climbing the shaft walls beside each landing.
     const veinMat = new THREE.MeshStandardMaterial({ color: 0x2a3a4a, emissive: 0x2a5a7a, emissiveIntensity: 0.5, roughness: 0.6 });
     zoneMats.push(veinMat);
-    for (let k = 0; k < 5; k++) {
-      addZoneBox2(rec, 0.1, 0.1, 2.4, -5.2, -3 * k - 1, -8 - k * 6, veinMat);
-      addZoneBox2(rec, 0.1, 0.1, 2.4, 5.2, -3 * k - 1, -8 - k * 6, veinMat);
+    for (let k = 0; k < STEPS; k++) {
+      addZoneBox2(rec, 0.1, 0.1, 2.4, -5.2, RISE * k + 1.2, -8 - k * 6, veinMat);
+      addZoneBox2(rec, 0.1, 0.1, 2.4, 5.2, RISE * k + 1.2, -8 - k * 6, veinMat);
     }
-    // Chamber shell (matte near-black).
-    addZoneBox(rec, 32, 0.6, 36, 0, -15.3, -54, dark);
-    addZoneBox(rec, 32, 18, 0.6, 0, -8, -71.7, dark);
-    addZoneBox(rec, 0.6, 18, 36, -15.7, -8, -54, dark);
-    addZoneBox(rec, 0.6, 18, 36, 15.7, -8, -54, dark);
+    // Chamber shell (matte near-black). The floor is cut into four slabs around
+    // the black box's shaft, so the opening really does look through the floor.
+    for (const [fx, fz, fw, fd] of [
+      [0, -65.35, 32, 13.3],      // behind the box, back to the far wall
+      [0, -44.65, 32, 17.3],      // in front of the box, out to the doorway
+      [-9.35, -56, 13.3, 5.4],    // left of the shaft
+      [9.35, -56, 13.3, 5.4],     // right of the shaft
+    ]) addZoneBox(rec, fw, 0.6, fd, fx, CH_Y - 0.3, fz, dark);
+    addZoneBox(rec, 32, 18, 0.6, 0, CH_Y + 7, -71.7, dark);
+    addZoneBox(rec, 0.6, 18, 36, -15.7, CH_Y + 7, -54, dark);
+    addZoneBox(rec, 0.6, 18, 36, 15.7, CH_Y + 7, -54, dark);
 
     // The dragon itself is the owner's artwork, shown as a large luminous
     // billboard (the way the deep nebulae show the owner's paintings) rather than
@@ -2096,7 +2262,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     const graniteMat = new THREE.MeshBasicMaterial({ map: graniteTex, transparent: true, side: THREE.DoubleSide, depthWrite: false });
     zoneMats.push(graniteMat);
     const granite = new THREE.Mesh(dragonGeo, graniteMat);
-    granite.position.set(0, -1.5, -64); rec.group.add(granite);
+    granite.position.set(0, CH_Y + 13.5, -64); rec.group.add(granite);
     // Front layer: the glowing hologram (box removed), additively blended so its
     // dark ground vanishes and only the blue dragon glows over the granite.
     const dragonTex = loader.load(dragonHoloUrl);
@@ -2105,10 +2271,10 @@ export function createActuality(planet, worldUp, opts = {}) {
     const dragonMat = new THREE.MeshBasicMaterial({ map: dragonTex, transparent: true, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
     zoneMats.push(dragonMat);
     const dragon = new THREE.Mesh(dragonGeo, dragonMat);
-    dragon.position.set(0, -1.5, -63.2); rec.group.add(dragon);
+    dragon.position.set(0, CH_Y + 13.5, -63.2); rec.group.add(dragon);
     zoneGeos.push(dragonGeo);
     const holoLight = new THREE.PointLight(0x7fc0ff, 1.0, 30, 2.0);
-    holoLight.position.set(0, -4, -56); rec.group.add(holoLight);
+    holoLight.position.set(0, CH_Y + 11, -56); rec.group.add(holoLight);
     z9Holo = { mat: dragonMat, mat2: graniteMat, light: holoLight };
 
     // The open black box at the dragon's feet — an opening looking down onto a
@@ -2120,44 +2286,50 @@ export function createActuality(planet, worldUp, opts = {}) {
     // Raised open-topped box walls — a prominent black cube with a glowing
     // opening in its top looking down onto the city.
     for (const [dx, dz, w, d] of [[-2.4, 0, 0.8, 5.2], [2.4, 0, 0.8, 5.2], [0, -2.4, 5.2, 0.8], [0, 2.4, 5.2, 0.8]]) {
-      addZoneBox2(rec, w, 2.0, d, BX + dx, -14.0, BZ + dz, boxMat); // rim (top ~ -13.0)
+      addZoneBox2(rec, w, 2.0, d, BX + dx, CH_Y + 1.0, BZ + dz, boxMat); // rim (top ~ CH_Y+2)
     }
     // Corner posts read the cube's edges under the rim/key light.
     const postMat = new THREE.MeshStandardMaterial({ color: 0x08080c, roughness: 0.4, metalness: 0.5, emissive: 0x0c1c30, emissiveIntensity: 0.35 });
     zoneMats.push(postMat);
-    for (const cx of [-2.6, 2.6]) for (const cz of [-2.6, 2.6]) addZoneBox2(rec, 0.55, 2.3, 0.55, BX + cx, -13.85, BZ + cz, postMat);
+    for (const cx of [-2.6, 2.6]) for (const cz of [-2.6, 2.6]) addZoneBox2(rec, 0.55, 2.3, 0.55, BX + cx, CH_Y + 1.15, BZ + cz, postMat);
     // A thin luminous lip framing the opening so it glows like a window.
     const lipMat = new THREE.MeshBasicMaterial({ color: 0x7fb4ff });
     zoneMats.push(lipMat);
     for (const [dx, dz, w, d] of [[-2.0, 0, 0.14, 4.0], [2.0, 0, 0.14, 4.0], [0, -2.0, 4.0, 0.14], [0, 2.0, 4.0, 0.14]]) {
       const lg = new THREE.BoxGeometry(w, 0.1, d);
-      const lm = new THREE.Mesh(lg, lipMat); lm.position.set(BX + dx, -12.95, BZ + dz);
+      const lm = new THREE.Mesh(lg, lipMat); lm.position.set(BX + dx, CH_Y + 2.05, BZ + dz);
       rec.group.add(lm); zoneGeos.push(lg);
     }
     const shaftMat = new THREE.MeshStandardMaterial({ color: 0x0a0b10, roughness: 0.9, side: THREE.DoubleSide });
     zoneMats.push(shaftMat);
-    for (const [dx, dz, w, d, ry] of [[-2, 0, 3.4, 0.1, 0], [2, 0, 3.4, 0.1, 0], [0, -2, 3.4, 0.1, Math.PI / 2], [0, 2, 3.4, 0.1, Math.PI / 2]]) {
-      const g = new THREE.PlaneGeometry(w, 3.4);
-      const m = new THREE.Mesh(g, shaftMat); m.position.set(BX + dx, -16.7, BZ + dz); m.rotation.y = ry;
-      rec.group.add(m); zoneGeos.push(g);
-    }
+    // The shaft under the opening. The chamber is now up in the air, so this is
+    // a closed box hanging below the floor rather than a hole in bedrock —
+    // otherwise the lit city planes inside it would be visible from the ramp,
+    // glowing in the middle of the void.
+    const SHAFT_D = 9;
+    const sy = CH_Y - SHAFT_D / 2;
+    addZoneBox2(rec, 0.3, SHAFT_D, 5.7, BX - 2.85, sy, BZ, shaftMat);
+    addZoneBox2(rec, 0.3, SHAFT_D, 5.7, BX + 2.85, sy, BZ, shaftMat);
+    addZoneBox2(rec, 5.7, SHAFT_D, 0.3, BX, sy, BZ - 2.85, shaftMat);
+    addZoneBox2(rec, 5.7, SHAFT_D, 0.3, BX, sy, BZ + 2.85, shaftMat);
+    addZoneBox2(rec, 6.0, 0.3, 6.0, BX, CH_Y - SHAFT_D - 0.15, BZ, shaftMat);
     const cityTex = cityBelowTexture();
     zoneTextures.push(cityTex);
     cityFallUrl = cityTex.image.toDataURL(); // reused by the fall overlay
     const cityMat = new THREE.MeshBasicMaterial({ map: cityTex, side: THREE.DoubleSide });
     const cityGeo = new THREE.PlaneGeometry(4.2, 4.2); // fills the opening when you look in
     const cityPlane = new THREE.Mesh(cityGeo, cityMat);
-    cityPlane.position.set(BX, -18.0, BZ); cityPlane.rotation.x = -Math.PI / 2;
+    cityPlane.position.set(BX, CH_Y - 3.0, BZ); cityPlane.rotation.x = -Math.PI / 2;
     rec.group.add(cityPlane); zoneGeos.push(cityGeo); zoneMats.push(cityMat);
     // A second, larger faint city layer deeper down for a sense of depth.
     const cityFar = new THREE.Mesh(new THREE.PlaneGeometry(7, 7), new THREE.MeshBasicMaterial({ map: cityTex, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
-    cityFar.position.set(BX, -22.5, BZ); cityFar.rotation.x = -Math.PI / 2;
+    cityFar.position.set(BX, CH_Y - 7.5, BZ); cityFar.rotation.x = -Math.PI / 2;
     rec.group.add(cityFar); zoneGeos.push(cityFar.geometry); zoneMats.push(cityFar.material);
     const upGlow = new THREE.PointLight(0xffd9a0, 1.6, 18, 2.0);
-    upGlow.position.set(BX, -15.5, BZ); rec.group.add(upGlow);
+    upGlow.position.set(BX, CH_Y - 0.5, BZ); rec.group.add(upGlow);
 
     // Dragon dialogue (talk before you jump), placed clear of the box footprint.
-    interactables.push({ id: 'dragon', zone: 'z9', pos: zoneToAnchor(rec, 0, -14, -50), talking: false });
+    interactables.push({ id: 'dragon', zone: 'z9', pos: zoneToAnchor(rec, 0, CH_Y + 1, -50), talking: false });
 
     // Fall trigger: stepping over the box opening drops the player to the city
     // (the hub, where the ship waits). The generic top return arch stays as the
@@ -3449,18 +3621,12 @@ export function createActuality(planet, worldUp, opts = {}) {
   function dispose() {
     if (sky) sky.dispose(); // also restores scene.fog / .environment for the flight sim
     hub.dispose();
+    materials.dispose();
     if (mirror) mirror.dispose();
     for (const f of figures) f.dispose();
     for (const g of zoneGeos) g.dispose();
     for (const m of zoneMats) m.dispose();
     for (const tx of zoneTextures) tx.dispose();
-    // Sign textures live on arch groups' userData.
-    group.traverse((o) => {
-      if (o.userData && o.userData.signTex) o.userData.signTex.dispose();
-    });
-    anchor.traverse((o) => {
-      if (o.userData && o.userData.signTex) o.userData.signTex.dispose();
-    });
     if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
     overlayEl = null;
     if (cityFallEl && cityFallEl.parentNode) cityFallEl.parentNode.removeChild(cityFallEl);
