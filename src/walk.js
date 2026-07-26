@@ -141,8 +141,8 @@ let parked = null; // parked ship mesh (world/ship.js) — takeoff anchor
 let city = null; // the adopted registry city (world/city.js), or null (wilderness)
 let crowd = null; // citizens inside the city (world/aliens.js)
 let vendors = null; // named vendor NPCs with static dialogue (world/vendors.js)
-let wonders = null; // the city's unique wonder (world/wonders.js)
-let wonderColliders = null; // surface-local {position,radius,height} cylinders
+let wonders = null; // the city's wonders, one module each (world/wonders.js)
+let wonderColliders = null; // surface-local {position,radius,height} cylinders (all wonders, flat)
 let creatures = null; // planet wildlife (world/creatures.js)
 let diamondRain = null; // walker-local diamond-rain volume (cfg.diamondRain)
 let marineSnow = null; // diver-local particulate volume (cfg.divable)
@@ -670,22 +670,27 @@ function spawnWorldEntities(planet) {
     });
     city.group.add(vendors.group);
 
-    // --- the city's unique wonder: one globally-unique type per city, at a
-    // fixed bearing/distance from the site (visible from town, a short walk).
-    wonderLocalDir(planet, cityDef, _patchUp)
-      .applyAxisAngle(_yAxisV, planet.surface.rotation.y); // -> world dir
-    wonders = createWonder(cityDef.wonder.type, planet, _patchUp, {
-      seed: cityDef.wonder.seed,
-      materials: surfaceMaterials,
-      // Wonders share the city's neon identity (palette.accent/secondary).
-      palette: {
-        accent: style.palette.neonPrimary,
-        secondary: style.palette.neonSecondaryA,
-      },
-    }); // adds its group to planet.surface itself
-    wonderColliders = Array.isArray(wonders.collider)
-      ? wonders.collider
-      : wonders.collider ? [wonders.collider] : null;
+    // --- the city's wonders: each registry entry at a fixed bearing/distance
+    // from the site (visible from town, a short walk; the governor's tour
+    // quest chains through all of them in order).
+    wonders = [];
+    wonderColliders = [];
+    for (const w of cityDef.wonders) {
+      wonderLocalDir(planet, cityDef, w, _patchUp)
+        .applyAxisAngle(_yAxisV, planet.surface.rotation.y); // -> world dir
+      const mod = createWonder(w.type, planet, _patchUp, {
+        seed: w.seed,
+        materials: surfaceMaterials,
+        // Wonders share the city's neon identity (palette.accent/secondary).
+        palette: {
+          accent: style.palette.neonPrimary,
+          secondary: style.palette.neonSecondaryA,
+        },
+      }); // adds its group to planet.surface itself
+      wonders.push(mod);
+      if (Array.isArray(mod.collider)) wonderColliders.push(...mod.collider);
+      else if (mod.collider) wonderColliders.push(mod.collider);
+    }
   }
 
   // --- wyattmattoe only: the Highline Basecamp — an ADDITIVE textured scene
@@ -794,7 +799,7 @@ export function exitWalk(camera) {
     city = null;
   }
   if (wonders) {
-    wonders.dispose(); // removes its own group from planet.surface
+    for (const w of wonders) w.dispose(); // each removes its group from planet.surface
     wonders = null;
     wonderColliders = null;
   }
@@ -1389,7 +1394,7 @@ export function updateWalkVisuals(dt, t) {
   const sunDot = Math.max(_up.dot(SUN), 0);
   if (dressing) dressing.update(t, sunDot);
   if (parked) parked.update(dt, t, sunDot);
-  if (wonders) wonders.update(t, sunDot);
+  if (wonders) for (const w of wonders) w.update(t, sunDot);
 
   if (planetSky) {
     // The sky anchor wants the player in planet.surface's unrotated frame —

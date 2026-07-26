@@ -110,16 +110,22 @@ export function createVendors(planet, cityDef, city, opts = {}) {
       const z = p.z * (1 - 16 / len) - (p.x / len) * 5;
       return { x, z, y: city.groundLocalYAt(x, z), face: Math.atan2(p.x - x, p.z - z) };
     }
-    // Fallback: first plaza center rim.
+    // Fallback: first plaza center rim, at a bearing stable per vendor so
+    // spot-less (registry v2) rosters spread instead of stacking.
     const p = city.plazaCenters[0] ?? { x: 0, z: 0, r: 10 };
-    const x = p.x + p.r * 0.5;
-    const z = p.z;
+    const a = (hashStr(cityDef.id + ':' + idx) % 628) / 100;
+    const x = p.x + Math.cos(a) * Math.max(p.r * 0.55, 4);
+    const z = p.z + Math.sin(a) * Math.max(p.r * 0.55, 4);
     return { x, z, y: city.groundLocalYAt(x, z), face: Math.atan2(p.x - x, p.z - z) };
   }
 
   // --- build the vendor entities -------------------------------------------
+  // TRANSITIONAL: registry v2 replaced `vendors[]` with a full `citizens[]`
+  // roster; until world/citizens.js takes over, this module keeps the
+  // vendor-tree citizens talking from plaza-rim fallback spots.
   const vendors = [];
-  const defs = cityDef.vendors ?? [];
+  const defs = (cityDef.citizens ?? cityDef.vendors ?? [])
+    .filter((c) => (c.dialogue ?? 'vendor') === 'vendor');
   for (let i = 0; i < defs.length; i++) {
     const def = defs[i];
     const spot = resolveSpot(def.spot, i);
@@ -160,7 +166,7 @@ export function createVendors(planet, cityDef, city, opts = {}) {
         cityName: cityDef.name,
         worldName: planet.cfg.name,
         vendorName: v.name,
-        wonderName: cityDef.wonder?.title ?? 'the wonder',
+        wonderName: cityDef.wonders?.[0]?.title ?? cityDef.wonder?.title ?? 'the wonder',
         stock: v.stock,
         daypart,
         ...(ROLE_DEFAULT_VARS[v.role] ?? {}),

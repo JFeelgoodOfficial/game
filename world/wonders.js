@@ -32,9 +32,6 @@ import pulseGlowVert from './shaders/pulseGlow.vert?raw';
 import pulseGlowFrag from './shaders/pulseGlow.frag?raw';
 import ribbonFrag from './shaders/ribbon.frag?raw';
 import beamFrag from './shaders/beam.frag?raw';
-import gatefilmFrag from './shaders/gatefilm.frag?raw';
-import crystalVert from './shaders/crystal.vert?raw';
-import crystalFrag from './shaders/crystal.frag?raw';
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -58,23 +55,6 @@ const C = {
   ELEVATOR_RIBBON_TOP_W: 0.6,     // ribbon width near vanishing point
   ELEVATOR_PULSE_SPEED: 0.6,
 
-  // Mega-arch / world gate
-  ARCH_SPAN: 110,                 // clear width between legs
-  ARCH_LEG_W: 16,                 // leg thickness
-  ARCH_LEG_H: 90,                 // leg height to underside of lintel
-  ARCH_THICKNESS: 22,             // arch depth (along walk axis)
-  ARCH_RISE: 55,                  // extra height of the arch crown above legs
-  ARCH_INLAY_COUNT: 5,
-
-  // Crystal spire field
-  CRYSTAL_COUNT: 22,
-  CRYSTAL_FIELD_RADIUS: 60,
-  CRYSTAL_MIN_H: 14,
-  CRYSTAL_MAX_H: 70,
-  CRYSTAL_MIN_R: 3,
-  CRYSTAL_MAX_R: 9,
-  CRYSTAL_GLOW_SPEED: 0.35,
-
   // Bioluminescent grove
   GROVE_TREE_COUNT: 26,
   GROVE_RADIUS: 55,
@@ -97,27 +77,12 @@ const C = {
   MONOLITH_SLAB_W: 26,
   MONOLITH_SLAB_D: 18,
 
-  // Colossal statue / seated titan
-  TITAN_SEAT_HEIGHT: 60,          // base/plinth height
-  TITAN_TORSO_HEIGHT: 130,
-  TITAN_TOTAL_HEIGHT: 260,        // roughly 137x astronaut height
-  TITAN_SHOULDER_W: 90,
-  TITAN_GAZE_PULSE_SPEED: 0.4,
-
   // Ringworld arc (optional backdrop)
   RINGWORLD_RADIUS: 4200,
   RINGWORLD_WIDTH: 60,
   RINGWORLD_SEGMENTS: 96,
 
-  // Geyser organ (glacia — Hearthfall)
-  GEYSER_CHIMNEYS: 9,
-  GEYSER_MOUND_RADIUS: 46,
-  GEYSER_MIN_H: 15,
-  GEYSER_MAX_H: 60,
-  GEYSER_CYCLE: 20,               // seconds between a chimney's vents
-  GEYSER_PLUME_SECONDS: 4,
-
-  // Colossal sundial (rustia — Solmara)
+  // Colossal sundial (rustia — Redline Claim)
   SUNDIAL_GNOMON_H: 90,
   SUNDIAL_RING_RADIUS: 65,
   SUNDIAL_MARKERS: 12,
@@ -129,7 +94,7 @@ const C = {
   LEVIATHAN_RIB_MIN_H: 40,
   LEVIATHAN_RIB_MAX_H: 120,
 
-  // Diamond veil (neptunia — Diamondwake)
+  // Diamond veil (neptunia — Indigo Reach)
   VEIL_RING_RADIUS: 30,
   VEIL_HOVER: 110,
   VEIL_POOL_RADIUS: 42,
@@ -141,13 +106,13 @@ const C = {
   HARP_SPAN: 120,
   HARP_STRINGS: 12,
 
-  // Cirque bell (wyattmattoe — Cirquehollow)
+  // Cirque bell (wyattmattoe — Kite Saddle)
   BELL_HEIGHT: 35,
   BELL_FRAME_H: 70,
   BELL_TOLL_PERIOD: 30,           // seconds between silent tolls
   BELL_TOLL_SECONDS: 4,
 
-  // Frozen cascade (wyattmattoe — Icefall Landing)
+  // Frozen cascade (wyattmattoe — Kite Saddle)
   ICEFALL_CLIFF_H: 100,
   ICEFALL_WIDTH: 70,
   ICEFALL_SHEETS: 7,
@@ -155,8 +120,8 @@ const C = {
 };
 
 const ALL_TYPES = [
-  'elevator', 'arch', 'crystals', 'grove', 'monoliths', 'titan', 'ringworld',
-  'geyser', 'sundial', 'leviathan', 'diamondveil', 'skyharp', 'bell', 'icefall',
+  'elevator', 'grove', 'monoliths', 'ringworld',
+  'sundial', 'leviathan', 'diamondveil', 'skyharp', 'bell', 'icefall',
 ];
 const BACKDROP_TYPES = new Set(['elevator', 'ringworld']);
 
@@ -406,156 +371,6 @@ function buildElevator(planet, localDir, seed, palette) {
 }
 
 // ===========================================================================
-// TYPE 2 — Mega-arch / world gate
-// ===========================================================================
-function buildArch(planet, localDir, seed, palette) {
-  const rng = mulberry32(seed);
-  const group = placeOnSurface(planet, localDir, rng() * Math.PI * 2);
-  const magenta = palette.accent ?? C.MAGENTA;
-  const half = C.ARCH_SPAN / 2 + C.ARCH_LEG_W / 2;
-
-  const legGeoL = new THREE.BoxGeometry(C.ARCH_LEG_W, C.ARCH_LEG_H, C.ARCH_THICKNESS);
-  legGeoL.translate(-half, C.ARCH_LEG_H / 2, 0);
-  const legGeoR = new THREE.BoxGeometry(C.ARCH_LEG_W, C.ARCH_LEG_H, C.ARCH_THICKNESS);
-  legGeoR.translate(half, C.ARCH_LEG_H / 2, 0);
-  const legsMerged = mergeGeometries([legGeoL, legGeoR], false);
-  const legs = new THREE.Mesh(legsMerged, stoneMat());
-  group.add(legs);
-
-  const crownGeo = new THREE.BoxGeometry(
-    C.ARCH_SPAN + C.ARCH_LEG_W * 2, C.ARCH_RISE, C.ARCH_THICKNESS
-  );
-  crownGeo.translate(0, C.ARCH_LEG_H + C.ARCH_RISE / 2, 0);
-  const crown = new THREE.Mesh(crownGeo, stoneMat(0x59505f));
-  group.add(crown);
-
-  // Emissive inlay strips embedded along the underside of the crown + legs.
-  const inlayGeos = [];
-  for (let i = 0; i < C.ARCH_INLAY_COUNT; i++) {
-    const t = i / (C.ARCH_INLAY_COUNT - 1);
-    const x = THREE.MathUtils.lerp(-half, half, t);
-    const geo = new THREE.BoxGeometry(2, 3, C.ARCH_THICKNESS + 0.5);
-    geo.translate(x, C.ARCH_LEG_H - 2, 0);
-    inlayGeos.push(geo);
-  }
-  const inlayMerged = mergeGeometries(inlayGeos, false);
-  const inlay = new THREE.Mesh(inlayMerged, emissiveMat(magenta, 1.0));
-  inlay.name = 'archInlay';
-  group.add(inlay);
-
-  const legTopGeo = new THREE.BoxGeometry(2.5, C.ARCH_LEG_H, 3);
-  const legStripL = new THREE.Mesh(legTopGeo, emissiveMat(magenta, 0.95));
-  legStripL.position.set(-half, C.ARCH_LEG_H / 2, C.ARCH_THICKNESS / 2 + 0.2);
-  const legStripR = legStripL.clone();
-  legStripR.position.x = half;
-  legStripL.name = legStripR.name = 'archLegStrip';
-  group.add(legStripL, legStripR);
-
-  // Gate film: a rippling energy membrane spanning the opening. Additive and
-  // collider-free — walking through the world gate is the whole point.
-  const fx = makeFx();
-  const filmMat = new THREE.ShaderMaterial({
-    vertexShader: basicVert,
-    fragmentShader: gatefilmFrag,
-    uniforms: {
-      uTime: fx.uTime,
-      uNight: fx.uNight,
-      uColor: { value: new THREE.Color(magenta) },
-    },
-    transparent: true, depthWrite: false,
-    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-  });
-  const film = new THREE.Mesh(
-    new THREE.PlaneGeometry(C.ARCH_SPAN, C.ARCH_LEG_H), filmMat
-  );
-  film.position.y = C.ARCH_LEG_H / 2;
-  film.name = 'archGateFilm';
-  group.add(film);
-
-  const worldPosL = new THREE.Vector3(), worldPosR = new THREE.Vector3();
-  legStripL.getWorldPosition(worldPosL);
-  legStripR.getWorldPosition(worldPosR);
-  const collider = [
-    radialCollider(worldPosL, C.ARCH_LEG_W * 0.7, C.ARCH_LEG_H),
-    radialCollider(worldPosR, C.ARCH_LEG_W * 0.7, C.ARCH_LEG_H),
-  ];
-
-  function update(t, sunDot) {
-    const night = Math.max(1 - Math.max(sunDot, 0), 0.15);
-    fx.uTime.value = t;
-    fx.uNight.value = nightOf(sunDot);
-    const pulse = 0.85 + Math.sin(t * 0.5) * 0.3;
-    inlay.material.emissiveIntensity = pulse * night;
-    legStripL.material.emissiveIntensity = pulse * night;
-    legStripR.material.emissiveIntensity = pulse * night;
-  }
-
-  return { group, update, dispose: () => disposeGroup(group), collider };
-}
-
-// ===========================================================================
-// TYPE 3 — Crystal spire field
-// ===========================================================================
-function buildCrystals(planet, localDir, seed, palette) {
-  const rng = mulberry32(seed);
-  const group = placeOnSurface(planet, localDir, rng() * Math.PI * 2);
-  const magenta = palette.accent ?? C.MAGENTA;
-  const cyan = palette.secondary ?? C.CYAN;
-  const fx = makeFx();
-
-  // All spires merged into ONE geometry/draw call. Per-vertex aPhase/aTint
-  // give each spire its own pulse clock and colour; the crystal shader adds
-  // a fresnel rim and a slow internal energy swirl (replaces 22 costly
-  // transmission materials).
-  const geos = [];
-  const colliders = [];
-  const worldPos = new THREE.Vector3();
-  group.updateMatrixWorld(true); // compose placement for collider positions
-
-  for (let i = 0; i < C.CRYSTAL_COUNT; i++) {
-    const ang = rng() * Math.PI * 2;
-    const dist = Math.sqrt(rng()) * C.CRYSTAL_FIELD_RADIUS;
-    const h = THREE.MathUtils.lerp(C.CRYSTAL_MIN_H, C.CRYSTAL_MAX_H, rng());
-    const r = THREE.MathUtils.lerp(C.CRYSTAL_MIN_R, C.CRYSTAL_MAX_R, rng());
-    const geo = new THREE.ConeGeometry(r, h, 6, 1);
-    geo.rotateY(rng() * Math.PI * 2);
-    geo.translate(Math.cos(ang) * dist, h / 2, Math.sin(ang) * dist);
-    const count = geo.attributes.position.count;
-    geo.setAttribute('aPhase',
-      new THREE.BufferAttribute(new Float32Array(count).fill(rng() * Math.PI * 2), 1));
-    geo.setAttribute('aTint',
-      new THREE.BufferAttribute(new Float32Array(count).fill(rng() > 0.6 ? 1 : 0), 1));
-    geos.push(geo);
-
-    worldPos.set(Math.cos(ang) * dist, h / 2, Math.sin(ang) * dist)
-      .applyMatrix4(group.matrixWorld);
-    colliders.push(radialCollider(worldPos.clone(), r * 0.8, h));
-  }
-
-  const mat = new THREE.ShaderMaterial({
-    vertexShader: crystalVert,
-    fragmentShader: crystalFrag,
-    uniforms: {
-      uTime: fx.uTime,
-      uNight: fx.uNight,
-      uColorA: { value: new THREE.Color(magenta) },
-      uColorB: { value: new THREE.Color(cyan) },
-    },
-    transparent: true,
-  });
-  const mesh = new THREE.Mesh(mergeGeometries(geos, false), mat);
-  mesh.name = 'crystalSpires';
-  group.add(mesh);
-
-  function update(t, sunDot) {
-    fx.uTime.value = t;
-    fx.uNight.value = nightOf(sunDot);
-  }
-
-  return { group, update, dispose: () => disposeGroup(group), collider: colliders };
-}
-
-// ===========================================================================
 // TYPE 4 — Bioluminescent grove
 // ===========================================================================
 function buildGrove(planet, localDir, seed, palette) {
@@ -767,119 +582,6 @@ function buildMonoliths(planet, localDir, seed, palette) {
 }
 
 // ===========================================================================
-// TYPE 6 — Colossal statue / seated titan
-// ===========================================================================
-function buildTitan(planet, localDir, seed, palette) {
-  const rng = mulberry32(seed);
-  const group = placeOnSurface(planet, localDir, rng() * Math.PI * 2);
-  const magenta = palette.accent ?? C.MAGENTA;
-
-  const seatGeo = new THREE.CylinderGeometry(70, 80, C.TITAN_SEAT_HEIGHT, 8);
-  seatGeo.translate(0, C.TITAN_SEAT_HEIGHT / 2, 0);
-  const seat = new THREE.Mesh(seatGeo, stoneMat(0x554d5e));
-  group.add(seat);
-
-  const torsoGeo = new THREE.CylinderGeometry(28, 42, C.TITAN_TORSO_HEIGHT, 8);
-  torsoGeo.translate(0, C.TITAN_SEAT_HEIGHT + C.TITAN_TORSO_HEIGHT / 2, 0);
-  const shoulderGeo = new THREE.BoxGeometry(C.TITAN_SHOULDER_W, 22, 30);
-  shoulderGeo.translate(0, C.TITAN_SEAT_HEIGHT + C.TITAN_TORSO_HEIGHT - 10, 0);
-  const bodyMerged = mergeGeometries([torsoGeo, shoulderGeo], false);
-  const body = new THREE.Mesh(bodyMerged, stoneMat(0x625770));
-  group.add(body);
-
-  const headH = C.TITAN_TOTAL_HEIGHT - C.TITAN_SEAT_HEIGHT - C.TITAN_TORSO_HEIGHT;
-  const headGeo = new THREE.IcosahedronGeometry(headH * 0.6, 0);
-  headGeo.scale(1, 1.2, 0.9);
-  headGeo.translate(0, C.TITAN_SEAT_HEIGHT + C.TITAN_TORSO_HEIGHT + headH * 0.5, 0);
-  const head = new THREE.Mesh(headGeo, stoneMat(0x6b5f7a));
-  group.add(head);
-
-  const gazeGeo = new THREE.SphereGeometry(headH * 0.14, 8, 8);
-  const gaze = new THREE.Mesh(gazeGeo, emissiveMat(magenta, 1.2));
-  gaze.position.set(0, C.TITAN_SEAT_HEIGHT + C.TITAN_TORSO_HEIGHT + headH * 0.55, headH * 0.5);
-  gaze.name = 'titanGaze';
-  group.add(gaze);
-
-  const fx = makeFx();
-
-  // Searchlight gaze: an additive noise-streamed cone sweeping slowly across
-  // the plain from the titan's eye (beam.frag, apex at the pivot).
-  const beamLen = 140;
-  const beamGeo = new THREE.ConeGeometry(16, beamLen, 20, 1, true);
-  beamGeo.rotateX(-Math.PI / 2);        // axis onto Z: apex at -Z, base at +Z
-  beamGeo.translate(0, 0, beamLen / 2); // apex at the pivot, base out along +Z
-  const beamMesh = new THREE.Mesh(beamGeo, new THREE.ShaderMaterial({
-    vertexShader: basicVert,
-    fragmentShader: beamFrag,
-    uniforms: {
-      uTime: fx.uTime,
-      uNight: fx.uNight,
-      uColor: { value: new THREE.Color(magenta) },
-      uFlow: { value: 0.5 },
-    },
-    transparent: true, depthWrite: false,
-    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-  }));
-  const beamPivot = new THREE.Group();
-  beamPivot.position.copy(gaze.position);
-  beamPivot.rotation.x = 0.3; // tilt the beam down toward the ground
-  beamPivot.add(beamMesh);
-  beamPivot.name = 'titanGazeBeam';
-  group.add(beamPivot);
-
-  // Plinth runes: eight glyph slabs around the seat pulsing in sequence
-  // (ordered aPhase → a chase running around the pedestal). One merged mesh.
-  {
-    const runeGeos = [];
-    const runeCol = new THREE.Color(magenta);
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2;
-      const geo = new THREE.BoxGeometry(3, 6, 0.6);
-      geo.rotateY(-a);
-      geo.translate(Math.cos(a) * 76, C.TITAN_SEAT_HEIGHT * 0.5, Math.sin(a) * 76);
-      const count = geo.attributes.position.count;
-      geo.setAttribute('aPhase',
-        new THREE.BufferAttribute(new Float32Array(count).fill((i / 8) * Math.PI * 2), 1));
-      const tint = new Float32Array(count * 3);
-      for (let v = 0; v < count; v++) {
-        tint[v * 3] = runeCol.r; tint[v * 3 + 1] = runeCol.g; tint[v * 3 + 2] = runeCol.b;
-      }
-      geo.setAttribute('aTint', new THREE.BufferAttribute(tint, 3));
-      runeGeos.push(geo);
-    }
-    const runeMat = new THREE.ShaderMaterial({
-      vertexShader: pulseGlowVert,
-      fragmentShader: pulseGlowFrag,
-      uniforms: {
-        uTime: fx.uTime,
-        uNight: fx.uNight,
-        uBase: { value: 0.3 },
-        uAmp: { value: 0.9 },
-        uSpeed: { value: 1.2 },
-        uFlicker: { value: 0 },
-      },
-    });
-    const runes = new THREE.Mesh(mergeGeometries(runeGeos, false), runeMat);
-    runes.name = 'titanRunes';
-    group.add(runes);
-  }
-
-  const worldPos = new THREE.Vector3();
-  seat.getWorldPosition(worldPos);
-  const collider = radialCollider(worldPos, 80, C.TITAN_SEAT_HEIGHT);
-
-  function update(t, sunDot) {
-    const night = Math.max(1 - Math.max(sunDot, 0), 0.2);
-    fx.uTime.value = t;
-    fx.uNight.value = nightOf(sunDot);
-    gaze.material.emissiveIntensity = (0.9 + Math.sin(t * C.TITAN_GAZE_PULSE_SPEED) * 0.4) * night;
-    beamPivot.rotation.y = Math.sin(t * 0.12) * 0.5; // slow searchlight sweep
-  }
-
-  return { group, update, dispose: () => disposeGroup(group), collider };
-}
-
-// ===========================================================================
 // OPTIONAL EXTRA — Derelict ringworld arc (pure sky backdrop, no collider)
 // ===========================================================================
 function buildRingworld(planet, localDir, seed, palette) {
@@ -904,106 +606,6 @@ function buildRingworld(planet, localDir, seed, palette) {
   }
 
   return { group, update, dispose: () => disposeGroup(group), collider: null };
-}
-
-// ===========================================================================
-// TYPE 8 — The Geyser Organ (glacia): a travertine mound carrying a rank of
-// hollow ice chimneys the planet plays like organ pipes — each vents a lit
-// steam plume on a staggered cycle, its core light swelling a beat early.
-// ===========================================================================
-function buildGeyser(planet, localDir, seed, palette) {
-  const rng = mulberry32(seed);
-  const group = placeOnSurface(planet, localDir, rng() * Math.PI * 2);
-  const accent = palette.accent ?? C.CYAN;
-
-  // Travertine terrace mound: stacked squashed cones.
-  const moundGeos = [];
-  for (let i = 0; i < 4; i++) {
-    const r = C.GEYSER_MOUND_RADIUS * (1 - i * 0.22);
-    const geo = new THREE.ConeGeometry(r, 4 + i * 1.5, 24);
-    geo.translate(0, i * 3 + 2, 0);
-    moundGeos.push(geo);
-  }
-  const mound = new THREE.Mesh(mergeGeometries(moundGeos, false), stoneMat(0x9fb3c0));
-  group.add(mound);
-
-  // The pipe rank: hollow-looking tapered chimneys in a rough line across the
-  // mound, each with an emissive core column inside.
-  const chimneys = [];
-  const coreMat = emissiveMat(accent, 0.4, { baseColor: 0x0d1a20 });
-  const iceMat = new THREE.MeshStandardMaterial({
-    color: 0xcfe6f2, roughness: 0.25, metalness: 0.05,
-    transparent: true, opacity: 0.82,
-  });
-  for (let i = 0; i < C.GEYSER_CHIMNEYS; i++) {
-    const t = i / (C.GEYSER_CHIMNEYS - 1);
-    const h = THREE.MathUtils.lerp(C.GEYSER_MIN_H, C.GEYSER_MAX_H,
-      Math.sin(t * Math.PI) * (0.7 + rng() * 0.3));
-    const x = (t - 0.5) * C.GEYSER_MOUND_RADIUS * 1.7;
-    const z = (rng() - 0.5) * 14;
-    const shell = new THREE.Mesh(
-      new THREE.CylinderGeometry(2.2 + rng() * 1.2, 4.2 + rng() * 1.6, h, 10, 1, true),
-      iceMat
-    );
-    shell.position.set(x, h / 2 + 6, z);
-    group.add(shell);
-    const core = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.9, 1.3, h * 0.9, 6), coreMat.clone()
-    );
-    core.position.set(x, h * 0.45 + 6, z);
-    group.add(core);
-    // Vent plume: stacked additive ring shells, scaled/faded in update().
-    const plumeMat = new THREE.MeshBasicMaterial({
-      color: accent, transparent: true, opacity: 0,
-      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
-    });
-    const plumeGeos = [];
-    for (let s = 0; s < 4; s++) {
-      const ring = new THREE.TorusGeometry(1.6 + s * 0.9, 0.35, 6, 16);
-      ring.rotateX(Math.PI / 2);
-      ring.translate(0, s * 3.4, 0);
-      plumeGeos.push(ring);
-    }
-    const plume = new THREE.Mesh(mergeGeometries(plumeGeos, false), plumeMat);
-    plume.position.set(x, h + 6, z);
-    plume.visible = false;
-    group.add(plume);
-    chimneys.push({ core, plume, phase: (i * 2.31) % C.GEYSER_CYCLE, h });
-  }
-
-  const worldPos = new THREE.Vector3();
-  const colliders = [];
-  for (const ch of chimneys) {
-    worldPos.copy(ch.plume.position).setY(0).applyQuaternion(group.quaternion)
-      .add(group.position);
-    colliders.push(radialCollider(worldPos.clone(), 4.5, ch.h + 8));
-  }
-
-  function update(t, sunDot) {
-    const night = Math.max(1 - Math.max(sunDot, 0), 0.25);
-    for (let i = 0; i < chimneys.length; i++) {
-      const ch = chimneys[i];
-      const cycle = (t + ch.phase) % C.GEYSER_CYCLE;
-      // Core light swells one second before the vent blows.
-      const preroll = THREE.MathUtils.clamp(
-        (cycle - (C.GEYSER_CYCLE - C.GEYSER_PLUME_SECONDS - 1)) / 1, 0, 1
-      );
-      const venting = cycle > C.GEYSER_CYCLE - C.GEYSER_PLUME_SECONDS;
-      const k = venting
-        ? (cycle - (C.GEYSER_CYCLE - C.GEYSER_PLUME_SECONDS)) / C.GEYSER_PLUME_SECONDS
-        : 0;
-      ch.core.material.emissiveIntensity =
-        (0.35 + preroll * 1.1 + (venting ? (1 - k) * 0.8 : 0)) * night;
-      ch.plume.visible = venting;
-      if (venting) {
-        const grow = 1 + k * 2.2;
-        ch.plume.scale.set(grow, 1 + k * 3.5, grow);
-        ch.plume.material.opacity = (1 - k) * 0.5;
-      }
-    }
-  }
-
-  return { group, update, dispose: () => disposeGroup(group), collider: colliders };
 }
 
 // ===========================================================================
@@ -1487,13 +1089,9 @@ function buildIcefall(planet, localDir, seed, palette) {
 // ---------------------------------------------------------------------------
 const BUILDERS = {
   elevator: buildElevator,
-  arch: buildArch,
-  crystals: buildCrystals,
   grove: buildGrove,
   monoliths: buildMonoliths,
-  titan: buildTitan,
   ringworld: buildRingworld,
-  geyser: buildGeyser,
   sundial: buildSundial,
   leviathan: buildLeviathan,
   diamondveil: buildDiamondveil,
@@ -1507,9 +1105,10 @@ const BUILDERS = {
 // ---------------------------------------------------------------------------
 /**
  * Build a single wonder of the given type. This is the only public entry:
- * every permanent city (world/cityRegistry.js) places exactly one, globally
- * unique wonder at a registry-fixed bearing/distance. The old scatter-field
- * API went away with the pop-up cities.
+ * every permanent city (world/cityRegistry.js) places each entry of its
+ * `wonders[]` at a registry-fixed bearing/distance (the flagship towns
+ * inherited their deleted sibling cities' wonders, so a city carries 2-3).
+ * The old scatter-field API went away with the pop-up cities.
  * @param {string} type - one of ALL_TYPES
  * @param {object} planet - { radius, surface, body:{groundAt} }
  * @param {THREE.Vector3} worldUp - world-space placement direction
