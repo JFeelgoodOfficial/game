@@ -41,6 +41,7 @@ import { createWonderField } from '../world/wonders.js';
 import { createCreatures } from '../world/creatures.js';
 import { createWavemallPrime } from '../world/wavemallprime.js';
 import { createActuality } from '../world/actuality.js';
+import { settings } from './settings.js';
 import { createShadowreach } from '../world/shadowreach.js';
 import {
   getViewPref,
@@ -117,6 +118,7 @@ export const walk = {
   facing: new THREE.Vector3(0, 0, -1), // astronaut body heading (follows vel)
 };
 
+let worldScene = null; // the root scene (initWalk) — handed to sky-owning world modules
 let astronaut = null; // the visible third-person body (initWalk)
 let dressing = null; // active surface-dressing patch, spawned per disembark
 let camSnap = true; // snap (don't lerp) the TP camera on the next frame
@@ -200,6 +202,7 @@ function playerLocalInto(group, invQuat, out) {
 // Build the astronaut once and keep it hidden until a disembark. Called from
 // main.js after the scene exists.
 export function initWalk(scene) {
+  worldScene = scene; // world modules that own the sky need the root (fog, env map)
   astronaut = new Astronaut();
   astronaut.group.visible = false;
   scene.add(astronaut.group);
@@ -409,7 +412,12 @@ function spawnWorldEntities(planet) {
   // wavemall above — the parked ship is still the boarding point.
   if (planet.cfg.name === 'actuality') {
     toSurfaceLocal(planet, _up, _localUp);
-    actuality = createActuality(planet, _localUp.clone(), {});
+    // scene: the module owns its own sky, fog and environment map, all of which
+    // live on the root scene rather than under the planet.
+    actuality = createActuality(planet, _localUp.clone(), {
+      scene: worldScene,
+      quality: settings.quality,
+    });
     planet.surface.add(actuality.group);
     _actualityInvQuat.copy(actuality.anchor.quaternion).invert();
     actuality.initAudio(); // the landing G keypress is fresh user activation

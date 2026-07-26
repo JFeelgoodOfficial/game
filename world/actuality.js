@@ -38,6 +38,7 @@ import * as THREE from 'three';
 import { makeStructure } from './city.js';
 import * as DLG from './actuality-dialogue.js';
 import { createMirrorRoom } from './actuality-mirrorroom.js';
+import { createActualitySky } from './actuality-sky.js';
 // The owner's dragon artwork, shown in Zone 9 the way the deep nebulae show the
 // owner's paintings — layered billboards rather than a built sculpt: the granite
 // statue behind, the glowing hologram (box removed) additively in front.
@@ -391,17 +392,32 @@ function silhouetteTexture(kind) {
 
 // Per-zone metadata: digit word (for the arch sign) and a tint used for the
 // pad's ambient light so each zone reads as a distinct place at a glance.
+// `sky` names a preset in actuality-sky.js. Authored per zone rather than
+// simulated: each place has a fixed time of day that serves its scene, and the
+// transition blackout is where the swap (and its one-off IBL bake) happens.
 const ZONE_META = [
-  { id: 'z1', word: 'MIND', tint: 0xe8b878, note: 'THE MIND, CHASING ITS OWN THOUGHTS' },
-  { id: 'z2', word: 'BODY', tint: 0xd8926a, note: 'TWO SOULS DRAWN TOGETHER INTO ONE' },
-  { id: 'z3', word: 'SOUL', tint: 0xd8d0b0, note: 'AN ORDINARY CAFÉ — THE SOUL IS THE EVERYDAY' },
-  { id: 'z4', word: 'SELF', tint: 0xe0c090, note: 'THE FRIENDS WHO MADE YOU WHO YOU ARE' },
-  { id: 'z5', word: 'ORDER', tint: 0x8890b0, note: 'YOUR MEMORIES, SET IN ORDER ALONG THE PATH' },
-  { id: 'z6', word: 'LIFE', tint: 0x6a86a0, note: 'STEP DOWN INTO THE WATER — LIFE, DEATH, REBIRTH' },
-  { id: 'z7', word: 'TIME', tint: 0x7088a8, note: 'SIT BY THE TV — TIME YOU WON’T REMEMBER' },
-  { id: 'z8', word: 'ETERNITY', tint: 0xc88a5a, note: 'LET THE FIRE BURN DOWN UNDER AN ENDLESS SKY' },
-  { id: 'z9', word: 'DEATH / REBIRTH', tint: 0x707078, note: 'THE DRAGON — LEAP INTO THE BLACK BOX TO BE REBORN' },
+  { id: 'z1', word: 'MIND', tint: 0xe8b878, sky: 'goldenLow', note: 'THE MIND, CHASING ITS OWN THOUGHTS' },
+  { id: 'z2', word: 'BODY', tint: 0xd8926a, sky: 'interior', note: 'TWO SOULS DRAWN TOGETHER INTO ONE' },
+  { id: 'z3', word: 'SOUL', tint: 0xd8d0b0, sky: 'interior', note: 'AN ORDINARY CAFÉ — THE SOUL IS THE EVERYDAY' },
+  { id: 'z4', word: 'SELF', tint: 0xe0c090, sky: 'interior', note: 'THE FRIENDS WHO MADE YOU WHO YOU ARE' },
+  { id: 'z5', word: 'ORDER', tint: 0x8890b0, sky: 'none', note: 'YOUR MEMORIES, SET IN ORDER ALONG THE PATH' },
+  { id: 'z6', word: 'LIFE', tint: 0x6a86a0, sky: 'nightMoody', note: 'STEP DOWN INTO THE WATER — LIFE, DEATH, REBIRTH' },
+  { id: 'z7', word: 'TIME', tint: 0x7088a8, sky: 'interior', note: 'SIT BY THE TV — TIME YOU WON’T REMEMBER' },
+  { id: 'z8', word: 'ETERNITY', tint: 0xc88a5a, sky: 'dusk', note: 'LET THE FIRE BURN DOWN UNDER AN ENDLESS SKY' },
+  { id: 'z9', word: 'DEATH / REBIRTH', tint: 0x707078, sky: 'none', note: 'THE DRAGON — LEAP INTO THE BLACK BOX TO BE REBORN' },
 ];
+
+// The café itself: the headline look — a real blue sky with clouds here and
+// there, sun low enough that the light across the terrace stays warm.
+const HUB_SKY = 'clearBlue';
+const MIRROR_SKY = 'none';
+
+function skyForZone(id) {
+  if (id === 'hub') return HUB_SKY;
+  if (id === 'mirror') return MIRROR_SKY;
+  const idx = Number(id.slice(1)) - 1;
+  return ZONE_META[idx]?.sky ?? 'interior';
+}
 
 // One portal arch (two posts + a lintel + a glowing sign), built facing +Z in
 // its own local frame; caller positions/yaws it.
@@ -633,24 +649,17 @@ function buildHub(rng) {
     const l = new THREE.Mesh(lanternGeo, lanternMat); l.position.set(lx, WH - 0.5, BZ - 7.4); group.add(l);
   }
 
-  // Local lighting: warm point lights + a soft warm ambient (dawn regardless
-  // of the true sun angle).
-  const key = new THREE.PointLight(AC.COL_WARM_LIGHT, 1.6, 60, 2.0);
-  key.position.set(0, 5, BZ - 6);
-  const fill = new THREE.PointLight(0xffe6c2, 0.9, 50, 2.0);
-  fill.position.set(-4, 3, 2);
-  const amb = new THREE.AmbientLight(0xf0d8b0, 0.55);
-  group.add(key, fill, amb);
-  lights.push(key, fill, amb);
-
-  // Sky dome — cream→gold gradient.
-  const domeTex = gradientTexture('#fbf1dc', '#e9c98c');
-  texs.push(domeTex);
-  const domeGeo = new THREE.SphereGeometry(AC.DOME_RADIUS, 24, 16);
-  const domeMat = new THREE.MeshBasicMaterial({ map: domeTex, side: THREE.BackSide, fog: false });
-  const dome = new THREE.Mesh(domeGeo, domeMat);
-  group.add(dome);
-  geos.push(domeGeo); mats.push(domeMat);
+  // Local lighting. The sun and the sky's ambient now come from
+  // actuality-sky.js (a real directional light plus an environment map), so
+  // these are what they should always have been: practical lights belonging to
+  // the café itself — the glow under the awning, and a soft bounce off the
+  // terrace. Both are far weaker than the old stand-ins for daylight.
+  const key = new THREE.PointLight(AC.COL_WARM_LIGHT, 0.55, 26, 2.0);
+  key.position.set(0, 3.1, BZ - 6);
+  const fill = new THREE.PointLight(0xffe6c2, 0.3, 22, 2.0);
+  fill.position.set(-4, 2.4, 2);
+  group.add(key, fill);
+  lights.push(key, fill);
 
   // The café sits in a city: a distant skyline silhouette wrapped inside the
   // dome, plus a ring of tall building blocks beyond the terrace (this is the
@@ -738,6 +747,39 @@ function buildHub(rng) {
 /* ----------------------------------------------------------------------
  * Flags — persisted world state (localStorage, fail-open).
  * ------------------------------------------------------------------- */
+// Turn on shadow casting/receiving for real, human-scale set dressing, and
+// leave it off for anything that is really backdrop. The size cutoff is the
+// whole trick: a 2 m chair wants a shadow, a 2700 m sky shell does not, and
+// blindly flagging everything would spend the entire shadow map on scenery the
+// player can never walk up to.
+const SHADOW_MAX_EXTENT = 40; // metres; above this it's backdrop, not furniture
+const _shadowBox = new THREE.Box3();
+const _shadowSize = new THREE.Vector3();
+function markShadowCasters(root) {
+  root.traverse((o) => {
+    if (!o.isMesh || o.userData.noShadow) return;
+    const g = o.geometry;
+    if (!g) return;
+    if (!g.boundingBox) g.computeBoundingBox();
+    _shadowBox.copy(g.boundingBox);
+    _shadowBox.getSize(_shadowSize);
+    _shadowSize.multiply(o.scale); // world-ish size, so a unit box scaled 3000 reads as 3000
+    const extent = Math.max(_shadowSize.x, _shadowSize.y, _shadowSize.z);
+    if (extent > SHADOW_MAX_EXTENT) {
+      // Big flat ground slabs still need to RECEIVE, or nothing lands on them.
+      // Tall things that big are shells and domes — they get neither.
+      o.receiveShadow = _shadowSize.y < 4;
+      return;
+    }
+    // Additive/transparent effect geometry casts nothing useful — flames,
+    // glows, holograms, billboard sprites.
+    const m = o.material;
+    const isEffect = m && (m.blending === THREE.AdditiveBlending || m.depthWrite === false);
+    o.castShadow = !isEffect;
+    o.receiveShadow = !isEffect;
+  });
+}
+
 function defaultFlags() {
   return {
     metCafeWoman: false,
@@ -792,6 +834,13 @@ export function createActuality(planet, worldUp, opts = {}) {
   group.add(anchor);
 
   const flags = loadFlags();
+
+  // --- Sky, sun, and image-based lighting (actuality-sky.js) ---
+  // Built before the hub so buildHub can drop its old gradient dome: the sky
+  // module owns the sky, the sun, the fog and scene.environment from here on.
+  const sky = opts.scene
+    ? createActualitySky(anchor, opts.scene, { quality: opts.quality })
+    : null;
 
   // --- Hub ---
   const hub = buildHub(rng);
@@ -954,6 +1003,15 @@ export function createActuality(planet, worldUp, opts = {}) {
   // Sealed mirror-room door behind the café (registers a gated hub portal).
   buildMirrorDoor();
 
+  // Shadows. three needs these per mesh, and there are several hundred of them
+  // across the hub and nine zones, so it's one sweep at the end of construction
+  // rather than a flag on every addBox call. The sky's own meshes are skipped
+  // (a sky that shadows itself is nonsense and the shadow camera would try to
+  // cover a 3000-unit box), as is anything huge enough to be scenery-at-infinity
+  // — distant skyline shells only cost shadow-map fill they never use.
+  markShadowCasters(anchor);
+  markShadowCasters(group);
+
   // Zone→hub destination (arrive on the terrace facing the café / She).
   const hubReturnDest = new THREE.Vector3(0, 0, -6).applyQuaternion(anchorQ).add(anchorPos);
   const hubReturnHeading = new THREE.Vector3(0, 0, 1).applyQuaternion(anchorQ).normalize();
@@ -991,6 +1049,15 @@ export function createActuality(planet, worldUp, opts = {}) {
 
   // --- Teleport intent queue (consumed by walk.js host) ---
   let pendingTeleport = null;
+
+  // --- Sky intents, drained in preRender (the only hook with a renderer, and
+  // the IBL bake needs one). The hub's sky is queued for the first frame. ---
+  let pendingSkyPreset = HUB_SKY;
+  let pendingSkyBlend = null; // { a, b, k } — zone 8's dusk→night burn-down
+  // update() runs with the player, preRender() runs with the renderer; the sky
+  // needs both, so update stashes its half here. Scratch, never reallocated.
+  let _skyT = 0, _skyDt = 0;
+  const _skyPlayer = new THREE.Vector3();
 
   // --- Audio bed: one AudioContext, a shared looped-noise buffer + oscillators
   // routed per zone through gains that crossfade to the active zone. Fail-open
@@ -1287,6 +1354,11 @@ export function createActuality(planet, worldUp, opts = {}) {
         const note = zoneNote(fade.target);
         deferredNote = note ? { text: note, at: 3.0 } : null; // countdown in update()
         if (zoneEnterCallbacks[fade.target]) zoneEnterCallbacks[fade.target]();
+        // Swap the sky for the destination. Queued rather than applied here
+        // because it needs the renderer (one PMREM bake) — preRender picks it
+        // up on the next frame, still deep inside the blackout.
+        pendingSkyPreset = skyForZone(fade.target);
+        pendingSkyBlend = null;
         fade.phase = 'in';
         fade.t = 0;
       }
@@ -1297,6 +1369,9 @@ export function createActuality(planet, worldUp, opts = {}) {
   }
 
   function update(t, dt, playerPos, sunDot = 1) {
+    // Stashed for preRender, which drives the sky (it has the renderer).
+    _skyT = t; _skyDt = dt; _skyPlayer.copy(playerPos);
+
     for (let i = 0; i < figures.length; i++) figures[i].update(t);
     hub.update(t); // hub breeze (always visible)
 
@@ -1811,8 +1886,10 @@ export function createActuality(planet, worldUp, opts = {}) {
   // woman in the light.
   function buildZone1() {
     const rec = zoneById['z1'];
-    rec.group.add(new THREE.AmbientLight(0xffcf9a, 0.5));
-    addDome(rec, 90, '#4a3422', '#d8974e');
+    // Sky, sun and ambient all come from the `goldenLow` preset now — a low
+    // autumn sun with real scattering, not a painted gradient. Only a small
+    // warm fill stays, for the light between the trees.
+    rec.group.add(new THREE.AmbientLight(0xffcf9a, 0.12));
 
     // Sidewalk slabs + city facades at the entrance (+Z end).
     const walkMat = new THREE.MeshStandardMaterial({ color: 0x6a6660, roughness: 0.95 });
@@ -2187,8 +2264,10 @@ export function createActuality(planet, worldUp, opts = {}) {
   // Z6 Life — mountain overlook at dusk with a submerged lake below.
   function buildZone6() {
     const rec = zoneById['z6'];
-    rec.group.add(new THREE.AmbientLight(0x30364a, 0.5));
-    const dome = addDome(rec, 95, '#141a2e', '#5a4a6a');
+    // Moonlit night from the `nightMoody` preset — real stars, cloud lit from
+    // behind, deep blue rather than black. The ambient is only a floor so the
+    // crag doesn't go fully unreadable in shadow.
+    rec.group.add(new THREE.AmbientLight(0x30364a, 0.15));
     // Larger skyline + bridge silhouette on the dome.
     const skyTex = silhouetteTexture('skyline');
     const skyGeo = new THREE.PlaneGeometry(90, 30);
@@ -2412,10 +2491,10 @@ export function createActuality(planet, worldUp, opts = {}) {
   // starfield; grandmother's bedside as a quiet side room.
   function buildZone8() {
     const rec = zoneById['z8'];
-    rec.group.add(new THREE.AmbientLight(0x241a12, 0.4));
-    const dusk = addDome(rec, 92, '#2a1c26', '#c07a4a');
-    const night = addDome(rec, 90, '#02030a', '#0a1428');
-    night.mat.transparent = true; night.mat.opacity = 0; // crossfades in as the fire dies
+    // The burn-down drives a real sky transition now (dusk → nightMoody, see
+    // the zone updater), so the two crossfading gradient domes are gone. The
+    // ambient is a bare floor; the firelight is meant to be the light source.
+    rec.group.add(new THREE.AmbientLight(0x241a12, 0.12));
     // A ring of dark tree silhouettes around the clearing; they fade out with
     // the burn-down to reveal the open field/starfield.
     const treeMat = new THREE.MeshBasicMaterial({ color: 0x0a0c10, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false });
@@ -2533,9 +2612,10 @@ export function createActuality(planet, worldUp, opts = {}) {
       const fireK = THREE.MathUtils.smoothstep(playerPos.distanceTo(fireAnchor), 4.5, 9);
       fireLight.intensity = (0.3 + burn * 1.6) * (0.12 + 0.88 * fireK);
       flameMat.opacity = 0.3 + burn * 0.5;
-      night.mat.opacity = (1 - burn) * 0.9; // starfield fades in as the fire dies
-      dusk.mat.opacity = 0.4 + burn * 0.6;
-      dusk.mat.transparent = true;
+      // The sky itself burns down with the fire: dusk gives way to a moonlit,
+      // starlit night over ~90 s. preRender applies it (the blend re-bakes the
+      // environment map in steps, so the indirect light follows too).
+      pendingSkyBlend = { a: 'dusk', b: 'nightMoody', k: rise };
       treeMat.opacity = burn * 0.95; // the surrounding trees dissolve into open field
       for (let i = 0; i < N; i++) {
         const b = eb[i];
@@ -2649,6 +2729,19 @@ export function createActuality(planet, worldUp, opts = {}) {
   // Pre-composer render hook: only the mirror room draws to a render target,
   // and only while the player is inside it.
   function preRender(renderer) {
+    // Sky work lives here because it is the only hook handed a renderer, and
+    // both the preset swap and the burn-down blend need one to bake the
+    // environment map. Preset swaps are queued during a transition blackout, so
+    // the bake cost lands on a frame the player is looking at black.
+    if (sky) {
+      if (pendingSkyPreset) {
+        sky.applyPreset(pendingSkyPreset, renderer);
+        pendingSkyPreset = null;
+      } else if (pendingSkyBlend) {
+        sky.applyBlend(pendingSkyBlend.a, pendingSkyBlend.b, pendingSkyBlend.k, renderer);
+      }
+      sky.update(_skyT, _skyDt, _skyPlayer, renderer);
+    }
     if (mirror && activeZone === 'mirror') mirror.preRender(renderer);
   }
 
@@ -2669,6 +2762,7 @@ export function createActuality(planet, worldUp, opts = {}) {
         id: it.id, zone: it.zone, pos: [it.pos.x, it.pos.y, it.pos.z],
       })),
       joshuaVisible: joshuaFig ? joshuaFig.group.visible : null,
+      sky: sky ? sky.tune() : null,
       runtime: {
         z6Submerged, z7Sit, z8Burn, z7Caption: !!z7Caption, z6Vision: !!z6Vision,
         mirrorDoorOpen: mirrorDoor ? mirrorDoor.opened : null,
@@ -2697,6 +2791,7 @@ export function createActuality(planet, worldUp, opts = {}) {
   }
 
   function dispose() {
+    if (sky) sky.dispose(); // also restores scene.fog / .environment for the flight sim
     hub.dispose();
     if (mirror) mirror.dispose();
     for (const f of figures) f.dispose();
@@ -2744,6 +2839,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     debug,
     probeGround,
     surfacePoint,
+    sky, // sky/sun/IBL handle — headless calibration + zone-sky assertions
     // exposed for future milestones / tests
     _flags: flags,
   };
