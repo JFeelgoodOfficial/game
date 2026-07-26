@@ -155,7 +155,7 @@ const CULTURES = {
 };
 // Worlds with a pinned culture. Pinned banks stay OUT of the hash-pick pool
 // below so every other city keeps the culture it always had.
-const CULTURE_BY_CITY = { cresta: 'linechasers' };
+const CULTURE_BY_CITY = { wyattmattoe: 'linechasers' };
 const PINNED = new Set(Object.values(CULTURE_BY_CITY));
 const CULTURE_KEYS = Object.keys(CULTURES).filter((k) => !PINNED.has(k));
 

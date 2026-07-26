@@ -105,8 +105,8 @@ const C = {
     memoryTradeChance: 0.4,  // fraction of interactions offering a choice quest
   },
 
-  // --- Cresta: Ridge Kites ---
-  cresta: {
+  // --- Wyattmattoe: Ridge Kites ---
+  wyattmattoe: {
     density: 1.0,
     kiteCount: 10,
     sailSpan: [1.6, 3.2],    // wingtip-to-wingtip
@@ -873,18 +873,18 @@ function buildRustia(planet, worldUp, opts, seed) {
 }
 
 // ---------------------------------------------------------------------------
-// Recipe: CRESTA — Ridge Kites
+// Recipe: WYATTMATTOE — Ridge Kites
 // Living diamond-shaped sails of translucent membrane over safety-orange
 // cartilage struts, each tethered by silk to a stone cairn on a summit or
 // ridgeline. They surf the standing wave of wind above their anchor; the
 // grounded ones (and any that reel down to talk) are the interactable ones.
 // ---------------------------------------------------------------------------
-function buildCresta(planet, worldUp, opts, seed) {
+function buildWyattmattoe(planet, worldUp, opts, seed) {
   const rand = mulberry32(seed);
-  const cfg = C.cresta;
+  const cfg = C.wyattmattoe;
   const pal = opts.palette ?? C.paletteDefault;
   const group = new THREE.Group();
-  group.name = 'cresta-creatures';
+  group.name = 'wyattmattoe-creatures';
 
   const kiteCount = Math.round(cfg.kiteCount * (opts.density ?? cfg.density));
   const radius = opts.radius ?? 240;
@@ -1033,8 +1033,8 @@ function buildCresta(planet, worldUp, opts, seed) {
         kind: 'choice',
         prompt: 'The kite dips its leading eye toward its tether — old, frayed, nearly worn through. It waits to see what you will do.',
         options: [
-          { label: 'Cut the frayed tether free', outcomeTag: 'cresta_tether_cut' },
-          { label: 'Leave it — the line is theirs to keep', outcomeTag: 'cresta_tether_left' },
+          { label: 'Cut the frayed tether free', outcomeTag: 'wyattmattoe_tether_cut' },
+          { label: 'Leave it — the line is theirs to keep', outcomeTag: 'wyattmattoe_tether_left' },
         ],
       };
     } else {
@@ -1538,7 +1538,7 @@ export function createCreatures(planet, worldUp, opts = {}) {
     case 'oceana': return buildOceana(planet, worldUp, opts, seed);
     case 'glacia': return buildGlacia(planet, worldUp, opts, seed);
     case 'rustia': return buildRustia(planet, worldUp, opts, seed);
-    case 'cresta': return buildCresta(planet, worldUp, opts, seed);
+    case 'wyattmattoe': return buildWyattmattoe(planet, worldUp, opts, seed);
     case 'saturnia': return buildSkyEcology(planet, worldUp, opts, seed);
     case 'neptunia': return buildNeptunia(planet, worldUp, opts, seed);
     default:

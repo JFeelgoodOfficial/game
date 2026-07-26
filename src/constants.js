@@ -184,7 +184,7 @@ export const C = {
   WALK_DIVE_SPEED: 6.5, // underwater swim speed, units/sec
   WALK_DIVE_ACCEL: 8.0, // syrupy 3D approach rate toward the wish velocity
 
-  // --- snowboard (B, worlds with cfg.boardable — cresta) ---
+  // --- snowboard (B, worlds with cfg.boardable — wyattmattoe) ---
   // Gravity-fed carving: downhill pull along the terrain gradient, strong
   // side grip vs. near-free forward glide, soft speed cap ~3x sprint. Same
   // kinematic walker underneath — a stepWalk branch like diving, not a

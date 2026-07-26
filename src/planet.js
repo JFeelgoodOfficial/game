@@ -269,7 +269,7 @@ const CONFIGS = [
     // canyons deep enough to thread the ship below the ridgelines. The
     // frozen lakes pooled in the canyon floors are flat flight corridors
     // and board run-outs. boardable unlocks the snowboard (B) on foot.
-    name: 'cresta',
+    name: 'wyattmattoe',
     type: 'terra',
     dir: new THREE.Vector3(-0.82, 0.4, 0.15).normalize(),
     distance: () => 35000,

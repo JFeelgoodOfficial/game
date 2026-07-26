@@ -1,6 +1,6 @@
-# Planet plan — cresta (IMPLEMENTED)
+# Planet plan — wyattmattoe (IMPLEMENTED)
 
-**cresta** — the snowboarder's and bush-pilot's planet: a world of
+**wyattmattoe** — the snowboarder's and bush-pilot's planet: a world of
 record-setting alpine terrain. The tallest relief in the system, knife-edge
 ridgelines, halfpipe glacial drainages, and deep carved canyons floored with
 frozen lakes you can fly the ship down at full tilt — or ride out onto after
@@ -10,7 +10,8 @@ This plan was executed in full; it stays in the repo as the design record.
 
 ## 1. Theme summary
 
-- **Name:** `cresta` (after the Cresta Run; fits glacia/rustia/oceana).
+- **Name:** `wyattmattoe` (owner-named; lowercase like every other dispatch
+  key — the UI uppercases it for display).
 - **Mood/palette:** powder white, granite gray, spruce blue-green, glacier
   teal, safety orange.
 - **Water:** frozen lakes pooled in canyon floors (`seaLevel 0.42` +
@@ -37,11 +38,11 @@ This plan was executed in full; it stays in the repo as the design record.
 
 | File | Change |
 |---|---|
-| `src/planet.js` | `cresta` CONFIGS entry (appended last — station anchors and style cycling unaffected) |
-| `src/nav.js` | `PLANET_COLORS.cresta = '#f4f8ff'` |
+| `src/planet.js` | `wyattmattoe` CONFIGS entry (appended last — station anchors and style cycling unaffected) |
+| `src/nav.js` | `PLANET_COLORS.wyattmattoe = '#f4f8ff'` |
 | `world/city.js` | `basecampNeon` CITY_STYLES preset |
 | `src/walk.js` | `CITY_STYLE_BY_WORLD` + `WONDER_TYPES` entries; the whole snowboard mode (§8) |
-| `world/creatures.js` | `C.cresta` tunables, `buildCresta` (Ridge Kites), dispatcher case |
+| `world/creatures.js` | `C.wyattmattoe` tunables, `buildWyattmattoe` (Ridge Kites), dispatcher case |
 | `world/aliens.js` | `linechasers` CULTURES bank + `CULTURE_BY_CITY` pin (the hash-pick pool excludes pinned banks so every other city keeps its culture) |
 | `src/constants.js` | `BOARD_*` tuning block |
 | `src/input.js` | `toggleBoard` + `KeyB` |
@@ -85,7 +86,7 @@ open water, or ~1.2 s at a standstill steps off. All tunables live in the
 
 ## 9. Verification (all passed, headless)
 
-- Config: cresta orbits at 35,000, radius 1050, frozen sea, boardable.
+- Config: wyattmattoe orbits at 35,000, radius 1050, frozen sea, boardable.
 - Gate: B is inert on terra.
 - Ride: downhill run reaches 20–24+ u/s with crude 1 Hz steering (sprint is
   16), never exceeds the cap; carve rotates the heading ~63°/0.5 s and grip
@@ -96,5 +97,5 @@ open water, or ~1.2 s at a standstill steps off. All tunables live in the
 - Ice: riding onto a frozen lake stays grounded (no swim), glides with slow
   decay; braking to a stop auto-exits to walking.
 - Site: basecampNeon city + crowd spawn, citizens speak `linechasers` lines,
-  Ridge Kites (`cresta-creatures`) spawn and the grounded ones interact.
+  Ridge Kites (`wyattmattoe-creatures`) spawn and the grounded ones interact.
 - Teardown: repeated land/exit cycles with zero page errors.

@@ -342,7 +342,7 @@ const WONDER_TYPES = {
   glacia: ['crystals', 'monoliths'],
   rustia: ['titan', 'arch', 'monoliths', 'ringworld'],
   neptunia: ['crystals', 'arch', 'titan'],
-  cresta: ['arch', 'elevator', 'crystals'], // arch = a gate to fly through
+  wyattmattoe: ['arch', 'elevator', 'crystals'], // arch = a gate to fly through
 };
 
 // Spawn the landing-site world entities, all riding planet.surface so they
@@ -474,7 +474,7 @@ function spawnWorldEntities(planet) {
     glacia: 'frostHaven',
     rustia: 'dustOutpost',
     neptunia: 'tideLuminous',
-    cresta: 'basecampNeon',
+    wyattmattoe: 'basecampNeon',
   };
   const terraWorlds = planets.filter((p) => p.cfg.type === 'terra');
   const styleIdx = Math.max(0, terraWorlds.indexOf(planet));
