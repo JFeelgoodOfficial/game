@@ -44,6 +44,7 @@ import { createActuality, ACTUALITY_SITE } from '../world/actuality.js';
 import { settings } from './settings.js';
 import { createShadowreach } from '../world/shadowreach.js';
 import { createPlanetSky } from '../world/planetsky.js';
+import { createActualityMaterials } from '../world/actuality-materials.js';
 import {
   getViewPref,
   showViewChooser,
@@ -143,6 +144,11 @@ let shadowreach = null; // total-conversion narrative world for 'shadowreach' on
 // bring its own sky module. Must exist before beginWalk's acquireSurface hides
 // the flight sim's sky, which enterWalk's creation order guarantees.
 let planetSky = null;
+// Walk-session PBR material registry (world/actuality-materials.js) for the
+// same worlds — threaded into dressing/wonders (and the dedicated modules that
+// take real people). The registry owns everything it hands out; it is disposed
+// LAST in exitWalk, after every consumer has torn down.
+let surfaceMaterials = null;
 // Interior occupants: one small crowd per enterable lobby (+ tower balcony).
 // Each rides city.group's local frame, so it shares the crowd's player-local.
 let interiorCrowds = []; // [{ module, groupParent }]
@@ -351,9 +357,15 @@ export function enterWalk(planet) {
   // This world carries the snowboard — say so once per disembark.
   if (planet.cfg.boardable) showViewToast('B — SNOWBOARD');
 
+  // Walk-session material registry for the generic worlds (the story worlds
+  // build their own instance). ~8 ms of canvas work, spawn-time only.
+  if (planet.cfg.name !== 'actuality' && planet.cfg.name !== 'shadowreach') {
+    surfaceMaterials = createActualityMaterials({ quality: settings.quality });
+  }
+
   // Dress the landing site (terra/oceana get the full valley; ice and rock
   // worlds get boulders; gasless of course never reach here).
-  dressing = createDressing(planet, _up);
+  dressing = createDressing(planet, _up, surfaceMaterials);
 
   // Populate the site: parked ship, city + citizens, wonders, wildlife.
   // _up still holds the world-space landing dir here.
@@ -622,6 +634,7 @@ function spawnWorldEntities(planet) {
     .normalize();
   wonders = createWonderField(planet, _patchUp, {
     count: C.WONDER_COUNT,
+    materials: surfaceMaterials,
     types: WONDER_TYPES[planet.cfg.name] ?? ['arch', 'crystals', 'monoliths'],
     // Wonders share the city's neon identity: glacia goes ice-blue, rustia
     // amber, oceana teal (wonders.js palette.accent/secondary hooks).
@@ -740,6 +753,11 @@ export function exitWalk(camera) {
     planetSky.dispose(); // restores scene.fog/environment, zeroes the terrain fog hooks
     planet.surface.remove(planetSky.group);
     planetSky = null;
+  }
+  // The registry goes down LAST — every consumer above borrowed from it.
+  if (surfaceMaterials) {
+    surfaceMaterials.dispose();
+    surfaceMaterials = null;
   }
   if (parked) {
     parked.dispose(); // removes its own group from planet.surface

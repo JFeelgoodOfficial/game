@@ -198,8 +198,22 @@ function emissiveMat(color, intensity, opts = {}) {
   });
 }
 
+// Walk-session material registry (world/actuality-materials.js), installed by
+// createWonderField for the duration of its builders. The 'rock' family bakes
+// luminance only, so the per-wonder tint colors below keep driving the hue —
+// the maps just stop the megastructures reading as flat plastic. The registry
+// owns the map clones; disposeGroup's material.dispose() never frees textures.
+let _registry = null;
+
 function stoneMat(color = C.STONE) {
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0.05 });
+  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0.05 });
+  if (_registry) {
+    const set = _registry.tiledSet('rock', 3, 3);
+    m.map = set.map;
+    m.roughnessMap = set.roughnessMap;
+    m.normalMap = set.normalMap;
+  }
+  return m;
 }
 
 function disposeGroup(group) {
@@ -940,8 +954,18 @@ export function createWonderField(planet, worldUp, opts = {}) {
 
     const wSeed = Math.floor(rng() * 0xffffffff);
     const builder = BUILDERS[type];
+    _registry = opts.materials ?? null; // stoneMat picks up the maps in here
     const result = builder(planet, candidate, wSeed, palette);
+    _registry = null;
     result.group.userData.wonderType = type;
+    // Shadow flags for the isolated render mode: opaque structure casts and
+    // catches; transparent/additive FX shells are left alone.
+    result.group.traverse((obj) => {
+      if (obj.isMesh && obj.material && !obj.material.transparent) {
+        obj.castShadow = true;
+        obj.receiveShadow = true;
+      }
+    });
     group.add(result.group);
     wonders.push(result);
     placedLocalDirs.push(candidate);

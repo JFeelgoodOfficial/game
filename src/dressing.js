@@ -47,6 +47,20 @@ const _qYaw = new THREE.Quaternion();
 const _dummy = new THREE.Object3D();
 const _col = new THREE.Color();
 
+// Registry micro-relief (world/actuality-materials.js, optional): bolt the
+// tiling normal + roughness maps onto a dressing material WITHOUT an albedo
+// map, so the painted vertex/instance colors — each world's identity — stay
+// exactly as authored while the surfaces stop being airbrushed plastic. The
+// registry owns the map clones; material.dispose() never frees textures, so
+// the dressing's own disposal list stays correct as-is.
+function attachRelief(mat, materials, family, repeat, normalScale = 0.55) {
+  if (!materials) return;
+  const set = materials.tiledSet(family, repeat, repeat);
+  mat.normalMap = set.normalMap;
+  mat.normalScale = new THREE.Vector2(normalScale, normalScale);
+  mat.roughnessMap = set.roughnessMap;
+}
+
 // The sampling context shared by all four scatter passes: object-space frame
 // around the landing direction plus the planet's ground field.
 function makeSite(planet, worldUp) {
@@ -290,7 +304,7 @@ function buildTreeGeometry(kind, rand, hueShift) {
   return merged;
 }
 
-function createTrees(site, dress, meshes, disposables) {
+function createTrees(site, dress, meshes, disposables, materials) {
   const rand = mulberry32(site.seed ^ 2024);
   const hueShift = dress.treeHueShift || 0;
   const variants = [
@@ -299,11 +313,14 @@ function createTrees(site, dress, meshes, disposables) {
     buildTreeGeometry(2, rand, hueShift),
   ];
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
+  attachRelief(mat, materials, 'bark', 2, 0.7);
 
   const perVariant = C.DRESS_TREES;
   const treeMeshes = variants.map((g) => {
     const m = new THREE.InstancedMesh(g, mat, perVariant);
     m.frustumCulled = false;
+    m.castShadow = true;
+    m.receiveShadow = true;
     meshes.push(m);
     disposables.push(g);
     return m;
@@ -358,7 +375,7 @@ function createTrees(site, dress, meshes, disposables) {
 // ---------------------------------------------------------------------------
 // Shrubs — low underbrush
 // ---------------------------------------------------------------------------
-function createShrubs(site, dress, meshes, disposables) {
+function createShrubs(site, dress, meshes, disposables, materials) {
   const rand = mulberry32(site.seed ^ 555);
   const geo = new THREE.IcosahedronGeometry(0.7, 1);
   const p = geo.attributes.position;
@@ -370,9 +387,12 @@ function createShrubs(site, dress, meshes, disposables) {
   geo.computeVertexNormals();
 
   const mat = new THREE.MeshStandardMaterial({ roughness: 1 });
+  attachRelief(mat, materials, 'groundCover', 2, 0.6);
   const COUNT = C.DRESS_SHRUBS;
   const mesh = new THREE.InstancedMesh(geo, mat, COUNT);
   mesh.frustumCulled = false;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   const hueShift = dress.treeHueShift || 0;
 
   let placed = 0, attempts = 0;
@@ -407,7 +427,7 @@ function createShrubs(site, dress, meshes, disposables) {
 // ---------------------------------------------------------------------------
 // Scattered rocks & boulders
 // ---------------------------------------------------------------------------
-function createRocks(site, dress, meshes, disposables) {
+function createRocks(site, dress, meshes, disposables, materials) {
   const rand = mulberry32(site.seed ^ 909);
   const variants = [];
   for (let v = 0; v < 3; v++) {
@@ -422,6 +442,7 @@ function createRocks(site, dress, meshes, disposables) {
     variants.push(g);
   }
   const mat = new THREE.MeshStandardMaterial({ roughness: 0.95, flatShading: true });
+  attachRelief(mat, materials, 'rock', 2, 0.8);
   disposables.push(mat);
   // Optional per-planet tint pulls the boulders toward the local palette
   // (glacia's blued ice rubble, rustia's oxide rocks).
@@ -431,6 +452,8 @@ function createRocks(site, dress, meshes, disposables) {
   variants.forEach((g) => {
     const mesh = new THREE.InstancedMesh(g, mat, perVariant);
     mesh.frustumCulled = false;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     let placed = 0, attempts = 0;
     while (placed < perVariant && attempts < perVariant * 12) {
       attempts++;
@@ -470,8 +493,10 @@ function createRocks(site, dress, meshes, disposables) {
 
 // Spawn a dressing patch on `planet` around the world-space landing direction
 // `worldUp`. Returns { update(t, day), dispose() } or null when the planet's
-// config carries no `dress` block.
-export function createDressing(planet, worldUp) {
+// config carries no `dress` block. `materials` is the walk session's registry
+// (world/actuality-materials.js) or null — with it, trees/shrubs/rocks pick up
+// tiling normal/roughness relief and shadow flags for the isolated render mode.
+export function createDressing(planet, worldUp, materials = null) {
   const dress = planet.cfg.dress;
   if (!dress) return null;
 
@@ -481,9 +506,9 @@ export function createDressing(planet, worldUp) {
   let grass = null;
 
   if (dress.grass) grass = createGrass(site, dress, meshes, disposables);
-  if (dress.trees) createTrees(site, dress, meshes, disposables);
-  if (dress.shrubs) createShrubs(site, dress, meshes, disposables);
-  if (dress.rocks) createRocks(site, dress, meshes, disposables);
+  if (dress.trees) createTrees(site, dress, meshes, disposables, materials);
+  if (dress.shrubs) createShrubs(site, dress, meshes, disposables, materials);
+  if (dress.rocks) createRocks(site, dress, meshes, disposables, materials);
 
   for (const m of meshes) planet.surface.add(m);
 
