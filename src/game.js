@@ -91,6 +91,7 @@ import {
   enterStationWalk,
 } from './walkLazy.js';
 import { initJournal, journalState } from './journal.js';
+import { CITIES, citiesForWorld, padLocalDir } from '../world/cityRegistry.js';
 import { initSun, sunAltitude } from './sun.js';
 import { initStations, updateStations, nearestDockableStation } from './stations.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
@@ -406,6 +407,23 @@ if (import.meta.env.DEV) {
     get landState() {
       return landState;
     },
+    // Registry cities for a world: site + pad directions in world space at
+    // this instant, for headless auto-land verification.
+    cityInfo(worldName) {
+      const p = planets.find((pl) => pl.cfg.name === worldName);
+      if (!p) return null;
+      const rotY = p.surface?.rotation?.y ?? 0;
+      return citiesForWorld(worldName).map((def) => {
+        const pad = padLocalDir(p, def, new THREE.Vector3());
+        return {
+          id: def.id,
+          name: def.name,
+          siteWorldDir: def.site.clone().applyAxisAngle(_yAxis, rotY),
+          padWorldDir: pad.applyAxisAngle(_yAxis, rotY),
+        };
+      });
+    },
+    cityCount: CITIES.length,
     walkHere() {
       const floor = nearestTerraFloor(ship.position);
       if (floor) {
@@ -415,6 +433,7 @@ if (import.meta.env.DEV) {
         // it already left.
         landState = null;
         landedPlanet = null;
+        _padLocalDir.set(0, 0, 0);
         beginWalk(floor.planet);
         heat = 0;
         phase = 'walk';
@@ -588,6 +607,17 @@ const _lv1 = new THREE.Vector3();
 const _lv2 = new THREE.Vector3();
 const _lm = new THREE.Matrix4();
 const _prevPos = new THREE.Vector3();
+// Pad-targeted auto-land (world/cityRegistry.js): everything pad-related is
+// stored SURFACE-LOCAL because the planet spins during the arc — a stored
+// world-space target would drift off a permanent pad by hundreds of units
+// over a long approach. Length 0 = free landing (no registry pad).
+const _padLocalDir = new THREE.Vector3();
+const _landStartLocalDir = new THREE.Vector3();
+const _landArcAxisLocal = new THREE.Vector3(); // great-circle rotation axis
+const _landArcQuat = new THREE.Quaternion();
+const _yAxis = new THREE.Vector3(0, 1, 0);
+let landArcAng = 0; // start -> pad great-circle angle (rad)
+let autoLandDuration = C.AUTOLAND_TIME;
 
 // Upright landing pose: +Y radial, nose (-Z) along the current nose projected
 // onto the tangent plane.
@@ -602,32 +632,79 @@ function landingUpright(up, quatOut) {
   quatOut.setFromRotationMatrix(_lm);
 }
 
-// G at low altitude: pick the flattest cell of a 5x5 tangent grid under the
-// ship and fly a smooth assisted arc down to it. Spawn-time allocation only.
+// G at low altitude: on worlds with registry cities, arc to the CLOSEST
+// city landing pad (great-circle distance at the trigger moment, ties
+// broken by approach heading). On worlds without cities (the story-world
+// total conversions, future planets), keep the original behavior: pick the
+// flattest cell of a 5x5 tangent grid under the ship. Spawn-time
+// allocation only.
 function beginAutoLand(floor) {
   const p = floor.planet;
   landedPlanet = p;
+  _padLocalDir.set(0, 0, 0);
+  landArcAng = 0;
+  autoLandDuration = C.AUTOLAND_TIME;
   const up = _lv0.subVectors(ship.position, p.body.position).normalize().clone();
-  const ref = Math.abs(up.y) < 0.94
-    ? _lv1.set(0, 1, 0)
-    : _lv1.set(1, 0, 0);
-  const t1 = _lv1.crossVectors(up, ref).normalize().clone();
-  const t2 = _lv2.crossVectors(up, t1).normalize().clone();
-  const R = p.radius;
-  let bestRough = Infinity;
-  const d = new THREE.Vector3();
-  const probe = new THREE.Vector3();
-  for (let i = -2; i <= 2; i++) {
-    for (let j = -2; j <= 2; j++) {
-      d.copy(up).addScaledVector(t1, (i * 20) / R).addScaledVector(t2, (j * 20) / R).normalize();
-      const h = p.body.groundAt(d);
-      const e = 4 / R;
-      const hx = p.body.groundAt(probe.copy(d).addScaledVector(t1, e).normalize());
-      const hz = p.body.groundAt(probe.copy(d).addScaledVector(t2, e).normalize());
-      const rough = Math.abs(hx - h) + Math.abs(hz - h);
-      if (rough < bestRough) {
-        bestRough = rough;
-        _landTargetDir.copy(d);
+  const cities = citiesForWorld(p.cfg.name);
+  if (cities.length) {
+    const rotY = p.surface?.rotation?.y ?? 0;
+    const shipLocal = up.clone().applyAxisAngle(_yAxis, -rotY);
+    // Approach heading (tangent-plane velocity), for near-tie breaking.
+    const heading = ship.velocity.clone().addScaledVector(up, -ship.velocity.dot(up));
+    if (heading.lengthSq() > 1e-6) heading.normalize();
+    let best = null;
+    let bestAng = Infinity;
+    let bestAlong = -Infinity;
+    const cand = new THREE.Vector3();
+    const depart = new THREE.Vector3();
+    for (const def of cities) {
+      padLocalDir(p, def, cand);
+      const ang = cand.angleTo(shipLocal);
+      // Departure tangent toward this pad, in world space, for the tie-break.
+      depart.copy(cand).applyAxisAngle(_yAxis, rotY);
+      depart.addScaledVector(up, -depart.dot(up));
+      const along = depart.lengthSq() > 1e-6 ? depart.normalize().dot(heading) : 0;
+      if (ang < bestAng - 0.02 || (Math.abs(ang - bestAng) <= 0.02 && along > bestAlong)) {
+        if (ang < bestAng) bestAng = ang;
+        bestAlong = along;
+        best = best ? best.copy(cand) : cand.clone();
+      }
+    }
+    _padLocalDir.copy(best);
+    _landStartLocalDir.copy(shipLocal);
+    landArcAng = bestAng;
+    // Great-circle rotation axis start -> pad (surface-local, constant).
+    _landArcAxisLocal.crossVectors(shipLocal, _padLocalDir);
+    if (_landArcAxisLocal.lengthSq() < 1e-8) _landArcAxisLocal.set(0, 1, 0);
+    _landArcAxisLocal.normalize();
+    // A distant pad gets a longer arc instead of a faster one.
+    autoLandDuration = THREE.MathUtils.clamp(
+      C.AUTOLAND_TIME + (landArcAng * p.radius) / C.AUTOLAND_CRUISE,
+      C.AUTOLAND_TIME, C.AUTOLAND_MAX_TIME
+    );
+    _landTargetDir.copy(_padLocalDir).applyAxisAngle(_yAxis, rotY);
+  } else {
+    const ref = Math.abs(up.y) < 0.94
+      ? _lv1.set(0, 1, 0)
+      : _lv1.set(1, 0, 0);
+    const t1 = _lv1.crossVectors(up, ref).normalize().clone();
+    const t2 = _lv2.crossVectors(up, t1).normalize().clone();
+    const R = p.radius;
+    let bestRough = Infinity;
+    const d = new THREE.Vector3();
+    const probe = new THREE.Vector3();
+    for (let i = -2; i <= 2; i++) {
+      for (let j = -2; j <= 2; j++) {
+        d.copy(up).addScaledVector(t1, (i * 20) / R).addScaledVector(t2, (j * 20) / R).normalize();
+        const h = p.body.groundAt(d);
+        const e = 4 / R;
+        const hx = p.body.groundAt(probe.copy(d).addScaledVector(t1, e).normalize());
+        const hz = p.body.groundAt(probe.copy(d).addScaledVector(t2, e).normalize());
+        const rough = Math.abs(hx - h) + Math.abs(hz - h);
+        if (rough < bestRough) {
+          bestRough = rough;
+          _landTargetDir.copy(d);
+        }
       }
     }
   }
@@ -640,19 +717,53 @@ function beginAutoLand(floor) {
 
 function stepAutoLand(dt) {
   const p = landedPlanet;
-  autoT = Math.min(autoT + dt / C.AUTOLAND_TIME, 1);
+  autoT = Math.min(autoT + dt / autoLandDuration, 1);
   const k = autoT * autoT * (3 - 2 * autoT); // smoothstep ease
-  // Live pad target: clearance above the local ground (sea-clamped, so open
-  // water is a water landing).
-  const padR = p.radius + p.body.groundAt(_landTargetDir) + C.TOUCHDOWN_CLEARANCE;
-  _lv0.copy(p.body.position).addScaledVector(_landTargetDir, padR); // pad
-  _lv1.copy(p.body.position).add(_landStartOff); // arc start (rebase-safe)
-  _prevPos.copy(ship.position);
-  ship.position.lerpVectors(_lv1, _lv0, k);
-  // Velocity mirrors the finite difference so camera drift/skyfog stay sane.
-  ship.velocity.copy(ship.position).sub(_prevPos).divideScalar(dt);
-  ship.quaternion.slerpQuaternions(_landStartQuat, _landUprightQuat, k);
-  ship.angularVelocity.set(0, 0, 0);
+  if (_padLocalDir.lengthSq() > 0.5) {
+    // Pad arc: slerp the SURFACE-LOCAL direction along the great circle from
+    // the trigger point to the pad, re-rotated by the live spin each step so
+    // the ship tracks the pad while the planet turns under it.
+    const rotY = p.surface?.rotation?.y ?? 0;
+    _landArcQuat.setFromAxisAngle(_landArcAxisLocal, landArcAng * k);
+    _lv2.copy(_landStartLocalDir).applyQuaternion(_landArcQuat)
+      .applyAxisAngle(_yAxis, rotY); // current world dir along the arc
+    _landTargetDir.copy(_padLocalDir).applyAxisAngle(_yAxis, rotY); // live pad
+    const padR = p.radius + p.body.groundAt(_landTargetDir) + C.TOUCHDOWN_CLEARANCE;
+    const startR = _landStartOff.length();
+    // Radius eases start -> pad with a cruise hump on long arcs, and never
+    // dips below the terrain under the arc (wyattmattoe ridges reach 280).
+    let r = THREE.MathUtils.lerp(startR, padR, k);
+    r += Math.sin(Math.PI * k) * Math.min(landArcAng * p.radius * 0.12, 140);
+    const minR = p.radius + p.body.groundAt(_lv2) + 6;
+    if (r < minR) r = minR;
+    _prevPos.copy(ship.position);
+    ship.position.copy(p.body.position).addScaledVector(_lv2, r);
+    ship.velocity.copy(ship.position).sub(_prevPos).divideScalar(dt);
+    // Touch down facing along the approach: nose (-Z) on the great-circle
+    // travel tangent at the pad, +Y radial. Recomputed per step so the pose
+    // tracks the spinning pad.
+    _lv0.crossVectors(_landArcAxisLocal, _padLocalDir)
+      .applyAxisAngle(_yAxis, rotY).normalize(); // travel tangent at pad
+    _lv2.copy(_lv0).multiplyScalar(-1); // back (+Z)
+    _lv1.crossVectors(_landTargetDir, _lv2).normalize(); // right (X = Y x Z)
+    _lm.makeBasis(_lv1, _landTargetDir, _lv2);
+    _landUprightQuat.setFromRotationMatrix(_lm);
+    ship.quaternion.slerpQuaternions(_landStartQuat, _landUprightQuat, k);
+    ship.angularVelocity.set(0, 0, 0);
+  } else {
+    // Free landing (no registry pad): the original straight-line arc.
+    // Live pad target: clearance above the local ground (sea-clamped, so open
+    // water is a water landing).
+    const padR = p.radius + p.body.groundAt(_landTargetDir) + C.TOUCHDOWN_CLEARANCE;
+    _lv0.copy(p.body.position).addScaledVector(_landTargetDir, padR); // pad
+    _lv1.copy(p.body.position).add(_landStartOff); // arc start (rebase-safe)
+    _prevPos.copy(ship.position);
+    ship.position.lerpVectors(_lv1, _lv0, k);
+    // Velocity mirrors the finite difference so camera drift/skyfog stay sane.
+    ship.velocity.copy(ship.position).sub(_prevPos).divideScalar(dt);
+    ship.quaternion.slerpQuaternions(_landStartQuat, _landUprightQuat, k);
+    ship.angularVelocity.set(0, 0, 0);
+  }
   if (autoT >= 1) {
     landState = 'landed';
     settleT = 1; // the arc already finished upright
@@ -662,10 +773,17 @@ function stepAutoLand(dt) {
 }
 
 // Parked on the surface: pinned to the pad (the planet spins under the sky),
-// easing upright after a manual touchdown. W/Space lifts off.
+// easing upright after a manual touchdown. W/Space lifts off. On a registry
+// pad the pin direction comes from the SURFACE-LOCAL pad dir re-rotated by
+// the live spin, so the parked ship co-rotates and stays over the pad — the
+// old radial-from-position pin drifts relative to a fixed pad.
 function stepLanded(dt, piloted) {
   const p = landedPlanet;
-  _lv0.subVectors(ship.position, p.body.position).normalize();
+  if (_padLocalDir.lengthSq() > 0.5) {
+    _lv0.copy(_padLocalDir).applyAxisAngle(_yAxis, p.surface?.rotation?.y ?? 0);
+  } else {
+    _lv0.subVectors(ship.position, p.body.position).normalize();
+  }
   const padR = p.radius + p.body.groundAt(_lv0) + C.TOUCHDOWN_CLEARANCE;
   ship.position.copy(p.body.position).addScaledVector(_lv0, padR);
   ship.velocity.set(0, 0, 0);
@@ -679,6 +797,7 @@ function stepLanded(dt, piloted) {
   if (piloted && (input.forward || input.brake)) {
     landState = null;
     landedPlanet = null;
+    _padLocalDir.set(0, 0, 0);
     // Lifting off without ever having stepped out: the universe stage was taken
     // at touchdown and nothing else will hand it back. (Stepping out and later
     // boarding routes through endWalk instead, which releases both stages.)
@@ -704,6 +823,7 @@ function checkTouchdown() {
     landedPlanet = p;
     landState = 'landed';
     settleT = 0;
+    _padLocalDir.set(0, 0, 0); // manual touchdown: land anywhere, no pad pin
     _landStartQuat.copy(ship.quaternion);
     landingUpright(_lv0, _landUprightQuat);
     touchdownIsolate(p);
@@ -762,6 +882,7 @@ function resetToStart() {
   heat = 0;
   landState = null;
   landedPlanet = null;
+  _padLocalDir.set(0, 0, 0);
   standing = false;
   standBlend = 0;
   closeCredits();
@@ -904,6 +1025,7 @@ function frame(now) {
         if (floor) {
           landState = null;
           landedPlanet = null;
+          _padLocalDir.set(0, 0, 0);
           beginWalk(floor.planet);
           heat = 0;
           phase = 'walk';
@@ -915,6 +1037,7 @@ function frame(now) {
         _lv0.subVectors(ship.position, landedPlanet.body.position).normalize();
         ship.velocity.copy(_lv0).multiplyScalar(C.TAKEOFF_KICK);
         landedPlanet = null;
+        _padLocalDir.set(0, 0, 0);
       } else {
         const dock = nearestDockableStation(ship.position);
         if (

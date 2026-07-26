@@ -113,7 +113,18 @@ function render() {
 function pickOption(i) {
   const opt = payload.offer.options[i];
   if (!opt) return;
-  if (onOffer) onOffer({ kind: 'choice', outcomeTag: opt.outcomeTag });
+  // The host may return a FOLLOW-UP payload from the pick (vendor branching
+  // menus, world/vendors.js): swap it in place and keep the panel open —
+  // nested menus recurse naturally. Every existing caller returns nothing
+  // from onOffer, so their choice dialogues still close exactly as before.
+  const next = onOffer ? onOffer({ kind: 'choice', outcomeTag: opt.outcomeTag }) : null;
+  if (next && next.lines && next.lines.length) {
+    payload = next;
+    lineIndex = 0;
+    choosing = false;
+    render();
+    return;
+  }
   closeDialogue();
 }
 

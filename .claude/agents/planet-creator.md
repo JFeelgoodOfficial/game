@@ -27,21 +27,36 @@ under `plans/`.
   systems.** Ocean world = high `seaLevel`. Dead world = `seaLevel` below the
   terrain minimum. Ice world = `frozenSea`. Never propose new shaders or
   systems for a normal planet.
-- Any `type: 'terra'` planet is landable (G key), and
-  `spawnWorldEntities` in `src/walk.js` (~line 292) **automatically** spawns a
-  city, street crowd, interior occupants, wonders, wildlife, and vegetation —
-  with generic fallbacks. Theming those systems is what makes a world feel
-  hand-crafted:
-  - **City identity**: `CITY_STYLES` presets in `world/city.js` (~lines
-    233–286: `heightScale`, `density`, `signChance`, `adBillboards`,
+- Any `type: 'terra'` planet is landable (G key). **Cities are PERMANENT and
+  registry-driven** (`world/cityRegistry.js`): each world carries 2–3 fixed
+  city entries (site, seed, style, landing pad, unique wonder, named vendors),
+  the G auto-land arcs to the nearest city pad (`beginAutoLand` in
+  `src/game.js`), and `spawnWorldEntities` in `src/walk.js` builds the
+  nearest registry city on disembark — bit-identical on every visit. A new
+  planet with **no registry entries gets wilderness landings** (dressing +
+  wildlife + parked ship, original flattest-ground auto-land) until its
+  cities are added, so nothing breaks before then. Theming is what makes a
+  world feel hand-crafted:
+  - **City identity**: one `CITIES` entry per city in
+    `world/cityRegistry.js` — pick a `CITY_STYLES` preset from
+    `world/city.js` (`heightScale`, `density`, `signChance`, `adBillboards`,
     `flickerAmount`, and a palette of `neonPrimary`, `neonSecondaryA/B`,
-    `hullA/B`, `street`, `plaza`, `windowWarm`), mapped per world in
-    `CITY_STYLE_BY_WORLD` in `src/walk.js` (~line 353). Unknown worlds cycle
-    presets by index.
-  - **Wonders**: `WONDER_TYPES` in `src/walk.js` (~line 278), drawing from the
-    library in `world/wonders.js`: `arch`, `grove`, `crystals`, `monoliths`,
-    `elevator`, `titan`, `ringworld`. Fallback: `['arch', 'crystals',
-    'monoliths']`.
+    `hullA/B`, `street`, `plaza`, `windowWarm`) or add a new preset. Sites
+    are hand-frozen unit vectors probed offline against `src/terrain.js`
+    (deterministic) for dry, flat, well-separated ground — see the
+    registry's header comment for the probe workflow and the water rule
+    (more water → fewer, denser, more neon cities; arid → 3 spread
+    outposts).
+  - **Wonders**: every city names ONE globally-unique wonder type from
+    `world/wonders.js` (`arch`, `grove`, `crystals`, `monoliths`,
+    `elevator`, `titan`, `ringworld`, `geyser`, `sundial`, `leviathan`,
+    `diamondveil`, `skyharp`, `bell`, `icefall`) at a registry
+    bearing/distance. New worlds should bring new wonder builders rather
+    than repeat an existing city's.
+  - **Vendors**: 2–4 per city from the fixed roster in
+    `world/vendor-dialogue.js` (merchant, farmer, gardener, artisan,
+    caretaker, scholar, guide, apprentice, elite, entertainer) — static
+    hand-authored branching trees per world voice, never generated.
   - **Wildlife**: dispatcher in `world/creatures.js` `createCreatures`
     (~line 1067) switches on the planet name — one bespoke `build*` recipe per
     world (terra: Tended Mat, oceana: Shoal-People, glacia: Slow Crystalline,
