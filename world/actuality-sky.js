@@ -1,7 +1,11 @@
 /**
  * actuality-sky.js
  *
- * The sky, the light, and the image-based lighting for world/actuality.js.
+ * The sky, the light, and the image-based lighting for the story worlds. Written
+ * for world/actuality.js and now shared with world/shadowreach.js, which brings
+ * its own presets in through `opts.presets` and drives them as a continuous arc
+ * along its path rather than as per-zone cuts. Nothing here is Actuality-specific
+ * beyond the built-in preset table and the file's name.
  *
  * What this replaces: nine two-stop gradients painted on MeshBasicMaterial
  * spheres. Those don't light anything — they are wallpaper behind the geometry,
@@ -203,6 +207,12 @@ const _c = new THREE.Color(); // lerp target for blended presets
  */
 export function createActualitySky(anchor, scene, opts = {}) {
   const lowQuality = opts.quality === 'low';
+  // A caller can bring its own weather. Shadowreach walks a story arc from a
+  // blue morning down through a storm to a starlit void and back up into dawn,
+  // which is six presets this world has no use for — so they ride in rather
+  // than accumulating in the table above. Same shape, same fields, and they
+  // blend against the built-ins freely.
+  const PRESETS = opts.presets ? { ...SKY_PRESETS, ...opts.presets } : SKY_PRESETS;
   const geos = [];
   const mats = [];
   const texs = [];
@@ -374,7 +384,7 @@ export function createActualitySky(anchor, scene, opts = {}) {
   let currentName = null;
 
   function applyPreset(name, renderer) {
-    const p = SKY_PRESETS[name] || SKY_PRESETS.interior;
+    const p = PRESETS[name] || PRESETS.interior;
     current = p;
     currentName = name;
     lastBakeK = -1; // a later blend must re-bake from scratch
@@ -445,7 +455,7 @@ export function createActualitySky(anchor, scene, opts = {}) {
   const _blend = { fog: {}, cloud: {} };
   let lastBakeK = -1;
   function applyBlend(nameA, nameB, k, renderer) {
-    const a = SKY_PRESETS[nameA], b = SKY_PRESETS[nameB];
+    const a = PRESETS[nameA], b = PRESETS[nameB];
     if (!a || !b || a.interior || a.none || b.interior || b.none) return;
     const L = (x, y) => x + (y - x) * k;
     current = _blend;

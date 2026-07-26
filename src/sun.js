@@ -13,7 +13,10 @@ import { addBody } from './gravity.js';
 import { addShiftable } from './origin.js';
 import { SUN } from './planet.js';
 
-export const sun = { group: null, body: null };
+// `light` and `ambient` are the system-wide lighting, exposed so an isolated
+// world can stand them down (src/isolate.js): a story world that brings its own
+// sky brings its own key light with it, and leaving these on double-counts.
+export const sun = { group: null, body: null, light: null, ambient: null };
 
 export function initSun(scene) {
   const group = new THREE.Group();
@@ -47,10 +50,13 @@ export function initSun(scene) {
   const light = new THREE.DirectionalLight(0xfff2dd, 2.4);
   light.position.copy(SUN); // direction: from position toward origin default target
   scene.add(light);
-  scene.add(new THREE.AmbientLight(0x223044, 0.8));
+  const ambient = new THREE.AmbientLight(0x223044, 0.8);
+  scene.add(ambient);
 
   sun.group = group;
   sun.body = body;
+  sun.light = light;
+  sun.ambient = ambient;
   return sun;
 }
 

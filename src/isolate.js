@@ -50,7 +50,7 @@ import { settings } from './settings.js';
 // Worlds that own their sky and light outright, and so can isolate. Both are
 // total conversions dispatched by name in walk.js; keeping the list here means
 // adding a third world is a one-line change.
-const ISOLATING_WORLDS = new Set(['actuality']);
+const ISOLATING_WORLDS = new Set(['actuality', 'shadowreach']);
 
 export function isIsolatingWorld(name) {
   return ISOLATING_WORLDS.has(name);
@@ -73,6 +73,8 @@ const iso = {
   prevExposure: 1,
   prevBloomThreshold: 0,
   prevBloomStrength: 0,
+  prevSunLight: -1,
+  prevAmbient: -1,
 };
 
 // Exposure and bloom while standing on an isolated world, PER WORLD.
@@ -90,9 +92,16 @@ const iso = {
 // the glow back where it belongs — but Shadowreach deliberately authors its
 // round-room spiral, its lightning and the finale's blue tear to cross 0.85, so
 // lifting the threshold to Actuality's 2.4 would erase all three.
+//
+// `soleLight` stands the system-wide DirectionalLight + AmbientLight down for
+// the duration. A world that draws its own sky also plants its own sun in it,
+// and the two keys otherwise stack: two suns from different directions, plus a
+// flat ambient underneath an environment map that is already doing that job
+// properly. Actuality does NOT take this — it was calibrated with the globals in
+// place and its materials expect them.
 const WORLD_RENDER = {
   actuality: { exposure: 0.32, bloomThreshold: 2.4, bloomStrength: 0.5 },
-  shadowreach: { exposure: 0.62, bloomThreshold: 1.15, bloomStrength: 0.62 },
+  shadowreach: { exposure: 0.62, bloomThreshold: 1.15, bloomStrength: 0.62, soleLight: true },
 };
 const DEFAULT_RENDER = WORLD_RENDER.actuality;
 
@@ -172,6 +181,13 @@ export function acquireSurface(planet, renderer, aoPass, camera, bloomPass) {
   iso.prevExposure = renderer.toneMappingExposure;
   renderer.toneMappingExposure = R.exposure;
 
+  if (R.soleLight && sun.light) {
+    iso.prevSunLight = sun.light.intensity;
+    iso.prevAmbient = sun.ambient ? sun.ambient.intensity : -1;
+    sun.light.intensity = 0;
+    if (sun.ambient) sun.ambient.intensity = 0;
+  }
+
   if (bloomPass) {
     iso.prevBloomThreshold = bloomPass.threshold;
     iso.prevBloomStrength = bloomPass.strength;
@@ -205,6 +221,11 @@ export function releaseSurface(renderer, aoPass, camera, bloomPass) {
     camera.updateProjectionMatrix();
   }
   renderer.toneMappingExposure = iso.prevExposure;
+  if (iso.prevSunLight >= 0 && sun.light) {
+    sun.light.intensity = iso.prevSunLight;
+    if (sun.ambient && iso.prevAmbient >= 0) sun.ambient.intensity = iso.prevAmbient;
+    iso.prevSunLight = iso.prevAmbient = -1;
+  }
   if (bloomPass) {
     bloomPass.threshold = iso.prevBloomThreshold;
     bloomPass.strength = iso.prevBloomStrength;

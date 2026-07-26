@@ -43,6 +43,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildRig, poseRig } from './aliens.js';
+import { createActualitySky } from './actuality-sky.js';
 import { Astronaut } from '../src/astronaut.js';
 
 // The owner's paintings (repo-root /artgallery, same pipeline as the Orbital
@@ -113,21 +114,105 @@ const SR = {
 
   FOLLOW_DIST: 4.0, // meters a companion trails behind the player
 
-  // Per-zone sky keyframes (path dist -> hex). Piecewise-lerped each frame.
-  SKY_BANDS: [
-    [0, 0x7ec8ff],        // meadow: bright blue
-    [520 * K, 0x7ec8ff],
-    [700 * K, 0xd8934a],  // confession circle: dusk ochre
-    [860 * K, 0xd8934a],
-    [1050 * K, 0xf2e3b8], // desert line: harsh pale gold
-    [1500 * K, 0xf2e3b8],
-    [1750 * K, 0x4a5248], // wasteland: storm green-grey
-    [2050 * K, 0x4a5248],
-    [2250 * K, 0x23222c], // round room: near-black indigo
-    [2400 * K, 0x23222c],
-    [2550 * K, 0xd8a86a], // garden: deep warm amber (night side — lamps carry it)
-    [2820 * K, 0xd8a86a],
+  // Per-zone sky keyframes (path dist -> preset name), continuously blended as
+  // the player walks. The arc is the story's: a blue morning with a little cloud
+  // in it, weather closing in zone by zone until the round room is a starlit
+  // void, then dawn in the garden. See SKY_PRESETS below.
+  SKY_STOPS: [
+    [0, 'srMeadow'],
+    [520 * K, 'srMeadow'],
+    [700 * K, 'srCircle'],
+    [860 * K, 'srCircle'],
+    [1050 * K, 'srQueue'],
+    [1500 * K, 'srQueue'],
+    [1750 * K, 'srStorm'],
+    [2050 * K, 'srStorm'],
+    [2250 * K, 'srVoid'],
+    [2400 * K, 'srVoid'],
+    [2550 * K, 'srDawn'],
+    [2820 * K, 'srDawn'],
   ],
+};
+
+/* ----------------------------------------------------------------------
+ * The sky, zone by zone.
+ *
+ * Handed to world/actuality-sky.js through opts.presets — the same Preetham sky,
+ * raymarched cloud slab, star dome, matched sun and PMREM environment bake that
+ * Actuality uses, driven here as one continuous arc instead of per-zone cuts.
+ *
+ * Read the table down the `elevation` and `cover` columns and the whole story is
+ * there: the sun starts high and climbs down to nine degrees below the horizon by
+ * the round room, then comes back up; cloud thickens from a quarter to almost
+ * total and thins again. `exposure` is the camera stop for each place, authored
+ * per preset for the reason a photographer changes theirs — one value calibrated
+ * for the meadow renders the wasteland as mud and the round room as a black
+ * screen. It also has to hold a floor for this world specifically: twelve point
+ * lights and thirty-odd emissives here were authored at exposure 1, so these run
+ * a good deal more open than Actuality's.
+ * ------------------------------------------------------------------- */
+const SKY_PRESETS = {
+  // The meadow. Blue and lightly cloudy — high clean sun, low turbidity, cover
+  // barely a quarter. This is the brightest the world ever gets, and the note
+  // the ending has to answer.
+  srMeadow: {
+    turbidity: 1.9, rayleigh: 1.4, mie: 0.004, mieG: 0.80,
+    elevation: 46, azimuth: 140,
+    sunColor: 0xfff6e8, sunIntensity: 2.3,
+    cloud: { cover: 0.26, altitude: 1250, thickness: 360, drift: 0.9, tint: 0xffffff, ambient: 2.8 },
+    fog: { color: 0xc2daf0, density: 0.0013 },
+    exposure: 0.52, envIntensity: 0.40,
+  },
+  // The confession circle. The sun has come down and warmed; cloud thickening.
+  srCircle: {
+    turbidity: 3.4, rayleigh: 1.9, mie: 0.005, mieG: 0.82,
+    elevation: 24, azimuth: 168,
+    sunColor: 0xffe0b4, sunIntensity: 2.1,
+    cloud: { cover: 0.42, altitude: 1150, thickness: 420, drift: 0.75, tint: 0xffe8cc, ambient: 2.1 },
+    fog: { color: 0xcbb191, density: 0.0026 },
+    exposure: 0.56, envIntensity: 0.44,
+  },
+  // The desert queue. Low harsh sun through pale gold haze — bright but no
+  // longer kind, which is the point of the zone.
+  srQueue: {
+    turbidity: 5.2, rayleigh: 2.3, mie: 0.006, mieG: 0.84,
+    elevation: 14, azimuth: 196,
+    sunColor: 0xffcf90, sunIntensity: 1.9,
+    cloud: { cover: 0.54, altitude: 1050, thickness: 460, drift: 0.6, tint: 0xffdcb0, ambient: 1.5 },
+    fog: { color: 0xd6bc8e, density: 0.0034 },
+    exposure: 0.60, envIntensity: 0.48,
+  },
+  // The wasteland. Near-total cloud, a weak grey key barely above the horizon —
+  // the sky the zone's storm discs and lightning were already drawn against.
+  srStorm: {
+    turbidity: 8.6, rayleigh: 3.2, mie: 0.008, mieG: 0.86,
+    elevation: 5, azimuth: 224,
+    sunColor: 0x97a08e, sunIntensity: 1.0,
+    cloud: { cover: 0.86, altitude: 900, thickness: 620, drift: 0.45, tint: 0x5d6359, ambient: 0.45 },
+    fog: { color: 0x424a40, density: 0.0052 },
+    exposure: 0.80, envIntensity: 0.60,
+  },
+  // The round room. Sun below the horizon, stars out, rayleigh held up so the
+  // sky is deep indigo rather than flat black — dark you can still read shape in.
+  srVoid: {
+    turbidity: 7.0, rayleigh: 2.4, mie: 0.004, mieG: 0.80,
+    elevation: -9, azimuth: 248,
+    sunColor: 0x9db2d8, sunIntensity: 0.55,
+    cloud: { cover: 0.66, altitude: 1100, thickness: 500, drift: 0.3, tint: 0x77839c, ambient: 0.12 },
+    fog: { color: 0x171a24, density: 0.0064 },
+    stars: 1.0,
+    exposure: 1.05, envIntensity: 0.75,
+  },
+  // The garden. Dawn: the sun climbing back, cloud breaking up, stars gone. The
+  // brightening the whole walk has been descending away from.
+  srDawn: {
+    turbidity: 3.6, rayleigh: 2.6, mie: 0.005, mieG: 0.83,
+    elevation: 8, azimuth: 292,
+    sunColor: 0xffd2a2, sunIntensity: 2.2,
+    cloud: { cover: 0.30, altitude: 1200, thickness: 380, drift: 0.55, tint: 0xffd9b8, ambient: 2.2 },
+    fog: { color: 0xe2c8a2, density: 0.0022 },
+    exposure: 0.66, envIntensity: 0.52,
+  },
 };
 
 // Authored, fixed dialogue — never drawn from the CULTURES bank. Parenthesised
@@ -552,24 +637,85 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   }
 
   /* -------------------------------------------------------------------
-   * Dynamic per-zone sky — cfg.skyColor() is read EVERY FRAME by the
-   * skyfog pass (src/game.js), so installing a closure here retints the
-   * sky live as the player walks. Restored first thing in dispose().
+   * The sky.
+   *
+   * A real one: world/actuality-sky.js, driven with this world's own preset
+   * table (SKY_PRESETS above) as a continuous blend along the path. Every zone
+   * boundary is a crossfade, not a cut, so the weather closes in while you walk
+   * rather than switching behind your back.
+   *
+   * THE ANCHOR. Actuality hangs its sky off one fixed site, which it can because
+   * you never leave the terrace. Here the path runs real curvature — the garden
+   * sits ~31 degrees of arc from the landing point — and a sky pinned to the
+   * meadow would be lying on its side by the time you reach it. So the anchor
+   * rides the player: re-seated on their ground point and re-aimed at their
+   * radial up every frame. The horizon stays level the whole way and the
+   * authored sun elevation means the same thing in every zone.
+   *
+   * The renderer only reaches this module through preRender(), so update() picks
+   * the blend and stashes it, and preRender() applies it. Same split as
+   * world/actuality.js — the PMREM re-bake is self-throttled inside applyBlend,
+   * so a continuous walk costs a bake every few seconds, not every frame.
    * ----------------------------------------------------------------- */
-  const _skyCur = new THREE.Color(SR.SKY_BANDS[0][1]);
-  const _skyTarget = new THREE.Color();
-  const _skyNext = new THREE.Color();
-  const origSkyColor = planet.cfg.skyColor;
-  planet.cfg.skyColor = () => _skyCur.getHex();
-  function updateSky(dt, dist) {
-    const bands = SR.SKY_BANDS;
+  const skyAnchor = new THREE.Object3D();
+  group.add(skyAnchor);
+  const sky = opts.scene
+    ? createActualitySky(skyAnchor, opts.scene, {
+      quality: opts.quality,
+      presets: SKY_PRESETS,
+    })
+    : null;
+  // Shadow camera: Actuality sizes it for a courtyard. These zones are wider,
+  // and the anchor follows the player, so the box only ever has to cover what is
+  // near them — but "near" here is a confession circle 28 m across with dead
+  // trees beyond it.
+  if (sky) sky.setShadowExtent(110, 420);
+
+  // The blend picked by update(), drained by preRender().
+  const _skyBlend = { a: SR.SKY_STOPS[0][1], b: SR.SKY_STOPS[0][1], k: 0 };
+  // The ending overrides the position-driven arc: once the mask comes off, the
+  // sky brightens on its own clock, so the resolution belongs to the story beat
+  // and not to wherever the player happens to be standing.
+  let endingSky = -1;
+  const ENDING_SKY_TIME = 7.0;
+
+  const _skyUp = new THREE.Vector3();
+  function updateSky(dt, dist, playerPos) {
+    if (!sky) return;
+    // Anchor: the player's ground point, oriented to their radial up.
+    _skyUp.copy(playerPos).normalize();
+    skyAnchor.position.copy(_skyUp).multiplyScalar(sampleGround(planet, _skyUp));
+    skyAnchor.quaternion.setFromUnitVectors(_yAxis, _skyUp);
+
+    if (endingSky >= 0) {
+      endingSky += dt;
+      const k = THREE.MathUtils.smoothstep(
+        THREE.MathUtils.clamp(endingSky / ENDING_SKY_TIME, 0, 1), 0, 1
+      );
+      _skyBlend.a = 'srDawn'; _skyBlend.b = 'srMeadow'; _skyBlend.k = k;
+      return;
+    }
+    const stops = SR.SKY_STOPS;
     let i = 0;
-    while (i < bands.length - 2 && bands[i + 1][0] <= dist) i++;
-    const d0 = bands[i][0];
-    const span = Math.max(1, bands[i + 1][0] - d0);
-    const k = THREE.MathUtils.smoothstep(THREE.MathUtils.clamp((dist - d0) / span, 0, 1), 0, 1);
-    _skyTarget.setHex(bands[i][1]).lerp(_skyNext.setHex(bands[i + 1][1]), k);
-    _skyCur.lerp(_skyTarget, Math.min(1, 1.5 * dt));
+    while (i < stops.length - 2 && stops[i + 1][0] <= dist) i++;
+    const d0 = stops[i][0];
+    const span = Math.max(1, stops[i + 1][0] - d0);
+    _skyBlend.a = stops[i][1];
+    _skyBlend.b = stops[i + 1][1];
+    _skyBlend.k = THREE.MathUtils.smoothstep(
+      THREE.MathUtils.clamp((dist - d0) / span, 0, 1), 0, 1
+    );
+  }
+
+  // Pre-composer hook (src/walk.js walkPreRender) — the only one with a renderer.
+  // The sky dome, cloud slab, star field and sun are all children of the anchor,
+  // and the anchor is already sitting on the player, so their offset within it is
+  // the origin.
+  const _skyOrigin = new THREE.Vector3();
+  function preRender(renderer) {
+    if (!sky) return;
+    sky.applyBlend(_skyBlend.a, _skyBlend.b, _skyBlend.k, renderer);
+    sky.update(lastT, lastDt, _skyOrigin, renderer);
   }
 
   /* -------------------------------------------------------------------
@@ -649,7 +795,10 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   }
 
   // Deferred narration + timed sequence steps, driven off wall-clock `t`.
+  // `lastDt` rides along for preRender, which drives the sky and has no delta of
+  // its own.
   let lastT = 0;
+  let lastDt = 1 / 60;
   const toastQueue = [];
   const timers = [];
   function queueToast(text, seconds = 4.5, delay = 0) {
@@ -2174,6 +2323,12 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       queueToast(TXT.cloakDesert, 4.5, 0.3);
     } else if (f === 'monster_faced') {
       queueToast(TXT.cloakLine, 4.5, 0.4);
+    } else if (f === 'mask_removed') {
+      // The sky comes back. From here it stops answering to where the player is
+      // standing and runs the garden's dawn up into the meadow's morning on its
+      // own clock — the light the walk has been descending away from since the
+      // first zone, returned as the story's resolution.
+      endingSky = 0;
     }
   }
 
@@ -2328,12 +2483,13 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
   function update(t, dt, playerPos, sunDot = 1) {
     lastT = t;
+    lastDt = dt;
     _pl.copy(playerPos);
     if (!prevInit) { _prevPl.copy(_pl); prevInit = true; }
     mirrorSpeed = _pl.distanceTo(_prevPl) / Math.max(dt, 1e-4);
 
     pathCoords(_pl, _coords);
-    updateSky(dt, _coords.dist);
+    updateSky(dt, _coords.dist, _pl);
 
     // Wind + water animation (uniform/offset writes only).
     for (const u of swayUniforms) u.value = t;
@@ -2511,9 +2667,9 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   queueToast(TXT.toastLanding, 5, 0.5);
 
   function dispose() {
-    // Restore the planet's own sky closure FIRST — the skyfog pass keeps
-    // calling cfg.skyColor() after we're gone.
-    planet.cfg.skyColor = origSkyColor;
+    // First: the sky owns scene.fog and scene.environment, which belong to the
+    // root scene and outlive this module.
+    if (sky) sky.dispose();
     for (const d of dissolves) d.dispose();
     dissolves.length = 0;
     holograms.length = 0;
@@ -2529,6 +2685,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   return {
     group,
     update,
+    preRender,
     dispose,
     nearestInteractable,
     interact,
