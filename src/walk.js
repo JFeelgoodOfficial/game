@@ -43,6 +43,7 @@ import { createWavemallPrime } from '../world/wavemallprime.js';
 import { createActuality, ACTUALITY_SITE } from '../world/actuality.js';
 import { settings } from './settings.js';
 import { createShadowreach } from '../world/shadowreach.js';
+import { createPlanetSky } from '../world/planetsky.js';
 import {
   getViewPref,
   showViewChooser,
@@ -138,6 +139,10 @@ let diamondRain = null; // walker-local diamond-rain volume (cfg.diamondRain)
 let wavemall = null; // total-conversion content for 'wavemall prime' only
 let actuality = null; // total-conversion content for 'actuality' only
 let shadowreach = null; // total-conversion narrative world for 'shadowreach' only
+// Generic real sky (world/planetsky.js): every landable world that doesn't
+// bring its own sky module. Must exist before beginWalk's acquireSurface hides
+// the flight sim's sky, which enterWalk's creation order guarantees.
+let planetSky = null;
 // Interior occupants: one small crowd per enterable lobby (+ tower balcony).
 // Each rides city.group's local frame, so it shares the crowd's player-local.
 let interiorCrowds = []; // [{ module, groupParent }]
@@ -353,6 +358,14 @@ export function enterWalk(planet) {
   // Populate the site: parked ship, city + citizens, wonders, wildlife.
   // _up still holds the world-space landing dir here.
   spawnWorldEntities(planet);
+
+  // The generic real sky (Preetham + clouds + stars + PMREM environment) for
+  // every world that doesn't bring its own sky module. Created here so it
+  // exists before beginWalk's acquireSurface hides the flight sim's sky.
+  if (planet.cfg.name !== 'actuality' && planet.cfg.name !== 'shadowreach') {
+    planetSky = createPlanetSky(planet, worldScene, { quality: settings.quality });
+    planet.surface.add(planetSky.group);
+  }
 
   // Terrain manipulator (terra only): reticle, handheld prop, RAISE/LOWER UI.
   terraformEnter(planet, astronaut.group);
@@ -722,6 +735,11 @@ export function exitWalk(camera) {
     shadowreach.dispose(); // frees geometry/materials, stops the drone, closes its AudioContext
     planet.surface.remove(shadowreach.group);
     shadowreach = null;
+  }
+  if (planetSky) {
+    planetSky.dispose(); // restores scene.fog/environment, zeroes the terrain fog hooks
+    planet.surface.remove(planetSky.group);
+    planetSky = null;
   }
   if (parked) {
     parked.dispose(); // removes its own group from planet.surface
@@ -1230,6 +1248,22 @@ export function updateWalkVisuals(dt, t) {
   if (parked) parked.update(dt, t, sunDot);
   if (wonders) wonders.update(t, sunDot);
 
+  if (planetSky) {
+    // The sky anchor wants the player in planet.surface's unrotated frame —
+    // the same transform playerLocalInto runs, against an identity group.
+    _playerLocal
+      .subVectors(ship.position, planet.body.position)
+      .applyAxisAngle(_yAxisV, -planet.surface.rotation.y);
+    planetSky.update(t, dt, _playerLocal);
+    // Dive grading (divable worlds): depth of the walker below the sea
+    // surface, saturating over the same 80 u band the old skyfog hijack used.
+    // The 0.4 u threshold keeps surface swimming (buoyancy bobbing) in air.
+    if (planet.cfg.divable && planet.water) {
+      const depth = planet.water.r - _playerLocal.length();
+      planetSky.setUnderwater(depth > 0.4 ? Math.min(depth / 80, 1) : 0);
+    }
+  }
+
   // Interaction focus: re-scanned below in each module's own player-local
   // frame, while _playerLocal still holds it (the frames are rigid transforms
   // of world space, so the two squared distances compare directly).
@@ -1482,7 +1516,7 @@ export function promptReturnToShip() {
 export function walkSite() {
   return {
     city, parked, crowd, dressing, wavemall, actuality, shadowreach, interiorCrowds,
-    creatures, diamondRain,
+    creatures, diamondRain, planetSky,
     station: stationWalk.stationSite(),
   };
 }
@@ -1495,6 +1529,7 @@ export function walkPreRender(renderer) {
   if (!walk.active) return;
   if (actuality) actuality.preRender(renderer);
   if (shadowreach) shadowreach.preRender(renderer);
+  if (planetSky) planetSky.preRender(renderer);
 }
 
 // The actuality world's hyper-holo-grid finale asks the host to loop the whole

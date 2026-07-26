@@ -218,10 +218,6 @@ const skyfogPass = new SkyfogPass({
 });
 skyfogPass.enabled = false;
 composer.addPass(skyfogPass);
-// Underwater tint targets (divable worlds) — scratch colors, never allocated
-// per frame. Shallow cyan-blue saturating to indigo-black by depth.
-const _uwShallow = new THREE.Color(0x2a4ab8);
-const _uwDeep = new THREE.Color(0x0a0830);
 
 // Ambient occlusion — the contact darkening where surfaces meet, which is what
 // separates "boxes in a room" from "a place". Only ever enabled on an isolated
@@ -1173,26 +1169,9 @@ function frame(now) {
     su.uAspect.value = camera.aspect;
     su.uTanHalf.value = Math.tan((camera.fov * Math.PI) / 360);
   }
-  // Diving below a divable world's sea surface: reuse the same depth-aware
-  // pass as seawater — dense, short sightlines, indigo saturating with depth.
-  // uDay stays sun-driven so night dives go properly dark. Zero new passes.
-  if (
-    phase === 'walk' &&
-    _atmo.p &&
-    _atmo.p.cfg.divable &&
-    _atmo.p.water &&
-    skyfogPass.enabled
-  ) {
-    const camDist = camera.position.distanceTo(_atmo.p.group.position);
-    if (camDist < _atmo.p.water.r) {
-      const depth01 = Math.min(Math.max((_atmo.p.water.r - camDist) / 80, 0), 1);
-      const su = skyfogPass.uniforms;
-      su.uAtmo.value = 1.0;
-      su.uDensity.value = 2.2;
-      su.uHazeDist.value = 60 - 42 * depth01;
-      su.uSkyDay.value.copy(_uwShallow).lerp(_uwDeep, depth01);
-    }
-  }
+  // Underwater dive grading now lives in world/planetsky.js setUnderwater():
+  // every divable world holds the isolation surface stage while walked, which
+  // disables skyfogPass above — the old uniform hijack here could never fire.
 
   // live panel bindings (GDD 2.3): cheap scalar copies each frame. Skipped once
   // a world module owns the sky, which brings its own bloom calibration

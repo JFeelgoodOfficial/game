@@ -10,6 +10,8 @@ varying vec3 vViewDir;
 uniform vec3 uSun;
 uniform vec3 uWaterColor;
 uniform float uGloss; // 1 liquid ocean .. ~0.1 frozen
+uniform vec3 uFogColor;   // custom fog (planetsky underwater grading)
+uniform float uFogDensity;// 0 = off — raw ShaderMaterials can't read scene.fog
 
 void main() {
   vec3 N = normalize(vWorldNormal), S = normalize(uSun), V = normalize(vViewDir);
@@ -24,6 +26,10 @@ void main() {
   // sun glint
   vec3 H = normalize(S + V);
   col += vec3(1.0, 0.95, 0.8) * pow(max(dot(N, H), 0.0), 90.0) * day * uGloss;
+
+  if (uFogDensity > 0.0) {
+    col = mix(col, uFogColor, 1.0 - exp(-length(vViewDir) * uFogDensity));
+  }
 
   gl_FragColor = vec4(col, 1.0);
 }
