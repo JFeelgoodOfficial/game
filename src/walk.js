@@ -177,6 +177,10 @@ const _cityInvQuat = new THREE.Quaternion();
 const _creatInvQuat = new THREE.Quaternion();
 const _wavemallInvQuat = new THREE.Quaternion();
 const _actualityInvQuat = new THREE.Quaternion();
+// Player state handed to world/actuality.js each frame (the mirror room's
+// copies mimic it). Preallocated — the walk loop allocates nothing.
+const _actualityFacing = new THREE.Vector3();
+const _actualityState = { mode: 'idle', speed01: 0, facing: _actualityFacing };
 const _identityQuat = new THREE.Quaternion(); // shadowreach group sits at identity
 
 // Convert a world-space (post-spin) direction into planet.surface's UNROTATED
@@ -1222,7 +1226,17 @@ export function updateWalkVisuals(dt, t) {
     // identity), so playerLocalInto lands the player in the anchor frame — the
     // one frame every hub/zone interactable position lives in.
     playerLocalInto(actuality.anchor, _actualityInvQuat, _playerLocal);
-    actuality.update(t, dt, _playerLocal, sunDot);
+    // The hyper-holo-grid's copies mimic the player, so hand the module the
+    // live mode/speed plus the facing resolved into the SAME anchor frame the
+    // player position is in — `walk.facing` is world-space tangent, and the
+    // module has no way to undo the planet's latched spin on its own.
+    _actualityFacing
+      .copy(walk.facing)
+      .applyAxisAngle(_yAxisV, -planet.surface.rotation.y) // world -> surface-local
+      .applyQuaternion(_actualityInvQuat);                 // -> anchor-local
+    _actualityState.mode = walk.mode;
+    _actualityState.speed01 = walk.speed01;
+    actuality.update(t, dt, _playerLocal, sunDot, _actualityState);
     scanModule(actuality, TALK_DIST_ACTUALITY);
     const toast = actuality.pendingToast();
     if (toast) showViewToast(toast.text, toast.seconds);

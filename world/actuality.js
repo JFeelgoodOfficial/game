@@ -61,7 +61,7 @@ const AC = {
   PORTAL_R: 2.0,             // portal trigger radius
   FADE_OUT: 0.6,             // seconds to black
   FADE_IN: 1.4,              // seconds back from black (~2 s total transition)
-  HOLOGRID_SECONDS: 10,      // time in the hyper-holo-grid before the loop resets
+  HOLOGRID_SECONDS: 45,      // time in the hyper-holo-grid before the loop resets
   BLOOM_THRESHOLD: 0.85,     // emissive above this blooms
   STRING_LIGHT_EMISSIVE: 1.1,
   TRIM_EMISSIVE: 0.4,        // stays under threshold (no bloom)
@@ -1021,6 +1021,9 @@ export function createActuality(planet, worldUp, opts = {}) {
   let cityFallEl = null;     // DOM overlay for the fall-to-city sequence
   let cityFallUrl = null;    // data URL of the aerial-city texture
   let mirrorTimer = 0;       // seconds inside the hyper-holo-grid
+  // Live player state from the host (walk.js `walk`), for the mirror copies.
+  let walkState = { mode: 'idle', speed01: 0, facing: new THREE.Vector3(0, 0, -1) };
+  const _mirrorFacing = new THREE.Vector3();
   let pendingReset = false;  // host consumes this → exitWalk + resetToStart (the loop)
   let mirror = null;        // createMirrorRoom handle (hyper-holo-grid)
   let mirrorRec = null;     // its zone record
@@ -1441,7 +1444,10 @@ export function createActuality(planet, worldUp, opts = {}) {
     }
   }
 
-  function update(t, dt, playerPos, sunDot = 1) {
+  // `player` is the host's live walk state ({ mode, speed01, facing, ... }) —
+  // the hyper-holo-grid's copies mimic it.
+  function update(t, dt, playerPos, sunDot = 1, player = null) {
+    if (player) walkState = player;
     // Stashed for preRender, which drives the sky (it has the renderer).
     _skyT = t; _skyDt = dt; _skyPlayer.copy(playerPos);
 
@@ -3043,18 +3049,28 @@ export function createActuality(planet, worldUp, opts = {}) {
 
     zoneEnterCallbacks['mirror'] = () => {
       if (!flags.hyperHoloGridSeen) { flags.hyperHoloGridSeen = true; saveFlags(flags); }
-      mirrorTimer = 0; // the ~5 s experience begins on entry
+      mirrorTimer = 0; // the 45 s experience begins on entry
     };
 
     // Updater: drive the clone + billboard the lattice. The hyper-holo-grid is
-    // the end: after ~10 s (the "0 = repeat program"), or on touching a wall,
+    // the end: after 45 s (the "0 = repeat program"), or on touching a wall,
     // the program repeats and the host resets the player to the game start.
     zoneUpdaters.push((t, dt, playerPos) => {
       if (activeZone !== 'mirror') return;
       _surf.copy(playerPos).applyQuaternion(anchorQ).add(anchorPos);
       _z6Local.copy(_surf).sub(frame.pos).applyQuaternion(frame.qInv); // player in mirror-local
       _dbgMirror.copy(_z6Local);
-      mirror.update(t, dt, _z6Local, 0);
+      // Feed the copies the player's ACTUAL state, so they mimic rather than
+      // idle: their animation is walk.mode/speed01, and the clone's camera is
+      // orbited by the difference between where the player faces and where the
+      // viewer stands. Both yaws are taken in the mirror's own frame.
+      // `walkState` is handed in by the host each frame rather than imported:
+      // walk.js already imports this module, and closing that loop just to read
+      // three fields would be a circular dependency for nothing.
+      _mirrorFacing.copy(walkState.facing).applyQuaternion(frame.qInv);
+      const facingYaw = Math.atan2(_mirrorFacing.x, _mirrorFacing.z);
+      const viewYaw = Math.atan2(_z6Local.x, _z6Local.z);
+      mirror.update(t, dt, _z6Local, walkState.speed01, walkState.mode, facingYaw, viewYaw);
       mirrorTimer += dt;
       const wall = Math.abs(_z6Local.x) > H - 0.5 || Math.abs(_z6Local.z) > H - 0.5;
       if (!pendingReset && (mirrorTimer > AC.HOLOGRID_SECONDS || wall)) {
