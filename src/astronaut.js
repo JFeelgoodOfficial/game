@@ -1,10 +1,12 @@
 // Procedural articulated astronaut, ported from world/src/game/astronaut.ts.
 // Built entirely from primitive geometries; `group` is the world transform
 // node the walker positions/orients (model faces +Z, feet at y=0, ~1.9 tall).
-// update(dt, mode, speed01) runs the per-joint animation blend:
-// idle bob, run cycle, jump tuck, prone freestyle swim.
+// update(dt, mode, speed01, lean) runs the per-joint animation blend:
+// idle bob, run cycle, jump tuck, prone freestyle swim, snowboard stance
+// (lean = carve -1..1, board worlds only).
 
 import * as THREE from 'three';
+import { C } from './constants.js';
 
 const SUIT = new THREE.MeshStandardMaterial({ color: '#e9edf1', roughness: 0.5, metalness: 0.05 });
 const SUIT_DARK = new THREE.MeshStandardMaterial({ color: '#3a3f47', roughness: 0.7 });
@@ -52,6 +54,7 @@ export class Astronaut {
       elL: -0.3, elR: -0.3,
       hipL: 0, hipR: 0, kneeL: 0, kneeR: 0,
       bodyPitch: 0, bodyY: 0, bodyRoll: 0, headPitch: 0,
+      bodyYaw: 0, headYaw: 0, // sideways board stance; every other mode targets 0
     };
 
     this.build();
@@ -142,15 +145,34 @@ export class Astronaut {
     };
     buildLeg(1);
     buildLeg(-1);
+
+    // ---- snowboard (board mode only) -------------------------------------------
+    // Flattened capsule = rounded nose/tail deck. Parented to `group` (the
+    // feet/travel frame, +Z = direction of motion) rather than `body`, so
+    // the deck holds the line while the stance yaw turns the rider sideways
+    // above it. Accent magenta.
+    const deck = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.17, 1.35, 4, 10),
+      new THREE.MeshStandardMaterial({
+        color: 0xd4408f, emissive: 0xd4408f, emissiveIntensity: 0.25, roughness: 0.5,
+      })
+    );
+    deck.scale.set(1, 1, 0.24); // pre-rotation: squash local Z -> deck thickness
+    deck.rotation.x = Math.PI / 2; // capsule axis Y -> Z (nose along travel)
+    deck.position.set(0, 0.06, 0);
+    deck.visible = false;
+    this.board = deck;
+    this.group.add(deck);
   }
 
   // ---------------------------------------------------------------------------
   // Procedural animation with per-joint blending
   // ---------------------------------------------------------------------------
-  update(dt, mode, speed01) {
+  update(dt, mode, speed01, lean = 0) {
     this.time += dt;
     const t = this.time;
     const k = 1 - Math.exp(-11 * dt);
+    this.board.visible = mode === 'board';
 
     // targets
     const tg = {
@@ -158,6 +180,7 @@ export class Astronaut {
       elL: -0.35, elR: -0.35,
       hipL: 0, hipR: 0, kneeL: 0.06, kneeR: 0.06,
       bodyPitch: 0, bodyY: 0, bodyRoll: 0, headPitch: 0,
+      bodyYaw: 0, headYaw: 0,
     };
 
     if (mode === 'idle') {
@@ -213,6 +236,26 @@ export class Astronaut {
       tg.kneeL = 0.25 + Math.max(0, -Math.sin(sp * 2.2)) * 0.35;
       tg.kneeR = 0.25 + Math.max(0, Math.sin(sp * 2.2)) * 0.35;
       tg.bodyRoll = Math.sin(sp) * 0.14;
+    } else if (mode === 'board') {
+      // Sideways (regular) stance over the deck, helmet turned down the fall
+      // line, knees sinking deeper as the ride speeds up, arms out for
+      // balance, whole body rolling into the carve.
+      const crouch = 0.25 + speed01 * 0.45;
+      tg.bodyYaw = -0.95;
+      tg.headYaw = 0.85;
+      tg.headPitch = 0.05;
+      tg.hipL = -crouch;
+      tg.hipR = -crouch * 0.9;
+      tg.kneeL = crouch * 1.6;
+      tg.kneeR = crouch * 1.5;
+      tg.bodyY = -0.1 - speed01 * 0.12;
+      tg.bodyPitch = 0.12;
+      tg.bodyRoll = lean * C.BOARD_LEAN;
+      tg.shL.x = -0.25 + lean * 0.3;
+      tg.shL.z = 0.95;
+      tg.shR.x = -0.25 - lean * 0.3;
+      tg.shR.z = -0.95;
+      tg.elL = -0.25; tg.elR = -0.25;
     }
 
     // blend
@@ -227,6 +270,8 @@ export class Astronaut {
     c.bodyY = lp(c.bodyY, tg.bodyY);
     c.bodyRoll = lp(c.bodyRoll, tg.bodyRoll);
     c.headPitch = lp(c.headPitch, tg.headPitch);
+    c.bodyYaw = lp(c.bodyYaw, tg.bodyYaw);
+    c.headYaw = lp(c.headYaw, tg.headYaw);
 
     this.shoulderL.rotation.set(c.shL.x, 0, c.shL.z);
     this.shoulderR.rotation.set(c.shR.x, 0, c.shR.z);
@@ -237,8 +282,10 @@ export class Astronaut {
     this.kneeL.rotation.x = c.kneeL;
     this.kneeR.rotation.x = c.kneeR;
     this.body.rotation.x = c.bodyPitch;
+    this.body.rotation.y = c.bodyYaw;
     this.body.rotation.z = c.bodyRoll;
     this.body.position.y = c.bodyY;
     this.head.rotation.x = c.headPitch;
+    this.head.rotation.y = c.headYaw;
   }
 }

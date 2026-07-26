@@ -184,6 +184,32 @@ export const C = {
   WALK_DIVE_SPEED: 6.5, // underwater swim speed, units/sec
   WALK_DIVE_ACCEL: 8.0, // syrupy 3D approach rate toward the wish velocity
 
+  // --- snowboard (B, worlds with cfg.boardable — cresta) ---
+  // Gravity-fed carving: downhill pull along the terrain gradient, strong
+  // side grip vs. near-free forward glide, soft speed cap ~3x sprint. Same
+  // kinematic walker underneath — a stepWalk branch like diving, not a
+  // separate loop.
+  BOARD_MAX_SPEED: 46.0, // soft cap, units/sec (sprint is 16)
+  BOARD_TUCK_CAP: 1.18, // cap multiplier while W (tuck) is held
+  BOARD_PULL: 30.0, // downhill accel per unit slope, x walkGravityScale
+  BOARD_SLOPE_MAX: 1.4, // gradient magnitude clamp fed into BOARD_PULL
+  BOARD_GRIP: 6.0, // /s decay of sideways (across-board) velocity
+  BOARD_GLIDE_DRAG: 0.06, // /s decay of forward velocity — long flat glides
+  BOARD_BRAKE_DRAG: 2.2, // extra /s forward decay while S (skid brake) held
+  BOARD_ICE_SCALE: 0.35, // grip AND drag multiplier on frozen-lake ice
+  BOARD_CARVE_RATE: 2.2, // rad/s heading yaw from A/D while grounded
+  BOARD_CARVE_AIR: 0.9, // rad/s A/D yaw while airborne (style, weak)
+  BOARD_JUMP: 11.0, // Space ollie, added on top of any terrain launch
+  BOARD_SNAP: 1.6, // tight ground-follow (walk's 8.0 would glue crests)
+  BOARD_LAUNCH_SPEED: 12.0, // below this ride speed, bumps never launch you
+  BOARD_SKATE_SPEED: 7.0, // W hop-skate target speed on flat/uphill ground
+  BOARD_SKATE_ACCEL: 10.0, // units/sec^2 of the skate push
+  BOARD_IDLE_EXIT: 1.2, // secs at ~standstill on the ground -> auto unclip
+  BOARD_PROBE: 2.5, // tangent offset (units) for slope central differences
+  BOARD_LEAN: 0.55, // max astronaut body roll (radians) into a full carve
+  BOARD_FOV_KICK: 12.0, // extra third-person FOV at full board speed
+  BOARD_CAM_PULL: 0.45, // fractional extra TP cam distance at full speed
+
   // --- handheld terrain manipulator (terra only — cfg.terraform) ---
   // Brush radius sits well above terra's ~16 u vertex spacing so every stamp
   // moves a visible patch of the mesh, not a sub-vertex bump.

@@ -45,6 +45,7 @@ export const walkPreRender = (renderer) => mod && mod.walkPreRender(renderer);
 export const walkPendingReset = () => (mod ? mod.walkPendingReset() : false);
 export const shipBearing = () => (mod ? mod.shipBearing() : null);
 export const currentGravityScale = () => (mod ? mod.currentGravityScale() : 1);
+export const currentBoardable = () => (mod ? mod.currentBoardable() : false);
 // Station docking (Orbital Art Gallery): false until the walk chunk lands,
 // which reads as "can't dock yet" at the game.js gate — same fail-safe idea
 // as nearestTerraFloor above.
