@@ -43,6 +43,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildRig, poseRig } from './aliens.js';
+import { createActualitySky } from './actuality-sky.js';
+import { createActualityMaterials } from './actuality-materials.js';
+import { createCrowd } from './shadowreach-people.js';
 import { Astronaut } from '../src/astronaut.js';
 
 // The owner's paintings (repo-root /artgallery, same pipeline as the Orbital
@@ -79,10 +82,24 @@ const charArtFor = (key) =>
 /* ----------------------------------------------------------------------
  * Tunables + palette + authored text — every magic value lives here.
  * ------------------------------------------------------------------- */
-// Global path-compression factor: every zone sits 25% closer than the original
-// layout. Zone-internal set dressing built from absolute path distances is
-// multiplied by the same K below so footprints stay registered to their zones.
-const K = 0.75;
+// Two factors, because there are two different things here and one number was
+// doing both jobs badly.
+//
+// P compresses the WALK — the distance between one event and the next. At 0.1875
+// the whole journey is 491 m of path where it used to be 1965, so the story
+// arrives at the pace it reads at rather than making you hike between beats.
+//
+// Z compresses BACKDROP footprints — ground carpets, dune fields, scatter
+// ranges. It cannot be P: at a quarter of the spacing, a circle carpet still
+// drawn at its old radius would reach from the river to the head of the queue
+// and swallow two zones whole. It cannot be 1 either. It is tuned so each
+// zone's dressing fills its own gap and stops.
+//
+// What scales by NEITHER is everything you actually walk into and around: the
+// crowd's rings, the standing stones, the round room, the river's width, the
+// trigger radii. Those are places, not travel, and they keep their metres.
+const P = 0.1875;
+const Z = 0.32;
 
 const SR = {
   // Signature story accents.
@@ -91,20 +108,22 @@ const SR = {
   ASH: 0xb4b4b8, // dissolve-puff grey
 
   // Zone positions along the path (meters of arc from the landing anchor).
-  // HARD CAP: pathCoords wraps at +/-2827 m (planet antipode) — keep all
-  // placement below ~2740.
-  FIELD: 0,            // the Meadow spans 0-300
-  LADY: 340 * K,       // riverbank — reachable before the crossing gate
-  RIVER: 360 * K,      // water crossing + story gate
-  RIVER_FAR: 378 * K,  // far bank (cloaked figure waits here)
-  RIVER_CROSS: 400 * K, // past the water — attaches the companion
-  CIRCLE: 700 * K,     // confession circle
-  LINE_START: 1000 * K, // desert queue corridor
-  GIRL: 1400 * K,
-  LINE_END: 1470 * K,
-  DESERT: 1900 * K,    // the Wasteland eye (storm + Thinking Stone)
-  ROOM: 2300 * K,      // round room
-  GARDEN: 2620 * K,    // garden (antipode margin grows with K)
+  // The old +/-2827 m antipode cap stops being a constraint at this spacing.
+  FIELD: 0,            // the Meadow spans 0-64
+  LADY: 340 * P,       // 64 — riverbank, reachable before the crossing gate
+  RIVER: 360 * P,      // 68 — water crossing + story gate
+  // The far bank and the crossing point are PINNED to the river, not scaled.
+  // The ribbon is 18 m wide and crosses at a diagonal; scaled, the far bank
+  // would land 3 m past the near one, inside the water.
+  RIVER_FAR: 360 * P + 13.5,  // 81 — far bank (cloaked figure waits here)
+  RIVER_CROSS: 360 * P + 30,  // 98 — past the water, attaches the companion
+  CIRCLE: 700 * P,     // 131 — confession circle
+  LINE_START: 1000 * P, // 188 — desert queue corridor
+  GIRL: 1400 * P,      // 263
+  LINE_END: 1470 * P,  // 276
+  DESERT: 1900 * P,    // 356 — the Wasteland eye (storm + Thinking Stone)
+  ROOM: 2300 * P,      // 431 — round room (26 m inner radius: spans 404-459)
+  GARDEN: 2620 * P,    // 491 — garden
 
   ROOM_INNER_R: 26,
   ROOM_WALL_T: 1.4,
@@ -113,21 +132,116 @@ const SR = {
 
   FOLLOW_DIST: 4.0, // meters a companion trails behind the player
 
-  // Per-zone sky keyframes (path dist -> hex). Piecewise-lerped each frame.
-  SKY_BANDS: [
-    [0, 0x7ec8ff],        // meadow: bright blue
-    [520 * K, 0x7ec8ff],
-    [700 * K, 0xd8934a],  // confession circle: dusk ochre
-    [860 * K, 0xd8934a],
-    [1050 * K, 0xf2e3b8], // desert line: harsh pale gold
-    [1500 * K, 0xf2e3b8],
-    [1750 * K, 0x4a5248], // wasteland: storm green-grey
-    [2050 * K, 0x4a5248],
-    [2250 * K, 0x23222c], // round room: near-black indigo
-    [2400 * K, 0x23222c],
-    [2550 * K, 0xd8a86a], // garden: deep warm amber (night side — lamps carry it)
-    [2820 * K, 0xd8a86a],
+  // Per-zone sky keyframes (path dist -> preset name), continuously blended as
+  // the player walks. The arc is the story's: a blue morning with a little cloud
+  // in it, weather closing in zone by zone until the round room is a starlit
+  // void, then dawn in the garden. See SKY_PRESETS below.
+  SKY_STOPS: [
+    [0, 'srMeadow'],
+    [520 * P, 'srMeadow'],
+    [700 * P, 'srCircle'],
+    [860 * P, 'srCircle'],
+    [1050 * P, 'srQueue'],
+    [1500 * P, 'srQueue'],
+    [1750 * P, 'srStorm'],
+    [2050 * P, 'srStorm'],
+    [2250 * P, 'srVoid'],
+    [2400 * P, 'srVoid'],
+    [2550 * P, 'srDawn'],
+    [2820 * P, 'srDawn'],
   ],
+};
+
+// The queue's length is travel distance — you walk along it — so it is simply
+// the gap between its two markers. 120 figures over ~88 m stand about 0.7 m
+// apart, which is what a queue looks like; at the old spacing they were 4 m
+// apart and read as a scattered line of posts rather than people waiting.
+const QUEUE_LEN = SR.LINE_END - SR.LINE_START;
+
+// The wasteland's cracked pan and its lava ring. Pinned rather than scaled: the
+// round room's outer wall stands at 404 m and this is centred at 356, so the
+// pan has to stop before it reaches the room.
+const WASTE_R = 44;
+
+/* ----------------------------------------------------------------------
+ * The sky, zone by zone.
+ *
+ * Handed to world/actuality-sky.js through opts.presets — the same Preetham sky,
+ * raymarched cloud slab, star dome, matched sun and PMREM environment bake that
+ * Actuality uses, driven here as one continuous arc instead of per-zone cuts.
+ *
+ * Read the table down the `elevation` and `cover` columns and the whole story is
+ * there: the sun starts high and climbs down to nine degrees below the horizon by
+ * the round room, then comes back up; cloud thickens from a quarter to almost
+ * total and thins again. `exposure` is the camera stop for each place, authored
+ * per preset for the reason a photographer changes theirs — one value calibrated
+ * for the meadow renders the wasteland as mud and the round room as a black
+ * screen. It also has to hold a floor for this world specifically: twelve point
+ * lights and thirty-odd emissives here were authored at exposure 1, so these run
+ * a good deal more open than Actuality's.
+ * ------------------------------------------------------------------- */
+const SKY_PRESETS = {
+  // The meadow. Blue and lightly cloudy — high clean sun, low turbidity, cover
+  // barely a quarter. This is the brightest the world ever gets, and the note
+  // the ending has to answer.
+  srMeadow: {
+    turbidity: 1.9, rayleigh: 1.4, mie: 0.004, mieG: 0.80,
+    elevation: 46, azimuth: 140,
+    sunColor: 0xfff6e8, sunIntensity: 2.3,
+    cloud: { cover: 0.26, altitude: 1250, thickness: 360, drift: 0.9, tint: 0xffffff, ambient: 2.8 },
+    fog: { color: 0xc2daf0, density: 0.0013 },
+    exposure: 0.52, envIntensity: 0.40,
+  },
+  // The confession circle. The sun has come down and warmed; cloud thickening.
+  srCircle: {
+    turbidity: 3.4, rayleigh: 1.9, mie: 0.005, mieG: 0.82,
+    elevation: 24, azimuth: 168,
+    sunColor: 0xffe0b4, sunIntensity: 2.1,
+    cloud: { cover: 0.42, altitude: 1150, thickness: 420, drift: 0.75, tint: 0xffe8cc, ambient: 2.1 },
+    fog: { color: 0xcbb191, density: 0.0026 },
+    exposure: 0.56, envIntensity: 0.44,
+  },
+  // The desert queue. Low harsh sun through pale gold haze — bright but no
+  // longer kind, which is the point of the zone.
+  srQueue: {
+    turbidity: 5.2, rayleigh: 2.3, mie: 0.006, mieG: 0.84,
+    elevation: 14, azimuth: 196,
+    sunColor: 0xffcf90, sunIntensity: 1.9,
+    cloud: { cover: 0.54, altitude: 1050, thickness: 460, drift: 0.6, tint: 0xffdcb0, ambient: 1.5 },
+    fog: { color: 0xd6bc8e, density: 0.0034 },
+    exposure: 0.60, envIntensity: 0.48,
+  },
+  // The wasteland. Near-total cloud, a weak grey key barely above the horizon —
+  // the sky the zone's storm discs and lightning were already drawn against.
+  srStorm: {
+    turbidity: 8.6, rayleigh: 3.2, mie: 0.008, mieG: 0.86,
+    elevation: 5, azimuth: 224,
+    sunColor: 0x97a08e, sunIntensity: 1.0,
+    cloud: { cover: 0.86, altitude: 900, thickness: 620, drift: 0.45, tint: 0x5d6359, ambient: 0.45 },
+    fog: { color: 0x424a40, density: 0.0052 },
+    exposure: 0.80, envIntensity: 0.60,
+  },
+  // The round room. Sun below the horizon, stars out, rayleigh held up so the
+  // sky is deep indigo rather than flat black — dark you can still read shape in.
+  srVoid: {
+    turbidity: 7.0, rayleigh: 2.4, mie: 0.004, mieG: 0.80,
+    elevation: -9, azimuth: 248,
+    sunColor: 0x9db2d8, sunIntensity: 0.55,
+    cloud: { cover: 0.66, altitude: 1100, thickness: 500, drift: 0.3, tint: 0x77839c, ambient: 0.12 },
+    fog: { color: 0x171a24, density: 0.0064 },
+    stars: 1.0,
+    exposure: 1.05, envIntensity: 0.75,
+  },
+  // The garden. Dawn: the sun climbing back, cloud breaking up, stars gone. The
+  // brightening the whole walk has been descending away from.
+  srDawn: {
+    turbidity: 3.6, rayleigh: 2.6, mie: 0.005, mieG: 0.83,
+    elevation: 8, azimuth: 292,
+    sunColor: 0xffd2a2, sunIntensity: 2.2,
+    cloud: { cover: 0.30, altitude: 1200, thickness: 380, drift: 0.55, tint: 0xffd9b8, ambient: 2.2 },
+    fog: { color: 0xe2c8a2, density: 0.0022 },
+    exposure: 0.66, envIntensity: 0.52,
+  },
 };
 
 // Authored, fixed dialogue — never drawn from the CULTURES bank. Parenthesised
@@ -371,8 +485,8 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   }
 
   // A tapered grass blade with a baked root→tip color gradient (dressing.js
-  // blade recipe). Used by the meadow and garden with different tints.
-  function makeBladeGeo(rootHex, tipHex, w = 0.26, h = 1) {
+  // blade recipe), rooted at y = 0 so it can be rotated about its own base.
+  function bladeGeo(rootHex, tipHex, w, h) {
     const geo = new THREE.PlaneGeometry(w, h, 1, 3);
     geo.translate(0, h / 2, 0);
     const p = geo.attributes.position;
@@ -385,7 +499,52 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    return keep(geo);
+    return geo;
+  }
+
+  // A TUFT: several blades on one root, splayed and of uneven length.
+  //
+  // This is how the density gets paid for. A field wants tens of blades per
+  // square metre, but the per-INSTANCE cost is what hurts — every instance costs
+  // a terrain sample in scatterInstanced's build loop and a matrix in the buffer,
+  // while blades merged into one geometry cost only triangles, which is the
+  // cheap axis. Seven to a tuft buys a seven-fold field for one seventh of the
+  // loop. It also happens to be what grass does: it grows in clumps, not as
+  // evenly spaced individual spikes, and the old scatter read as spikes.
+  //
+  // One consequence worth knowing: makeSwayMaterial phases the wind off the
+  // instance origin, so a tuft now bends as a unit rather than blade by blade.
+  // That is closer to real grass, where a clump moves together.
+  function makeTuftGeo(rootHex, tipHex, n = 7, w = 0.14, spread = 0.26) {
+    const parts = [];
+    for (let i = 0; i < n; i++) {
+      const h = 0.55 + rng() * 0.6; // blades in a clump are not one length
+      const geo = bladeGeo(rootHex, tipHex, w * (0.8 + rng() * 0.45), h);
+      // Splay: lean out from the root, the outer blades further over.
+      geo.rotateY(rng() * Math.PI);
+      geo.rotateZ((rng() - 0.5) * 0.55);
+      geo.rotateX((rng() - 0.5) * 0.4);
+      // First blade dead centre, the rest scattered on a disc around it.
+      const a = rng() * Math.PI * 2;
+      const r = i === 0 ? 0 : spread * Math.sqrt(rng());
+      geo.translate(Math.cos(a) * r, 0, Math.sin(a) * r);
+      parts.push(geo);
+    }
+    return keep(mergeParts(parts));
+  }
+
+  // Grass counts scale with the quality setting: LOW is the software-GL and
+  // integrated-graphics path, and a million triangles of grass is exactly the
+  // kind of thing it cannot afford.
+  const GRASS_Q = opts.quality === 'low' ? 0.4 : 1;
+  const TUFT_BLADES = 7;
+
+  // Thin the field toward its lateral edge instead of ending it on a line — a
+  // grass field that stops dead at a rectangle boundary reads as a decal. Blades
+  // get shorter out there rather than disappearing.
+  function edgeTaper(lat, half) {
+    const k = THREE.MathUtils.smoothstep(Math.abs(lat) / half, 0.72, 1);
+    return 1 - 0.62 * k;
   }
 
   // Scatter `count` instances along the path via placeFn(i) ->
@@ -520,12 +679,35 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     if (o.map) tileTex(o.map, r); // fine-grain detail underfoot, not one giant blob
 
+    // `ground` names a registry family (world/actuality-materials.js) — albedo,
+    // roughness AND normal, which is what makes a floor read as ground rather
+    // than as paint now that a real sun rakes across it. The registry owns the
+    // core material; the skirt needs its own alphaMap and opacity, so it takes a
+    // clone that this module owns and disposes.
+    const groundMat = o.ground
+      ? materials.make(o.ground, {
+        repeat: Math.max(2, Math.round((r * 2) / 15)),
+        color: o.color ?? 0xffffff,
+        roughness: o.roughness ?? 1.0,
+      })
+      : null;
+
     const coreGeo = keep(drape(new THREE.RingGeometry(0.01, r * 0.8, 48, 8).rotateX(-Math.PI / 2), o.lift ?? 0.08));
-    const core = new THREE.Mesh(coreGeo, stdMat(o.map ? 0xffffff : o.color, { rough: 1.0, map: o.map }));
+    const core = new THREE.Mesh(coreGeo,
+      groundMat ?? stdMat(o.map ? 0xffffff : o.color, { rough: 1.0, map: o.map }));
     core.frustumCulled = false;
+    core.receiveShadow = true;
 
     const skirtGeo = keep(drape(new THREE.RingGeometry(r * 0.8, r, 48, 4).rotateX(-Math.PI / 2), (o.lift ?? 0.08) - 0.03));
-    const skirtMat = stdMat(o.map ? 0xffffff : o.color, { rough: 1.0, map: o.map, transparent: true, depthWrite: false });
+    let skirtMat;
+    if (groundMat) {
+      skirtMat = groundMat.clone();
+      skirtMat.transparent = true;
+      skirtMat.depthWrite = false;
+      disposables.push(skirtMat); // the CLONE is ours; the original is the registry's
+    } else {
+      skirtMat = stdMat(o.map ? 0xffffff : o.color, { rough: 1.0, map: o.map, transparent: true, depthWrite: false });
+    }
     skirtMat.alphaMap = sharedRadialAlpha();
     const skirt = new THREE.Mesh(skirtGeo, skirtMat);
     skirt.frustumCulled = false;
@@ -552,24 +734,101 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   }
 
   /* -------------------------------------------------------------------
-   * Dynamic per-zone sky — cfg.skyColor() is read EVERY FRAME by the
-   * skyfog pass (src/game.js), so installing a closure here retints the
-   * sky live as the player walks. Restored first thing in dispose().
+   * The sky.
+   *
+   * A real one: world/actuality-sky.js, driven with this world's own preset
+   * table (SKY_PRESETS above) as a continuous blend along the path. Every zone
+   * boundary is a crossfade, not a cut, so the weather closes in while you walk
+   * rather than switching behind your back.
+   *
+   * THE ANCHOR. Actuality hangs its sky off one fixed site, which it can because
+   * you never leave the terrace. Here the path runs real curvature — the garden
+   * sits ~31 degrees of arc from the landing point — and a sky pinned to the
+   * meadow would be lying on its side by the time you reach it. So the anchor
+   * rides the player: re-seated on their ground point and re-aimed at their
+   * radial up every frame. The horizon stays level the whole way and the
+   * authored sun elevation means the same thing in every zone.
+   *
+   * The renderer only reaches this module through preRender(), so update() picks
+   * the blend and stashes it, and preRender() applies it. Same split as
+   * world/actuality.js — the PMREM re-bake is self-throttled inside applyBlend,
+   * so a continuous walk costs a bake every few seconds, not every frame.
    * ----------------------------------------------------------------- */
-  const _skyCur = new THREE.Color(SR.SKY_BANDS[0][1]);
-  const _skyTarget = new THREE.Color();
-  const _skyNext = new THREE.Color();
-  const origSkyColor = planet.cfg.skyColor;
-  planet.cfg.skyColor = () => _skyCur.getHex();
-  function updateSky(dt, dist) {
-    const bands = SR.SKY_BANDS;
+  const skyAnchor = new THREE.Object3D();
+  group.add(skyAnchor);
+  const sky = opts.scene
+    ? createActualitySky(skyAnchor, opts.scene, {
+      quality: opts.quality,
+      presets: SKY_PRESETS,
+    })
+    : null;
+  // Shadow camera: Actuality sizes it for a courtyard. These zones are wider,
+  // and the anchor follows the player, so the box only ever has to cover what is
+  // near them — but "near" here is a confession circle 28 m across with dead
+  // trees beyond it.
+  if (sky) sky.setShadowExtent(110, 420);
+
+  /* -------------------------------------------------------------------
+   * PBR material registry (world/actuality-materials.js).
+   *
+   * Procedural, generated on a canvas at load — no texture files, nothing to
+   * fetch. Nine families of albedo + roughness + normal maps, memoized, so the
+   * standing stones and the Thinking Stone and the round room's walls are all
+   * the same handful of draw calls.
+   *
+   * The registry OWNS everything it returns and hands the same instance to
+   * every caller that asks for the same thing. Nothing from it goes into
+   * `disposables` — teardown would double-dispose — and anything that needs an
+   * onBeforeCompile or a live opacity is cloned first. One dispose() at the
+   * bottom of this module's own.
+   * ----------------------------------------------------------------- */
+  const materials = createActualityMaterials({ quality: opts.quality });
+
+  // The blend picked by update(), drained by preRender().
+  const _skyBlend = { a: SR.SKY_STOPS[0][1], b: SR.SKY_STOPS[0][1], k: 0 };
+  // The ending overrides the position-driven arc: once the mask comes off, the
+  // sky brightens on its own clock, so the resolution belongs to the story beat
+  // and not to wherever the player happens to be standing.
+  let endingSky = -1;
+  const ENDING_SKY_TIME = 7.0;
+
+  const _skyUp = new THREE.Vector3();
+  function updateSky(dt, dist, playerPos) {
+    if (!sky) return;
+    // Anchor: the player's ground point, oriented to their radial up.
+    _skyUp.copy(playerPos).normalize();
+    skyAnchor.position.copy(_skyUp).multiplyScalar(sampleGround(planet, _skyUp));
+    skyAnchor.quaternion.setFromUnitVectors(_yAxis, _skyUp);
+
+    if (endingSky >= 0) {
+      endingSky += dt;
+      const k = THREE.MathUtils.smoothstep(
+        THREE.MathUtils.clamp(endingSky / ENDING_SKY_TIME, 0, 1), 0, 1
+      );
+      _skyBlend.a = 'srDawn'; _skyBlend.b = 'srMeadow'; _skyBlend.k = k;
+      return;
+    }
+    const stops = SR.SKY_STOPS;
     let i = 0;
-    while (i < bands.length - 2 && bands[i + 1][0] <= dist) i++;
-    const d0 = bands[i][0];
-    const span = Math.max(1, bands[i + 1][0] - d0);
-    const k = THREE.MathUtils.smoothstep(THREE.MathUtils.clamp((dist - d0) / span, 0, 1), 0, 1);
-    _skyTarget.setHex(bands[i][1]).lerp(_skyNext.setHex(bands[i + 1][1]), k);
-    _skyCur.lerp(_skyTarget, Math.min(1, 1.5 * dt));
+    while (i < stops.length - 2 && stops[i + 1][0] <= dist) i++;
+    const d0 = stops[i][0];
+    const span = Math.max(1, stops[i + 1][0] - d0);
+    _skyBlend.a = stops[i][1];
+    _skyBlend.b = stops[i + 1][1];
+    _skyBlend.k = THREE.MathUtils.smoothstep(
+      THREE.MathUtils.clamp((dist - d0) / span, 0, 1), 0, 1
+    );
+  }
+
+  // Pre-composer hook (src/walk.js walkPreRender) — the only one with a renderer.
+  // The sky dome, cloud slab, star field and sun are all children of the anchor,
+  // and the anchor is already sitting on the player, so their offset within it is
+  // the origin.
+  const _skyOrigin = new THREE.Vector3();
+  function preRender(renderer) {
+    if (!sky) return;
+    sky.applyBlend(_skyBlend.a, _skyBlend.b, _skyBlend.k, renderer);
+    sky.update(lastT, lastDt, _skyOrigin, renderer);
   }
 
   /* -------------------------------------------------------------------
@@ -649,7 +908,10 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   }
 
   // Deferred narration + timed sequence steps, driven off wall-clock `t`.
+  // `lastDt` rides along for preRender, which drives the sky and has no delta of
+  // its own.
   let lastT = 0;
+  let lastDt = 1 / 60;
   const toastQueue = [];
   const timers = [];
   function queueToast(text, seconds = 4.5, delay = 0) {
@@ -862,19 +1124,26 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const g = new THREE.Group();
 
     // Vivid green ground carpets under the grass.
-    g.add(drapeDisc(170 * K, 150 * K, { map: keep(makeMottleTexture(0x3fae4a, 0x2d8a38)) }));
-    g.add(drapeDisc(370 * K, 60 * K, { map: keep(makeMottleTexture(0x53b856, 0x3fae4a)) }));
+    g.add(drapeDisc(170 * P, 150 * Z, { ground: 'groundCover', color: 0x4aa74e }));
+    g.add(drapeDisc(370 * P, 60 * Z, { ground: 'groundCover', color: 0x5cbc5e }));
 
     // Swaying grass — dressing.js blade with a rich green gradient. Bright
     // root→tip colors + a warm emissive floor keep backfaces from going black.
-    const bladeGeo = makeBladeGeo(0x2f8a3a, 0xa2e455, 0.3);
+    // ~119,000 blades across the meadow — about seventeen to the square metre,
+    // which is the point at which it stops reading as scattered spikes and
+    // starts reading as a field you are standing in. 17,000 tufts to get there.
+    const tuftGeo = makeTuftGeo(0x2f8a3a, 0xa2e455, TUFT_BLADES);
     const grassMat = makeSwayMaterial({ vertexColors: true, emis: 0.16, emisColor: 0x4fae52 });
-    const grass = scatterInstanced(bladeGeo, grassMat, 12000, () => ({
-      d: rng() * (SR.RIVER - 8),
-      lat: (rng() - 0.5) * 120,
-      yaw: rng() * Math.PI,
-      s: 0.5 + rng() * 0.6,
-    }));
+    const MEADOW_HALF = 72;
+    const grass = scatterInstanced(tuftGeo, grassMat, Math.round(17000 * GRASS_Q), () => {
+      const lat = (rng() - 0.5) * 2 * MEADOW_HALF;
+      return {
+        d: rng() * (SR.RIVER - 8),
+        lat,
+        yaw: rng() * Math.PI,
+        s: (0.55 + rng() * 0.5) * edgeTaper(lat, MEADOW_HALF),
+      };
+    });
     g.add(grass);
 
     // Wildflowers: stem + head merged, two species.
@@ -903,7 +1172,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     g.add(scatterInstanced(treeGeo, treeMat, 28, () => {
       const nearRiver = rng() < 0.35;
       return {
-        d: nearRiver ? (250 + rng() * 200) * K : rng() * 300 * K,
+        d: nearRiver ? (250 + rng() * 200) * P : rng() * 300 * P,
         lat: (rng() < 0.5 ? -1 : 1) * (45 + rng() * 90),
         yaw: rng() * Math.PI * 2,
         s: 0.8 + rng() * 0.9,
@@ -926,7 +1195,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     // Stepping stones across the crossing (visual — the ground is walkable).
     const stoneGeo = keep(new THREE.CylinderGeometry(1.0, 1.1, 0.5, 7));
-    const stoneMat = stdMat(0x8f857a, { rough: 1.0 });
+    const stoneMat = materials.make('rock', { repeat: 2, color: 0xa89c8c });
     for (let i = -3; i <= 3; i++) {
       const st = new THREE.Mesh(stoneGeo, stoneMat);
       const dir = pathDir(SR.RIVER + i * 3.2, (i % 2) * 0.6);
@@ -980,7 +1249,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   // River centerline in path coords: enters the meadow at lateral +95, crosses
   // the walking path exactly at SR.RIVER (u = 0.5), exits at -95.
   function riverCenter(u, out) {
-    const d = SR.RIVER - 200 * K + u * 400 * K;
+    const d = SR.RIVER - 30 + u * 60;
     const lat = 95 * Math.cos(Math.PI * u) + 14 * Math.sin(2 * Math.PI * u);
     return pathDirInto(d, lat, out);
   }
@@ -1154,7 +1423,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       const margin = Math.abs(d - SR.RIVER) < 24 ? 12 : 6.5;
       lampSpots.push({ d, lat: -margin }, { d, lat: margin });
     }
-    const postMat = stdMat(0x3a342c, { rough: 1.0 });
+    const postMat = materials.make('wood', { repeat: 1, color: 0x584f42 });
     const orbMat = stdMat(0xffffff, { rough: 0.4, emis: 1.15, emisColor: 0xffcf7a });
     const placeLamp = (i) => ({ d: lampSpots[i].d, lat: lampSpots[i].lat, s: 1, h: 0 });
     g.add(scatterInstanced(postGeo, postMat, lampSpots.length, placeLamp));
@@ -1166,12 +1435,15 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   /* -------------------------------------------------------------------
    * ZONE 2 — The Confession Circle (dusk clearing, standing stones)
    * ----------------------------------------------------------------- */
-  let circleMesh = null;
+  let circleCrowd = null;
+  // Worn, sun-bleached homespun. Read together with the robed silhouette these
+  // are the clothes of people who have been standing here a long time.
+  const CIRCLE_CLOTH = [0x8a6f52, 0x9c8465, 0x74604a, 0xa89376, 0x6b5642, 0xb5a488];
   function buildCircle() {
     const g = new THREE.Group();
 
     // Dry amber clearing.
-    g.add(drapeDisc(SR.CIRCLE, 85 * K, { map: keep(makeMottleTexture(0x9a6a3c, 0x7d5430)) }));
+    g.add(drapeDisc(SR.CIRCLE, 32, { ground: 'aggregate', color: 0x9a6a3c }));
 
     // Ring of dark standing stones around the huddle.
     const stoneParts = [];
@@ -1184,7 +1456,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       stoneParts.push(geo);
     }
     const stonesGeo = keep(mergeParts(stoneParts));
-    const stones = new THREE.Mesh(stonesGeo, stdMat(0x2b2b30, { rough: 1.0 }));
+    const stones = new THREE.Mesh(stonesGeo, materials.make('stone', { repeat: 3, color: 0x4a4a52 }));
     stones.frustumCulled = false;
     const cf = frameAt(SR.CIRCLE);
     stones.position.copy(cf.pos);
@@ -1192,54 +1464,43 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     g.add(stones);
 
     // Dead trees scattered beyond the stones.
-    g.add(scatterInstanced(deadTreeGeo(), stdMat(0x3a3028, { rough: 1.0 }), 10, () => ({
-      d: SR.CIRCLE - 70 * K + rng() * 140 * K,
+    g.add(scatterInstanced(deadTreeGeo(), materials.make('bark', { repeat: 2, color: 0x6a5a48 }), 10, () => ({
+      d: SR.CIRCLE - 70 * Z + rng() * 140 * Z,
       lat: (rng() < 0.5 ? -1 : 1) * (40 + rng() * 35),
       yaw: rng() * Math.PI * 2,
       s: 0.8 + rng() * 0.8,
     })));
 
-    // The huddled crowd — two rings of dusty-umber hooded figures facing in.
-    const fig = keep(mergeParts([
-      new THREE.ConeGeometry(0.34, 1.5, 6).translate(0, 0.75, 0),
-      new THREE.SphereGeometry(0.19, 6, 5).translate(0, 1.6, 0),
-    ]));
-    const mat = stdMat(0x8a6f52, { rough: 1.0, emis: 0.12 });
-    mat.transparent = true;
-    const N = 60;
-    const crowd = new THREE.InstancedMesh(fig, mat, N);
-    crowd.frustumCulled = false;
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(1, 1, 1);
-    const dir = new THREE.Vector3(), pos = new THREE.Vector3();
-    for (let i = 0; i < N; i++) {
-      const ring = i < 24 ? 0 : 1;
-      const a = ((i % (ring ? 36 : 24)) / (ring ? 36 : 24)) * Math.PI * 2 + ring * 0.09;
-      const rr = ring ? 18 + rng() * 4 : 12 + rng() * 3;
-      pathDirInto(SR.CIRCLE + Math.sin(a) * rr, Math.cos(a) * rr, dir);
-      pos.copy(dir).multiplyScalar(sampleGround(planet, dir) + 0.1);
-      q.setFromUnitVectors(_yAxis, dir);
-      q.multiply(_qScratch.setFromAxisAngle(_yAxis, -a + Math.PI / 2)); // face circle center
-      s.setScalar(0.9 + rng() * 0.3);
-      m.compose(pos, q, s);
-      crowd.setMatrixAt(i, m);
-    }
-    crowd.instanceMatrix.needsUpdate = true;
-    g.add(crowd);
-    circleMesh = { mesh: crowd, mat, fade: -1 };
+    // The huddled crowd — sixty people in two rings, facing in. Mostly robed:
+    // this is a confession, and they are here to listen.
+    const _cDir = new THREE.Vector3();
+    circleCrowd = createCrowd({
+      count: 60,
+      rng,
+      materials,
+      robedFraction: 0.62,
+      // Dusty umber through to bleached linen — the zone's own palette, worn.
+      cloth: (r) => CIRCLE_CLOTH[Math.floor(r() * CIRCLE_CLOTH.length)],
+      place: (i) => {
+        const ring = i < 24 ? 0 : 1;
+        const a = ((i % (ring ? 36 : 24)) / (ring ? 36 : 24)) * Math.PI * 2 + ring * 0.09;
+        const rr = ring ? 18 + rng() * 4 : 12 + rng() * 3;
+        pathDirInto(SR.CIRCLE + Math.sin(a) * rr, Math.cos(a) * rr, _cDir);
+        const q = new THREE.Quaternion().setFromUnitVectors(_yAxis, _cDir)
+          .multiply(_qScratch.setFromAxisAngle(_yAxis, -a + Math.PI / 2)); // face the centre
+        return {
+          pos: _cDir.clone().multiplyScalar(sampleGround(planet, _cDir)),
+          quat: q,
+        };
+      },
+    });
+    g.add(circleCrowd.group);
 
     // Low amber dusk glow over the clearing.
     const dusk = new THREE.PointLight(0xffb060, 3.5, 100, 2);
     placeAtDir(dusk, planet, pathDir(SR.CIRCLE, 0), 10);
     g.add(dusk);
     addEventLight(dusk, SR.CIRCLE, 0);
-
-    zoneUpdaters.push((t, dt) => {
-      if (circleMesh.fade >= 0) {
-        circleMesh.fade += dt;
-        mat.opacity = Math.max(0, 1 - circleMesh.fade / 2);
-        if (circleMesh.fade > 2) { crowd.visible = false; circleMesh.fade = -2; }
-      }
-    });
     return { group: g };
   }
 
@@ -1267,50 +1528,57 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   function buildLine() {
     const g = new THREE.Group();
 
-    // Golden sand carpets along the corridor.
-    const sandTex = keep(makeMottleTexture(0xd9b25f, 0xc39c4e));
-    g.add(drapeDisc(1080 * K, 120 * K, { map: sandTex }));
-    g.add(drapeDisc(1260 * K, 120 * K, { map: sandTex }));
-    g.add(drapeDisc(1440 * K, 120 * K, { map: sandTex }));
+    // Golden sand carpets along the corridor, warming as the queue goes on.
+    g.add(drapeDisc(1080 * P, 120 * Z, { ground: 'aggregate', color: 0xd9b877 }));
+    g.add(drapeDisc(1260 * P, 120 * Z, { ground: 'aggregate', color: 0xd3b070 }));
+    g.add(drapeDisc(1440 * P, 120 * Z, { ground: 'aggregate', color: 0xcaa768 }));
 
     // Dune mounds flanking the corridor.
     const duneGeo = keep(new THREE.SphereGeometry(1, 12, 8));
-    g.add(scatterInstanced(duneGeo, stdMat(0xd9b25f, { rough: 1.0 }), 40, () => {
+    g.add(scatterInstanced(duneGeo, materials.make('aggregate', { repeat: 4, color: 0xe8c98a }), 40, () => {
       const sc = 12 + rng() * 26;
       const ySc = sc * (0.3 + rng() * 0.2);
       // Bury only the rim (the flattened sphere's half-height is ~0.3-0.5 sc,
       // so sinking more than that hides the dune entirely).
       return {
-        d: SR.LINE_START - 80 * K + rng() * 700 * K,
+        d: SR.LINE_START - 20 + rng() * (QUEUE_LEN + 60),
         lat: (rng() < 0.5 ? -1 : 1) * (45 + rng() * 100),
         h: -ySc * 0.45,
         s: new THREE.Vector3(sc, ySc, sc),
       };
     }));
 
-    // The queue: ~120 sun-bleached figures winding through the dunes in a
-    // serpentine, receding far past where the girl breaks the scene.
-    const queueLat = (d) => 40 * Math.sin(((d - SR.LINE_START) / (650 * K)) * 3 * Math.PI);
-    const fig = keep(mergeParts([
-      new THREE.CapsuleGeometry(0.22, 1.0, 3, 6).translate(0, 0.85, 0),
-      new THREE.SphereGeometry(0.18, 6, 5).translate(0, 1.65, 0),
-    ]));
-    const qMat = stdMat(0xffffff, { rough: 1.0, emis: 0.05, emisColor: 0xcbb391 });
-    qMat.transparent = true;
+    // The queue: 120 people winding through the dunes in a serpentine, standing
+    // about arm's length apart, all of them facing the way the line is going —
+    // which is away from you, until the girl turns and breaks it.
+    const queueLat = (d) => 40 * Math.sin(((d - SR.LINE_START) / QUEUE_LEN) * 3 * Math.PI);
     const QN = 120;
-    const tanShades = [0xcbb391, 0xdcc9a8, 0xe8dcc4, 0xbfa27e];
-    const queue = scatterInstanced(fig, qMat, QN, (i) => {
-      const d = SR.LINE_START + (i / QN) * 650 * K; // runs well past the break
-      return {
-        d,
-        lat: queueLat(d) + (rng() - 0.5) * 1.2,
-        yaw: rng() * 0.4 - 0.2,
-        s: 0.92 + rng() * 0.16,
-        h: 0.02,
-        color: tanShades[Math.floor(rng() * tanShades.length)],
-      };
+    const _qDir = new THREE.Vector3(), _qAhead = new THREE.Vector3();
+    queueCrowd = createCrowd({
+      count: QN,
+      rng,
+      materials,
+      robedFraction: 0.28,
+      cloth: (r) => QUEUE_CLOTH[Math.floor(r() * QUEUE_CLOTH.length)],
+      place: (i) => {
+        const d = SR.LINE_START + (i / QN) * QUEUE_LEN;
+        const lat = queueLat(d) + (rng() - 0.5) * 1.2;
+        pathDirInto(d, lat, _qDir);
+        const pos = _qDir.clone().multiplyScalar(sampleGround(planet, _qDir));
+        // Face up-queue: aim at where the person in front is standing, so the
+        // whole line bends through the serpentine instead of staring one way.
+        const dAhead = Math.min(d + 6, SR.LINE_START + QUEUE_LEN);
+        pathDirInto(dAhead, queueLat(dAhead), _qAhead);
+        _qAhead.multiplyScalar(sampleGround(planet, _qAhead));
+        const q0 = new THREE.Quaternion().setFromUnitVectors(_yAxis, _qDir);
+        _qAhead.sub(pos).applyQuaternion(_qScratch.copy(q0).invert());
+        const q = q0.multiply(_qScratch.setFromAxisAngle(
+          _yAxis, Math.atan2(_qAhead.x, _qAhead.z) + (rng() - 0.5) * 0.35
+        ));
+        return { pos, quat: q };
+      },
     });
-    g.add(queue);
+    g.add(queueCrowd.group);
 
     // Rope posts + sagging ropes marking the queue lane (merged buckets).
     const postParts = [], ropeParts = [];
@@ -1318,7 +1586,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     let prevSet = false;
     const cf2 = frameAt((SR.LINE_START + SR.LINE_END) / 2);
     const invQ = cf2.qInv;
-    for (let d = SR.LINE_START; d <= SR.LINE_START + 640 * K; d += 12) {
+    for (let d = SR.LINE_START; d <= SR.LINE_START + QUEUE_LEN; d += 9) {
       const dir = pathDir(d, queueLat(d) + 2.4);
       cur.copy(dir).multiplyScalar(sampleGround(planet, dir));
       // Frame-local coordinates so one merged mesh carries the whole run.
@@ -1343,8 +1611,8 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       prev.copy(cur);
       prevSet = true;
     }
-    const postMesh = new THREE.Mesh(keep(mergeParts(postParts)), stdMat(0x8a7050, { rough: 1.0 }));
-    const ropeMesh = new THREE.Mesh(keep(mergeParts(ropeParts)), stdMat(0xc9b184, { rough: 1.0 }));
+    const postMesh = new THREE.Mesh(keep(mergeParts(postParts)), materials.make('wood', { repeat: 1.5, color: 0xb59470 }));
+    const ropeMesh = new THREE.Mesh(keep(mergeParts(ropeParts)), materials.make('groundCover', { repeat: 3, color: 0xd8c49a }));
     postMesh.frustumCulled = false; ropeMesh.frustumCulled = false;
     postMesh.position.copy(cf2.pos); postMesh.quaternion.copy(cf2.q);
     ropeMesh.position.copy(cf2.pos); ropeMesh.quaternion.copy(cf2.q);
@@ -1355,7 +1623,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const bannerMat = makeSwayMaterial({ color: 0xffffff, ampX: 0.45, ampZ: 0.3, transparent: true });
     const bannerShades = [0xb85a4a, 0xd8cba8, 0x9a6a3c, 0xe0d6c0];
     const banners = scatterInstanced(bannerGeo, bannerMat, 10, (i) => {
-      const d = SR.LINE_START + (40 + i * 60) * K;
+      const d = SR.LINE_START + (0.06 + i * 0.092) * QUEUE_LEN;
       return {
         d, lat: queueLat(d) + 2.4, h: 2.4, yaw: rng() * Math.PI,
         s: 0.8 + rng() * 0.5, color: bannerShades[i % bannerShades.length],
@@ -1369,7 +1637,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     });
     disposables.push(micaMat);
     const mica = scatterInstanced(keep(new THREE.OctahedronGeometry(0.12, 0)), micaMat, 40, () => ({
-      d: SR.LINE_END + (60 + rng() * 160) * K,
+      d: SR.LINE_END + 8 + rng() * 26,
       lat: (rng() - 0.5) * 60,
       h: 0.5 + rng() * 3,
       s: 0.6 + rng() * 0.8,
@@ -1418,15 +1686,17 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       } else if (girl.state === 'ready') {
         poseRig(gr, dt, t, 'idle', 0);
       }
-      if (lineFadeRequested && fadeT < 0) fadeT = 0;
+      if (lineFadeRequested && fadeT < 0) { fadeT = 0; queueCrowd.startFade(2.5); }
       if (fadeT >= 0) {
+        // The crowd runs its own dissolve (it has to clear the promoted rigs as
+        // well as the instances); the banners and shimmer follow on the same
+        // clock so the whole zone goes together.
         fadeT += dt;
         const o = Math.max(0, 1 - fadeT / 2.5);
-        qMat.opacity = o;
         bannerMat.opacity = o;
         micaMat.emissiveIntensity = 1.0 * o;
         if (fadeT > 2.5) {
-          queue.visible = false; mica.visible = false; banners.visible = false;
+          mica.visible = false; banners.visible = false;
           fadeT = Infinity;
         }
       }
@@ -1434,6 +1704,9 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     return { group: g };
   }
   let lineFadeRequested = false;
+  let queueCrowd = null;
+  // Sun-bleached: linen and undyed cotton gone pale in a desert nobody leaves.
+  const QUEUE_CLOTH = [0xcbb391, 0xdcc9a8, 0xe8dcc4, 0xbfa27e, 0xd6c4a4, 0xa8916f];
 
   /* -------------------------------------------------------------------
    * ZONE 4 — The Wasteland (cracked black earth, giant storm, lightning)
@@ -1443,21 +1716,21 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const g = new THREE.Group();
 
     // Cracked near-black earth.
-    g.add(drapeDisc(SR.DESERT, 150 * K, { map: keep(makeCrackTexture()) }));
+    g.add(drapeDisc(SR.DESERT, WASTE_R, { ground: 'rock', color: 0x2e2b28 }));
 
     // Glowing molten fissures: a second draped disc using the crack pattern as
     // an emissive/alpha map so only the cracks light up orange — big color in
     // an otherwise black zone, and it pulses like embers.
     // Same fixed-seed crack pattern AND same tiling as the ground disc (r150),
     // so the orange glow stays registered to the visible cracks.
-    const crackTex = keep(tileTex(makeCrackTexture(), 150 * K));
+    const crackTex = keep(tileTex(makeCrackTexture(), WASTE_R));
     const lavaMat = new THREE.MeshBasicMaterial({
       color: 0xff5a1e, map: crackTex, alphaMap: crackTex,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
     disposables.push(lavaMat);
     const lavaF = frameAt(SR.DESERT);
-    const lavaGeo = keep(new THREE.RingGeometry(0.01, 150 * K, 48, 8).rotateX(-Math.PI / 2));
+    const lavaGeo = keep(new THREE.RingGeometry(0.01, WASTE_R, 48, 8).rotateX(-Math.PI / 2));
     // Drape it onto the terrain like the ground disc.
     {
       const baseR = lavaF.pos.length();
@@ -1488,7 +1761,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     {
       const dir = new THREE.Vector3(), pos = new THREE.Vector3();
       for (let i = 0; i < EMB; i++) {
-        pathDirInto(SR.DESERT - 120 * K + rng() * 240 * K, (rng() - 0.5) * 220 * K, dir);
+        pathDirInto(SR.DESERT - 120 * Z + rng() * 240 * Z, (rng() - 0.5) * 220 * Z, dir);
         pos.copy(dir).multiplyScalar(sampleGround(planet, dir) + rng() * 18);
         emberPos[i * 3] = pos.x; emberPos[i * 3 + 1] = pos.y; emberPos[i * 3 + 2] = pos.z;
         emberBase.push({ up: dir.clone(), phase: rng() * 20, speed: 1 + rng() * 2, span: 16 + rng() * 8, gy: sampleGround(planet, dir) });
@@ -1500,15 +1773,15 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     g.add(embers);
 
     // Dead black trees and ash-grey rock scatter.
-    g.add(scatterInstanced(deadTreeGeo(), stdMat(0x141210, { rough: 1.0 }), 40, () => ({
-      d: SR.DESERT - 130 * K + rng() * 260 * K,
-      lat: (rng() - 0.5) * 240 * K,
+    g.add(scatterInstanced(deadTreeGeo(), materials.make('bark', { repeat: 2, color: 0x2a2622 }), 40, () => ({
+      d: SR.DESERT - 130 * Z + rng() * 260 * Z,
+      lat: (rng() - 0.5) * 240 * Z,
       yaw: rng() * Math.PI * 2,
       s: 0.7 + rng() * 1.1,
     })));
-    g.add(scatterInstanced(keep(new THREE.DodecahedronGeometry(0.3, 0)), stdMat(0x4a4644, { rough: 1.0 }), 150, () => ({
-      d: SR.DESERT - 120 * K + rng() * 240 * K,
-      lat: (rng() - 0.5) * 220 * K,
+    g.add(scatterInstanced(keep(new THREE.DodecahedronGeometry(0.3, 0)), materials.make('rock', { repeat: 1, color: 0x6a6664 }), 150, () => ({
+      d: SR.DESERT - 120 * Z + rng() * 240 * Z,
+      lat: (rng() - 0.5) * 220 * Z,
       h: 0.05,
       yaw: rng() * Math.PI,
       s: 0.5 + rng() * 1.6,
@@ -1520,10 +1793,15 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     placeAtDir(stormHolder, planet, eyeDir, 0);
     orientOnSurface(stormHolder, eyeDir, 0);
     const swirlTex = keep(makeSwirlTexture());
+    // Sized to the zone, not to the sky. At 240 m the outer disc reached from
+    // the confession circle to past the garden and hung a storm ceiling over the
+    // entire world; the circle is supposed to be under warm dusk. 100 m spans
+    // 256-456, so it closes over the tail of the queue — you walk into the
+    // weather, which is the point — and stops short of the garden.
     const DISCS = [
-      { r: 240, h: 90, op: 0.5, tint: 0x3a3f38, speed: 0.03 },
-      { r: 190, h: 80, op: 0.65, tint: 0x2a2e28, speed: -0.05 },
-      { r: 140, h: 70, op: 0.8, tint: 0x1c1e1a, speed: 0.08 },
+      { r: 100, h: 70, op: 0.5, tint: 0x3a3f38, speed: 0.03 },
+      { r: 80, h: 62, op: 0.65, tint: 0x2a2e28, speed: -0.05 },
+      { r: 58, h: 54, op: 0.8, tint: 0x1c1e1a, speed: 0.08 },
     ];
     const discMeshes = [];
     for (const d of DISCS) {
@@ -1539,30 +1817,19 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       stormHolder.add(disc);
       discMeshes.push({ mesh: disc, speed: d.speed });
     }
-    // Hanging cloud fringe under the outer rim.
-    const fringeMat = stdMat(0x23261f, { rough: 1.0, transparent: true, opacity: 0.85, depthWrite: false });
-    const fringeGeo = keep(new THREE.SphereGeometry(1, 8, 6));
-    const fringe = new THREE.InstancedMesh(fringeGeo, fringeMat, 30);
-    fringe.frustumCulled = false;
-    {
-      const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3();
-      for (let i = 0; i < 30; i++) {
-        const a = rng() * Math.PI * 2, rr = 120 + rng() * 80;
-        const sc = 14 + rng() * 18;
-        s.set(sc, sc * 0.35, sc);
-        m.compose(new THREE.Vector3(Math.cos(a) * rr, 55 + rng() * 15, Math.sin(a) * rr), q.identity(), s);
-        fringe.setMatrixAt(i, m);
-      }
-      fringe.instanceMatrix.needsUpdate = true;
-    }
-    fringe.renderOrder = 3;
-    stormHolder.add(fringe);
+    // The hanging cloud fringe that used to sit under the outer rim is gone. It
+    // was thirty flattened eight-by-six spheres standing in for cloud, which was
+    // the right call when the sky was a flat colour; against a raymarched deck
+    // at 86% cover they read as exactly what they are — polygons — and they were
+    // competing with real cloud for the same piece of sky. The swirl discs stay:
+    // they draw the eye of the storm, which the sky's own weather cannot.
 
     // Lightning bolts: jagged Lines flashing via the creatures.js spike curve,
     // the brightest one driving a single shared ground-flash light.
     const bolts = [];
     for (let i = 0; i < 8; i++) {
-      const a = rng() * Math.PI * 2, rr = 20 + rng() * 100;
+      // Inside the storm's new footprint, striking down from its underside.
+      const a = rng() * Math.PI * 2, rr = 14 + rng() * 62;
       const bx = Math.cos(a) * rr, bz = Math.sin(a) * rr;
       const segs = 6 + Math.floor(rng() * 3);
       const pts = [];
@@ -1570,7 +1837,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
         const f2 = s2 / segs;
         pts.push(new THREE.Vector3(
           bx + (rng() - 0.5) * 14 * (0.4 + f2 * 0.8),
-          66 * (1 - f2),
+          52 * (1 - f2),
           bz + (rng() - 0.5) * 14 * (0.4 + f2 * 0.8)
         ));
       }
@@ -1611,7 +1878,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     // The Thinking Stone at the eye of the storm, with a dim warm keeper light
     // so the Warrior reads under the dark sky.
-    const stone = new THREE.Mesh(keep(new THREE.CylinderGeometry(1.3, 1.5, 1.0, 9)), stdMat(0xcac0ae, { rough: 1.0 }));
+    const stone = new THREE.Mesh(keep(new THREE.CylinderGeometry(1.3, 1.5, 1.0, 9)), materials.make('rock', { repeat: 1.5, color: 0xd8cdb8 }));
     const stoneDir = pathDir(SR.DESERT, 0);
     placeAtDir(stone, planet, stoneDir, 0.5);
     orientOnSurface(stone, stoneDir, 0);
@@ -1684,7 +1951,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const innerR = SR.ROOM_INNER_R, wallT = SR.ROOM_WALL_T, H = SR.ROOM_H;
 
     // Dark approach apron blending the wasteland into the void.
-    g.add(drapeDisc(SR.ROOM, 60, { color: 0x17161a }));
+    g.add(drapeDisc(SR.ROOM, SR.ROOM_INNER_R + 8, { color: 0x17161a }));
 
     // Pure-black shell: MeshBasic ignores all scene light, so the interior is
     // genuinely black under a daylight sun. Ring segments leave doorway gaps
@@ -1871,7 +2138,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     // Deep green garden floor. Scatter is biased -120..+100 in dist to keep an
     // antipode margin (hard cap ~2740).
-    g.add(drapeDisc(SR.GARDEN, 110 * K, { map: keep(makeMottleTexture(0x2f7a3a, 0x246330)) }));
+    g.add(drapeDisc(SR.GARDEN, 34, { ground: 'groundCover', color: 0x357f40 }));
 
     // Golden-hour light over the whole garden. The garden sits past the
     // terminator (night side) — the story's "warm gold light" radiates from
@@ -1880,22 +2147,30 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     placeAtDir(gold, planet, pathDir(SR.GARDEN, 0), 12);
     g.add(gold);
     addEventLight(gold, SR.GARDEN, 2); // dims at the Stranger's side
+    // The approach light sits just clear of the round room's outer wall (459 m),
+    // so it reads as warmth waiting at the far side of the door rather than as a
+    // lamp burning inside the black room. The far light stays inside the
+    // garden's own carpet.
     const goldApproach = new THREE.PointLight(0xffcf90, 3.5, 110, 2);
-    placeAtDir(goldApproach, planet, pathDir(SR.GARDEN - 70, 0), 8);
+    placeAtDir(goldApproach, planet, pathDir(SR.GARDEN - 26, 0), 8);
     g.add(goldApproach);
     const goldFar = new THREE.PointLight(0xffcf90, 3.0, 110, 2);
-    placeAtDir(goldFar, planet, pathDir(SR.GARDEN + 55, 20), 8);
+    placeAtDir(goldFar, planet, pathDir(SR.GARDEN + 26, 20), 8);
     g.add(goldFar);
 
     // Deep green swaying grass with a warm emissive floor for the night side.
-    const bladeGeo = makeBladeGeo(0x2a7a34, 0x7cc85e, 0.3);
+    const tuftGeo = makeTuftGeo(0x2a7a34, 0x7cc85e, TUFT_BLADES);
     const grassMat = makeSwayMaterial({ vertexColors: true, emis: 0.2, emisColor: 0x8a7a3a });
-    g.add(scatterInstanced(bladeGeo, grassMat, 6000, () => ({
-      d: SR.GARDEN - 120 * K + rng() * 220 * K,
-      lat: (rng() - 0.5) * 110,
-      yaw: rng() * Math.PI,
-      s: 0.5 + rng() * 0.6,
-    })));
+    const GARDEN_HALF = 62;
+    g.add(scatterInstanced(tuftGeo, grassMat, Math.round(8600 * GRASS_Q), () => {
+      const lat = (rng() - 0.5) * 2 * GARDEN_HALF;
+      return {
+        d: SR.GARDEN - 120 * Z + rng() * 220 * Z,
+        lat,
+        yaw: rng() * Math.PI,
+        s: (0.55 + rng() * 0.5) * edgeTaper(lat, GARDEN_HALF),
+      };
+    }));
 
     // Flower beds in arcs — four species.
     const bedGeo = (headHex) => keep(mergeParts([
@@ -1922,7 +2197,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const leaf = keep(new THREE.SphereGeometry(0.22, 5, 4));
     const leafMat = stdMat(0x9eb39a, { rough: 1.0, emis: 0.15 });
     g.add(scatterInstanced(leaf, leafMat, 1200, () => ({
-      d: SR.GARDEN - 35 * K + rng() * 90 * K,
+      d: SR.GARDEN - 35 * Z + rng() * 90 * Z,
       lat: (rng() - 0.5) * 70,
       h: 0.1,
       s: new THREE.Vector3(1 + rng(), 0.4 + rng() * 0.3, 1 + rng()),
@@ -1938,19 +2213,19 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     const treeMat = stdMat(0xffffff, { rough: 0.95, emis: 0.08 });
     treeMat.vertexColors = true;
     g.add(scatterInstanced(treeGeo, treeMat, 16, () => ({
-      d: SR.GARDEN - 90 * K + rng() * 190 * K,
+      d: SR.GARDEN - 90 * Z + rng() * 190 * Z,
       lat: (rng() < 0.5 ? -1 : 1) * (50 + rng() * 45),
       yaw: rng() * Math.PI * 2,
       s: 0.9 + rng() * 0.8,
     })));
 
     // The bare tree with the windowpane leaning against it.
-    const trunk = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.4, 0.6, 6, 7)), stdMat(0x5a4634, { rough: 1.0 }));
+    const trunk = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.4, 0.6, 6, 7)), materials.make('bark', { repeat: 2.5, color: 0x8a6c50 }));
     const treeDir = pathDir(SR.GARDEN + 14, 8);
     placeAtDir(trunk, planet, treeDir, 3);
     orientOnSurface(trunk, treeDir, 0);
     g.add(trunk);
-    const paneFrame = new THREE.Mesh(keep(new THREE.BoxGeometry(1.6, 2.2, 0.12)), stdMat(0x8a7a5c, { rough: 0.8 }));
+    const paneFrame = new THREE.Mesh(keep(new THREE.BoxGeometry(1.6, 2.2, 0.12)), materials.make('wood', { repeat: 1, color: 0xb0a077 }));
     // The windowpane shows a dream: one of the owner's own paintings, softly
     // self-lit so the memory reads in the night garden.
     let paneMat;
@@ -2040,7 +2315,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       const dir = new THREE.Vector3(), pos = new THREE.Vector3(), c = new THREE.Color();
       const hues = [0xfff0a0, 0xa8ff90, 0xffcf7a, 0xd0ffe0];
       for (let i = 0; i < FN; i++) {
-        pathDirInto(SR.GARDEN - 90 * K + rng() * 170 * K, (rng() - 0.5) * 130, dir);
+        pathDirInto(SR.GARDEN - 90 * Z + rng() * 170 * Z, (rng() - 0.5) * 130, dir);
         const gy = sampleGround(planet, dir);
         pos.copy(dir).multiplyScalar(gy + 0.6 + rng() * 2.4);
         firePos[i * 3] = pos.x; firePos[i * 3 + 1] = pos.y; firePos[i * 3 + 2] = pos.z;
@@ -2057,7 +2332,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     // Pale glowing moths circling the night garden's lamps.
     g.add(makeFlutter(24, {
-      d0: SR.GARDEN - 90 * K, dSpan: 160 * K, latSpan: 110,
+      d0: SR.GARDEN - 90 * Z, dSpan: 160 * Z, latSpan: 110,
       colors: [0xfff0c0, 0xd0ffe0, 0xffd0f0],
       emis: 0.5, emisColor: 0xfff0c0,
     }));
@@ -2162,7 +2437,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       }
       queueToast(TXT.cloakRiver, 4.5, 0.4);
     } else if (f === 'circle_triggered') {
-      if (circleMesh) circleMesh.fade = 0; // begin vanishing
+      if (circleCrowd) circleCrowd.startFade(2); // begin vanishing
     } else if (f === 'line_broken') {
       girl.state = 'joined';
       addFollower(girl.rig, 2.0);
@@ -2174,22 +2449,32 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       queueToast(TXT.cloakDesert, 4.5, 0.3);
     } else if (f === 'monster_faced') {
       queueToast(TXT.cloakLine, 4.5, 0.4);
+    } else if (f === 'mask_removed') {
+      // The sky comes back. From here it stops answering to where the player is
+      // standing and runs the garden's dawn up into the meadow's morning on its
+      // own clock — the light the walk has been descending away from since the
+      // first zone, returned as the story's resolution.
+      endingSky = 0;
     }
   }
 
   /* -------------------------------------------------------------------
    * Triggers (proximity, fired once, in order)
    * ----------------------------------------------------------------- */
+  // Radii tightened with the spacing. At the old 18/20 m these bands were a
+  // fraction of a 225 m gap; against the 34 m between the crossing and the
+  // circle they overlapped, so walking one stretch of path fired both beats on
+  // consecutive frames and the pause between them disappeared.
   const triggers = [
-    { dist: SR.RIVER_CROSS, radius: 18, requires: 'flower_given', fired: false,
+    { dist: SR.RIVER_CROSS, radius: 8, requires: 'flower_given', fired: false,
       fn: () => advance('river_crossed') },
-    { dist: SR.CIRCLE, radius: 20, requires: 'river_crossed', fired: false,
+    { dist: SR.CIRCLE, radius: 10, requires: 'river_crossed', fired: false,
       fn: () => {
         // Overheard monologue as a timed toast chain; then the circle vanishes.
         TXT.confession.forEach((line, i) => queueToast(line, 5, i * 5));
         schedule(TXT.confession.length * 5, () => advance('circle_triggered'));
       } },
-    { dist: SR.GIRL, radius: 20, requires: 'circle_triggered', fired: false,
+    { dist: SR.GIRL, radius: 10, requires: 'circle_triggered', fired: false,
       fn: () => { girl.state = 'sprinting'; girl.rig.group.visible = true; } },
   ];
 
@@ -2328,12 +2613,13 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
   function update(t, dt, playerPos, sunDot = 1) {
     lastT = t;
+    lastDt = dt;
     _pl.copy(playerPos);
     if (!prevInit) { _prevPl.copy(_pl); prevInit = true; }
     mirrorSpeed = _pl.distanceTo(_prevPl) / Math.max(dt, 1e-4);
 
     pathCoords(_pl, _coords);
-    updateSky(dt, _coords.dist);
+    updateSky(dt, _coords.dist, _pl);
 
     // Wind + water animation (uniform/offset writes only).
     for (const u of swayUniforms) u.value = t;
@@ -2355,6 +2641,11 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     // Zone hooks (girl motion, fades, storm, mirror, sprout growth).
     for (const zu of zoneUpdaters) zu(t, dt, _pl, sunDot);
+
+    // The two crowds: idle motion, and promoting whoever the player is standing
+    // among into articulated bodies.
+    if (circleCrowd) circleCrowd.update(t, dt, _pl);
+    if (queueCrowd) queueCrowd.update(t, dt, _pl);
 
     // Event lights dim out while the player stands in them (up close they wash
     // out the character art) and come back as the player leaves.
@@ -2492,6 +2783,31 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     return null;
   }
 
+  // Crowd state, for headless verification: how many of each crowd have been
+  // promoted to articulated bodies, and whether the dissolve has finished.
+  function debugCrowds() {
+    return {
+      circle: circleCrowd
+        ? { rigs: circleCrowd.rigCount, faded: circleCrowd.faded } : null,
+      queue: queueCrowd
+        ? { rigs: queueCrowd.rigCount, faded: queueCrowd.faded } : null,
+    };
+  }
+
+  // Fire both crowd dissolves directly, for headless verification — the story
+  // route to them runs through a five-line toast chain and a dialogue close.
+  function debugFadeCrowds() {
+    if (circleCrowd) circleCrowd.startFade(2);
+    if (queueCrowd) queueCrowd.startFade(2.5);
+  }
+
+  // Which two presets the sky is currently between, and how far. `force` starts
+  // the ending brightening without playing seven flags' worth of story.
+  function debugSky(force = false) {
+    if (force && endingSky < 0) endingSky = 0;
+    return { a: _skyBlend.a, b: _skyBlend.b, k: +_skyBlend.k.toFixed(3), ending: endingSky };
+  }
+
   function canBoard() { return stage === 0 || has('mask_removed'); }
   function isComplete() { return has('mask_removed'); }
   const marks = {
@@ -2511,9 +2827,12 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   queueToast(TXT.toastLanding, 5, 0.5);
 
   function dispose() {
-    // Restore the planet's own sky closure FIRST — the skyfog pass keeps
-    // calling cfg.skyColor() after we're gone.
-    planet.cfg.skyColor = origSkyColor;
+    // First: the sky owns scene.fog and scene.environment, which belong to the
+    // root scene and outlive this module.
+    if (sky) sky.dispose();
+    if (circleCrowd) circleCrowd.dispose();
+    if (queueCrowd) queueCrowd.dispose();
+    materials.dispose(); // the registry owns its own textures and materials
     for (const d of dissolves) d.dispose();
     dissolves.length = 0;
     holograms.length = 0;
@@ -2529,6 +2848,7 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   return {
     group,
     update,
+    preRender,
     dispose,
     nearestInteractable,
     interact,
@@ -2540,6 +2860,9 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     isComplete,
     initAudio,
     debugState,
+    debugCrowds,
+    debugFadeCrowds,
+    debugSky,
   };
 }
 

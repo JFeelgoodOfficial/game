@@ -494,7 +494,12 @@ function spawnWorldEntities(planet) {
   // wonders/creatures null so every downstream guard short-circuits.
   if (planet.cfg.name === 'shadowreach') {
     toSurfaceLocal(planet, _up, _localUp);
-    shadowreach = createShadowreach(planet, _localUp.clone(), {});
+    // scene: like actuality, the module owns its own sky, fog and environment
+    // map, all of which live on the root scene rather than under the planet.
+    shadowreach = createShadowreach(planet, _localUp.clone(), {
+      scene: worldScene,
+      quality: settings.quality,
+    });
     planet.surface.add(shadowreach.group);
     shadowreach.initAudio(); // the G keypress that landed us is fresh user activation
     return;
@@ -1483,9 +1488,13 @@ export function walkSite() {
 }
 
 // Pre-composer render hook (game.js, before composer.render()). Lets a world
-// module draw to its own render targets — only the actuality mirror room does.
+// module reach the renderer — the actuality mirror room draws to its own render
+// targets, and both story worlds drive their sky from here (the PMREM
+// environment bake needs a renderer, and this is the only hook that has one).
 export function walkPreRender(renderer) {
-  if (walk.active && actuality) actuality.preRender(renderer);
+  if (!walk.active) return;
+  if (actuality) actuality.preRender(renderer);
+  if (shadowreach) shadowreach.preRender(renderer);
 }
 
 // The actuality world's hyper-holo-grid finale asks the host to loop the whole

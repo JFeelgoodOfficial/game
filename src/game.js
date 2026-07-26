@@ -57,8 +57,11 @@ import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
 import {
   isIsolatingWorld,
   isolated,
-  acquire as acquireIsolation,
-  release as releaseIsolation,
+  acquireUniverse,
+  releaseUniverse,
+  acquireSurface,
+  releaseSurface,
+  releaseAll as releaseIsolation,
 } from './isolate.js';
 import {
   initPlanets,
@@ -410,6 +413,12 @@ if (import.meta.env.DEV) {
     walkHere() {
       const floor = nearestTerraFloor(ship.position);
       if (floor) {
+        // Clear the landing sub-state exactly as the real G step-out does. Left
+        // set, it survives the walk and the subsequent walkExit, and the next
+        // frame of free flight finds a stale 'landed' and pins the ship to a pad
+        // it already left.
+        landState = null;
+        landedPlanet = null;
         beginWalk(floor.planet);
         heat = 0;
         phase = 'walk';
@@ -497,12 +506,14 @@ if (import.meta.env.DEV) {
         passes: composer.passes.map((p) => p.constructor.name + ':' + (p.enabled ? 1 : 0)),
       };
     },
-    // Isolated-world pause, for headless verification: is it on, which planet
-    // is exempt, and did the space furniture actually go away.
+    // Isolated-world pause, for headless verification: which of the two stages
+    // are held (universe freeze / surface render mode), which planet is exempt,
+    // and did the space furniture actually go away.
     isolation() {
       return {
         active: isolated.active,
-        keep: isolated.keep?.cfg?.name ?? null,
+        surface: isolated.surface,
+        keep: (isolated.keep ?? isolated.surfaceKeep)?.cfg?.name ?? null,
         ao: aoPass.enabled,
         shadows: renderer.shadowMap.enabled,
         far: camera.far,
@@ -550,11 +561,20 @@ let standBlend = 0; // seat <-> stand camera blend, 0..1
 // stranded pause would leave the flight sim with an invisible solar system.
 function beginWalk(planet) {
   enterWalk(planet);
-  if (isIsolatingWorld(planet.cfg.name))
-    acquireIsolation(planet, renderer, aoPass, camera, bloomPass);
+  if (isIsolatingWorld(planet.cfg.name)) {
+    // Both stages, both idempotent. The universe stage has normally already been
+    // taken at touchdown, but debug.walkHere() drops straight into a walk with
+    // landState never set, so this cannot assume it.
+    acquireUniverse(planet);
+    acquireSurface(planet, renderer, aoPass, camera, bloomPass);
+  }
 }
 function endWalk() {
-  // before exitWalk: restores visibility for the reset snapshot
+  // Both stages. Boarding is not a return to the pad: exitWalk lifts the ship to
+  // WALK_LAND_ALTITUDE with the nose radially out, so the player is back in free
+  // flight and needs the whole solar system back. (Landing and lifting off again
+  // without ever stepping out releases the universe stage in stepLanded instead.)
+  // Before exitWalk: restores visibility for the reset snapshot.
   releaseIsolation(renderer, aoPass, camera, bloomPass);
   exitWalk(camera);
 }
@@ -641,6 +661,7 @@ function stepAutoLand(dt) {
     landState = 'landed';
     settleT = 1; // the arc already finished upright
     ship.velocity.set(0, 0, 0);
+    touchdownIsolate(p);
   }
 }
 
@@ -662,6 +683,10 @@ function stepLanded(dt, piloted) {
   if (piloted && (input.forward || input.brake)) {
     landState = null;
     landedPlanet = null;
+    // Lifting off without ever having stepped out: the universe stage was taken
+    // at touchdown and nothing else will hand it back. (Stepping out and later
+    // boarding routes through endWalk instead, which releases both stages.)
+    releaseUniverse();
     ship.velocity.copy(_lv0).multiplyScalar(C.TAKEOFF_KICK);
   }
 }
@@ -685,7 +710,16 @@ function checkTouchdown() {
     settleT = 0;
     _landStartQuat.copy(ship.quaternion);
     landingUpright(_lv0, _landUprightQuat);
+    touchdownIsolate(p);
   }
+}
+
+// The universe stops the instant the skids touch, not when the player steps out.
+// Only the far field goes dark here — the sky the player is looking at through
+// the canopy is untouched until they disembark and a world module takes it over
+// (see the two-stage note in src/isolate.js).
+function touchdownIsolate(p) {
+  if (isIsolatingWorld(p.cfg.name)) acquireUniverse(p);
 }
 
 // Backspace — real pause (audit fix: Escape only dropped pointer lock while
@@ -717,6 +751,11 @@ const MOTION_SCALE = window.matchMedia?.('(prefers-reduced-motion: reduce)')
 const hintEl = document.getElementById('hint');
 
 function resetToStart() {
+  // Safety net for every path that bypasses both liftoff and boarding: the
+  // collapse/respawn reset, the menu launch, debug.launch(), and the actuality
+  // finale's game reset. A stranded pause would hand the flight sim an invisible
+  // solar system. Both stages, and a no-op when neither is held.
+  releaseIsolation(renderer, aoPass, camera, bloomPass);
   ship.position.set(0, 0, 0);
   ship.velocity.set(0, 0, 0);
   ship.quaternion.identity();
@@ -1094,7 +1133,12 @@ function frame(now) {
   updateCapture(phase, dash, delta);
   camera.updateMatrixWorld();
   camera.matrixWorldInverse.copy(camera.matrixWorld).invert(); // fresh for projection
-  updateBlackHole(camera, lensPass.uniforms, now / 1000);
+  // The last universe system: the disc animation and the lensing uniforms. Not
+  // free even with the horizon hidden, and nothing on a story world reads it.
+  // Switch the lens off explicitly rather than leaving the last frame's screen
+  // position frozen in the uniforms while the player walks away from it.
+  if (isolated.active) lensPass.uniforms.uEnabled.value = 0;
+  else updateBlackHole(camera, lensPass.uniforms, now / 1000);
 
   // atmospheric entry: fade the frame to the sky of whichever planet's air
   // the ship is deepest inside
@@ -1109,8 +1153,10 @@ function frame(now) {
   }
   // Isolated worlds author their own sky and their own aerial perspective
   // (per-zone fog), so the flight sim's atmospheric-entry wash is switched off
-  // there rather than fighting it.
-  skyfogPass.enabled = _atmo.atmo > 0.001 && !isolated.active;
+  // there rather than fighting it. Gated on the SURFACE stage, not the universe
+  // freeze: between touchdown and stepping out there is no world sky yet, and
+  // this haze is the only thing drawing one through the canopy.
+  skyfogPass.enabled = _atmo.atmo > 0.001 && !isolated.surface;
   if (skyfogPass.enabled) {
     _up.set(_atmo.upX, _atmo.upY, _atmo.upZ).normalize();
     const su = skyfogPass.uniforms;
@@ -1148,10 +1194,12 @@ function frame(now) {
     }
   }
 
-  // live panel bindings (GDD 2.3): cheap scalar copies each frame. Skipped on an
-  // isolated world, which owns its own bloom calibration (src/isolate.js) — the
-  // space threshold assumes a black sky and would white out a daylit one.
-  if (!isolated.active) {
+  // live panel bindings (GDD 2.3): cheap scalar copies each frame. Skipped once
+  // a world module owns the sky, which brings its own bloom calibration
+  // (src/isolate.js) — the space threshold assumes a black sky and would white
+  // out a daylit one. Still live while parked in the seat, where the sky is
+  // still the flight sim's.
+  if (!isolated.surface) {
     bloomPass.threshold = C.BLOOM_THRESHOLD;
     bloomPass.strength = C.BLOOM_STRENGTH;
   }
