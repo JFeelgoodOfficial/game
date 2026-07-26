@@ -39,6 +39,8 @@ import { makeStructure } from './city.js';
 import * as DLG from './actuality-dialogue.js';
 import { createMirrorRoom } from './actuality-mirrorroom.js';
 import { createActualitySky } from './actuality-sky.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import cityWindowsFrag from './shaders/actualityCityWindows.frag?raw';
 // The owner's dragon artwork, shown in Zone 9 the way the deep nebulae show the
 // owner's paintings — layered billboards rather than a built sculpt: the granite
 // statue behind, the glowing hologram (box removed) additively in front.
@@ -366,35 +368,6 @@ function tvStaticTexture(rng) {
   return tex;
 }
 
-// A tiling window grid for the hub city's facades: transparent where the wall
-// is, opaque warm where a window is lit. Buildings read as buildings because of
-// window rhythm and because only SOME windows are on — a uniform glow reads as
-// a lightbox. Floors are banded (a whole storey tends to be lit or dark) with
-// per-cell variation on top, which is what an office block actually looks like.
-function cityWindowTexture(rng, litChance = 0.25) {
-  const W = 64, H = 64;
-  const c = document.createElement('canvas');
-  c.width = W; c.height = H;
-  const g = c.getContext('2d');
-  g.clearRect(0, 0, W, H);
-  const cols = 6, rows = 8;
-  const cw = W / cols, ch = H / rows;
-  for (let r = 0; r < rows; r++) {
-    // Storey bias: some floors are mostly working late, some are mostly dark.
-    const floorBias = rng() < 0.35 ? 2.2 : 0.55;
-    for (let col = 0; col < cols; col++) {
-      if (rng() > litChance * floorBias) continue;
-      const warm = 200 + ((rng() * 55) | 0);
-      const a = 0.55 + rng() * 0.45;
-      g.fillStyle = `rgba(255,${warm},${(warm * 0.72) | 0},${a})`;
-      g.fillRect(col * cw + cw * 0.22, r * ch + ch * 0.22, cw * 0.56, ch * 0.5);
-    }
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
 // Tiling ripple normal map for the Zone 6 lake. Built from summed directional
 // waves rather than noise: real water has coherent wavefronts, and noise-based
 // normals read as sand. The height field is differentiated analytically so the
@@ -595,7 +568,7 @@ function makeFigure(opts = {}) {
  * Built in anchor-local space (added under `anchor`). Returns geometry group,
  * a makeStructure for collision, lights, and the She interactable position.
  * ------------------------------------------------------------------- */
-function buildHub(rng) {
+function buildHub(rng, quality = 'high') {
   const group = new THREE.Group();
   group.name = 'actuality.hub';
   const geos = [];
@@ -656,6 +629,103 @@ function buildHub(rng) {
   const board = new THREE.Mesh(boardGeo, boardMat);
   board.position.set(-6.5, 1.9, BZ - 0.3); board.rotation.y = Math.PI; geos.push(boardGeo);
   group.add(board);
+
+  // --- Landing pad ------------------------------------------------------
+  // Somewhere for the ship to actually be, instead of standing on the paving
+  // among the café tables. A raised concrete circle just off the terrace,
+  // reached through the parapet gap, with a painted ring, chevron markings and
+  // rim lights. The ship is set down on it by walk.js (PAD_X/PAD_Z below are
+  // the same anchor-local coordinates it parks at).
+  const PAD_X = 26, PAD_Z = 6, PAD_R = 7.0, PAD_RISE = 0.35;
+  // The parapet's opening, which the walk out to the pad runs through. Declared
+  // with the pad because both the walkway and the wall runs below need it.
+  const GAP_Z0 = 1.5, GAP_Z1 = 10.5;
+  const padMat = new THREE.MeshStandardMaterial({ color: 0x6f6a63, roughness: 0.93 });
+  const padPaint = new THREE.MeshStandardMaterial({ color: 0xd8c88a, roughness: 0.8 });
+  const padLightMat = new THREE.MeshStandardMaterial({
+    color: 0xbfe6ff, emissive: 0x7fd0ff, emissiveIntensity: 1.4, roughness: 0.4,
+  });
+  mats.push(padMat, padPaint, padLightMat);
+
+  const padGeo = new THREE.CylinderGeometry(PAD_R, PAD_R + 0.5, PAD_RISE + 1.0, 40);
+  geos.push(padGeo);
+  const padMesh = new THREE.Mesh(padGeo, padMat);
+  padMesh.position.set(PAD_X, PAD_RISE - (PAD_RISE + 1.0) / 2, PAD_Z);
+  group.add(padMesh);
+
+  // Painted ring + centre disc.
+  const ringGeo = new THREE.RingGeometry(PAD_R - 1.5, PAD_R - 1.1, 40);
+  geos.push(ringGeo);
+  const ring = new THREE.Mesh(ringGeo, padPaint);
+  ring.position.set(PAD_X, PAD_RISE + 0.01, PAD_Z);
+  ring.rotation.x = -Math.PI / 2;
+  group.add(ring);
+  const discGeo = new THREE.RingGeometry(1.5, 2.1, 32);
+  geos.push(discGeo);
+  const disc = new THREE.Mesh(discGeo, padPaint);
+  disc.position.set(PAD_X, PAD_RISE + 0.01, PAD_Z);
+  disc.rotation.x = -Math.PI / 2;
+  group.add(disc);
+  // Four chevrons pointing in, so the pad has an orientation.
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    addBox(2.4, 0.02, 0.42, PAD_X + Math.sin(a) * (PAD_R - 3.2), PAD_RISE + 0.012,
+      PAD_Z + Math.cos(a) * (PAD_R - 3.2), padPaint, -a);
+  }
+  // Rim lights around the edge.
+  const padBulbGeo = new THREE.BoxGeometry(0.22, 0.3, 0.22);
+  geos.push(padBulbGeo);
+  const padBulbs = new THREE.InstancedMesh(padBulbGeo, padLightMat, 12);
+  {
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      m.makeTranslation(PAD_X + Math.sin(a) * (PAD_R - 0.35), PAD_RISE + 0.15,
+        PAD_Z + Math.cos(a) * (PAD_R - 0.35));
+      padBulbs.setMatrixAt(i, m);
+    }
+    padBulbs.instanceMatrix.needsUpdate = true;
+  }
+  group.add(padBulbs);
+  const padGlow = new THREE.PointLight(0x8fd0ff, 0.5, 22, 2.0);
+  padGlow.position.set(PAD_X, 2.2, PAD_Z);
+  group.add(padGlow); lights.push(padGlow);
+
+  // The walk from the terrace gap out to the pad.
+  addBox(PAD_X - PAD_R - H + 2, 0.12, 4.0, (H + PAD_X - PAD_R) / 2, 0.06, (GAP_Z0 + GAP_Z1) / 2, padMat);
+
+  // --- Parapet: a low wall around the terrace edge ---------------------
+  // The terrace used to just stop, and you could walk straight off it into the
+  // city, which is scenery with no ground under it. A knee-high stone parapet
+  // runs the perimeter, with one gap on the +X side opening onto the walk to
+  // the landing pad. The café side is left alone — the nook's own walls close
+  // that end already.
+  const PARAPET_H = 1.05;
+  const PARAPET_T = 0.42;
+  const parapetMat = new THREE.MeshStandardMaterial({ color: 0xa89b86, roughness: 0.9 });
+  const capMat = new THREE.MeshStandardMaterial({ color: 0x8c8172, roughness: 0.72 });
+  mats.push(parapetMat, capMat);
+  const parapetWalls = []; // collision, filled alongside the geometry
+
+  // A run of parapet with a stone cap on top, plus its collision box.
+  const parapetRun = (x0, x1, z0, z1) => {
+    const w = x1 - x0, d = z1 - z0;
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+    addBox(w, PARAPET_H, d, cx, PARAPET_H / 2, cz, parapetMat);
+    addBox(w + 0.12, 0.1, d + 0.12, cx, PARAPET_H + 0.05, cz, capMat);
+    parapetWalls.push({ x0, x1, z0, z1, y0: 0, y1: PARAPET_H });
+  };
+
+  // Front (-Z, beyond the gateway arc) and back-corner returns.
+  parapetRun(-H, H, -H, -H + PARAPET_T);
+  // -X side, full run up to the café nook.
+  parapetRun(-H, -H + PARAPET_T, -H, BZ - 6.5);
+  // +X side, split around the gap that leads to the landing pad.
+  parapetRun(H - PARAPET_T, H, -H, GAP_Z0);
+  parapetRun(H - PARAPET_T, H, GAP_Z1, BZ - 6.5);
+  // Short stubs framing the gap, so the opening reads as a gate.
+  addBox(1.6, PARAPET_H + 0.5, 0.5, H - 0.8, (PARAPET_H + 0.5) / 2, GAP_Z0, capMat);
+  addBox(1.6, PARAPET_H + 0.5, 0.5, H - 0.8, (PARAPET_H + 0.5) / 2, GAP_Z1, capMat);
 
   // Low planters ringing the terrace edge with shrubs.
   const planterMat = new THREE.MeshStandardMaterial({ color: 0x6b5138, roughness: 0.9 });
@@ -758,73 +828,104 @@ function buildHub(rng) {
   // Facade materials. The window texture is generated per band so lit cells
   // differ building to building rather than repeating one pattern citywide.
   const CITY_HULLS = [0x6e6a72, 0x7a7068, 0x5f6068, 0x746c66, 0x676a70];
-  const hullMats = CITY_HULLS.map((c) => {
-    const m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.88, metalness: 0.05 });
-    mats.push(m);
-    return m;
-  });
+  // Write a flat colour into a geometry's vertex colours, so unrelated shapes
+  // can share one material and still merge.
+  const tintGeo = (g, hex, mul) => {
+    _hullCol.set(hex);
+    const n = g.attributes.position.count;
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      col[i * 3] = _hullCol.r * mul; col[i * 3 + 1] = _hullCol.g * mul; col[i * 3 + 2] = _hullCol.b * mul;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  };
 
-  // One block of a building: a box wearing a window-grid facade on all sides.
-  const cityBlock = (bx, by, bz, bw, bh, bd, litChance, hull) => {
+  // Hull colour rides a vertex attribute so every block shares one material and
+  // the whole skyline merges into a single draw call.
+  const hullGeos = [];
+  const winGeos = [];
+  const _hullCol = new THREE.Color();
+
+  // One block of a building: a box, plus a window shell a hair outside it so
+  // the two never z-fight. Both are collected for merging rather than added as
+  // meshes — 60-odd towers of 2-3 tiers is ~400 meshes otherwise.
+  const cityBlock = (bx, by, bz, bw, bh, bd, hullHex) => {
     const g = new THREE.BoxGeometry(bw, bh, bd);
-    const m = new THREE.Mesh(g, hull);
-    m.position.set(bx, by + bh / 2, bz);
-    group.add(m); geos.push(g);
-    // Windows as a separate emissive shell, inset a hair so it never z-fights.
-    const winTex = cityWindowTexture(cityRng, litChance);
-    winTex.wrapS = winTex.wrapT = THREE.RepeatWrapping;
-    winTex.repeat.set(Math.max(1, Math.round(bw / 3)), Math.max(1, Math.round(bh / 3.4)));
-    texs.push(winTex);
-    const wm = new THREE.MeshStandardMaterial({
-      map: winTex, emissive: 0xffd9a0, emissiveMap: winTex, emissiveIntensity: 0.9,
-      roughness: 0.35, metalness: 0.1, transparent: true,
-    });
-    mats.push(wm);
-    const wg = new THREE.BoxGeometry(bw * 1.002, bh * 0.94, bd * 1.002);
-    const wmesh = new THREE.Mesh(wg, wm);
-    wmesh.position.set(bx, by + bh / 2, bz);
-    group.add(wmesh); geos.push(wg);
-    return m;
+    g.translate(bx, by + bh / 2, bz);
+    _hullCol.set(hullHex);
+    // A little per-block value jitter so identical hull colours still read as
+    // separate buildings where they overlap.
+    const j = 0.82 + cityRng() * 0.36;
+    const n = g.attributes.position.count;
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      col[i * 3] = _hullCol.r * j; col[i * 3 + 1] = _hullCol.g * j; col[i * 3 + 2] = _hullCol.b * j;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    hullGeos.push(g);
+
+    const wg = new THREE.BoxGeometry(bw * 1.004, bh * 0.94, bd * 1.004);
+    // Scale UVs per building so a window cell is a consistent real-world size
+    // across a 7 m block and a 24 m one. One UV unit = one window.
+    const uv = wg.attributes.uv;
+    // Half-size windows, at double the grid density per axis. Occupancy in the
+    // shader is halved to match, so the LIT count roughly doubles rather than
+    // quadrupling — smaller lights, more of them, not a wall of glare.
+    const su = Math.max(3, Math.round(bw / 1.6));
+    const sv = Math.max(3, Math.round(bh / 1.8));
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv);
+    // Per-building seed, so no two facades hash the same.
+    const seed = cityRng() * 100;
+    const sa = new Float32Array(uv.count);
+    sa.fill(seed);
+    wg.setAttribute('aSeed', new THREE.BufferAttribute(sa, 1));
+    wg.translate(bx, by + bh / 2, bz);
+    winGeos.push(wg);
   };
 
   // A building: two or three stacked masses with setbacks, plus a roof box.
-  const cityTower = (bx, bz, baseW, baseD, totalH, litChance) => {
-    const hull = hullMats[(cityRng() * hullMats.length) | 0];
+  const cityTower = (bx, bz, baseW, baseD, totalH) => {
+    const hull = CITY_HULLS[(cityRng() * CITY_HULLS.length) | 0];
     const tiers = 2 + (cityRng() < 0.45 ? 1 : 0);
     let y = 0, w = baseW, d = baseD;
     for (let t = 0; t < tiers; t++) {
       const share = t === tiers - 1 ? 1 : 0.4 + cityRng() * 0.25;
       const h = (totalH - y) * share;
-      cityBlock(bx, y, bz, w, h, d, litChance, hull);
+      cityBlock(bx, y, bz, w, h, d, hull);
       y += h;
       w *= 0.68 + cityRng() * 0.16;   // setback
       d *= 0.68 + cityRng() * 0.16;
     }
     // Roof plant: a small box and a mast, which is most of what reads as "roof"
-    // at this distance and stops every tower ending in a clean slab.
-    const rg = new THREE.BoxGeometry(w * 0.5, 1.6 + cityRng() * 2.2, d * 0.5);
-    const rm = new THREE.Mesh(rg, hull);
-    rm.position.set(bx + (cityRng() - 0.5) * w * 0.3, y + 1.0, bz + (cityRng() - 0.5) * d * 0.3);
-    group.add(rm); geos.push(rg);
+    // at this distance and stops every tower ending in a clean slab. Windowless,
+    // so they go straight into the hull merge.
+    const rh = 1.6 + cityRng() * 2.2;
+    const rg = new THREE.BoxGeometry(w * 0.5, rh, d * 0.5);
+    rg.translate(bx + (cityRng() - 0.5) * w * 0.3, y + rh / 2, bz + (cityRng() - 0.5) * d * 0.3);
+    tintGeo(rg, hull, 0.7);
+    hullGeos.push(rg);
     if (cityRng() < 0.5) {
-      const mg = new THREE.BoxGeometry(0.25, 4 + cityRng() * 7, 0.25);
-      const mm = new THREE.Mesh(mg, hull);
-      mm.position.set(bx, y + 4, bz);
-      group.add(mm); geos.push(mg);
+      const mh = 4 + cityRng() * 7;
+      const mg = new THREE.BoxGeometry(0.25, mh, 0.25);
+      mg.translate(bx, y + mh / 2, bz);
+      tintGeo(mg, hull, 0.6);
+      hullGeos.push(mg);
     }
   };
 
   // Three depth bands. Near blocks read as buildings you could walk to; the far
   // band is what makes the place feel like a city rather than a stage set.
   const BANDS = [
-    { count: 16, r0: 40, r1: 62, h0: 12, h1: 30, w0: 7, w1: 12, lit: 0.30 },
-    { count: 22, r0: 66, r1: 100, h0: 20, h1: 52, w0: 9, w1: 16, lit: 0.22 },
-    { count: 26, r0: 110, r1: 175, h0: 34, h1: 88, w0: 12, w1: 24, lit: 0.16 },
+    { count: 16, r0: 40, r1: 62, h0: 12, h1: 30, w0: 7, w1: 12 },
+    { count: 22, r0: 66, r1: 100, h0: 20, h1: 52, w0: 9, w1: 16 },
+    { count: 26, r0: 110, r1: 175, h0: 34, h1: 88, w0: 12, w1: 24 },
   ];
+  const bandScale = quality === 'low' ? 0.5 : 1;
   for (const b of BANDS) {
-    for (let i = 0; i < b.count; i++) {
+    const count = Math.max(6, Math.round(b.count * bandScale));
+    for (let i = 0; i < count; i++) {
       // Jittered angular spacing: evenly spaced towers read as a fence.
-      const a = ((i + cityRng() * 0.7) / b.count) * Math.PI * 2;
+      const a = ((i + cityRng() * 0.7) / count) * Math.PI * 2;
       const rad = b.r0 + cityRng() * (b.r1 - b.r0);
       const bx = Math.sin(a) * rad, bz = Math.cos(a) * rad;
       // Keep the café's own view open, and don't build on the gateway arc.
@@ -834,11 +935,61 @@ function buildHub(rng) {
         bx, bz,
         b.w0 + cityRng() * (b.w1 - b.w0),
         b.w0 + cityRng() * (b.w1 - b.w0),
-        b.h0 + cityRng() * (b.h1 - b.h0),
-        b.lit
+        b.h0 + cityRng() * (b.h1 - b.h0)
       );
     }
   }
+
+  // Merge the whole skyline: one draw call for every hull, one for every
+  // window. Built as ~400 separate meshes it was the most expensive thing in
+  // the world by a wide margin, for geometry the player can never reach.
+  const hullGeo = mergeGeometries(hullGeos, false);
+  for (const g of hullGeos) g.dispose();
+  const cityHullMat = new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.88, metalness: 0.05,
+  });
+  mats.push(cityHullMat);
+  const cityHull = new THREE.Mesh(hullGeo, cityHullMat);
+  // Scenery 40-175 m out. The sun's shadow box is 120 m centred on the player,
+  // so a tower can only throw its shadow somewhere the player cannot stand —
+  // pure shadow-pass cost for no image.
+  cityHull.userData.noShadow = true;
+  cityHull.frustumCulled = false;
+  group.add(cityHull); geos.push(hullGeo);
+
+  // Windows: procedural and animated rather than a painted texture. A baked
+  // grid is the same frozen pattern forever, which reads as printed wallpaper
+  // on the side of a building; here each cell is hashed from its own position
+  // plus a per-building seed and keeps its own slow on/off cycle, so lights
+  // come and go while you stand on the terrace and no two facades match.
+  const winGeo = mergeGeometries(winGeos, false);
+  for (const g of winGeos) g.dispose();
+  const cityWinMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: /* glsl */ `
+      attribute float aSeed;
+      varying vec2 vWinUv;
+      varying float vSeed;
+      varying float vFade;
+      void main() {
+        vWinUv = uv;
+        vSeed = aSeed;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        // Far towers dim into the haze rather than staying pin-sharp.
+        vFade = 1.0 - smoothstep(90.0, 210.0, -mv.z);
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: cityWindowsFrag,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.FrontSide,
+  });
+  mats.push(cityWinMat);
+  const cityWin = new THREE.Mesh(winGeo, cityWinMat);
+  cityWin.userData.noShadow = true;
+  cityWin.frustumCulled = false;
+  group.add(cityWin); geos.push(winGeo);
 
   // Gentle breeze: leaves drifting slowly across the terrace.
   const NL = 60;
@@ -854,17 +1005,25 @@ function buildHub(rng) {
   for (let i = 0; i < NL; i++) lbase.push({ x0: (lr() - 0.5) * H * 2, y: 0.5 + lr() * 5, z: (lr() - 0.5) * H * 2, ph: lr() * 6.28, sp: 0.3 + lr() * 0.5 });
   const _lm = new THREE.Matrix4();
 
-  // Collision: the café nook walls (with the terrace open).
+  // Collision: the café nook walls, plus the terrace parapet.
   const walls = [
     { x0: -10, x1: 10, z0: BZ - 0.25, z1: BZ + 0.25, y0: 0, y1: WH },
     { x0: -10.25, x1: -9.75, z0: BZ - 6.5, z1: BZ, y0: 0, y1: WH },
     { x0: 9.75, x1: 10.25, z0: BZ - 6.5, z1: BZ, y0: 0, y1: WH },
     { x0: -6, x1: 6, z0: BZ - 1.8, z1: BZ - 0.6, y0: 0, y1: 1.1 }, // counter
+    ...parapetWalls,
   ];
-  const surfaces = [{ x0: -H, x1: H, z0: -H, z1: H, y: 0 }];
-  const structure = makeStructure(0, 0, 0, surfaces, walls, H + 1);
+  // The floor now reaches out past the parapet gap to the landing pad, so the
+  // walk between them is solid ground rather than a drop.
+  const surfaces = [
+    { x0: -H, x1: H, z0: -H, z1: H, y: 0 },
+    { x0: H, x1: PAD_X + PAD_R + 1, z0: GAP_Z0, z1: GAP_Z1, y: 0 },
+    { x0: PAD_X - PAD_R - 1, x1: PAD_X + PAD_R + 1, z0: PAD_Z - PAD_R - 1, z1: PAD_Z + PAD_R + 1, y: 0 },
+  ];
+  const structure = makeStructure(0, 0, 0, surfaces, walls, PAD_X + PAD_R + 4);
 
   function update(t) {
+    cityWinMat.uniforms.uTime.value = t; // city lights switch on their own cycles
     for (let i = 0; i < NL; i++) {
       const b = lbase[i];
       const x = b.x0 + ((t * b.sp * 3) % (H * 2 + 8)) - 4; // drift +X, wrap
@@ -885,6 +1044,8 @@ function buildHub(rng) {
     fillLight: fill,
     update,
     shePos: new THREE.Vector3(-6, 0, 10.4),
+    // Anchor-local landing pad, so the host can set the ship down ON it.
+    pad: { x: PAD_X, y: PAD_RISE, z: PAD_Z, r: PAD_R },
     dispose() {
       for (const g of geos) g.dispose();
       for (const m of mats) m.dispose();
@@ -993,7 +1154,7 @@ export function createActuality(planet, worldUp, opts = {}) {
     : null;
 
   // --- Hub ---
-  const hub = buildHub(rng);
+  const hub = buildHub(rng, opts.quality);
   anchor.add(hub.group);
 
   // --- Interactables (anchor-local Vector3 positions) ---
@@ -3334,6 +3495,11 @@ export function createActuality(planet, worldUp, opts = {}) {
     debug,
     probeGround,
     surfacePoint,
+    // Landing pad in anchor-local space; walk.js parks the ship on it.
+    pad: hub.pad,
+    anchorLocalToSurface(x, y, z) {
+      return new THREE.Vector3(x, y, z).applyQuaternion(anchorQ).add(anchorPos);
+    },
     sky, // sky/sun/IBL handle — headless calibration + zone-sky assertions
     // exposed for future milestones / tests
     _flags: flags,

@@ -443,7 +443,8 @@ function spawnWorldEntities(planet) {
     // instead: clear of the 18 m terrace, clear of the nine-gateway arc at the
     // front (-Z) and of the café nook at the back (+Z), and still an easy walk
     // back for boarding.
-    _target.set(26, 0, 6)
+    const pad = actuality.pad;
+    _target.set(pad.x, 0, pad.z)
       .applyQuaternion(actuality.anchor.quaternion)
       .add(actuality.anchor.position);           // surface-local
     _patchUp.copy(_target).normalize();
@@ -452,7 +453,7 @@ function spawnWorldEntities(planet) {
     // floats above the terrace paving.
     const parkR = actuality.groundRadiusAt(_target);
     parked.group.position.copy(_patchUp).multiplyScalar(
-      (parkR > 0 ? parkR : _target.length()) + C.PARK_LIFT
+      (parkR > 0 ? parkR : _target.length()) + pad.y + C.PARK_LIFT
     );
     parked.group.quaternion.setFromUnitVectors(_yAxisV, _patchUp);
     // Nose pointing back at the terrace, so it reads as having set down here.
