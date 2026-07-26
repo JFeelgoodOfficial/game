@@ -485,8 +485,8 @@ export function createShadowreach(planet, worldUp, opts = {}) {
   }
 
   // A tapered grass blade with a baked root→tip color gradient (dressing.js
-  // blade recipe). Used by the meadow and garden with different tints.
-  function makeBladeGeo(rootHex, tipHex, w = 0.26, h = 1) {
+  // blade recipe), rooted at y = 0 so it can be rotated about its own base.
+  function bladeGeo(rootHex, tipHex, w, h) {
     const geo = new THREE.PlaneGeometry(w, h, 1, 3);
     geo.translate(0, h / 2, 0);
     const p = geo.attributes.position;
@@ -499,7 +499,52 @@ export function createShadowreach(planet, worldUp, opts = {}) {
       colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    return keep(geo);
+    return geo;
+  }
+
+  // A TUFT: several blades on one root, splayed and of uneven length.
+  //
+  // This is how the density gets paid for. A field wants tens of blades per
+  // square metre, but the per-INSTANCE cost is what hurts — every instance costs
+  // a terrain sample in scatterInstanced's build loop and a matrix in the buffer,
+  // while blades merged into one geometry cost only triangles, which is the
+  // cheap axis. Seven to a tuft buys a seven-fold field for one seventh of the
+  // loop. It also happens to be what grass does: it grows in clumps, not as
+  // evenly spaced individual spikes, and the old scatter read as spikes.
+  //
+  // One consequence worth knowing: makeSwayMaterial phases the wind off the
+  // instance origin, so a tuft now bends as a unit rather than blade by blade.
+  // That is closer to real grass, where a clump moves together.
+  function makeTuftGeo(rootHex, tipHex, n = 7, w = 0.14, spread = 0.26) {
+    const parts = [];
+    for (let i = 0; i < n; i++) {
+      const h = 0.55 + rng() * 0.6; // blades in a clump are not one length
+      const geo = bladeGeo(rootHex, tipHex, w * (0.8 + rng() * 0.45), h);
+      // Splay: lean out from the root, the outer blades further over.
+      geo.rotateY(rng() * Math.PI);
+      geo.rotateZ((rng() - 0.5) * 0.55);
+      geo.rotateX((rng() - 0.5) * 0.4);
+      // First blade dead centre, the rest scattered on a disc around it.
+      const a = rng() * Math.PI * 2;
+      const r = i === 0 ? 0 : spread * Math.sqrt(rng());
+      geo.translate(Math.cos(a) * r, 0, Math.sin(a) * r);
+      parts.push(geo);
+    }
+    return keep(mergeParts(parts));
+  }
+
+  // Grass counts scale with the quality setting: LOW is the software-GL and
+  // integrated-graphics path, and a million triangles of grass is exactly the
+  // kind of thing it cannot afford.
+  const GRASS_Q = opts.quality === 'low' ? 0.4 : 1;
+  const TUFT_BLADES = 7;
+
+  // Thin the field toward its lateral edge instead of ending it on a line — a
+  // grass field that stops dead at a rectangle boundary reads as a decal. Blades
+  // get shorter out there rather than disappearing.
+  function edgeTaper(lat, half) {
+    const k = THREE.MathUtils.smoothstep(Math.abs(lat) / half, 0.72, 1);
+    return 1 - 0.62 * k;
   }
 
   // Scatter `count` instances along the path via placeFn(i) ->
@@ -1084,14 +1129,21 @@ export function createShadowreach(planet, worldUp, opts = {}) {
 
     // Swaying grass — dressing.js blade with a rich green gradient. Bright
     // root→tip colors + a warm emissive floor keep backfaces from going black.
-    const bladeGeo = makeBladeGeo(0x2f8a3a, 0xa2e455, 0.3);
+    // ~119,000 blades across the meadow — about seventeen to the square metre,
+    // which is the point at which it stops reading as scattered spikes and
+    // starts reading as a field you are standing in. 17,000 tufts to get there.
+    const tuftGeo = makeTuftGeo(0x2f8a3a, 0xa2e455, TUFT_BLADES);
     const grassMat = makeSwayMaterial({ vertexColors: true, emis: 0.16, emisColor: 0x4fae52 });
-    const grass = scatterInstanced(bladeGeo, grassMat, 12000, () => ({
-      d: rng() * (SR.RIVER - 8),
-      lat: (rng() - 0.5) * 120,
-      yaw: rng() * Math.PI,
-      s: 0.5 + rng() * 0.6,
-    }));
+    const MEADOW_HALF = 72;
+    const grass = scatterInstanced(tuftGeo, grassMat, Math.round(17000 * GRASS_Q), () => {
+      const lat = (rng() - 0.5) * 2 * MEADOW_HALF;
+      return {
+        d: rng() * (SR.RIVER - 8),
+        lat,
+        yaw: rng() * Math.PI,
+        s: (0.55 + rng() * 0.5) * edgeTaper(lat, MEADOW_HALF),
+      };
+    });
     g.add(grass);
 
     // Wildflowers: stem + head merged, two species.
@@ -2107,14 +2159,18 @@ export function createShadowreach(planet, worldUp, opts = {}) {
     g.add(goldFar);
 
     // Deep green swaying grass with a warm emissive floor for the night side.
-    const bladeGeo = makeBladeGeo(0x2a7a34, 0x7cc85e, 0.3);
+    const tuftGeo = makeTuftGeo(0x2a7a34, 0x7cc85e, TUFT_BLADES);
     const grassMat = makeSwayMaterial({ vertexColors: true, emis: 0.2, emisColor: 0x8a7a3a });
-    g.add(scatterInstanced(bladeGeo, grassMat, 6000, () => ({
-      d: SR.GARDEN - 120 * Z + rng() * 220 * Z,
-      lat: (rng() - 0.5) * 110,
-      yaw: rng() * Math.PI,
-      s: 0.5 + rng() * 0.6,
-    })));
+    const GARDEN_HALF = 62;
+    g.add(scatterInstanced(tuftGeo, grassMat, Math.round(8600 * GRASS_Q), () => {
+      const lat = (rng() - 0.5) * 2 * GARDEN_HALF;
+      return {
+        d: SR.GARDEN - 120 * Z + rng() * 220 * Z,
+        lat,
+        yaw: rng() * Math.PI,
+        s: (0.55 + rng() * 0.5) * edgeTaper(lat, GARDEN_HALF),
+      };
+    }));
 
     // Flower beds in arcs — four species.
     const bedGeo = (headHex) => keep(mergeParts([
