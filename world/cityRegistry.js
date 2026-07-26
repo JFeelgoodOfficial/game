@@ -53,12 +53,12 @@ export const CITIES = [
     style: 'neonMetropolis',
     radius: 150,
     seed: 0x51a7c3e1,
-    pad: { x: 92, z: -159 }, // outside the town edge, on the old approach bearing
+    pad: { x: 116, z: -161 }, // outside the town edge (probed dry, scripts/probe-pads.mjs)
     voice: 'neon',
     wonders: [
       { type: 'elevator', title: 'The Skyroot Elevator', bearing: 2.36, dist: 800, seed: 0x1111a001 },
       // Inherited from Goldenvale Terraces when the valley consolidated.
-      { type: 'grove', title: 'The Luminous Grove', bearing: 4.90, dist: 420, seed: 0x1111a002 },
+      { type: 'grove', title: 'The Luminous Grove', bearing: 5.38, dist: 420, seed: 0x1111a002 },
     ],
     flavor: 'First-landfall port of the golden valley — every trade route in the system threads its towers.',
     quest: {
@@ -96,7 +96,7 @@ export const CITIES = [
     style: 'dustOutpost',
     radius: 110,
     seed: 0xd92f3b69,
-    pad: { x: 71, z: 125 },
+    pad: { x: 69, z: 122 }, // probed dry (scripts/probe-pads.mjs)
     voice: 'frontier',
     wonders: [
       { type: 'ringworld', title: 'The Broken Ring', bearing: 4.71, dist: 850, seed: 0x1111a009 },
@@ -141,12 +141,12 @@ export const CITIES = [
     style: 'abyssGlow',
     radius: 150,
     seed: 0xea404c7a,
-    pad: { x: -159, z: 92 },
+    pad: { x: -179, z: -14 }, // probed dry (scripts/probe-pads.mjs)
     voice: 'tide',
     wonders: [
       { type: 'leviathan', title: 'Ribs of the Sound-Leviathan', bearing: 0.39, dist: 360, seed: 0x1111a00a },
       // Inherited from Diamondwake when the resort folded into the Reach.
-      { type: 'diamondveil', title: 'The Diamond Veil', bearing: 2.40, dist: 420, seed: 0x1111a00b },
+      { type: 'diamondveil', title: 'The Diamond Veil', bearing: 1.36, dist: 500, seed: 0x1111a00b },
     ],
     flavor: 'A trench-research port pressed against the abyss — sonar chimes roll through the streets like bells.',
     quest: {
@@ -184,7 +184,7 @@ export const CITIES = [
     style: 'basecampNeon',
     radius: 110,
     seed: 0x0c626e9c,
-    pad: { x: 125, z: -72 },
+    pad: { x: 121, z: -70 }, // probed dry (scripts/probe-pads.mjs)
     voice: 'alpine',
     wonders: [
       { type: 'skyharp', title: 'The Ridge Harp', bearing: 1.96, dist: 340, seed: 0x1111a00c },
