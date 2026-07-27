@@ -41,6 +41,7 @@ import {
   cockpitDebug,
 } from './cockpit3d.js';
 import { initHolonav, updateHolonav, isHoloOpen, holonavDebug } from './holonav.js';
+import { navMenuDebug } from './navmenu.js';
 import { startAutoWarp, stepAutopilot, autopilotActive, cancelAutopilot } from './autopilot.js';
 import {
   interiorScene,
@@ -386,6 +387,7 @@ if (import.meta.env.DEV) {
     navState,
     cockpit: cockpitDebug(),
     holo: holonavDebug(),
+    navMenu: navMenuDebug(),
     autopilot: {
       active: autopilotActive,
       start: (id) => startAutoWarp(getBodies().find((b) => b.id === id)),

@@ -539,12 +539,6 @@ export function createCity(planet, worldUp, opts = {}) {
 
   // House slots: one per grounded citizen, ringed around the plaza, keeping
   // clear of the walkway corridor and the tower.
-  const angDiff = (a, b) => {
-    let d = a - b;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
-    return Math.abs(d);
-  };
   const groundedCitizens = [];
   let penthouseCitizen = null;
   for (let i = 0; i < roster.length; i++) {
@@ -554,36 +548,53 @@ export function createCity(planet, worldUp, opts = {}) {
   }
   const houseSlots = [];
   {
-    const n = Math.max(groundedCitizens.length, 1);
     const start = gateBearing + 0.7;
     const span = Math.PI * 2 - 1.4; // leave the gate corridor open
-    // Derive the ring from the largest house rather than using a fixed radius:
-    // at 2x scale a villa is 32 units wide, and the old 34-52 ring put adjacent
-    // slots ~21 apart, so neighbours would interpenetrate. Tangential spacing
-    // at distance d is d * span/n, so solve that for "wider than the biggest
-    // house plus clearance". Clamped to stay inside the town (and therefore
-    // inside the levelled ground disc).
-    const maxHalf = Math.max(...groundedCitizens.map(
-      (c) => (ROLE_KITS[c.build ?? c.role] ?? ROLE_KITS.resident).half
-    ), 0) * C.HOUSE_SCALE;
-    const need = (2 * maxHalf + 8) / (span / n);
-    const ringMin = Math.max(C.HOUSE_RING_MIN, need);
-    const ringMax = Math.max(ringMin + 1, Math.min(ringMin * 1.5, radius - maxHalf - 8));
+    const CLEAR = 5; // gap between neighbouring footprints, surface units
+    const halves = groundedCitizens.map(
+      (c) => ((ROLE_KITS[c.build ?? c.role] ?? ROLE_KITS.resident).half) * C.HOUSE_SCALE
+    );
+    const maxHalf = Math.max(...halves, 0);
+    const sumHalf = halves.reduce((a, b) => a + b, 0);
+
+    // Houses are laid out by ACCUMULATED angular width, not by dividing the
+    // arc evenly. At 2x scale a footprint is up to 28 units across, and even
+    // spacing plus the old tower nudge let neighbours interpenetrate: the
+    // nudge pushed a house off the tower's bearing and straight into the house
+    // next door. Packing by width can't overlap by construction.
+    //
+    // House i needs angular width 2*(half_i + CLEAR/2)/d, so the ring has to
+    // satisfy (2*sum(half) + n*CLEAR)/d <= span. The tower now sits well
+    // inside the ring, so the nudge is gone — the clamp below keeps the ring
+    // outside the tower's balcony instead.
+    const towerClear = towerDist + (C.TOWER_HALF + 3.0 + 0.6) + maxHalf + 3;
+    const ringMin = Math.max(
+      C.HOUSE_RING_MIN,
+      (2 * sumHalf + halves.length * CLEAR) / span,
+      towerClear
+    );
+    // Stay inside the town, and therefore inside the levelled ground disc.
+    const ringMax = Math.max(ringMin + 1, Math.min(ringMin * 1.35, radius - maxHalf - 8));
     const ringSpread = ringMax - ringMin;
+    // Angles are solved at ringMin (the tightest ring); pushing a house
+    // outward from there only increases its distance from its neighbours.
+    const used = (2 * sumHalf + halves.length * CLEAR) / ringMin;
+    const slack = Math.max(0, span - used) / (halves.length + 1);
+
+    let a = start + slack;
     for (let i = 0; i < groundedCitizens.length; i++) {
-      let a = start + ((i + 0.5) / n) * span;
-      // nudge out of the tower's wedge
-      if (angDiff(a, towerBearing) < 0.5) a += (a > towerBearing ? 1 : -1) * (0.55 - angDiff(a, towerBearing));
-      a += (rng() - 0.5) * 0.12;
+      const w = (halves[i] + CLEAR / 2) / ringMin; // half-width in radians
+      a += w;
       let d = ringMin + rng() * ringSpread;
       let hx = Math.cos(a) * d, hz = Math.sin(a) * d;
-      // snap to dry ground: walk the bearing/distance a little if needed
+      // Snap to dry ground by stepping OUTWARD only — moving along the ring
+      // would eat into a neighbour's slot, but moving out cannot.
       for (let attempt = 0; attempt < 10 && isWetLocal(hx, hz); attempt++) {
-        a += 0.13 * (attempt % 2 === 0 ? 1 : -1) * (attempt + 1);
-        d = ringMin + ((attempt * 7) % ringSpread);
+        d = ringMin + ((attempt + 1) * 7) % Math.max(ringSpread, 1);
         hx = Math.cos(a) * d; hz = Math.sin(a) * d;
       }
       houseSlots.push({ x: hx, z: hz, citizen: groundedCitizens[i] });
+      a += w + slack;
     }
   }
 
@@ -815,15 +826,15 @@ export function createCity(planet, worldUp, opts = {}) {
     // U/V only, never Y: scaling height would lift furniture off the floor slab
     // and push the stage riser past STRUCT_STEP_UP, making it unclimbable.
     const boxUVFull = boxUV, rectFull = rect;
+    const K = kit.kind; // also read by the home manifest, below the block
     let anchor;
     {
-      const half = kit.half; // eslint-disable-line no-shadow
-      const H = C.ROOM_H / S; // eslint-disable-line no-shadow
-      const rect = (u0, u1, v0, v1) => rectFull(u0 * S, u1 * S, v0 * S, v1 * S); // eslint-disable-line no-shadow
-      const boxUV = (b, u0, u1, v0, v1, y0, y1, solid) => // eslint-disable-line no-shadow
+      const half = kit.half;
+      const H = C.ROOM_H / S;
+      const rect = (u0, u1, v0, v1) => rectFull(u0 * S, u1 * S, v0 * S, v1 * S);
+      const boxUV = (b, u0, u1, v0, v1, y0, y1, solid) =>
         boxUVFull(b, u0 * S, u1 * S, v0 * S, v1 * S, y0, y1, solid);
     anchor = { u: -half + 2.2, v: 0 };
-    const K = kit.kind;
     if (K === 'shop') {
       boxUV(furnGeos, -half + 1.0, -half + 1.8, -half + 1.2, half - 1.2, 0.3, 1.3); // counter
       boxUV(warmGeos, -half + 1.05, -half + 1.75, -half + 1.4, half - 1.4, 1.3, 1.38); // counter light

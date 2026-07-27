@@ -64,7 +64,7 @@ import {
   questStage,
   setQuestStage,
 } from './journal.js';
-import { grantItem, hasItem, ownedItems } from './inventory.js';
+import { grantItem, hasItem, ownedItems, selectedItem } from './inventory.js';
 import { buildVehicles } from '../world/vehicles.js';
 // Station-interior walk (Orbital Art Gallery). Same public surface, flat
 // station-local frame. Every export below dispatches there while a dock is
@@ -920,16 +920,25 @@ export function stepWalk(dt) {
   if (!walk.swimming) walk.diving = false;
   const diving = walk.diving;
 
-  // --- snowboard toggle (B): boardable worlds only. Consumed here, first —
-  // game.js zeroes any leftover press at the end of the frame, so a B typed
-  // in flight can never fire on a later landing. B mid-ride steps off
-  // anywhere; entering needs solid ground under the feet.
+  // --- equipment key (B): activate or stow whatever is selected in the
+  // equipment panel. Consumed here, first — game.js zeroes any leftover press
+  // at the end of the frame, so a B typed in flight can never fire on a later
+  // landing.
+  //
+  // Priority is deliberate, and preserves everything B used to do: anything
+  // deployed comes off first (B has always been the dismount), then a ride in
+  // progress ends, and only then does the selection deploy. With no selection
+  // B is exactly the old snowboard toggle, so the key means the same thing
+  // until the player picks something.
   if (input.toggleBoard) {
     input.toggleBoard = false;
+    const sel = selectedItem();
     if (walk.vehicle) {
-      walk.vehicle = null; // B also dismounts a quest vehicle
+      walk.vehicle = null; // stow the current mount
     } else if (walk.boarding) {
       walk.boarding = false;
+    } else if (sel && sel !== 'snowboard' && hasItem(sel)) {
+      deployVehicle(sel); // refuses on its own in story places and water
     } else if (planet.cfg.boardable && walk.grounded && !walk.swimming && !diving) {
       walk.boarding = true;
       walk.carve = 0;

@@ -55,6 +55,12 @@ const PLANET_COLORS = {
   shadowreach: '#cfcfd4', wyattmattoe: '#f4f8ff',
 };
 
+// Every record carries an explicit `kind` — 'planet' | 'star' | 'anomaly' |
+// 'nebula' | 'station'. The boolean flags below it stay because holonav.js
+// branches on them for marker geometry, but they can't classify on their own:
+// planets carry no flag AND neither does the black hole, so "no flag means
+// planet" quietly files an event horizon under planets. The cockpit's
+// destination menu groups on `kind`.
 function buildBodies() {
   bodies = [];
   for (const p of planets) {
@@ -66,20 +72,23 @@ function buildBodies() {
       radius: p.radius,
       logDist: p.radius * 4, // "fills the window" — a few radii out
       color: PLANET_COLORS[p.cfg.name] || '#a9f7ff',
+      kind: 'planet',
     });
   }
   bodies.push({
     id: 'sun', label: 'SUN', pos: sun.group.position, dot: 10,
     radius: C.SUN_RADIUS, logDist: C.SUN_RADIUS * 4, color: '#ffd75a', star: true,
+    kind: 'star',
   });
   bodies.push({
     id: 'blackhole', label: 'BLACK HOLE', pos: blackhole.group.position, dot: 6,
-    radius: C.BH_HORIZON, logDist: 5000, color: '#d4408f',
+    radius: C.BH_HORIZON, logDist: 5000, color: '#d4408f', kind: 'anomaly',
   });
   for (const n of deepNebulae) {
     bodies.push({
       id: `neb:${n.id}`, label: n.name.toUpperCase(), pos: n.group.position,
       dot: 9, radius: n.logDist * 0.25, logDist: n.logDist, nebula: true,
+      kind: 'nebula',
       // live getter: painting nebulae learn their color when the image decodes
       get color() { return n.navColor; },
     });
@@ -88,6 +97,7 @@ function buildBodies() {
     bodies.push({
       id: s.name, label: s.name.toUpperCase(), pos: s.group.position,
       dot: 3.5, radius: 400, logDist: s.logDist || 1600, color: '#82f7ff', station: true,
+      kind: 'station',
     });
   }
 }

@@ -25,7 +25,7 @@
 
 import * as THREE from 'three';
 import { groundHeight } from './terrain.js';
-import * as C from './constants.js';
+import { C } from './constants.js';
 import { CITIES } from '../world/cityRegistry.js';
 
 // How far past the flat core the ground eases back to natural terrain. Wide

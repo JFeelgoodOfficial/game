@@ -24,6 +24,7 @@ import { cockpitScene } from './cockpit.js';
 import { toggleRadioPopup } from './radioPopup.js';
 import { toggleGallery } from './capture.js';
 import { toggleHolo, isHoloOpen, holoPick } from './holonav.js';
+import { initNavMenu, setNavMenuOpen, isNavMenuOpen, navMenuPick } from './navmenu.js';
 
 const CYAN = 0x82f7ff,
   CYAN2 = 0xa9f7ff,
@@ -110,9 +111,11 @@ function buildConsole() {
   const face = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.7, 0.12), dark);
   face.position.set(0, 0.32, 0.18);
   g.add(face);
+  // Console trim runs at ~45% so it reads as lit edging rather than a bloom
+  // source — see the note on screenMat in makeButton.
   const lip = new THREE.Mesh(
     new THREE.BoxGeometry(3.4, 0.012, 0.02),
-    new THREE.MeshBasicMaterial({ color: CYAN })
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(CYAN).multiplyScalar(0.45) })
   );
   lip.position.set(0, 0.72, 0.02);
   g.add(lip);
@@ -144,25 +147,13 @@ function buildConsole() {
   g.add(disc);
   const ring = new THREE.Mesh(
     new THREE.TorusGeometry(0.4, 0.02, 12, 48),
-    new THREE.MeshBasicMaterial({ color: CYAN })
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(CYAN).multiplyScalar(0.45) })
   );
   ring.position.set(0, 0.78, -0.25);
   ring.rotation.x = Math.PI / 2;
   g.add(ring);
-  const cone = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.34, 0.04, 0.9, 40, 1, true),
-    new THREE.MeshBasicMaterial({
-      color: CYAN,
-      transparent: true,
-      opacity: 0.022,
-      side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    })
-  );
-  cone.position.set(0, 1.24, -0.25);
-  cone.rotation.x = Math.PI;
-  g.add(cone);
+  // The additive emitter cone that used to rise from the projector is gone —
+  // it was pure haze over the dash. The hologram it projects still glows.
 
   return g;
 }
@@ -268,18 +259,14 @@ function keycap(keyText, color) {
   g.arc(64, 64, 50, 0, Math.PI * 2);
   g.fillStyle = 'rgba(6,11,17,0.82)';
   g.fill();
-  // glowing colored border ring
+  // colored border ring — flat, no bloom halo baked into the texture
   g.lineWidth = 7;
   g.strokeStyle = col;
-  g.shadowColor = col;
-  g.shadowBlur = 16;
   g.beginPath();
   g.arc(64, 64, 50, 0, Math.PI * 2);
   g.stroke();
   // the key, bright and centered
-  g.shadowColor = '#bff6ff';
-  g.shadowBlur = 8;
-  g.fillStyle = '#e8fcff';
+  g.fillStyle = '#dff4f8';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.font = '700 ' + (keyText.length > 1 ? 46 : 66) + 'px "Courier New", ui-monospace, monospace';
@@ -299,7 +286,6 @@ function nameLabel(text, color, worldW) {
   c.width = 512;
   c.height = 120;
   const g = c.getContext('2d');
-  const col = '#' + color.toString(16).padStart(6, '0');
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   let fs = 96;
@@ -307,14 +293,14 @@ function nameLabel(text, color, worldW) {
     g.font = '700 ' + fs + 'px "Courier New", ui-monospace, monospace';
     fs -= 4;
   } while (g.measureText(text).width > 476 && fs > 34);
-  g.shadowColor = col;
-  g.shadowBlur = 14;
-  g.fillStyle = col;
+  // Flat fill, no glow: additive text at full color still clears the bloom
+  // threshold on its own, which is what made the labels smear on the dash.
+  g.fillStyle = '#' + new THREE.Color(color).multiplyScalar(0.72).getHexString();
   g.fillText(text, 256, 62);
   const tex = new THREE.CanvasTexture(c);
   tex.anisotropy = 4;
   const s = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, blending: THREE.AdditiveBlending })
+    new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false })
   );
   s.scale.set(worldW, (worldW * 120) / 512, 1);
   return s;
@@ -333,20 +319,22 @@ function makeButton(def) {
   const bevelMat = new THREE.MeshStandardMaterial({ color: 0x2a2f37, roughness: 0.5, metalness: 0.85 });
   const innerMat = new THREE.MeshStandardMaterial({ color: 0x090c11, roughness: 0.55, metalness: 0.5 });
   const plateMat = new THREE.MeshStandardMaterial({ color: 0x0c1016, roughness: 0.55, metalness: 0.5 });
-  // screenMat is the colored glow disc behind the keycap; the update loop
-  // pulses its opacity to "light up" the button (additive, so it blooms).
+  // screenMat is the lit surface behind the keycap; the update loop pulses its
+  // opacity to "light up" the button. Deliberately NOT additive and scaled well
+  // under C.BLOOM_THRESHOLD: the cockpit pass composites BEFORE the bloom pass,
+  // so anything bright here blooms and washes the dash out. The wheel is the
+  // only thing in this cockpit that still glows.
   const screenMat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(def.color).multiplyScalar(1.3),
+    color: new THREE.Color(def.color).multiplyScalar(0.55),
     transparent: true,
     opacity: 0.16,
-    blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
+  // A dim colored bezel behind the frame — what used to be the additive halo.
   const glowMat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(def.color).multiplyScalar(1.3),
+    color: new THREE.Color(def.color).multiplyScalar(0.22),
     transparent: true,
     opacity: 0.16,
-    blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
   const W = 0.3,
@@ -385,16 +373,16 @@ function makeButton(def) {
   // rectangle: a recessed plate with a thin colored border, holding the action
   // name — so it reads as a distinct labelled rectangle, not floating text.
   const labelY = def.key ? ry : 0;
-  const rectBorder = new THREE.Mesh(
-    new THREE.PlaneGeometry(W - 0.03, 0.12),
-    new THREE.MeshBasicMaterial({
-      color: def.color,
-      transparent: true,
-      opacity: 0.22,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    })
-  );
+  // Flat colored border, and the NAV-open indicator: the update loop brightens
+  // rectMat while the hologram is up, which used to be read off the additive
+  // halo.
+  const rectMat = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(def.color).multiplyScalar(0.5),
+    transparent: true,
+    opacity: 0.3,
+    depthWrite: false,
+  });
+  const rectBorder = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.03, 0.12), rectMat);
   rectBorder.position.set(0, labelY, 0.028);
   g.add(rectBorder);
   const plate = new THREE.Mesh(new THREE.BoxGeometry(W - 0.05, 0.1, 0.02), plateMat);
@@ -414,7 +402,7 @@ function makeButton(def) {
   hit.userData.hit = true;
   g.add(hit);
 
-  g.userData = { def, screenMat, glowMat, baseZ: g.position.z, _flash: 0 };
+  g.userData = { def, screenMat, glowMat, rectMat, baseZ: g.position.z, _flash: 0 };
   return g;
 }
 
@@ -513,6 +501,13 @@ function beginAt(id, cx, cy, type) {
   // hologram first when open: a hit (body or ENGAGE) consumes the pointer; a
   // miss deselects and falls through so the dash stays usable.
   if (isHoloOpen() && holoPick(raycaster)) {
+    lastConsumed = true;
+    return true;
+  }
+
+  // destination menu: sits above the NAV button, so it must win over the wheel
+  // (whose screen-space bounds reach up into the same area).
+  if (isNavMenuOpen() && navMenuPick(raycaster)) {
     lastConsumed = true;
     return true;
   }
@@ -625,13 +620,15 @@ export function initCockpit3d(domElement) {
   cockpitShell.add(buildConsole());
   cockpitShell.add(buildWheel());
   buildButtons();
+  initNavMenu(cockpitShell);
 
   // lights travel with the rig (children of the shell, in prototype space)
   cockpitRig.add(new THREE.AmbientLight(0x35506a, 1.6));
   const key = new THREE.PointLight(0xffe8d0, 5, 14, 2);
   key.position.set(0.6, 1.9, 1.4);
   cockpitShell.add(key);
-  const rim = new THREE.PointLight(CYAN, 6, 10, 2);
+  // Dimmed from 6: this was the cyan wash over the whole cabin.
+  const rim = new THREE.PointLight(CYAN, 2, 10, 2);
   rim.position.set(-1.2, 1.2, 0.2);
   cockpitShell.add(rim);
   holoGlow = new THREE.PointLight(CYAN, 0.4, 4, 2);
@@ -681,6 +678,8 @@ export function updateCockpit3d(ship, delta, phase) {
   stick.rotation.x = -0.6 + clamp(sPitch * 1.5, 0.25);
   coreLight.intensity = 0.8 + Math.sin(elapsed * 3) * 0.25 + (input.warp ? 1 : 0) * 1.4;
   holoGlow.intensity = (isHoloOpen() ? 4 : 0.4) + Math.sin(elapsed * 4) * 0.5;
+  // The destination menu rides the hologram: NAV (button or N) raises both.
+  setNavMenuOpen(isHoloOpen());
 
   // button lit state: held buttons track their input flag, NAV tracks the
   // hologram, everything else only flashes on press
@@ -697,6 +696,7 @@ export function updateCockpit3d(ship, delta, phase) {
     }
     u.screenMat.opacity += (0.14 + active * 0.72 - u.screenMat.opacity) * Math.min(dt * 8, 1);
     u.glowMat.opacity += (0.16 + active * 0.7 - u.glowMat.opacity) * Math.min(dt * 8, 1);
+    u.rectMat.opacity += (0.3 + active * 0.45 - u.rectMat.opacity) * Math.min(dt * 8, 1);
     b.position.z += (u.baseZ - active * 0.016 - b.position.z) * Math.min(dt * 10, 1);
   }
 }
