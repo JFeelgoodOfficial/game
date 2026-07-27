@@ -44,6 +44,18 @@ export const C = {
   COCKPIT_FULL_Y: 0.06, // rise over the wheel at full-window zoom
   COCKPIT_FULL_Z: -1.25, // forward push past the console at full-window zoom
   WHEEL_DRAG_GAIN: 2.0, // touch-drag on the wheel -> mouse-equivalent steer travel
+  // Held touch on the wheel steers by OFFSET, not by movement: a parked finger
+  // emits no touchmove, so a delta-only wheel died against ANGULAR_DAMPING in
+  // about a fifth of a second. Hold it off-center now and the turn holds.
+  WHEEL_HOLD_SPAN: 0.22, // fraction of the min viewport dim = full deflection
+  WHEEL_HOLD_RATE: 3000, // px/s of mouse-equivalent steer travel at full deflection
+  WHEEL_HOLD_DEADZONE: 0.08,
+
+  // --- on-foot touch sticks (touchControls.js) ---
+  TOUCH_STICK_SPAN: 52, // px from the grab point to full stick deflection
+  TOUCH_LOOK_RATE: 900, // px/s of mouse-equivalent look travel at full deflection
+  TOUCH_RUN_THRESHOLD: 0.85, // stick magnitude past which the walker runs
+  TOUCH_STICK_DEADZONE: 0.15,
 
   // --- warp (user mechanic): hold F for thrust x100, release to stop dead ---
   WARP_SPEED: 10000.0, // units/sec at full warp (~Saturn in a few seconds)

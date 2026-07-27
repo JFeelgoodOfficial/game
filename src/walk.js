@@ -17,7 +17,7 @@
 
 import * as THREE from 'three';
 import { C } from './constants.js';
-import { input } from './input.js';
+import { input, moveAxes } from './input.js';
 import { ship } from './ship.js';
 import { planets, SUN, setPlanetSpinFrozen } from './planet.js';
 import { Astronaut } from './astronaut.js';
@@ -1007,8 +1007,10 @@ export function stepWalk(dt) {
 
   // --- planar movement: velocity approaches the wish direction ---
   _right.crossVectors(walk.heading, _up).normalize();
-  const fwd = (input.forward ? 1 : 0) - (input.reverse ? 1 : 0);
-  const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+  const axes = moveAxes(); // WASD, or the analog touch stick when it's pushed
+  const fwd = axes.fwd;
+  const strafe = axes.strafe;
+  const moveMag = axes.mag; // scales speed, so a half-pushed stick walks
   const moto = !walk.boarding && walk.vehicle === 'motorcycle';
   const gliding = walk.vehicle === 'hangglider' && !walk.grounded && !walk.swimming;
   const flying = walk.vehicle === 'plane' && !walk.swimming;
@@ -1139,7 +1141,10 @@ export function stepWalk(dt) {
       _wish.addScaledVector(_right, strafe);
       if (input.brake) _wish.addScaledVector(_up, 0.7);
       const diveSpeed = C.WALK_DIVE_SPEED * (input.sprint ? 1.6 : 1);
-      if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(diveSpeed);
+      // moveMag scales the stick-driven part only. Space floats you up with no
+      // direction held at all, so scaling by a zero stick would kill the rise.
+      const diveMag = Math.max(moveMag, input.brake ? 1 : 0);
+      if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(diveSpeed * diveMag);
     } else {
       _wish.addScaledVector(walk.heading, fwd);
       _wish.addScaledVector(_right, strafe);
@@ -1150,7 +1155,7 @@ export function stepWalk(dt) {
           : input.sprint
             ? C.WALK_RUN_SPEED
             : C.WALK_SPEED;
-      if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(targetSpeed);
+      if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(targetSpeed * moveMag);
     }
 
     // Keep the persistent velocity in the current tangent plane (the plane

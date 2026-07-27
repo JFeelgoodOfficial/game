@@ -514,9 +514,11 @@ function beginAt(id, cx, cy, type) {
     return true;
   }
 
-  // steering wheel: grab and drag to fly
+  // steering wheel: grab and drag to fly. `ox/oy` is the grab point, kept so a
+  // held finger can steer by offset (see updateCockpit3d); mouse still steers
+  // by delta off `x/y`.
   if (raycaster.intersectObject(stick, true).length) {
-    wheelDrag = { id, x: cx, y: cy };
+    wheelDrag = { id, x: cx, y: cy, ox: cx, oy: cy, touch: type === 'touch' };
     lastConsumed = true;
     return true;
   }
@@ -538,16 +540,23 @@ function beginAt(id, cx, cy, type) {
 }
 
 function moveAt(id, cx, cy) {
-  if (wheelDrag && id === wheelDrag.id) {
-    const dx = cx - wheelDrag.x;
-    const dy = cy - wheelDrag.y;
-    input.mouseX += dx * settings.sensitivity * C.WHEEL_DRAG_GAIN;
-    input.mouseY += dy * settings.sensitivity * (settings.invertY ? -1 : 1) * C.WHEEL_DRAG_GAIN;
+  if (!wheelDrag || id !== wheelDrag.id) return false;
+  // Touch only records where the finger IS — updateCockpit3d turns the offset
+  // from the grab point into a continuous steer rate, so holding the wheel over
+  // keeps the turn going. A mouse has no such problem (it emits a move for every
+  // pixel), so it keeps the delta feel it has always had.
+  if (wheelDrag.touch) {
     wheelDrag.x = cx;
     wheelDrag.y = cy;
     return true;
   }
-  return false;
+  const dx = cx - wheelDrag.x;
+  const dy = cy - wheelDrag.y;
+  input.mouseX += dx * settings.sensitivity * C.WHEEL_DRAG_GAIN;
+  input.mouseY += dy * settings.sensitivity * (settings.invertY ? -1 : 1) * C.WHEEL_DRAG_GAIN;
+  wheelDrag.x = cx;
+  wheelDrag.y = cy;
+  return true;
 }
 
 function endAt(id) {
@@ -667,6 +676,28 @@ export function updateCockpit3d(ship, delta, phase) {
 
   cockpitRig.position.copy(ship.position);
   cockpitRig.quaternion.copy(ship.quaternion);
+
+  // A parked finger emits no touchmove, so a delta-only wheel felt sticky: the
+  // turn died against ANGULAR_DAMPING in about a fifth of a second and the wheel
+  // sprang back to center while you were still holding it. Re-apply the offset
+  // from the grab point every frame instead — hold the wheel over and the ship
+  // keeps turning, at a rate set by how far over you are holding it.
+  if (wheelDrag && wheelDrag.touch) {
+    if (curPhase !== 'fly') {
+      wheelDrag = null; // a drag can't survive a landing
+    } else {
+      const r = dom.getBoundingClientRect();
+      const span = Math.min(r.width, r.height) * C.WHEEL_HOLD_SPAN;
+      const axis = (px) => {
+        const u = Math.max(-1, Math.min(1, px / span));
+        return Math.abs(u) < C.WHEEL_HOLD_DEADZONE ? 0 : u;
+      };
+      const rate = C.WHEEL_HOLD_RATE * dt * settings.sensitivity;
+      input.mouseX += axis(wheelDrag.x - wheelDrag.ox) * rate;
+      input.mouseY +=
+        axis(wheelDrag.y - wheelDrag.oy) * rate * (settings.invertY ? -1 : 1);
+    }
+  }
 
   // wheel mirrors the ship's actual turn: rotate with yaw+roll, rock with
   // pitch (same smoothing the old yoke used)

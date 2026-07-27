@@ -42,6 +42,12 @@ const CSS = `
     max-width: calc(100vw - 32px); box-sizing: border-box;
   }
 }
+/* Touch has no keys to press, and this panel sits exactly where the movement
+   stick goes. Fingers get the sticks instead (touchControls.js) — same reason
+   the pointer-lock #hint hides on coarse pointers (index.html). */
+@media (pointer: coarse) {
+  #walkHint { display: none; }
+}
 `;
 
 const WALK_LINES = [
