@@ -31,6 +31,11 @@ const CSS = `
   color: #ff9a5a; letter-spacing: 0.3em; margin-top: 2px;
   text-shadow: 0 0 8px rgba(255,154,90,0.6);
 }
+#walkHint .wh-obj {
+  color: #ff8fd0; letter-spacing: 0.3em; margin-top: 6px;
+  padding-top: 6px; border-top: 1px solid rgba(212,64,143,0.35);
+  text-shadow: 0 0 8px rgba(212,64,143,0.7);
+}
 @media (max-width: 640px) {
   #walkHint {
     font-size: 10px; letter-spacing: 0.1em;
@@ -48,8 +53,9 @@ const WALK_LINES = [
   'P — PHOTO · R — RECORD (PICS)',
 ];
 
-let walkHint, gravLine, boardLine;
+let walkHint, gravLine, boardLine, objLine;
 let lastWalkOn = null;
+let lastObjective = null;
 
 export function initControls() {
   const style = document.createElement('style');
@@ -77,7 +83,22 @@ export function initControls() {
   boardLine.textContent = 'SNOWBOARD RIDES HERE';
   boardLine.style.display = 'none';
   walkHint.appendChild(boardLine);
+  objLine = document.createElement('div');
+  objLine.className = 'wh-obj';
+  objLine.style.display = 'none';
+  walkHint.appendChild(objLine);
   document.body.appendChild(walkHint);
+}
+
+// The one thing an accepted quest wants from you, kept on screen for as long as
+// it is true. Everything else about a quest is a toast that fades in four
+// seconds, which left the player with no record of what they had taken on.
+// Called every frame; touches the DOM only when the text actually changes.
+export function setObjective(text) {
+  if (text === lastObjective) return;
+  lastObjective = text;
+  objLine.style.display = text ? '' : 'none';
+  if (text) objLine.textContent = text;
 }
 
 export function updateControls(phase) {

@@ -82,17 +82,20 @@ export function stepShip(dt, piloted = true) {
     // --- thrust along local forward (GDD 3.1) ---
     // W/S belong to the walk controller while unpiloted.
     const throttle = piloted ? (input.forward ? 1 : 0) - (input.reverse ? 1 : 0) : 0;
-    const thrustMag = C.THRUST * (input.boost ? C.BOOST_MULTIPLIER : 1);
+    // W IS the boost (owner's call — there is no separate boost key any more).
+    // Reverse stays on base thrust: S is for backing off, not for going fast.
+    const boosting = piloted && input.forward;
+    const thrustMag = C.THRUST * (boosting ? C.BOOST_MULTIPLIER : 1);
     if (throttle !== 0) {
       _fwd.set(0, 0, -1).applyQuaternion(ship.quaternion);
       _thrust.copy(_fwd).multiplyScalar(throttle * thrustMag);
       // Soft speed cap (GDD 3.2): above the cap, thrust that would increase
       // speed fades smoothly to zero by 1.5× the cap. Decelerating thrust
-      // keeps full authority — the engine tops out, it doesn't wall. Boost
+      // keeps full authority — the engine tops out, it doesn't wall. Holding W
       // doubles the cap too, so "twice as fast" holds for top speed, not
-      // just acceleration; dropping boost doesn't brake you, the falloff
+      // just acceleration; releasing W doesn't brake you, the falloff
       // just stops adding speed while you coast back down.
-      const cap = C.SOFT_CAP_SPEED * (input.boost ? 2 : 1);
+      const cap = C.SOFT_CAP_SPEED * (boosting ? 2 : 1);
       const speed = ship.velocity.length();
       if (speed > cap && _thrust.dot(ship.velocity) > 0) {
         const t = Math.min((speed - cap) / (cap * 0.5), 1);

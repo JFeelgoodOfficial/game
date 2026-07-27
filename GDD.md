@@ -154,9 +154,9 @@ Real G at real masses produces float32 problems and timescales in hours. Use a s
 | Input | Action |
 |---|---|
 | Mouse | Pitch and yaw torque |
-| W / S | Thrust forward / reverse |
+| W | Thrust forward — full power. W *is* the boost; there is no separate boost key |
+| S | Thrust reverse (base power) |
 | Q / E | Roll |
-| Shift | Boost |
 | Space | Counter-thrust (kill velocity, held) |
 
 Pointer lock on click. No menus.
@@ -168,7 +168,7 @@ ANGULAR_DAMPING   = 0.94    // per frame, at 60hz
 LINEAR_DAMPING    = 1.0     // exactly 1.0. no drag in vacuum.
 TORQUE_SCALE      = 0.0008
 THRUST            = 12.0
-BOOST_MULTIPLIER  = 3.5
+BOOST_MULTIPLIER  = 7.0     // applied whenever W is held (see 3.3)
 CAMERA_LAG        = 0.12    // slerp factor, camera toward ship rotation
 CAMERA_DRIFT      = 0.03    // positional offset under acceleration
 G                 = 400.0   // scaled, not real. tune for play.

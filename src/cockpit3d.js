@@ -237,7 +237,6 @@ function buildWheel() {
 function keyGlyph(key) {
   if (!key) return '';
   switch (key) {
-    case 'SHIFT': return '⇧';
     case 'SPACE': return '␣';
     case ', .': return '♪';
     default: return key;
@@ -407,13 +406,16 @@ function makeButton(def) {
 }
 
 function buildButtons() {
-  // Top row: WARP/BOOST on the left, STAND/CAMERA on the right, centre kept
-  // clear for the wheel. CAMERA is keyless (it opens the camera pop-up, where
-  // P photographs and R records) so it shows no key circle. BRAKE/LAND/NAV have
+  // Top row: WARP on the left, STAND/CAMERA on the right, centre kept clear for
+  // the wheel. CAMERA is keyless (it opens the camera pop-up, where P
+  // photographs and R records) so it shows no key circle. BRAKE/LAND/NAV have
   // moved down to the right console cluster (where SHIELDS used to be).
+  // BOOST is gone (W is the boost now, and thrust needs no button), so WARP
+  // slides into its inner slot at -0.87 and mirrors STAND at +0.87 — the empty
+  // space falls at the outer edge where the dash curves away, not beside the
+  // wheel where a hole would read as a missing button.
   const main = [
-    { name: 'WARP', key: 'F', color: 0x82f7ff, mode: 'hold', flag: 'warp', x: -1.3 },
-    { name: 'BOOST', key: 'SHIFT', color: 0xff6a4a, mode: 'hold', flag: 'boost', x: -0.87 },
+    { name: 'WARP', key: 'F', color: 0x82f7ff, mode: 'hold', flag: 'warp', x: -0.87 },
     { name: 'STAND', key: 'C', color: 0xcfe6ff, mode: 'edge', flag: 'toggleInterior', code: 'KeyC', x: 0.87 },
     { name: 'CAMERA', key: '', color: 0xffc9ec, mode: 'fn', fn: toggleGallery, x: 1.3 },
   ];

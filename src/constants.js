@@ -10,7 +10,10 @@ export const C = {
   LINEAR_DAMPING: 1.0, // exactly 1.0. no drag in vacuum.
   TORQUE_SCALE: 0.0008, // rad/s of angular velocity per pixel of mouse travel
   THRUST: 12.0, // units/s^2 along local forward
-  BOOST_MULTIPLIER: 7.0, // doubled at the user's request — boost is twice as fast
+  BOOST_MULTIPLIER: 7.0, // thrust multiplier while W is held. W IS the boost —
+                         // there is no separate boost key, so this is simply
+                         // what the forward engine is worth. S reverses at the
+                         // base THRUST above.
   CAMERA_LAG: 0.12, // slerp factor, camera toward ship rotation
   CAMERA_DRIFT: 0.03, // positional offset under acceleration
   G: 35.0, // scaled, not real. tune for play. Lowered from an initial 400:
@@ -30,19 +33,19 @@ export const C = {
   FOV: 70,
   LOOK_UP_ANGLE: 1.15, // rad (~66°): head pitch at full hold-V overhead glance
   LOOK_UP_EASE: 0.1, // per-frame ease toward/away from the look-up pose
-  BOOST_FOV: 13.0, // extra FOV on boost: widens to reveal the cockpit while first-person
+  BOOST_FOV: 13.0, // extra FOV under thrust (W/S): widens to reveal the cockpit while first-person
 
   // --- 3D cockpit (cockpit3d.js) + its camera zoom states (camera.js) ---
-  // The camera leans forward in the seat by these ship-local offsets: a small
-  // nudge on W (dashboard stays visible), a full push past the console on
-  // boost/warp (full-window view). World units.
+  // The camera leans forward in the seat by these ship-local offsets: a full
+  // push past the console under thrust or warp (full-window view). World units.
+  // The old half-way "nudge on W, dashboard stays visible" state is gone — W is
+  // the boost now, so thrusting at all goes straight to the full-window view.
   COCKPIT_SCALE: 0.5, // rig scale from prototype units to world units
-  COCKPIT_FWD_Z: -0.14, // forward lean while holding W
   COCKPIT_FULL_Y: 0.06, // rise over the wheel at full-window zoom
   COCKPIT_FULL_Z: -1.25, // forward push past the console at full-window zoom
   WHEEL_DRAG_GAIN: 2.0, // touch-drag on the wheel -> mouse-equivalent steer travel
 
-  // --- warp (user mechanic): hold F for boost x100, release to stop dead ---
+  // --- warp (user mechanic): hold F for thrust x100, release to stop dead ---
   WARP_SPEED: 10000.0, // units/sec at full warp (~Saturn in a few seconds)
   WARP_RAMP: 0.08, // per-tick slew toward warp speed
   WARP_FOV: 26.0, // extra FOV at warp — the speed rush / star streaks
@@ -139,7 +142,7 @@ export const C = {
   // G again to board and fly off. Kinematic walker: feet snap to the terrain
   // height terrain.js reports (the same field the surface shader displaces),
   // so you stand on the relief you saw from orbit. Speeds are human-scale
-  // (the astronaut is ~1.9 units tall), tuned from the world/ demo.
+  // (the astronaut is ~1.8 units tall), tuned from the world/ demo.
   WALK_SPEED: 8.0, // on-foot ground speed, units/sec
   WALK_RUN_SPEED: 16.0, // sprint speed while Shift is held
   WALK_WADE_SPEED: 5.0, // in knee-deep water
@@ -147,7 +150,11 @@ export const C = {
   WALK_ACCEL_GROUND: 42.0, // exponential approach rate toward target velocity
   WALK_ACCEL_AIR: 9.0, // ... while airborne
   WALK_ACCEL_SWIM: 10.0, // ... while swimming
-  WALK_EYE_HEIGHT: 2.0, // first-person camera height above the walker's feet
+  WALK_EYE_HEIGHT: 1.72, // first-person camera height above the walker's feet.
+                         // The astronaut's own eye line: the helmet tops out at
+                         // ~1.8 (src/astronaut.js), so the old 2.0 floated the
+                         // view above the player's own head and made everyone
+                         // else in the world look short. Matches WALK_TP_EYE.
   WALK_LAND_ALTITUDE: 120.0, // max altitude above the local floor to allow disembark
   WALK_LAND_SPEED: 60.0, // max ship speed (units/sec) to allow disembark
   WALK_JUMP: 10.0, // upward speed of a jump (Space), units/sec
@@ -257,6 +264,31 @@ export const C = {
   PLANE_STALL_SPEED: 10.0, // below this the nose drops whatever you do
   PLANE_TURN: 1.2, // rad/s bank steering
   PLANE_CEILING: 170.0, // max height above local ground — it's no spaceship
+
+  // --- quest waypoint beacon (src/walk.js spawnBeacon) ---
+  // The governor's wonder tour points you at wonders 340-850 surface units from
+  // town. The old 30-unit column could not work at that range for a reason that
+  // is not brightness: on a ~900-unit planet, with the eye at WALK_EYE_HEIGHT,
+  // mutual visibility over the curve needs
+  //   sqrt(2*R*eye) + sqrt(2*R*h) >= dist
+  // so reaching the far wonder at 850 takes h >= ~346. A 30-unit column was
+  // literally BELOW THE HORIZON from the plaza. Hence a shaft, not a post.
+  BEACON_HEIGHT: 400.0, // clears the horizon from anywhere in town, with margin
+  BEACON_BASE_R: 8.0, // shaft radius at the ground. Sized off what you actually
+                      // SEE from town: the base is behind the rooftops, so the
+                      // read comes from the upper shaft, and the taper below is
+                      // what has to stay wide enough to be a line and not a
+                      // hairline at 850 u (~6 px, vs ~2 px at the first guess).
+  BEACON_TOP_R: 4.0, // ... tapering as it climbs
+  BEACON_OPACITY: 0.62, // translucent enough to see the wonder through it
+  BEACON_PULSE: 0.18, // +/- opacity swing of the slow pulse
+  BEACON_PULSE_RATE: 3.0, // rad/sec
+  BEACON_RING_R: 6.0, // ground ring at the base — the "stand here" mark you
+                      // need at close range, when the shaft is overhead
+  BEACON_TOUR_REACH: 48.0, // wonders carry solid central colliders (the Diamond
+                           // Veil's pool is ~43 u), so "standing under it"
+                           // has to complete from the plaza edge, not the centre
+  BEACON_RETURN_REACH: 6.0, // the tower door is a door
 
   // --- on-foot third-person camera ---
   WALK_CAM_DIST: 7.6, // default orbit distance behind the astronaut

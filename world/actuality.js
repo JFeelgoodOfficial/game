@@ -16,7 +16,7 @@
  * (anchor, initAudio, consumeTeleport, onOutcome, preRender, debug).
  *
  * Coordinate assumptions (same as wavemallprime.js / the engine):
- * - Meters. Astronaut 1.9 tall, eye 2.0. Content lives in planet.surface's
+ * - Meters. Astronaut ~1.8 tall, eye 1.72. Content lives in planet.surface's
  *   UNROTATED local frame so planet spin + floating-origin rebasing carry it.
  * - Local Y is radial up; quaternion.setFromUnitVectors(yAxis, dir) orients a
  *   tangent frame, then a yaw about Y faces it.

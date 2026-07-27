@@ -222,7 +222,7 @@ export function showMenu(mode, reason) {
     if (sub2) sub2.textContent = '';
     button.textContent = 'FLY AGAIN';
   } else {
-    sub.textContent = 'W/S THRUST · MOUSE STEER · SHIFT BOOST · F/J WARP · SPACE BRAKE · N NAV MAP · , . RADIO';
+    sub.textContent = 'W THRUST · S REVERSE · MOUSE STEER · F/J WARP · SPACE BRAKE · N NAV MAP · , . RADIO';
     sub.className = 'sub';
     if (sub2) sub2.textContent = 'C — WALK SHIP · G — LAND & WALK · BACKSPACE — PAUSE';
     button.textContent = 'LAUNCH';

@@ -30,11 +30,10 @@ const _drift = new THREE.Vector3();
 const _zoom = new THREE.Vector3();
 
 // The camera leans forward in the seat as the ship accelerates, so the
-// dashboard drops out of view and the window fills the frame. Two eased
-// blends: a small forward nudge while holding W (buttons stay visible), and a
-// full push past the console on boost/warp. Both smoothed so they ease rather
-// than snap.
-let fwdBlend = 0;
+// dashboard drops out of view and the window fills the frame. W is now the
+// boost itself (there is no separate boost key), so thrusting at all gives the
+// full push past the console — the intermediate "nudge, buttons still visible"
+// state no longer exists. Eased so it never snaps.
 let boostBlend = 0;
 // Glance up at the overhead window (hold V), eased so the head turns
 // rather than snaps.
@@ -48,13 +47,10 @@ export function dashBlend() {
 }
 
 export function updateCamera(ship) {
-  const full = input.warp || (input.boost && (input.forward || input.reverse)) ? 1 : 0;
+  const full = input.warp || input.forward || input.reverse ? 1 : 0;
   boostBlend += (full - boostBlend) * 0.06;
-  // forward nudge only when it isn't already going full-window
-  const fwdTarget = input.forward && !full ? 1 : 0;
-  fwdBlend += (fwdTarget - fwdBlend) * 0.06;
 
-  // warp gets a bigger FOV kick than boost — the speed rush
+  // warp gets a bigger FOV kick than thrust — the speed rush
   const fovKick = input.warp ? C.WARP_FOV : C.BOOST_FOV;
   camera.fov = C.FOV + boostBlend * fovKick;
   camera.updateProjectionMatrix();
@@ -70,22 +66,17 @@ export function updateCamera(ship) {
   camera.quaternion.copy(_lagQuat).multiply(_lookQ);
 
   // Positional drift under acceleration (the burn you feel as the seat pushes
-  // back), smoothed with the same lag factor. Cut the instant a boost/warp
-  // burn begins — otherwise the backward burn (huge under boost) fights the
-  // forward zoom and reveals more cabin exactly when the window should fill
-  // the frame. Under plain thrust it's only trimmed, keeping the felt burn.
-  const driftLean = full ? 1 : input.forward || input.reverse ? 0.6 : 0;
+  // back), smoothed with the same lag factor. Cut the instant a burn begins —
+  // otherwise the backward burn (huge at full thrust) fights the forward zoom
+  // and reveals more cabin exactly when the window should fill the frame.
+  const driftLean = full ? 1 : 0;
   _driftTarget.copy(ship.properAccel).multiplyScalar(-C.CAMERA_DRIFT * (1 - driftLean));
   const m = _driftTarget.length();
   if (m > MAX_DRIFT) _driftTarget.multiplyScalar(MAX_DRIFT / m);
   _drift.lerp(_driftTarget, C.CAMERA_LAG);
 
   // Lean-forward zoom, in ship-local space (rises over the wheel at full).
-  _zoom.set(
-    0,
-    boostBlend * C.COCKPIT_FULL_Y,
-    fwdBlend * (1 - boostBlend) * C.COCKPIT_FWD_Z + boostBlend * C.COCKPIT_FULL_Z
-  );
+  _zoom.set(0, boostBlend * C.COCKPIT_FULL_Y, boostBlend * C.COCKPIT_FULL_Z);
   _zoom.applyQuaternion(ship.quaternion);
 
   camera.position.copy(ship.position).add(_drift).add(_zoom);

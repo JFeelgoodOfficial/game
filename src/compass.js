@@ -1,7 +1,10 @@
 // On-foot compass (user mechanic): a small dial pinned top-center while
-// walking a planet, its arrow always pointing at the parked ship relative to
-// where you're looking, with the straight-line distance underneath. Fed by
-// walk.js shipBearing() from main.js each frame; hidden in every other mode.
+// walking a planet, its arrow pointing at whatever you're currently headed for
+// relative to where you're looking, with the straight-line distance underneath.
+// Fed by walk.js walkBearing() from game.js each frame; hidden in every other
+// mode. The target is the live quest beacon when there is one and the parked
+// ship otherwise — the caption says which, and turns accent-coloured for a
+// quest so the two never read the same.
 
 const CSS = `
 #compass {
@@ -27,14 +30,23 @@ const CSS = `
   transform-origin: 50% 68%;
 }
 #compass .c-dist {
-  font-size: 11px; letter-spacing: 0.3em;
+  font-size: 11px; letter-spacing: 0.3em; white-space: nowrap;
   color: #7ad7e0; text-shadow: 0 0 8px rgba(130,247,255,0.6);
+}
+#compass.quest .c-arrow {
+  border-bottom-color: #ff8fd0;
+  filter: drop-shadow(0 0 6px rgba(212,64,143,0.9));
+}
+#compass.quest .c-dist {
+  color: #ff8fd0; text-shadow: 0 0 8px rgba(212,64,143,0.7);
 }
 `;
 
 let root, arrow, dist;
 let lastShown = null; // visibility cache — avoid per-frame class churn
 let lastDist = -1;
+let lastLabel = null;
+let lastQuest = null;
 
 export function initCompass() {
   const style = document.createElement('style');
@@ -60,7 +72,8 @@ export function initCompass() {
   document.body.appendChild(root);
 }
 
-// info: {angle (rad, 0 = ahead, + = right), dist} from walk.js, or null to hide.
+// info: {angle (rad, 0 = ahead, + = right), dist, label} from walk.js, or null
+// to hide. A label other than SHIP means a quest target, which tints the dial.
 export function updateCompass(info) {
   const show = !!info;
   if (show !== lastShown) {
@@ -69,9 +82,16 @@ export function updateCompass(info) {
   }
   if (!show) return;
   arrow.style.transform = `rotate(${((info.angle * 180) / Math.PI).toFixed(1)}deg)`;
+  const label = info.label ?? 'SHIP';
+  const quest = label !== 'SHIP';
+  if (quest !== lastQuest) {
+    root.classList.toggle('quest', quest);
+    lastQuest = quest;
+  }
   const d = Math.round(info.dist);
-  if (d !== lastDist) {
+  if (d !== lastDist || label !== lastLabel) {
     lastDist = d;
-    dist.textContent = `SHIP · ${d}m`;
+    lastLabel = label;
+    dist.textContent = `${label} · ${d}m`;
   }
 }

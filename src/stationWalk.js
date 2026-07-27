@@ -492,7 +492,7 @@ export function stepStationWalk(dt) {
     0,
     cosY * fwd + sinY * strafe
   );
-  const targetSpeed = input.boost ? C.WALK_RUN_SPEED : C.WALK_SPEED;
+  const targetSpeed = input.sprint ? C.WALK_RUN_SPEED : C.WALK_SPEED;
   if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(targetSpeed);
 
   const accel = sWalk.grounded ? C.WALK_ACCEL_GROUND : C.WALK_ACCEL_AIR;

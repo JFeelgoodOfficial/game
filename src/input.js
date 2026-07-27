@@ -14,9 +14,11 @@ export const input = {
   rollRight: false, // E
   left: false, // A — strafe left, walk modes only (planet on-foot + ship interior; unused in flight)
   right: false, // D — strafe right, walk modes only (planet on-foot + ship interior; unused in flight)
-  boost: false, // Shift
+  sprint: false, // Shift — run on foot only. Flight has no separate boost key:
+                 // W is full thrust (see ship.js), so nothing in the cockpit
+                 // reads this.
   brake: false, // Space — counter-thrust in flight; jump on foot
-  warp: false, // F (or the on-screen WARP button) — boost x100, stops dead on release
+  warp: false, // F (or the on-screen WARP button) — thrust x100, stops dead on release
   lookUp: false, // V, held — glance up through the overhead window
   toggleWalk: false, // G edge-trigger: disembark onto a planet / board. main.js reads and zeroes it.
   toggleInterior: false, // C edge-trigger: stand up in the ship / sit back down. main.js reads and zeroes it.
@@ -80,7 +82,7 @@ function setKey(e, down) {
     case 'KeyA': input.left = down; break;
     case 'KeyD': input.right = down; break;
     case 'ShiftLeft':
-    case 'ShiftRight': input.boost = down; break;
+    case 'ShiftRight': input.sprint = down; break;
     case 'Space': input.brake = down; e.preventDefault(); break;
     case 'KeyF':
     case 'KeyJ': input.warp = down; break;

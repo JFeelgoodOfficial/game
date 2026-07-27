@@ -147,11 +147,11 @@ let citizens = null; // the town's residents — real people (world/citizens.js)
 let wonders = null; // the city's wonders, one module each (world/wonders.js)
 let wonderColliders = null; // surface-local {position,radius,height} cylinders (all wonders, flat)
 let wonderSpots = null; // per-wonder CITY-LOCAL positions — the governor's tour beacons
+let wonderUps = null; // ... and the local surface up at each, also city-local.
+// A wonder 850 u out sits ~370 u below the city's flat tangent plane and its up
+// is ~54 deg off the city's, so a beacon that just used the city's +Y leaned
+// over and drove itself into the ground. Reach radii live in constants.js.
 let tourReach = 0; // >0: the active beacon is a governor-tour stop with this reach
-// radius. Wonders carry solid central colliders (the Veil's pool is ~43 u),
-// so "standing under it" completes from the plaza's edge, not its center.
-const TOUR_WONDER_REACH = 48;
-const TOUR_RETURN_REACH = 6;
 let creatures = null; // planet wildlife (world/creatures.js)
 let diamondRain = null; // walker-local diamond-rain volume (cfg.diamondRain)
 let marineSnow = null; // diver-local particulate volume (cfg.divable)
@@ -183,6 +183,29 @@ let talkModule = null;
 let beacon = null; // waypoint marker mesh, parented in its source module's frame
 let beaconParent = null;
 let beaconGeo = null; // shared, built on first use, disposed on exitWalk
+let beaconRingGeo = null; // ... and the ground ring at its foot
+const _beaconBase = new THREE.Vector3(); // the marker itself, in the parent frame
+const _beaconUp = new THREE.Vector3(); // local up at the marker, in the parent frame
+// The one-line statement of what the active quest wants, mirrored into the
+// on-foot hint panel by game.js. Quest feedback used to be toasts only, so four
+// seconds after accepting a tour the player had no record of what they took on.
+// Held here rather than pushed into controls.js directly: walk.js is a lazy
+// chunk and controls.js reaches back into walkLazy, so game.js does the wiring.
+let objectiveText = null; // the hint-panel line
+let beaconLabel = 'SHIP'; // the compass caption — short, the dial is 52 px wide
+function setObjective(target) {
+  if (!target) {
+    objectiveText = null;
+    beaconLabel = 'SHIP';
+    return;
+  }
+  const t = target.toUpperCase();
+  objectiveText = `OBJECTIVE — ${t}`;
+  beaconLabel = t.length > 18 ? `${t.slice(0, 17)}…` : t;
+}
+export function walkObjective() {
+  return objectiveText;
+}
 const TALK_DIST_CROWD = 2.6; // ~ aliens talkTriggerDist
 const TALK_DIST_VENDOR = 3.2; // named vendors stand still — a touch more reach
 const TALK_DIST_CREATURE = 6; // ~ creatures interactRadius
@@ -653,6 +676,7 @@ function spawnWorldEntities(planet) {
     wonders = [];
     wonderColliders = [];
     wonderSpots = [];
+    wonderUps = [];
     for (const w of cityDef.wonders) {
       wonderLocalDir(planet, cityDef, w, _patchUp)
         .applyAxisAngle(_yAxisV, planet.surface.rotation.y); // -> world dir
@@ -672,6 +696,16 @@ function spawnWorldEntities(planet) {
       // frame — where the governor's tour beacons live (parented to city.group).
       wonderSpots.push(
         mod.group.position.clone().sub(city.group.position).applyQuaternion(_cityInvQuat)
+      );
+      // ...and the local up THERE, in the same frame. placeOnSurface() already
+      // built the wonder's group with +Y along the surface normal, so this is
+      // free — no second normal to sample and no chance of disagreeing with
+      // where the wonder actually stands.
+      wonderUps.push(
+        new THREE.Vector3(0, 1, 0)
+          .applyQuaternion(mod.group.quaternion)
+          .applyQuaternion(_cityInvQuat)
+          .normalize()
       );
     }
 
@@ -767,6 +801,10 @@ export function exitWalk(camera) {
     beaconGeo.dispose();
     beaconGeo = null;
   }
+  if (beaconRingGeo) {
+    beaconRingGeo.dispose();
+    beaconRingGeo = null;
+  }
   // Tear down the landing-site entities. dispose() clears children but (except
   // ship/wonders) doesn't detach from planet.surface — remove explicitly so
   // empty groups don't accumulate across repeated landings.
@@ -790,6 +828,7 @@ export function exitWalk(camera) {
     wonders = null;
     wonderColliders = null;
     wonderSpots = null;
+    wonderUps = null;
   }
   if (creatures) {
     creatures.dispose();
@@ -1083,7 +1122,7 @@ export function stepWalk(dt) {
       _wish.addScaledVector(_look, fwd);
       _wish.addScaledVector(_right, strafe);
       if (input.brake) _wish.addScaledVector(_up, 0.7);
-      const diveSpeed = C.WALK_DIVE_SPEED * (input.boost ? 1.6 : 1);
+      const diveSpeed = C.WALK_DIVE_SPEED * (input.sprint ? 1.6 : 1);
       if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(diveSpeed);
     } else {
       _wish.addScaledVector(walk.heading, fwd);
@@ -1092,7 +1131,7 @@ export function stepWalk(dt) {
         ? C.WALK_SWIM_SPEED
         : wading
           ? C.WALK_WADE_SPEED
-          : input.boost
+          : input.sprint
             ? C.WALK_RUN_SPEED
             : C.WALK_SPEED;
       if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(targetSpeed);
@@ -1587,6 +1626,9 @@ export function updateWalkVisuals(dt, t) {
     playerLocalInto(wavemall.crowd.group, _wavemallInvQuat, _playerLocal);
     wavemall.update(t, dt, _playerLocal, sunDot);
     scanModule(wavemall, TALK_DIST_CROWD);
+    // spawnBeacon can parent here (wavemall quests are codex-only today, but
+    // the branch exists); without this call such a beacon would never complete.
+    if (beacon && beaconParent === wavemall.crowd.group) updateBeacon(t);
     // Lobby shopkeepers each live in their wing's district-local frame.
     for (const m of interiorCrowds) {
       m.update(dt, playerLocalInto(m.hostGroup, m.hostInvQuat, _playerLocal), sunDot);
@@ -1716,6 +1758,7 @@ function applyOffer(offer, module) {
   } else if (offer.kind === 'waypoint') {
     setWaypoint(offer.targetHint);
     spawnBeacon(offer.marker, module);
+    setObjective(offer.targetHint);
   }
   return null;
 }
@@ -1728,10 +1771,12 @@ function applyOffer(offer, module) {
 // ---------------------------------------------------------------------------
 function armTourBeacon(i) {
   const def = city?.def;
-  if (!def || !wonderSpots?.[i]) return;
+  if (!def || !wonderSpots?.[i] || !wonderUps?.[i]) return;
   setWaypoint(def.wonders[i].title);
-  spawnBeacon(wonderSpots[i], citizens);
-  tourReach = TOUR_WONDER_REACH;
+  spawnBeacon(wonderSpots[i], citizens, wonderUps[i]);
+  // After spawnBeacon: it calls removeBeacon() first, which clears the line.
+  setObjective(def.wonders[i].title);
+  tourReach = C.BEACON_TOUR_REACH;
 }
 
 function armReturnBeacon() {
@@ -1740,8 +1785,11 @@ function armReturnBeacon() {
   if (!def || !ph) return;
   setWaypoint('return to the governor');
   _cityPt.set(ph.doorX, city.groundLocalYAt(ph.doorX, ph.doorZ), ph.doorZ);
+  // No up vector: the tower stands in the middle of town, where the city's own
+  // +Y already IS the local up.
   spawnBeacon(_cityPt.clone(), citizens);
-  tourReach = TOUR_RETURN_REACH;
+  setObjective('return to the governor');
+  tourReach = C.BEACON_RETURN_REACH;
 }
 
 // A tour beacon was reached: count the stop, aim the next one.
@@ -1814,11 +1862,19 @@ governorInteract.onOutcome = (tag) => {
   };
 };
 
-// Waypoint beacon: an emissive column at the quest marker. The marker is a
-// Vector3 in the SOURCE module's group-local frame (contract), so the beacon
-// is parented there — planet spin and origin rebases carry it for free, and
-// the reach check runs in the same frame _playerLocal is computed in.
-function spawnBeacon(marker, module) {
+// Waypoint beacon: a sky shaft at the quest marker, plus a ring on the ground
+// at its foot. The marker is a Vector3 in the SOURCE module's group-local frame
+// (contract), so the beacon is parented there — planet spin and origin rebases
+// carry it for free, and the reach check runs in the same frame _playerLocal is
+// computed in. `upLocal` is the surface normal AT THE MARKER in that same
+// frame; omit it where the parent's own +Y is already up.
+//
+// Two things make it a landmark rather than a decoration, both of which the
+// 30-unit lamp-post it replaced got wrong: it is tall enough to clear the
+// planet's curve from across town (see BEACON_HEIGHT), and `fog: false` exempts
+// it from the aerial-perspective haze that swallows terrain past SKY_HAZE_DIST.
+// The ground hazes; the shaft standing in it does not.
+function spawnBeacon(marker, module, upLocal = null) {
   if (!marker || !marker.isVector3) return;
   removeBeacon();
   // (removeBeacon cleared tourReach; the arm functions re-set it after spawn)
@@ -1829,32 +1885,61 @@ function spawnBeacon(marker, module) {
     module === creatures ? creatures.group
     : module === wavemall?.crowd ? wavemall.crowd.group
     : city.group;
-  if (!beaconGeo) beaconGeo = new THREE.CylinderGeometry(0.25, 0.6, 30, 6, 1, true);
-  beacon = new THREE.Mesh(
-    beaconGeo,
-    new THREE.MeshStandardMaterial({
-      color: 0xd4408f,
-      emissive: 0xd4408f,
-      emissiveIntensity: 1.2,
-      transparent: true,
-      opacity: 0.55,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    })
-  );
+  if (!beaconGeo) {
+    // Built with the base at the local origin, so the mesh sits exactly on the
+    // marker and the reach check can measure against the marker directly.
+    beaconGeo = new THREE.CylinderGeometry(
+      C.BEACON_TOP_R, C.BEACON_BASE_R, C.BEACON_HEIGHT, 8, 1, true
+    ).translate(0, C.BEACON_HEIGHT / 2, 0);
+    beaconRingGeo = new THREE.RingGeometry(C.BEACON_RING_R * 0.8, C.BEACON_RING_R, 24)
+      .rotateX(-Math.PI / 2);
+  }
+  // Normal blending, not additive. Additive is the prettier choice for an
+  // emissive and it is what the rest of the game's glow uses, but it only adds
+  // where there is headroom — and most of a 400 u shaft is seen against a lit
+  // daytime sky, which has none. Measured at the far wonder it came out an
+  // 11 px column that read as a 2 px hairline. A flat translucent magenta holds
+  // against both the sky above and the terrain below.
+  const mat = new THREE.MeshBasicMaterial({
+    color: C.ACCENT,
+    transparent: true,
+    opacity: C.BEACON_OPACITY,
+    depthWrite: false,
+    fog: false, // exempt from the aerial haze — see above
+    toneMapped: false,
+    side: THREE.DoubleSide,
+  });
+  beacon = new THREE.Mesh(beaconGeo, mat);
+  beacon.renderOrder = 2; // after opaque geometry
+  beacon.frustumCulled = false; // 400 u tall and mostly off-screen when close
+  // The ring shares the material — you cannot see the foot of a pillar you are
+  // standing inside, and the last 40 units of the walk need a "here" mark.
+  const ring = new THREE.Mesh(beaconRingGeo, mat);
+  ring.position.y = 0.4;
+  ring.renderOrder = 2;
+  beacon.add(ring);
+  _beaconBase.copy(marker);
   beacon.position.copy(marker);
-  beacon.position.y += 15; // column centered on its base at the marker
+  if (upLocal) {
+    _beaconUp.copy(upLocal).normalize();
+    beacon.quaternion.setFromUnitVectors(_yAxisV, _beaconUp);
+  } else {
+    _beaconUp.set(0, 1, 0);
+  }
   beaconParent.add(beacon);
 }
 
 // Per-frame while its parent frame is current in _playerLocal: pulse, and
-// complete the waypoint when the player reaches the column's base.
+// complete the waypoint when the player reaches the shaft's base.
 function updateBeacon(t) {
-  beacon.material.emissiveIntensity = 1.0 + Math.sin(t * 3) * 0.4;
-  const dx = beacon.position.x - _playerLocal.x;
-  const dz = beacon.position.z - _playerLocal.z;
+  beacon.material.opacity =
+    C.BEACON_OPACITY + Math.sin(t * C.BEACON_PULSE_RATE) * C.BEACON_PULSE;
+  // True 3D distance to the base. The old x/z test was taken in the city's FLAT
+  // frame, where a far wonder sits hundreds of units below the plane — that
+  // projection inflated the radial reach by 1/cos(theta), so the 48 u reach
+  // behaved like ~82 u at the farthest wonder. This is isotropic.
   const reach = tourReach > 0 ? tourReach : 3;
-  if (dx * dx + dz * dz < reach * reach) {
+  if (_beaconBase.distanceToSquared(_playerLocal) < reach * reach) {
     const wasTour = tourReach > 0;
     completeWaypoint();
     removeBeacon();
@@ -1869,6 +1954,7 @@ function removeBeacon() {
   beaconParent.remove(beacon);
   beacon = null;
   beaconParent = null;
+  setObjective(null);
 }
 
 // True when the walker is close enough to the parked ship to board (G).
@@ -1934,9 +2020,13 @@ export function walkSite() {
     shadowreach, interiorCrowds,
     creatures, diamondRain, marineSnow, planetSky, wyattmattoe,
     station: stationWalk.stationSite(),
-    // Governor-tour beacon internals, for headless verification.
+    // Governor-tour beacon internals, for headless verification. The up vector
+    // is here because the tilt bug it fixes is invisible to a position-only
+    // payload — assert it against the true surface normal at the base.
     beaconInfo: beacon
-      ? { x: beacon.position.x, z: beacon.position.z, tourReach,
+      ? { x: beacon.position.x, y: beacon.position.y, z: beacon.position.z,
+          base: _beaconBase.toArray(), up: _beaconUp.toArray(),
+          height: C.BEACON_HEIGHT, tourReach,
           parentIsCity: beaconParent === city?.group }
       : null,
   };
@@ -1974,17 +2064,16 @@ export function currentBoardable() {
 // Bearing from the walker to the parked ship, for the on-foot compass.
 // angle: radians relative to the look heading (0 = dead ahead, + = right);
 // dist: world units. Null when there's nothing to point at.
-const _bearingOut = { angle: 0, dist: 0 };
-export function shipBearing() {
-  if (stationWalk.stationActive()) return stationWalk.airlockBearing();
-  if (!walk.active || !parked || !walk.planet) return null;
-  _parkPos
-    .copy(parked.group.position)
-    .applyAxisAngle(_yAxisV, walk.planet.surface.rotation.y) // surface -> world
-    .add(walk.planet.body.position);
+const _bearingOut = { angle: 0, dist: 0, label: 'SHIP' };
+
+// Bearing from the walker to a WORLD-space point, in the local tangent frame:
+// angle 0 = dead ahead, + = to the right. Fills and returns the shared out
+// object — no allocation.
+function bearingToWorld(worldPt, label) {
   _up.subVectors(ship.position, walk.planet.body.position).normalize();
-  _target.subVectors(_parkPos, ship.position);
+  _target.subVectors(worldPt, ship.position);
   _bearingOut.dist = _target.length();
+  _bearingOut.label = label;
   projectTangent(_target, _up);
   if (_target.lengthSq() < 1e-6) {
     _bearingOut.angle = 0;
@@ -1994,6 +2083,36 @@ export function shipBearing() {
   _right.crossVectors(walk.heading, _up).normalize();
   _bearingOut.angle = Math.atan2(_target.dot(_right), _target.dot(walk.heading));
   return _bearingOut;
+}
+
+export function shipBearing() {
+  if (stationWalk.stationActive()) return stationWalk.airlockBearing();
+  if (!walk.active || !parked || !walk.planet) return null;
+  _parkPos
+    .copy(parked.group.position)
+    .applyAxisAngle(_yAxisV, walk.planet.surface.rotation.y) // surface -> world
+    .add(walk.planet.body.position);
+  return bearingToWorld(_parkPos, 'SHIP');
+}
+
+// What the compass should point at: the live quest beacon if there is one,
+// otherwise the parked ship. Nothing used to aim you at an objective at all —
+// you could accept a tour and have no way to find the first wonder short of
+// walking a circle around the town.
+export function walkBearing() {
+  if (beacon && beaconParent && walk.active && walk.planet
+      && !stationWalk.stationActive()) {
+    // Local -> surface -> world, the same chain the pad walkway uses. Built by
+    // hand rather than read off matrixWorld, which is a frame stale here.
+    _parkPos
+      .copy(_beaconBase)
+      .applyQuaternion(beaconParent.quaternion)
+      .add(beaconParent.position)
+      .applyAxisAngle(_yAxisV, walk.planet.surface.rotation.y)
+      .add(walk.planet.body.position);
+    return bearingToWorld(_parkPos, beaconLabel);
+  }
+  return shipBearing();
 }
 
 // The on-foot camera. First person: eye-level, rolled so the planet's up is
@@ -2112,7 +2231,7 @@ export function updateWalkCamera(camera, delta = 0) {
   const wantKick = walk.boarding || walk.mode === 'moto'
       || walk.mode === 'glide' || walk.mode === 'plane'
     ? boardCamEase
-    : walk.mode === 'run' && input.boost && walk.speed01 > 0.55
+    : walk.mode === 'run' && input.sprint && walk.speed01 > 0.55
       ? 1
       : 0;
   fovKick += (wantKick - fovKick) * Math.min(1, 5 * delta);
