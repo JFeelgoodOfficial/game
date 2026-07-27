@@ -57,7 +57,12 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
  * Tunables
  * ------------------------------------------------------------------- */
 const C = {
-  height: 1.75,        // reference stature, metres — per-person scale rides on this
+  // Reference stature, metres — per-person scale rides on this. Matched to the
+  // player: the astronaut is ~1.8 to the top of the helmet (src/astronaut.js)
+  // and the on-foot camera sits at C.WALK_EYE_HEIGHT. At the old 1.75 (and a
+  // spread that went down to 1.54) the townsfolk read as a head shorter than
+  // you everywhere in town.
+  height: 1.9,
   // Wide enough to reach the confession circle's inner ring from its centre —
   // standing in the middle of that ring is the dramatic position in the zone,
   // and it is the one place nobody must still be a statue. The ring sits at
@@ -79,6 +84,12 @@ const HAIR = [0x1c1512, 0x2b1d15, 0x4a2f1c, 0x6b4a2f, 0x8a6a44, 0x3a3a3c, 0x9a9a
 // Eyes and brows take the hair colour, darkened — brows match hair on a real
 // head, and an iris read at three metres is a dark spot whatever its colour.
 const FEATURE_DARKEN = 0.45;
+// ...except when that lands on the same value as the skin it sits on, which is
+// how a face disappears. Grey hair (0x9a9a98) darkens to 0x454544, and against
+// the darkest skin (0x5c3a21) that is a 0.02 luminance gap — invisible. Note
+// the failure is DARK-on-DARK, so darkening the tint further makes it worse;
+// the fix is a contrast floor, and a skin-derived near-black when it trips.
+const FEATURE_MIN_CONTRAST = 0.12;
 
 // Four material layers, because four is what it takes for a crowd to read.
 // skin / garment / hair carry the three things that vary person to person, and
@@ -93,8 +104,21 @@ const LAYER_COLOR = {
   skin: (spec) => spec.skin,
   garment: (spec) => spec.cloth,
   hair: (spec) => spec.hair,
-  features: (spec) => darken(spec.hair, FEATURE_DARKEN),
+  features: (spec) => {
+    const f = darken(spec.hair, FEATURE_DARKEN);
+    return Math.abs(luma(f) - luma(spec.skin)) < FEATURE_MIN_CONTRAST
+      ? darken(spec.skin, 0.18) // a near-black struck from their own skin tone
+      : f;
+  },
 };
+
+// Rec. 709 luma on the sRGB values — good enough to tell "these two colours are
+// the same value" apart, which is all the contrast floor above needs.
+function luma(hex) {
+  return (0.2126 * ((hex >> 16) & 255)
+    + 0.7152 * ((hex >> 8) & 255)
+    + 0.0722 * (hex & 255)) / 255;
+}
 
 function darken(hex, k) {
   return (Math.round(((hex >> 16) & 255) * k) << 16)
@@ -159,30 +183,68 @@ function buildBodyParts(opts = {}) {
   jaw.translate(0, H * 0.9 - NECK_Y, headR * 0.16);
   headSkin.push(jaw);
 
-  // --- face. Eyes set into the sockets rather than stuck on the front, a brow
-  // above each, and a mouth line. Small: an eye is about 12 mm of sphere on a
-  // 1.75 m body, which is life-size, and anything larger reads as a doll.
+  // --- face. Every feature must sit PROUD OF the skull, and the skull is an
+  // ELLIPSOID, not a sphere: scaled (0.92, 1.12, 1.0), its front surface pulls
+  // back toward the middle of the face and further still out at the temples. A
+  // flat "push everything to z = headR" is not enough — at the eye line the
+  // surface is only 0.91 headR, at the brow's inner end 0.93, at the mouth
+  // 0.94. The original pass placed the whole face at 0.76-0.80 headR and buried
+  // it, which is why a citizen read as a smooth ball with a nose. So: solve the
+  // ellipsoid for its own surface z under each feature, then stand the feature
+  // off THAT. Build-time only — a handful of calls per body variant.
+  const skullCY = H * 0.935 - NECK_Y;
+  const surfaceZ = (semiX, semiY, semiZ, x, dy) => {
+    const k = 1 - (x * x) / (semiX * semiX) - (dy * dy) / (semiY * semiY);
+    return k > 0 ? semiZ * Math.sqrt(k) : 0;
+  };
+  // z of the skull surface at (x, y), both measured from the head's own centre.
+  const skullZ = (x, y) => surfaceZ(0.92 * headR, 1.12 * headR, headR, x, y - skullCY);
+  const EYE_PROUD = headR * 0.11; // how far the eyeball domes out of its socket
+  const FLAT_PROUD = headR * 0.06; // ... and how far a brow/mouth bar stands off
+
   const EYE_Y = H * 0.945 - NECK_Y;
   const eyeX = headR * 0.36;
   for (const side of [-1, 1]) {
-    const eye = new THREE.SphereGeometry(headR * 0.145, 6, 5);
-    eye.scale(1, 0.82, 0.6);
-    eye.translate(side * eyeX, EYE_Y, headR * 0.80);
+    // Barely up from the old 0.145: at 0.155 headR this is ~40 mm across on a
+    // 1.9 m person, a shade over the ~30 mm of a real eye opening. Being buried
+    // was the whole problem, not the scale, so it does not need to be a doll's.
+    const eyeR = headR * 0.155;
+    const eyeHalfZ = eyeR * 0.78;
+    const eye = new THREE.SphereGeometry(eyeR, 6, 5);
+    eye.scale(1, 0.82, 0.78); // domed, not a lens — it has to catch a highlight
+    eye.translate(side * eyeX, EYE_Y, skullZ(eyeX, EYE_Y) + EYE_PROUD - eyeHalfZ);
     headFeatures.push(eye);
     // Brow: a flattened bar angled slightly down toward the nose, which is what
-    // gives a face any expression at all at this scale.
-    const brow = new THREE.BoxGeometry(headR * 0.40, headR * 0.075, headR * 0.10);
+    // gives a face any expression at all at this scale. Also swept back around
+    // Y so it FOLLOWS the skull instead of chording across it — the temple is
+    // where the ellipsoid falls away fastest, and a straight bar seated on the
+    // inner end stands 46 mm off the head out there, which reads as a twig
+    // glued to the face rather than a brow ridge.
+    const browW = headR * 0.52, browD = headR * 0.14;
+    const browY = EYE_Y + headR * 0.26;
+    const brow = new THREE.BoxGeometry(browW, headR * 0.10, browD);
     brow.rotateZ(side * -0.13);
-    brow.translate(side * eyeX, EYE_Y + headR * 0.26, headR * 0.80);
+    brow.rotateY(side * 0.5);
+    brow.translate(side * eyeX, browY, skullZ(eyeX, browY) + FLAT_PROUD - browD / 2);
     headFeatures.push(brow);
   }
-  const mouth = new THREE.BoxGeometry(headR * 0.42, headR * 0.06, headR * 0.08);
-  mouth.translate(0, EYE_Y - headR * 0.53, headR * 0.76);
+  // The mouth straddles the skull and the jaw wedge; at this height the skull
+  // is the more forward of the two (0.94 headR vs the jaw's 0.89), so clearing
+  // the skull clears both. Seated against x = 0, its most forward point.
+  const mouthD = headR * 0.12;
+  const mouthY = EYE_Y - headR * 0.53;
+  const mouth = new THREE.BoxGeometry(headR * 0.50, headR * 0.075, mouthD);
+  mouth.translate(0, mouthY, skullZ(0, mouthY) + FLAT_PROUD - mouthD / 2);
   headFeatures.push(mouth);
   // A nose, so the profile is not flat — the silhouette is what reads first when
   // someone is turned away from you, which in the queue is almost everyone.
-  const nose = new THREE.ConeGeometry(headR * 0.13, headR * 0.30, 5).rotateX(Math.PI / 2);
-  nose.translate(0, EYE_Y - headR * 0.20, headR * 0.88);
+  // Seated the same way, so the base stays buried in the face (noses attach)
+  // while the tip clears the skull by a real amount instead of the 4 mm the
+  // old flat placement left it with.
+  const noseLen = headR * 0.30;
+  const noseY = EYE_Y - headR * 0.20;
+  const nose = new THREE.ConeGeometry(headR * 0.13, noseLen, 5).rotateX(Math.PI / 2);
+  nose.translate(0, noseY, skullZ(0, noseY) + headR * 0.10 - noseLen / 2);
   headSkin.push(nose);
   // Ears.
   for (const side of [-1, 1]) {
@@ -467,9 +529,10 @@ export function createCrowd(opts) {
     const p = place(i);
     const spec = {
       robed,
-      // 0.88-1.12 of 1.75 m is about 1.54-1.96 m, a real adult spread. Tighter
-      // than that and the crowd reads cloned.
-      scale: (0.88 + rng() * 0.24) * (p.scale ?? 1),
+      // 0.94-1.06 of 1.9 m is about 1.79-2.01 m. A narrow spread on purpose:
+      // wide enough that a crowd doesn't read cloned, tight enough that nobody
+      // is noticeably shorter than the player standing next to them.
+      scale: (0.94 + rng() * 0.12) * (p.scale ?? 1),
       hairStyle: ['cap', 'bun', 'long'][Math.floor(rng() * 3)],
       skin: SKIN[Math.floor(rng() * SKIN.length)],
       hair: HAIR[Math.floor(rng() * HAIR.length)],

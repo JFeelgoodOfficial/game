@@ -7,7 +7,7 @@
  * employee/caller citizens, and ambient hold-music atmosphere.
  *
  * Coordinate assumptions (matches existing engine conventions):
- * - Units are meters. Astronaut is 1.9 units tall, eye height 2.0.
+ * - Units are meters. Astronaut is ~1.8 units tall, eye height 1.72.
  * - Planets are spheres; terrain sits on planet.surface (spinning mesh).
  * - Everything is placed in UNROTATED object space, parented to
  *   planet.surface, so planet spin + floating-origin rebasing carry it

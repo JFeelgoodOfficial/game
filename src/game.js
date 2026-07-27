@@ -88,7 +88,8 @@ import {
   walkPromptText,
   walkPreRender,
   walkPendingReset,
-  shipBearing,
+  walkBearing,
+  walkObjective,
   walkDebug,
   enterStationWalk,
 } from './walkLazy.js';
@@ -119,7 +120,7 @@ import {
   hidePauseOverlay,
 } from './settingsPanel.js';
 import { initCompass, updateCompass } from './compass.js';
-import { initControls, updateControls } from './controls.js';
+import { initControls, updateControls, setObjective } from './controls.js';
 import { initCapture, capturePendingPhoto, updateCapture, updateRecordingFrame, requestPhoto, toggleRecording, isGalleryOpen } from './capture.js';
 import { initCredits, openCredits, closeCredits, isCreditsOpen } from './credits.js';
 import lensingFrag from './shaders/lensing.frag?raw';
@@ -1275,8 +1276,9 @@ function frame(now) {
   const holoActive =
     phase === 'fly' && !paused && !standing && landState === null && !autopilotActive();
   updateHolonav(ship, delta, holoActive);
-  updateCompass(phase === 'walk' ? shipBearing() : null);
+  updateCompass(phase === 'walk' ? walkBearing() : null);
   updateControls(phase);
+  setObjective(phase === 'walk' ? walkObjective() : null);
   updateCapture(phase, dash, delta);
   camera.updateMatrixWorld();
   camera.matrixWorldInverse.copy(camera.matrixWorld).invert(); // fresh for projection
