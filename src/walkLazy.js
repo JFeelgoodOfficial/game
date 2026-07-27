@@ -55,6 +55,14 @@ export const currentBoardable = () => (mod ? mod.currentBoardable() : false);
 export const enterStationWalk = (station) =>
   mod ? mod.enterStationWalk(station) : false;
 
+// The cottage, on the far side of the sun. Same fail-safe: false until the
+// chunk lands, which game.js reads as "hold the white a little longer" rather
+// than dropping the player into an empty world.
+export const enterCottageWalk = (opts) =>
+  mod ? mod.enterCottageWalk(opts) : false;
+export const cottageActive = () => (mod ? mod.cottageActive() : false);
+export const exitCottageWalk = () => mod && mod.exitCottageWalk();
+
 // Quest vehicles (selector menu + debug).
 export const deployVehicle = (id) => (mod ? mod.deployVehicle(id) : false);
 export const stowVehicle = () => mod && mod.stowVehicle();

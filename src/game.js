@@ -92,11 +92,14 @@ import {
   walkObjective,
   walkDebug,
   enterStationWalk,
+  walkLoaded,
+  enterCottageWalk,
+  cottageActive,
 } from './walkLazy.js';
 import { initJournal, journalState } from './journal.js';
 import { initInventory, inventoryState } from './inventory.js';
 import { CITIES, citiesForWorld, padLocalDir } from '../world/cityRegistry.js';
-import { initSun, sunAltitude } from './sun.js';
+import { initSun, sunAltitude, sun } from './sun.js';
 import { initStations, updateStations, nearestDockableStation } from './stations.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
 import {
@@ -112,7 +115,9 @@ import {
 } from './music.js';
 import { initRadioPopup, openRadioPopup, closeRadioPopup, isRadioPopupOpen } from './radioPopup.js';
 import { initVehicleMenu, toggleVehicleMenu, closeVehicleMenu } from './vehicleMenu.js';
-import { initNav, updateNav, navState, showNavToast, getBodies } from './nav.js';
+import {
+  initNav, updateNav, navState, showNavToast, hideNavToast, getBodies,
+} from './nav.js';
 import { settings, onSettingsChange } from './settings.js';
 import {
   initSettingsPanel,
@@ -366,6 +371,35 @@ if (import.meta.env.DEV) {
     originOffset,
     paused: false,
     warpInfo: () => ({ phase, warp, heat }),
+    // Renderer/scene/composer handles, so a headless run can assert that a trip
+    // to an isolated world puts every piece of global state back (src/isolate.js
+    // restores nine of them, and the cottage restores three more of its own).
+    THREE,
+    renderer,
+    scene,
+    bloom: bloomPass,
+    ao: aoPass,
+    get sunLight() {
+      return sun.light ? sun.light.intensity : -1;
+    },
+    get sunAmbient() {
+      return sun.ambient ? sun.ambient.intensity : -1;
+    },
+    get planetsVisible() {
+      return planets.filter((p) => p.group.visible).length;
+    },
+    get menuShown() {
+      const m = document.getElementById('menu');
+      return !!m && !m.classList.contains('hidden');
+    },
+    // Park inside the sun's burn radius with the throttle shut. The heat does
+    // the rest — this is the real path, not a phase poke.
+    sunDive() {
+      ship.position.copy(sun.group.position).addScaledVector(SUN, -C.SUN_RADIUS * 0.4);
+      ship.velocity.set(0, 0, 0);
+      ship.angularVelocity.set(0, 0, 0);
+      heat = 0.9; // skip the six-second fuse; the last tenth is the real test
+    },
     // ship-interior walk (C); the on-foot planet walk (G) is `walk` below
     interior: {
       playerState,
@@ -458,6 +492,32 @@ if (import.meta.env.DEV) {
         updateOrigin(ship);
       }
     },
+    // Drop straight into the cottage, skipping the six-second sun burn. The
+    // real entry is 'ascend' (fly into the star); this is the same call it
+    // makes, minus the flash.
+    heaven() {
+      if (!enterHeaven()) return false;
+      phase = 'walk';
+      accumulator = 0;
+      return true;
+    },
+    // And back out again, the way the pad does it.
+    leaveHeaven() {
+      if (!cottageActive()) return false;
+      endWalk();
+      resetToStart();
+      phase = 'fly';
+      accumulator = 0;
+      return true;
+    },
+    get phase() {
+      return phase;
+    },
+    get flash() {
+      return flash;
+    },
+    // The bottom-center prompt line as the player sees it ('G — BOARD').
+    promptText: () => walkPromptText(),
     // Nearest dockable station's distance (to the whole station) + its berth,
     // for verifying the dock gate.
     dockInfo() {
@@ -578,11 +638,25 @@ let accumulator = 0;
 // 'respawn' (unwind) -> 'fly' (the loop, beyond GDD 4.5); or hull heat hits
 // 1 -> 'explode' (flash + shake) -> menu (death, overriding GDD 1.2 at the
 // user's request). Physics is frozen in every state but 'fly'.
+//
+// EXCEPT at the sun. Burning up AT THE STAR goes to 'ascend' instead: the same
+// flash, but it fades up on the cottage (world/cottage.js) rather than the
+// death menu, and 'walk' takes over with the third walker driving. Boarding the
+// ship on the cottage's pad goes to 'depart', which flashes white again and
+// hands the player back to 'fly' in front of Terra. Re-entry burn at a planet
+// still goes to 'explode' and still ends the run — only the sun opens the door.
 let phase = 'menu';
 let warpT = 0;
 let warp = 0; // collapse pass progress, 0..1
 let heat = 0; // hull heat, 0..1
 let deathReason = ''; // set when the burn wins; shown on the menu
+let burnedBySun = false; // which burn is killing us — the sun's is the doorway
+// The white-out. Module-level, NOT frame-local, because the whole trick of both
+// cottage transitions is that the phase change happens while this sits at 1:
+// the heavy world build and the world reset both hide under it. `flashFade` is
+// the seconds the current transition wants for its fade-out (0 = hold).
+let flash = 0;
+let flashFade = 0;
 // Out-of-seat sub-mode within 'fly' (interior.js): the ship coasts on
 // attitude hold while the pilot walks the corridor. Not a phase — heat,
 // capture, nav, and the accumulator must all keep running.
@@ -615,6 +689,39 @@ function endWalk() {
   releaseIsolation(renderer, aoPass, camera, bloomPass);
   closeVehicleMenu(); // the selector is an on-foot dialog
   exitWalk(camera);
+}
+
+// The cottage, on the far side of the sun. Called from 'ascend' with the screen
+// already fully white — which is the point: building that world costs one long
+// frame (16 k instanced tufts, two canvas textures, a PMREM bake) and nobody
+// sees it happen. Returns false if the lazy walk chunk hasn't landed yet, and
+// the caller holds the white until it has.
+//
+// A null keep in acquireUniverse hides EVERY planet, not all-but-one: this
+// world is nowhere near any of them. acquireSurface takes the preset NAME for
+// the same reason — there is no planet to look a preset up from.
+function enterHeaven() {
+  if (!walkLoaded()) return false;
+  heat = 0;
+  standing = false;
+  standBlend = 0;
+  landState = null;
+  landedPlanet = null;
+  _padLocalDir.set(0, 0, 0);
+  cancelAutopilot();
+  closeCredits();
+  closeRadioPopup();
+  closeVehicleMenu();
+  // Whatever the flight sim was saying, it stops saying it here — a contact-
+  // logged banner from the dive has no business hanging over the garden.
+  hideNavToast();
+  acquireUniverse(null);
+  if (!enterCottageWalk({ renderer })) {
+    releaseIsolation(renderer, aoPass, camera, bloomPass);
+    return false;
+  }
+  acquireSurface('cottage', renderer, aoPass, camera, bloomPass);
+  return true;
 }
 
 let landState = null;
@@ -903,6 +1010,9 @@ function resetToStart() {
   restoreShiftables(); // planets, sun, stations, black hole + origin offset
   cancelAutopilot();
   heat = 0;
+  burnedBySun = false;
+  flash = 0;
+  flashFade = 0;
   landState = null;
   landedPlanet = null;
   _padLocalDir.set(0, 0, 0);
@@ -966,7 +1076,6 @@ function frame(now) {
   // "click to steer" hint only makes sense with the sim live and unpaused
   hintEl.classList.toggle('off', paused || (phase !== 'fly' && phase !== 'walk'));
 
-  let flashAmt = 0;
   if (phase === 'fly') {
     // C: stand up out of the seat / sit back down at it. Standing is
     // blocked at warp (nobody walks at 10,000 u/s); sitting requires being
@@ -1023,6 +1132,7 @@ function frame(now) {
     if (nearSun) {
       if (piloted) heat += (delta / heatTotal) * C.SUN_BURN_MULT;
       deathReason = 'INCINERATED — FLEW INTO THE SUN';
+      burnedBySun = true;
     } else if (
       overFloor < C.HEAT_ALTITUDE &&
       ship.velocity.length() > C.LAND_REGIME_SPEED
@@ -1031,12 +1141,15 @@ function frame(now) {
       // (hover, touch down, lift off); fast re-entry still burns.
       if (piloted) heat += delta / heatTotal;
       deathReason = 'RE-ENTRY FAILURE — HULL DESTROYED';
+      burnedBySun = false;
     } else {
       heat -= delta / C.HEAT_COOL;
+      if (heat <= 0) burnedBySun = false;
     }
     heat = Math.min(Math.max(heat, 0), 1);
     if (heat >= 1) {
-      phase = 'explode';
+      // The star is the one death that isn't one — same flash, different door.
+      phase = burnedBySun ? 'ascend' : 'explode';
       warpT = 0;
     }
     // G: landed — step out onto the surface. Auto-landing — abort. In free
@@ -1109,11 +1222,18 @@ function frame(now) {
       if (input.interact) walkInteract();
       if (input.toggleWalk) {
         if (nearParkedShip()) {
-          // Board the ship and hand control back to flight.
-          endWalk();
-          snapCamera(ship); // resync the camera-lag state exitWalk set directly
-          phase = 'fly';
-          accumulator = 0;
+          if (cottageActive()) {
+            // Leaving the cottage is a transition, not a liftoff: flash white
+            // first, and do the teardown + reset under it ('depart' below).
+            phase = 'depart';
+            warpT = 0;
+          } else {
+            // Board the ship and hand control back to flight.
+            endWalk();
+            snapCamera(ship); // resync the camera-lag state exitWalk set directly
+            phase = 'fly';
+            accumulator = 0;
+          }
         } else {
           // You walked here — the ship didn't. Go back for it.
           promptReturnToShip();
@@ -1139,11 +1259,44 @@ function frame(now) {
     }
   } else if (phase === 'explode') {
     warpT += delta;
-    flashAmt = Math.min(warpT / (C.EXPLODE_TIME * 0.35), 1);
+    flash = Math.min(warpT / (C.EXPLODE_TIME * 0.35), 1);
     if (warpT >= C.EXPLODE_TIME) {
       phase = 'menu';
       showMenu('dead', deathReason);
     }
+  } else if (phase === 'ascend') {
+    // The hull failed at the star. Identical ramp to 'explode' — same curve,
+    // same shake — right up to full white. Then, instead of the death menu,
+    // the cottage is built underneath and 'walk' takes over; the white fades
+    // off it slowly. If the lazy walk chunk somehow isn't in yet, hold at 1
+    // and keep trying: a beat too long on white beats dropping into nowhere.
+    warpT += delta;
+    flash = Math.min(warpT / C.ASCEND_FLASH, 1);
+    if (flash >= 1 && enterHeaven()) {
+      phase = 'walk';
+      flashFade = C.ASCEND_FADE;
+      warpT = 0;
+      accumulator = 0;
+    }
+  } else if (phase === 'depart') {
+    // Boarding on the pad. White out, tear the world down and reset behind it,
+    // then fade up on Terra dead ahead — the same view the game opened on.
+    warpT += delta;
+    flash = Math.min(warpT / C.DEPART_FLASH, 1);
+    if (flash >= 1) {
+      endWalk(); // releaseIsolation + exitWalk -> the cottage's own teardown
+      resetToStart(); // ship to the origin, Terra 3500 u dead ahead
+      flash = 1; // resetToStart cleared it, but we are still under the white
+      flashFade = C.DEPART_FADE;
+      phase = 'fly';
+      warpT = 0;
+      accumulator = 0;
+    }
+  }
+  // Every other phase: let whatever the last transition left on screen fade.
+  if (phase !== 'explode' && phase !== 'ascend' && phase !== 'depart' && flash > 0) {
+    flash = flashFade > 0 ? Math.max(0, flash - delta / flashFade) : 0;
+    if (flash === 0) flashFade = 0;
   }
   // menu phase: nothing to advance; the scene idles as a backdrop.
   // Camera: P photo / R record, active in gameplay unless the gallery is open.
@@ -1168,15 +1321,17 @@ function frame(now) {
   input.record = false;
   collapsePass.enabled = warp > 0.001;
   collapsePass.uniforms.uProgress.value = warp;
-  // heat 0..0.5 = warning banner; 0.5..1 = the flashing cockpit countdown
-  const heatShown = phase === 'menu' ? 0 : heat;
+  // heat 0..0.5 = warning banner; 0.5..1 = the flashing cockpit countdown.
+  // Nothing about the burn survives into the cottage: no vignette, no cracks,
+  // no countdown. The place is supposed to be quiet.
+  const heatShown = phase === 'menu' || phase === 'walk' || phase === 'depart' ? 0 : heat;
   const countdownLeft =
     phase === 'fly' && heat >= 0.5
       ? (1 - heat) * (C.HEAT_WARN_TIME + C.HEAT_COUNTDOWN)
-      : phase === 'explode'
+      : phase === 'explode' || phase === 'ascend'
         ? 0.4 // hold "1" through the flash
         : null;
-  updateHeatUI(heatShown, C.CRACK_AT, flashAmt, countdownLeft);
+  updateHeatUI(heatShown, C.CRACK_AT, flash, countdownLeft);
 
   updateOrigin(ship);
   if (phase === 'walk') {
@@ -1190,7 +1345,8 @@ function frame(now) {
     updateInteriorCamera(ship, delta, standBlend, standBlend >= 0.2 && phase === 'fly');
   }
   // hull-stress shake: time-hashed jitter, ramping in past half heat
-  const shake = Math.max(heat - 0.5, 0) * 2 + (phase === 'explode' ? 1.5 : 0);
+  const shake =
+    Math.max(heat - 0.5, 0) * 2 + (phase === 'explode' || phase === 'ascend' ? 1.5 : 0);
   if (shake > 0 && !paused) {
     const s = shake * 0.02 * MOTION_SCALE;
     camera.position.x += Math.sin(now * 0.093) * s;
@@ -1259,7 +1415,9 @@ function frame(now) {
   // frame goes to the one place the player is standing. Only the planet under
   // their feet keeps updating — it still has to spin.
   if (isolated.active) {
-    updatePlanets(now / 1000, camera.position, isolated.keep);
+    // A null keep means the cottage: nowhere near a planet, so there is not
+    // even one left to spin. Skip the pass entirely.
+    if (isolated.keep) updatePlanets(now / 1000, camera.position, isolated.keep);
   } else {
     updateStarfield(camera, renderer.getPixelRatio());
     updateNebula(camera);

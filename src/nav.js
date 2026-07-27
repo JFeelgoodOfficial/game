@@ -113,6 +113,15 @@ export function showNavToast(text, seconds = 3.2) {
   toastTimer = seconds;
 }
 
+// Pull the banner down now, whatever it was counting. For transitions that
+// leave the flight sim entirely (the cottage) — a contact-logged toast from
+// the last second of the dive should not survive into the garden.
+export function hideNavToast() {
+  if (!toast) return;
+  toast.style.opacity = '0';
+  toastTimer = 0;
+}
+
 export function initNav() {
   const style = document.createElement('style');
   style.textContent = CSS;

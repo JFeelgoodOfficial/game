@@ -121,6 +121,24 @@ export const C = {
   CRACK_AT: 0.75, // heat fraction where the canopy cracks (mid-countdown)
   EXPLODE_TIME: 1.2, // seconds of flash/shake before the menu
 
+  // --- the cottage: what is on the other side of the sun ---
+  // Burning up AT THE SUN no longer ends the run. The flash plays out exactly
+  // as the explosion always did, and then it fades up somewhere else
+  // (world/cottage.js, src/cottageWalk.js). Re-entry burn at a planet still
+  // kills — only the star opens the door.
+  //
+  // The two transitions are the same shape: ramp the flash to full white, do
+  // the switch UNDER the white (which is where the cottage's build cost and
+  // the world reset both hide), then fade the white out on the other side.
+  ASCEND_FLASH: 0.42, // seconds of ramp to white — matches EXPLODE_TIME * 0.35
+  ASCEND_FADE: 1.8, // seconds of white fading off the garden. Unhurried.
+  DEPART_FLASH: 0.55, // seconds of ramp to white when you take off from the pad
+  DEPART_FADE: 1.2, // seconds of white fading off Terra
+  COTTAGE_WALK_SPEED: 3.2, // u/s on foot. The world is human-scale, not planet-
+  COTTAGE_RUN_SPEED: 6.4, // scale — WALK_SPEED (8) crosses the garden in 6 s.
+  COTTAGE_BOARD_RADIUS: 11.0, // board the ship (G) within this of the pad centre
+  COTTAGE_CEILING: 2.7, // interior ceiling height — caps the indoor jump
+
   // --- ship interior walk (C) — owner override of GDD 1.2 ---
   // C stands you up out of the seat; the ship coasts on attitude hold while
   // you walk the corridor. Movement is clamped to the interior's two rooms —
