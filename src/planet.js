@@ -443,7 +443,13 @@ export function initPlanets(scene) {
     // `atmosphere` is kept on the record so an isolated world (src/isolate.js)
     // can hide the limb shell: it's an additive haze meant to be seen from
     // orbit, and standing inside it just washes the whole surface out.
-    const p = { cfg, group, surface, clouds, waterMesh, atmosphere, spinning, radius, body: null };
+    // sunDir is the sun direction THIS planet is lit by. It equals SUN except
+    // while the planet's spin is frozen underfoot, where it swings instead —
+    // see updatePlanets.
+    const p = {
+      cfg, group, surface, clouds, waterMesh, atmosphere, spinning, radius,
+      body: null, sunDir: SUN.clone(), spinVirtualY: 0,
+    };
 
     // gravity + altitude floor. Rocky floors follow the terrain: sample the
     // shared noise field in unrotated object space (undo the spin) with this
@@ -548,6 +554,10 @@ export function startPlanetBake() {
 }
 
 const _tmp = new THREE.Vector3();
+const _yAxisP = new THREE.Vector3(0, 1, 0);
+let _lastSpinT = 0;
+// How fast the walk-time sun swing unwinds after takeoff (e-folds per second).
+const SUN_DRIFT_DECAY = 0.9;
 
 // Freeze/unfreeze a planet's day rotation (walk mode pins the story worlds so
 // the ground never turns underfoot). Rotation is written as an absolute
@@ -564,10 +574,23 @@ export function setPlanetSpinFrozen(planet, frozen) {
 // floating-origin bookkeeping (updateOrigin, over its own shiftables list) is
 // untouched either way.
 export function updatePlanets(t, camPos, only = null) {
+  // Local dt, clamped so a tab-switch or a long bake stall can't jump the
+  // sun-swing decay. updatePlanets is the only consumer.
+  const dt = Math.min(Math.max(t - _lastSpinT, 0), 0.25);
+  _lastSpinT = t;
   for (const p of planets) {
     if (only && p !== only) continue;
     if (p.spinFrozen) {
       p.spinNeedsResync = true; // rotation.y stays latched
+      // The ground holds still under the walker's feet, but the DAY should not
+      // stop with it. Keep advancing a virtual spin angle and swing this
+      // planet's sun by the difference: for anyone standing on the surface
+      // that is geometrically identical to the planet having turned, so the
+      // terminator, the sky and the town's neon all keep moving over rigid
+      // ground. The virtual angle rides the pre-freeze spinPhase, so it
+      // continues from the latched angle with no jump on entry.
+      p.spinVirtualY = t * p.cfg.spin() + (p.spinPhase || 0);
+      p.sunDrift = p.spinVirtualY - (p.surface?.rotation.y ?? 0);
     } else {
       const spin = p.cfg.spin();
       if (p.spinNeedsResync) {
@@ -576,6 +599,22 @@ export function updatePlanets(t, camPos, only = null) {
       }
       const ang = t * spin + (p.spinPhase || 0);
       for (const m of p.spinning) m.rotation.y = ang;
+      p.spinVirtualY = ang;
+      // Once the planet is turning again the swing has to go: seen from space
+      // a swung sun would light the wrong hemisphere. Ease it out rather than
+      // snapping, so lifting off doesn't pop the terminator, and so no offset
+      // survives the visit.
+      if (p.sunDrift) {
+        p.sunDrift *= Math.exp(-dt * SUN_DRIFT_DECAY);
+        if (Math.abs(p.sunDrift) < 1e-4) p.sunDrift = 0;
+      }
+    }
+    if (p.sunDrift) p.sunDir.copy(SUN).applyAxisAngle(_yAxisP, -p.sunDrift);
+    else p.sunDir.copy(SUN);
+    // Push the (possibly swung) sun into every lit material on this planet.
+    for (const m of [p.surface, p.clouds, p.waterMesh, p.atmosphere]) {
+      const u = m?.material?.uniforms;
+      if (u?.uSun) u.uSun.value.copy(p.sunDir);
     }
     if (p.cfg.type === 'terra') {
       // terra's thresholds stay live-tunable from the panel

@@ -140,7 +140,9 @@ export function createPlanetSky(planet, scene, opts = {}) {
     // radial up, so _sunLocal.y is exactly upWorld·SUN — the same scalar the
     // terrain shader's terminator and walk.js's sunDot run on.
     const rotY = planet.surface?.rotation?.y ?? 0;
-    _sunLocal.copy(SUN).applyAxisAngle(_yAxis, -rotY); // world -> surface-local
+    // planet.sunDir is SUN except while the spin is frozen underfoot, where the
+    // sun swings instead so the day keeps moving over rigid ground.
+    _sunLocal.copy(planet.sunDir ?? SUN).applyAxisAngle(_yAxis, -rotY); // world -> surface-local
     _invQ.copy(anchor.quaternion).invert();
     _sunLocal.applyQuaternion(_invQ); // surface-local -> anchor-local
     const sunUp = THREE.MathUtils.clamp(_sunLocal.y, -1, 1);

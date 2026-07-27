@@ -1525,7 +1525,9 @@ export function updateWalkVisuals(dt, t) {
   // helmet and the rig has no first-person-safe arms.
   astronaut.group.visible = walk.view === 'tp';
 
-  const sunDot = Math.max(_up.dot(SUN), 0);
+  // planet.sunDir, not SUN: while you walk, the planet's spin is frozen and
+  // its sun swings instead, so the day still passes over rigid ground.
+  const sunDot = Math.max(_up.dot(planet.sunDir ?? SUN), 0);
   if (dressing) dressing.update(t, sunDot);
   if (parked) parked.update(dt, t, sunDot);
   if (wonders) for (const w of wonders) w.update(t, sunDot);

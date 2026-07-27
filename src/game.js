@@ -1308,7 +1308,7 @@ function frame(now) {
     _up.set(_atmo.upX, _atmo.upY, _atmo.upZ).normalize();
     const su = skyfogPass.uniforms;
     su.uAtmo.value = _atmo.atmo;
-    su.uDay.value = Math.min(Math.max(_up.dot(SUN) * 0.5 + 0.5, 0), 1);
+    su.uDay.value = Math.min(Math.max(_up.dot(_atmo.p.sunDir ?? SUN) * 0.5 + 0.5, 0), 1);
     su.uSkyDay.value.set(_atmo.p.cfg.skyColor());
     su.uDensity.value = C.SKY_DENSITY;
     su.uNear.value = camera.near;
