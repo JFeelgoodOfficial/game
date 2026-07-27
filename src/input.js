@@ -22,6 +22,7 @@ export const input = {
   toggleInterior: false, // C edge-trigger: stand up in the ship / sit back down. main.js reads and zeroes it.
   toggleView: false, // T edge-trigger: first/third person while on foot. main.js reads and zeroes it.
   toggleBoard: false, // B edge-trigger: snowboard on/off (boardable worlds). walk.js consumes it.
+  toggleVehicles: false, // I edge-trigger: vehicle selector on foot. game.js reads and zeroes it.
   interact: false, // E edge-trigger: talk / advance dialogue on foot. main.js reads and zeroes it.
   photo: false, // P edge-trigger: take a photo (capture.js). main.js reads and zeroes it.
   record: false, // R edge-trigger: start/stop screen recording. main.js reads and zeroes it.
@@ -91,6 +92,7 @@ function setKey(e, down) {
     case 'KeyC': if (down) input.toggleInterior = true; break; // stand up in the ship
     case 'KeyT': if (down) input.toggleView = true; break; // first/third person on foot
     case 'KeyB': if (down) input.toggleBoard = true; break; // snowboard on/off on foot
+    case 'KeyI': if (down) input.toggleVehicles = true; break; // vehicle selector on foot
     case 'KeyP': if (down) input.photo = true; break; // take a photo
     case 'KeyR': if (down) input.record = true; break; // toggle screen recording
     case 'Backspace': if (down) input.togglePause = true; e.preventDefault(); break; // pause/resume

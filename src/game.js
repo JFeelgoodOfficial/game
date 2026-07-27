@@ -108,6 +108,7 @@ import {
   trackTitles,
 } from './music.js';
 import { initRadioPopup, openRadioPopup, closeRadioPopup, isRadioPopupOpen } from './radioPopup.js';
+import { initVehicleMenu, toggleVehicleMenu, closeVehicleMenu } from './vehicleMenu.js';
 import { initNav, updateNav, navState, showNavToast, getBodies } from './nav.js';
 import { settings, onSettingsChange } from './settings.js';
 import {
@@ -157,6 +158,7 @@ initTuning();
 initCockpit3d(renderer.domElement);
 initInterior();
 initRadioPopup();
+initVehicleMenu();
 initNav();
 initHolonav(cockpitShell);
 setPointerLockGate(cockpitPointerGate);
@@ -604,6 +606,7 @@ function endWalk() {
   // without ever stepping out releases the universe stage in stepLanded instead.)
   // Before exitWalk: restores visibility for the reset snapshot.
   releaseIsolation(renderer, aoPass, camera, bloomPass);
+  closeVehicleMenu(); // the selector is an on-foot dialog
   exitWalk(camera);
 }
 
@@ -900,6 +903,7 @@ function resetToStart() {
   standBlend = 0;
   closeCredits();
   closeRadioPopup();
+  closeVehicleMenu();
   resetPlayer();
   input.toggleInterior = false;
   // snap the lagging camera to the ship so it doesn't slerp from the horizon
@@ -1139,6 +1143,11 @@ function frame(now) {
   if ((phase === 'fly' || phase === 'walk') && !isGalleryOpen()) {
     if (input.photo) requestPhoto();
     if (input.record) toggleRecording();
+  }
+  // I opens the vehicle selector, on foot only (flight ignores the press).
+  if (input.toggleVehicles) {
+    input.toggleVehicles = false;
+    if (phase === 'walk') toggleVehicleMenu();
   }
   // Consume the edge-triggered toggles exactly once per frame, in any phase.
   // (stepWalk consumes toggleBoard earlier in the frame when it applies —
