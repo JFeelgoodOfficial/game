@@ -68,7 +68,10 @@ import {
   setWaypoint,
   completeWaypoint,
   clearWaypoint,
+  questStage,
+  setQuestStage,
 } from './journal.js';
+import { grantItem } from './inventory.js';
 // Station-interior walk (Orbital Art Gallery). Same public surface, flat
 // station-local frame. Every export below dispatches there while a dock is
 // active, so game.js keeps driving phase 'walk' and never knows which
@@ -142,6 +145,12 @@ let city = null; // the adopted registry city (world/city.js), or null (wilderne
 let citizens = null; // the town's residents — real people (world/citizens.js)
 let wonders = null; // the city's wonders, one module each (world/wonders.js)
 let wonderColliders = null; // surface-local {position,radius,height} cylinders (all wonders, flat)
+let wonderSpots = null; // per-wonder CITY-LOCAL positions — the governor's tour beacons
+let tourReach = 0; // >0: the active beacon is a governor-tour stop with this reach
+// radius. Wonders carry solid central colliders (the Veil's pool is ~43 u),
+// so "standing under it" completes from the plaza's edge, not its center.
+const TOUR_WONDER_REACH = 48;
+const TOUR_RETURN_REACH = 6;
 let creatures = null; // planet wildlife (world/creatures.js)
 let diamondRain = null; // walker-local diamond-rain volume (cfg.diamondRain)
 let marineSnow = null; // diver-local particulate volume (cfg.divable)
@@ -629,6 +638,7 @@ function spawnWorldEntities(planet) {
     // quest chains through all of them in order).
     wonders = [];
     wonderColliders = [];
+    wonderSpots = [];
     for (const w of cityDef.wonders) {
       wonderLocalDir(planet, cityDef, w, _patchUp)
         .applyAxisAngle(_yAxisV, planet.surface.rotation.y); // -> world dir
@@ -644,6 +654,21 @@ function spawnWorldEntities(planet) {
       wonders.push(mod);
       if (Array.isArray(mod.collider)) wonderColliders.push(...mod.collider);
       else if (mod.collider) wonderColliders.push(mod.collider);
+      // The wonder's surface-local position, re-expressed in the CITY's flat
+      // frame — where the governor's tour beacons live (parented to city.group).
+      wonderSpots.push(
+        mod.group.position.clone().sub(city.group.position).applyQuaternion(_cityInvQuat)
+      );
+    }
+
+    // Governor quest: dialogue layered onto the penthouse citizen, and a
+    // mid-tour re-arm — a saved half-finished tour points its beacon at the
+    // next unvisited wonder as soon as the town spawns.
+    citizens.setGovernorHandler(governorInteract);
+    const tourStage = questStage(cityDef.id);
+    if (typeof tourStage === 'number') {
+      if (tourStage < cityDef.wonders.length) armTourBeacon(tourStage);
+      else armReturnBeacon();
     }
   }
 
@@ -751,6 +776,7 @@ export function exitWalk(camera) {
     for (const w of wonders) w.dispose(); // each removes its group from planet.surface
     wonders = null;
     wonderColliders = null;
+    wonderSpots = null;
   }
   if (creatures) {
     creatures.dispose();
@@ -1540,6 +1566,100 @@ function applyOffer(offer, module) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// The governor's wonder tour (world/cityRegistry.js quest blocks). Stage lives
+// in the journal: undefined = never accepted, N = tour stops reached, 'done' =
+// reward claimed. The chain is a sequence of beacons — one per wonder, then
+// the elevator tower door — advanced by the ordinary beacon-reach check.
+// ---------------------------------------------------------------------------
+function armTourBeacon(i) {
+  const def = city?.def;
+  if (!def || !wonderSpots?.[i]) return;
+  setWaypoint(def.wonders[i].title);
+  spawnBeacon(wonderSpots[i], citizens);
+  tourReach = TOUR_WONDER_REACH;
+}
+
+function armReturnBeacon() {
+  const def = city?.def;
+  const ph = city?.homes?.find((h) => h.penthouse);
+  if (!def || !ph) return;
+  setWaypoint('return to the governor');
+  _cityPt.set(ph.doorX, city.groundLocalYAt(ph.doorX, ph.doorZ), ph.doorZ);
+  spawnBeacon(_cityPt.clone(), citizens);
+  tourReach = TOUR_RETURN_REACH;
+}
+
+// A tour beacon was reached: count the stop, aim the next one.
+function advanceTour() {
+  const def = city?.def;
+  if (!def?.quest) return;
+  const st = questStage(def.id);
+  if (typeof st !== 'number') return;
+  const n = def.wonders.length;
+  if (st < n) {
+    const next = st + 1;
+    setQuestStage(def.id, next);
+    if (next < n) armTourBeacon(next);
+    else armReturnBeacon();
+  }
+  // st === n means the tower-door return beacon — the governor takes it from here.
+}
+
+// Governor dialogue (world/citizens.js setGovernorHandler): offer, reminder,
+// completion + reward, thanks — all from the registry quest block.
+function governorInteract(c, { fill, speakerFor }) {
+  const def = city.def;
+  const q = def.quest;
+  const speaker = speakerFor(c);
+  if (!q) return { speaker, lines: [fill('Welcome to {{cityName}}.', c)] };
+  const st = questStage(def.id);
+  if (st === 'done') return { speaker, lines: [fill(q.thanks, c)] };
+  if (st === undefined) {
+    return {
+      speaker,
+      lines: q.offer.map((l) => fill(l, c)),
+      offer: {
+        kind: 'choice',
+        prompt: 'Walk the tour?',
+        options: [
+          { label: 'I’ll walk the tour.', outcomeTag: `menu:${def.id}:gov:accept` },
+          { label: 'Another time.', outcomeTag: `menu:${def.id}:gov:later` },
+        ],
+      },
+    };
+  }
+  if (st >= def.wonders.length) {
+    // Tour complete — hand over the vehicle.
+    grantItem(q.reward);
+    setQuestStage(def.id, 'done');
+    removeBeacon();
+    clearWaypoint();
+    return { speaker, lines: [fill(q.complete, c)] };
+  }
+  // Mid-tour reminder, with the next stop's flavor line.
+  const nextLine = q.wonderLines?.[st]
+    ? fill(q.wonderLines[st], c)
+    : `Next: ${def.wonders[st].title}.`;
+  return { speaker, lines: [fill(q.remind, c), nextLine] };
+}
+governorInteract.onOutcome = (tag) => {
+  const m = /^menu:([^:]+):gov:(\w+)$/.exec(tag ?? '');
+  if (!m || m[1] !== city?.def?.id) return null;
+  if (m[2] !== 'accept') return null; // 'later' just closes the panel
+  const def = city.def;
+  const gov = citizens.citizens.find((x) => x.dialogue === 'governor');
+  setQuestStage(def.id, 0);
+  armTourBeacon(0);
+  const first = def.quest.wonderLines?.[0]
+    ? citizens.fill(def.quest.wonderLines[0], gov)
+    : `Start at ${def.wonders[0].title}.`;
+  return {
+    speaker: citizens.speakerFor(gov),
+    lines: [first, 'The beacon knows the way. Come back when you have stood under them all.'],
+  };
+};
+
 // Waypoint beacon: an emissive column at the quest marker. The marker is a
 // Vector3 in the SOURCE module's group-local frame (contract), so the beacon
 // is parented there — planet spin and origin rebases carry it for free, and
@@ -1547,6 +1667,7 @@ function applyOffer(offer, module) {
 function spawnBeacon(marker, module) {
   if (!marker || !marker.isVector3) return;
   removeBeacon();
+  // (removeBeacon cleared tourReach; the arm functions re-set it after spawn)
   // Interior crowds (quest-free) never reach here; crowd and any interior
   // module live under city.group, creatures under its own group, and the
   // wavemall crowd under its own (its quests are codex-only today, but stay safe).
@@ -1578,13 +1699,17 @@ function updateBeacon(t) {
   beacon.material.emissiveIntensity = 1.0 + Math.sin(t * 3) * 0.4;
   const dx = beacon.position.x - _playerLocal.x;
   const dz = beacon.position.z - _playerLocal.z;
-  if (dx * dx + dz * dz < 9) {
+  const reach = tourReach > 0 ? tourReach : 3;
+  if (dx * dx + dz * dz < reach * reach) {
+    const wasTour = tourReach > 0;
     completeWaypoint();
     removeBeacon();
+    if (wasTour) advanceTour(); // count the stop, arm the next beacon
   }
 }
 
 function removeBeacon() {
+  tourReach = 0;
   if (!beacon) return;
   beacon.material.dispose(); // geometry is shared; freed in exitWalk
   beaconParent.remove(beacon);
@@ -1627,6 +1752,11 @@ export function walkSite() {
     shadowreach, interiorCrowds,
     creatures, diamondRain, marineSnow, planetSky, wyattmattoe,
     station: stationWalk.stationSite(),
+    // Governor-tour beacon internals, for headless verification.
+    beaconInfo: beacon
+      ? { x: beacon.position.x, z: beacon.position.z, tourReach,
+          parentIsCity: beaconParent === city?.group }
+      : null,
   };
 }
 
