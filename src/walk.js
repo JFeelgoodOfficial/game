@@ -939,6 +939,8 @@ export function stepWalk(dt) {
   const fwd = (input.forward ? 1 : 0) - (input.reverse ? 1 : 0);
   const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
   const moto = !walk.boarding && walk.vehicle === 'motorcycle';
+  const gliding = walk.vehicle === 'hangglider' && !walk.grounded && !walk.swimming;
+  const flying = walk.vehicle === 'plane' && !walk.swimming;
   if (walk.boarding || moto) {
     // --- SNOWBOARD / MOTORCYCLE: carve-and-ballistics riding ---------------
     // The board is gravity-fed: the fall line accelerates you, the edge's
@@ -1023,6 +1025,37 @@ export function stepWalk(dt) {
       walk.boardIdle = walk.grounded && sp < 1.0 ? walk.boardIdle + dt : 0;
       if (walk.boardIdle > C.BOARD_IDLE_EXIT) walk.boarding = false;
     }
+    ship.position.addScaledVector(walk.vel, dt);
+  } else if (gliding || flying) {
+    // --- AERO (hang glider / ultralight): the nose leads, the velocity
+    // follows. A/D banks the heading; W and S are energy controls (dive/
+    // flare on the kite, throttle/brake on the plane). The vertical half of
+    // the model — sink, climb, stall — lives in the vertical section below.
+    const turnRate = flying ? C.PLANE_TURN : C.GLIDE_TURN;
+    if (strafe !== 0) {
+      walk.heading.applyAxisAngle(_up, -strafe * turnRate * dt);
+      projectTangent(walk.heading, _up);
+      walk.heading.normalize();
+      _right.crossVectors(walk.heading, _up).normalize();
+    }
+    walk.carve += (strafe - walk.carve) * Math.min(1, 4 * dt); // bank pose/camera
+    projectTangent(walk.vel, _up);
+    const along = walk.vel.dot(walk.heading);
+    const vSide = walk.vel.dot(_right);
+    let target;
+    if (flying) {
+      target = walk.grounded
+        ? (input.forward ? C.PLANE_ROTATE_SPEED : 0)
+        : input.forward ? C.PLANE_MAX_SPEED : C.PLANE_TRIM_SPEED;
+    } else {
+      target = input.forward ? C.GLIDE_FAST : input.reverse ? C.GLIDE_MIN_SPEED : C.GLIDE_TRIM_SPEED;
+    }
+    let newAlong = along + (target - along) * Math.min(1, (flying ? 1.1 : 0.7) * dt);
+    if (flying && walk.grounded && input.reverse) newAlong *= Math.exp(-2.5 * dt); // wheel brake
+    const grip = Math.exp(-(flying ? 3.0 : C.GLIDE_GRIP) * dt);
+    walk.vel.set(0, 0, 0)
+      .addScaledVector(walk.heading, newAlong)
+      .addScaledVector(_right, vSide * grip);
     ship.position.addScaledVector(walk.vel, dt);
   } else {
     _wish.set(0, 0, 0);
@@ -1329,6 +1362,54 @@ export function stepWalk(dt) {
     if (r - surfaceR > C.JET_CEILING) walk.vUp = Math.min(walk.vUp, 0);
     r += walk.vUp * dt;
     if (r < surfaceR) r = surfaceR; // skimming under thrust never digs in
+  } else if (walk.vehicle === 'hangglider' && !walk.grounded && !walk.swimming) {
+    // --- HANG GLIDER: the kite opens the moment you're airborne. Sink
+    // replaces free fall; diving deepens it, flaring flattens it, and losing
+    // airspeed below the stall mushes the canopy down hard.
+    const along = walk.vel.dot(walk.heading);
+    const mush = Math.max(0, 1 - along / C.GLIDE_STALL_SPEED) * 4;
+    const sinkTarget = (input.forward ? -C.GLIDE_DIVE_SINK
+      : input.reverse ? -C.GLIDE_FLARE_SINK : -C.GLIDE_SINK) - mush;
+    walk.vUp += (sinkTarget - walk.vUp) * Math.min(1, 2.2 * dt);
+    r += walk.vUp * dt;
+    if (r <= surfaceR) {
+      r = surfaceR;
+      walk.grounded = true;
+      walk.vUp = 0;
+    }
+  } else if (walk.vehicle === 'plane' && !walk.swimming) {
+    // --- ULTRALIGHT: taxi until rotation speed, then the camera pitch flies
+    // it — look up to climb, down to dive — under a hard ceiling. Slowing
+    // below the stall drops the nose no matter where you look.
+    if (walk.grounded) {
+      if (input.forward && walk.vel.length() > C.PLANE_TAKEOFF_SPEED) {
+        walk.grounded = false;
+        walk.vUp = C.PLANE_CLIMB_INIT;
+        r += walk.vUp * dt;
+      } else if (walk.vUp <= 0 && r <= surfaceR + GROUND_SNAP) {
+        r = surfaceR; // rolling — follow the strip
+        walk.vUp = 0;
+      } else {
+        walk.grounded = false;
+        walk.vUp -= C.WALK_GRAVITY * (planet.cfg?.walkGravityScale ?? 1) * dt;
+        r += walk.vUp * dt;
+        if (r <= surfaceR) { r = surfaceR; walk.grounded = true; walk.vUp = 0; }
+      }
+    } else {
+      const along = walk.vel.length();
+      let climbCmd = THREE.MathUtils.clamp(
+        Math.sin(walk.pitch) * along * 0.8, -C.PLANE_MAX_SINK, C.PLANE_MAX_CLIMB
+      );
+      if (along < C.PLANE_STALL_SPEED) climbCmd -= (1 - along / C.PLANE_STALL_SPEED) * 8;
+      if (r - surfaceR > C.PLANE_CEILING) climbCmd = Math.min(climbCmd, 0);
+      walk.vUp += (climbCmd - walk.vUp) * Math.min(1, 2 * dt);
+      r += walk.vUp * dt;
+      if (r <= surfaceR) {
+        r = surfaceR; // touched down — back to rolling, momentum kept
+        walk.grounded = true;
+        walk.vUp = 0;
+      }
+    }
   } else if (walk.vUp <= 0 && r <= surfaceR + GROUND_SNAP) {
     r = surfaceR; // grounded: follow the terrain up and down
     walk.grounded = true;
@@ -1363,16 +1444,24 @@ export function stepWalk(dt) {
         ? 'moto'
         : walk.vehicle === 'jetpack' && !walk.grounded
           ? 'jet'
-          : !walk.grounded
-            ? 'jump'
-            : hSpeed > 0.6
-              ? 'run'
-              : 'idle';
+          : walk.vehicle === 'hangglider' && !walk.grounded
+            ? 'glide'
+            : walk.vehicle === 'plane'
+              ? 'plane'
+              : !walk.grounded
+                ? 'jump'
+                : hSpeed > 0.6
+                  ? 'run'
+                  : 'idle';
   walk.speed01 = walk.boarding
     ? Math.min(hSpeed / C.BOARD_MAX_SPEED, 1)
     : walk.mode === 'moto'
       ? Math.min(hSpeed / C.MOTO_MAX_SPEED, 1)
-      : Math.min(hSpeed / C.WALK_RUN_SPEED, 1);
+      : walk.mode === 'plane'
+        ? Math.min(hSpeed / C.PLANE_MAX_SPEED, 1)
+        : walk.mode === 'glide'
+          ? Math.min(hSpeed / C.GLIDE_FAST, 1)
+          : Math.min(hSpeed / C.WALK_RUN_SPEED, 1);
   if (hSpeed > 0.4) {
     // The body turns smoothly toward where it's actually moving.
     _fwd.copy(walk.vel).multiplyScalar(1 / hSpeed);
@@ -1933,7 +2022,7 @@ export function updateWalkCamera(camera, delta = 0) {
   }
 
   // Boarding at speed eases the orbit out for a wider view of the line.
-  const bFrac = walk.boarding || walk.mode === 'moto'
+  const bFrac = walk.boarding || walk.mode === 'moto' || walk.mode === 'glide' || walk.mode === 'plane'
     ? Math.min(walk.speed01 * 1.3, 1)
     : 0;
   boardCamEase += (bFrac - boardCamEase) * Math.min(1, 4 * delta);
@@ -1980,6 +2069,7 @@ export function updateWalkCamera(camera, delta = 0) {
   // A touch of extra FOV at full sprint — the demo's speed rush. The board
   // widens further, scaled by how fast the ride actually is.
   const wantKick = walk.boarding || walk.mode === 'moto'
+      || walk.mode === 'glide' || walk.mode === 'plane'
     ? boardCamEase
     : walk.mode === 'run' && input.boost && walk.speed01 > 0.55
       ? 1

@@ -496,6 +496,9 @@ if (import.meta.env.DEV) {
     get deployVehicle() {
       return walkDebug()?.deployVehicle;
     },
+    get stowVehicle() {
+      return walkDebug()?.stowVehicle;
+    },
     get vehicleState() {
       return walkDebug()?.vehicleState;
     },

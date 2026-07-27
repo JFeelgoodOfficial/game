@@ -232,6 +232,31 @@ export const C = {
   JET_REGEN_SECS: 5.0, // grounded seconds to refill from empty
   JET_CEILING: 90.0, // max height above local ground — thrust cuts out
   JET_AIR_ACCEL: 10.0, // horizontal air control while the pack is worn
+  // Hang glider: opens the moment you're airborne. Sink replaces free fall;
+  // W dives for speed, S flares to bleed it, A/D banks the canopy. Flying
+  // slow mushes — the sink deepens as airspeed decays toward the stall.
+  GLIDE_SINK: 1.7, // trim sink rate, units/sec
+  GLIDE_DIVE_SINK: 7.5, // sink while diving (W)
+  GLIDE_FLARE_SINK: 0.7, // sink while flaring (S)
+  GLIDE_TRIM_SPEED: 15.0, // hands-off airspeed
+  GLIDE_FAST: 28.0, // airspeed a full dive builds toward
+  GLIDE_MIN_SPEED: 8.0, // a long flare bleeds down to this
+  GLIDE_STALL_SPEED: 8.0, // below this the canopy mushes (extra sink)
+  GLIDE_TURN: 1.6, // rad/s bank steering
+  GLIDE_GRIP: 2.6, // /s sideways-velocity decay — the canopy tracks its nose
+  // Ultralight plane: taxi with W, rotate past takeoff speed, then the
+  // camera pitch flies it — look up to climb, down to dive. Energy-coupled:
+  // climbing costs airspeed, diving builds it.
+  PLANE_TAKEOFF_SPEED: 15.0, // ground speed needed to rotate
+  PLANE_ROTATE_SPEED: 19.0, // taxi speed the throttle builds toward
+  PLANE_CLIMB_INIT: 6.0, // vertical speed handed over at rotation
+  PLANE_MAX_SPEED: 36.0, // full-throttle airspeed
+  PLANE_TRIM_SPEED: 18.0, // idle-throttle airspeed (powered glide)
+  PLANE_MAX_CLIMB: 10.0, // vertical speed cap, climbing
+  PLANE_MAX_SINK: 14.0, // vertical speed cap, diving
+  PLANE_STALL_SPEED: 10.0, // below this the nose drops whatever you do
+  PLANE_TURN: 1.2, // rad/s bank steering
+  PLANE_CEILING: 170.0, // max height above local ground — it's no spaceship
 
   // --- handheld terrain manipulator (terra only — cfg.terraform) ---
   // Brush radius sits well above terra's ~16 u vertex spacing so every stamp
