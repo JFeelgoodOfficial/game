@@ -16,7 +16,13 @@ export const ITEMS = {
   hangglider: { name: 'Saddle Kite', hint: 'Deploy in a leap; dive for speed, flare to land.' },
 };
 
+// The snowboard isn't a quest reward — it's always available on boardable
+// worlds — but it IS equipment, so it appears in the panel and can be the
+// selection. Kept out of ITEMS, which is keyed by quest `reward` ids.
+export const SNOWBOARD = 'snowboard';
+
 let items = new Set(); // owned item ids (persisted)
+let selected = null; // equipment the B key acts on (persisted)
 
 function load() {
   try {
@@ -24,6 +30,7 @@ function load() {
     if (!raw) return;
     const data = JSON.parse(raw);
     if (Array.isArray(data.items)) items = new Set(data.items.filter((i) => ITEMS[i]));
+    if (data.selected === SNOWBOARD || ITEMS[data.selected]) selected = data.selected;
   } catch {
     /* corrupt or unavailable — start empty, session-only */
   }
@@ -31,7 +38,7 @@ function load() {
 
 function save() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ items: [...items] }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ items: [...items], selected }));
   } catch {
     /* session-only */
   }
@@ -59,7 +66,19 @@ export function ownedItems() {
   return [...items];
 }
 
+// What B activates. null means "no selection" — B then falls back to its
+// original snowboard behaviour, so the key means the same thing until the
+// player deliberately picks something.
+export function selectedItem() {
+  return selected;
+}
+
+export function setSelectedItem(id) {
+  selected = id;
+  save();
+}
+
 // Debug/inspection hook (__debug.inventory()).
 export function inventoryState() {
-  return { items: [...items] };
+  return { items: [...items], selected };
 }

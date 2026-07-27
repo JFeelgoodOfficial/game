@@ -41,6 +41,7 @@ import {
   cockpitDebug,
 } from './cockpit3d.js';
 import { initHolonav, updateHolonav, isHoloOpen, holonavDebug } from './holonav.js';
+import { navMenuDebug } from './navmenu.js';
 import { startAutoWarp, stepAutopilot, autopilotActive, cancelAutopilot } from './autopilot.js';
 import {
   interiorScene,
@@ -71,6 +72,7 @@ import {
   planets,
   SUN,
 } from './planet.js';
+import { initCityFlatten } from './cityflatten.js';
 import {
   initWalk,
   nearestTerraFloor,
@@ -136,6 +138,9 @@ const scene = new THREE.Scene();
 // --- the planetary system (terra + gas giants; gravity/floor registered
 // inside initPlanets) ---
 initPlanets(scene);
+// Level the terrain under every registry town. Must run before
+// startPlanetBake() below, so the town discs bake into the mesh flat.
+initCityFlatten(planets);
 
 // The on-foot astronaut (hidden until a disembark) lives in the world scene.
 initWalk(scene);
@@ -382,6 +387,7 @@ if (import.meta.env.DEV) {
     navState,
     cockpit: cockpitDebug(),
     holo: holonavDebug(),
+    navMenu: navMenuDebug(),
     autopilot: {
       active: autopilotActive,
       start: (id) => startAutoWarp(getBodies().find((b) => b.id === id)),
@@ -1302,7 +1308,7 @@ function frame(now) {
     _up.set(_atmo.upX, _atmo.upY, _atmo.upZ).normalize();
     const su = skyfogPass.uniforms;
     su.uAtmo.value = _atmo.atmo;
-    su.uDay.value = Math.min(Math.max(_up.dot(SUN) * 0.5 + 0.5, 0), 1);
+    su.uDay.value = Math.min(Math.max(_up.dot(_atmo.p.sunDir ?? SUN) * 0.5 + 0.5, 0), 1);
     su.uSkyDay.value.set(_atmo.p.cfg.skyColor());
     su.uDensity.value = C.SKY_DENSITY;
     su.uNear.value = camera.near;

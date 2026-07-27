@@ -5,6 +5,7 @@
 // updateControls().
 
 import { currentGravityScale, currentBoardable } from './walkLazy.js';
+import { setEquipButtonVisible } from './vehicleMenu.js';
 
 const CSS = `
 #walkHint {
@@ -43,6 +44,7 @@ const WALK_LINES = [
   'SHIFT — RUN · SPACE — JUMP',
   'E — TALK · T — VIEW · SCROLL — ZOOM',
   'G — BOARD (AT YOUR SHIP) · , . — MUSIC',
+  'I — EQUIPMENT · B — USE SELECTED',
   'P — PHOTO · R — RECORD (PICS)',
 ];
 
@@ -72,7 +74,7 @@ export function initControls() {
   walkHint.appendChild(gravLine);
   boardLine = document.createElement('div');
   boardLine.className = 'wh-board';
-  boardLine.textContent = 'B — SNOWBOARD';
+  boardLine.textContent = 'SNOWBOARD RIDES HERE';
   boardLine.style.display = 'none';
   walkHint.appendChild(boardLine);
   document.body.appendChild(walkHint);
@@ -83,6 +85,7 @@ export function updateControls(phase) {
   const walkOn = phase === 'walk';
   if (walkOn !== lastWalkOn) {
     walkHint.classList.toggle('on', walkOn);
+    setEquipButtonVisible(walkOn);
     lastWalkOn = walkOn;
     if (walkOn) {
       gravLine.style.display = currentGravityScale() < 0.7 ? '' : 'none';

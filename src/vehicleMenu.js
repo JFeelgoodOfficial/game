@@ -1,13 +1,17 @@
-// Vehicle selector pop-up (I on foot) — the inventory the governors fill.
-// Follows the radioPopup.js dialog pattern: injected CSS, `.open` class,
-// closes on X/I (never Escape — reserved by pointer lock) and puts itself
-// away if the pointer locks. Rows are the four quest vehicles; owned ones
-// deploy on click (walk.js mounts immediately), the current mount stows.
+// Equipment panel (I on foot, or the on-screen EQUIPMENT button) — the
+// inventory the governors fill. Follows the radioPopup.js dialog pattern:
+// injected CSS, `.open` class, closes on X/I (never Escape — reserved by
+// pointer lock) and puts itself away if the pointer locks.
+//
+// Rows are the four quest vehicles plus the snowboard. Clicking a row SELECTS
+// it; B then activates or stows the selection (walk.js). Clicking an
+// already-selected row deploys it immediately, so the old one-tap flow still
+// works for mouse users.
 //
 // The story total-conversions and the station refuse deployment inside
 // walk.js — the footer explains instead of failing silently.
 
-import { ITEMS, hasItem } from './inventory.js';
+import { ITEMS, SNOWBOARD, hasItem, selectedItem, setSelectedItem } from './inventory.js';
 import { deployVehicle, stowVehicle, vehicleState } from './walkLazy.js';
 
 const CSS = `
@@ -56,6 +60,23 @@ const CSS = `
   background: rgba(212,64,143,0.28); color: #ffd0ee;
   border-color: rgba(212,64,143,0.8);
 }
+#vehiclePanel .vp-row.selected {
+  background: rgba(125,255,200,0.18); color: #c8ffe8;
+  border-color: rgba(125,255,200,0.85);
+}
+#equipBtn {
+  position: fixed; right: 152px; bottom: 22px; z-index: 12; display: none;
+  padding: 10px 16px; border-radius: 4px; cursor: pointer;
+  font-family: 'Courier New', ui-monospace, monospace;
+  font-size: 11px; letter-spacing: 0.22em; color: #a9f7ff;
+  background: rgba(4,12,20,0.72); border: 1px solid rgba(130,247,255,0.5);
+  touch-action: none; user-select: none;
+}
+#equipBtn.on { display: block; }
+#equipBtn:hover { background: rgba(130,247,255,0.16); }
+@media (max-width: 640px) {
+  #equipBtn { right: 12px; bottom: 70px; }
+}
 #vehiclePanel .vp-close { font-size: 13px; letter-spacing: 0.3em; padding: 10px 34px; }
 #vehiclePanel .vp-foot {
   font-size: 10px; letter-spacing: 0.22em; color: #5da8b3; text-align: center;
@@ -71,23 +92,50 @@ const CSS = `
 
 const ORDER = ['motorcycle', 'hangglider', 'jetpack', 'plane'];
 
-let panel, listEl, footEl;
+// The snowboard rides in the same list so B has one consistent meaning
+// ("use my selected gear") rather than two.
+const BOARD_ENTRY = {
+  name: 'Snowboard',
+  hint: 'Carve the snowfields. Boardable worlds only.',
+};
+
+let panel, listEl, footEl, equipBtn;
 let menuOpen = false;
+
+function activate(id) {
+  if (id === SNOWBOARD) {
+    closeVehicleMenu();
+    return;
+  }
+  if (vehicleState().vehicle === id) {
+    stowVehicle();
+    refresh('Stowed.');
+  } else if (deployVehicle(id)) {
+    closeVehicleMenu();
+  } else {
+    refresh('Not here — vehicles stay stowed in story places and water.');
+  }
+}
 
 function refresh(note) {
   const state = vehicleState();
+  const sel = selectedItem();
   listEl.textContent = '';
   let owned = 0;
-  for (const id of ORDER) {
-    const item = ITEMS[id];
-    const has = hasItem(id);
-    if (has) owned++;
+  for (const id of [...ORDER, SNOWBOARD]) {
+    const isBoard = id === SNOWBOARD;
+    const item = isBoard ? BOARD_ENTRY : ITEMS[id];
+    const has = isBoard || hasItem(id);
+    if (has && !isBoard) owned++;
     const row = document.createElement('button');
-    row.className = 'vp-row' + (has ? '' : ' locked') + (state.vehicle === id ? ' deployed' : '');
+    row.className = 'vp-row' + (has ? '' : ' locked')
+      + (state.vehicle === id ? ' deployed' : sel === id ? ' selected' : '');
     const name = document.createElement('div');
     name.className = 'vp-name';
     name.textContent = has
-      ? (state.vehicle === id ? `${item.name.toUpperCase()} — DEPLOYED` : item.name.toUpperCase())
+      ? (state.vehicle === id
+        ? `${item.name.toUpperCase()} — DEPLOYED`
+        : sel === id ? `${item.name.toUpperCase()} — SELECTED` : item.name.toUpperCase())
       : '???';
     row.appendChild(name);
     const hint = document.createElement('div');
@@ -96,13 +144,11 @@ function refresh(note) {
     row.appendChild(hint);
     if (has) {
       row.addEventListener('click', () => {
-        if (vehicleState().vehicle === id) {
-          stowVehicle();
-          refresh('Stowed.');
-        } else if (deployVehicle(id)) {
-          closeVehicleMenu();
-        } else {
-          refresh('Not here — vehicles stay stowed in story places and water.');
+        // Second click on the current selection acts on it; the first selects.
+        if (selectedItem() === id) activate(id);
+        else {
+          setSelectedItem(id);
+          refresh('SELECTED — PRESS B TO ACTIVATE');
         }
       });
     }
@@ -110,8 +156,8 @@ function refresh(note) {
   }
   footEl.textContent = note
     ?? (owned === 0
-      ? 'NO VEHICLES YET — THE GOVERNORS REWARD THEIR TOURS'
-      : 'I / X — CLOSE · B ON FOOT — DISMOUNT');
+      ? 'NO QUEST ITEMS YET — THE GOVERNORS REWARD THEIR TOURS'
+      : 'I / X — CLOSE · B — ACTIVATE SELECTED');
 }
 
 function onPanelKey(e) {
@@ -128,7 +174,7 @@ export function initVehicleMenu() {
 
   const title = document.createElement('div');
   title.className = 'vp-title';
-  title.textContent = 'VEHICLES';
+  title.textContent = 'EQUIPMENT';
   panel.appendChild(title);
 
   listEl = document.createElement('div');
@@ -147,11 +193,23 @@ export function initVehicleMenu() {
 
   document.body.appendChild(panel);
 
+  // On-screen opener, for touch and for players who never learn I.
+  equipBtn = document.createElement('div');
+  equipBtn.id = 'equipBtn';
+  equipBtn.textContent = 'EQUIPMENT';
+  equipBtn.addEventListener('click', () => toggleVehicleMenu());
+  document.body.appendChild(equipBtn);
+
   // a click past the panel edge grabs pointer lock and hides the cursor —
   // treat it as "back to playing" and put the dialog away
   document.addEventListener('pointerlockchange', () => {
     if (document.pointerLockElement) closeVehicleMenu();
   });
+}
+
+// On-foot only — controls.js drives this alongside the walk hint.
+export function setEquipButtonVisible(v) {
+  if (equipBtn) equipBtn.classList.toggle('on', !!v);
 }
 
 export function openVehicleMenu() {

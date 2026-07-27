@@ -45,17 +45,26 @@ import cityHazeFrag from './shaders/cityHaze.frag?raw';
 // ---------------------------------------------------------------------------
 const C = {
   BASE_HEIGHT_OFFSET: 0.05, // lift above sampled ground to avoid z-fight
-  SINK: 0.35, // drop below analytic ground (coarse render mesh dips between verts)
+  // Drop below analytic ground. This used to be 0.35 to compensate for the
+  // coarse render mesh (~16 u vertex spacing) dipping between verts on rolling
+  // terrain. src/cityflatten.js now bakes every vertex inside the town disc to
+  // the same height, so the mesh interpolates exactly flat and the old margin
+  // would just let terrain render above the street.
+  SINK: 0.05,
   PLAZA_RADIUS: 14,
-  HOUSE_RING_MIN: 34, // houses sit on a ring around the plaza
-  HOUSE_RING_MAX: 52,
-  ROOM_H: 5.2, // interior ceiling height — high, airy, easy to walk and talk in
+  // Houses are built at 2x the authored kit footprint and 2x the ceiling
+  // height: the third-person camera boom is 7.6 units, and at the old 11-16
+  // unit room width it had nowhere to sit indoors except through a wall.
+  HOUSE_SCALE: 2,
+  HOUSE_RING_MIN: 34, // floor for the house ring — the real radius is derived
+  HOUSE_RING_MAX: 52, //   from the largest footprint (see the slot layout)
+  ROOM_H: 10.4, // interior ceiling height — high, airy, easy to walk and talk in
   WALL_T: 0.35,
-  DOOR_HALF: 0.8, // open doorway: 1.6 wide ...
-  DOOR_H: 3.4, // ... and 3.4 tall
-  WIN_W: 1.5, // window opening width
-  WIN_H: 1.6, // window opening height
-  WIN_SILL: 1.1, // sill height above the floor
+  DOOR_HALF: 1.3, // open doorway: 2.6 wide ...
+  DOOR_H: 4.6, // ... and 4.6 tall
+  WIN_W: 2.6, // window opening width
+  WIN_H: 3.2, // window opening height
+  WIN_SILL: 1.1, // sill height above the floor (human scale — does not scale)
   ROOF_T: 0.35,
   PAD_LENGTH: 20,
   PAD_WIDTH: 14,
@@ -273,6 +282,45 @@ export function makeStructure(ox, oz, baseY, surfaces, walls, halfExtent) {
       if (pushed) { p.x = ox + lx; p.z = oz + lz; }
       return pushed;
     },
+    // First wall crossed by the city-local segment (x0,z0)->(x1,z1) at foot
+    // height feetY: the fraction along it, or null for a clear line. The walk
+    // camera uses this to shorten its boom instead of sitting outside the wall
+    // the player is standing behind. Same height-band gate resolveWalls uses,
+    // so glass counts exactly as much as stone — both stop the view.
+    segmentHit(x0, z0, x1, z1, feetY) {
+      const ax = x0 - ox, az = z0 - oz;
+      const bx = x1 - ox, bz = z1 - oz;
+      const lim = halfExtent + 2;
+      if ((ax < -lim && bx < -lim) || (ax > lim && bx > lim) ||
+          (az < -lim && bz < -lim) || (az > lim && bz > lim)) return null;
+      const feet = feetY - baseY;
+      const dx = bx - ax, dz = bz - az;
+      let best = null;
+      for (const w of walls) {
+        if (feet >= w.y1 || feet + 1.7 <= w.y0) continue;
+        let t0 = 0, t1 = 1;
+        if (dx === 0) {
+          if (ax < w.x0 || ax > w.x1) continue;
+        } else {
+          let ta = (w.x0 - ax) / dx, tb = (w.x1 - ax) / dx;
+          if (ta > tb) { const s = ta; ta = tb; tb = s; }
+          t0 = Math.max(t0, ta); t1 = Math.min(t1, tb);
+          if (t0 > t1) continue;
+        }
+        if (dz === 0) {
+          if (az < w.z0 || az > w.z1) continue;
+        } else {
+          let ta = (w.z0 - az) / dz, tb = (w.z1 - az) / dz;
+          if (ta > tb) { const s = ta; ta = tb; tb = s; }
+          t0 = Math.max(t0, ta); t1 = Math.min(t1, tb);
+          if (t0 > t1) continue;
+        }
+        if (t1 < 0 || t0 > 1) continue;
+        // t0 <= 0 means the segment starts inside this wall — nothing to clamp.
+        if (t0 > 0 && (best === null || t0 < best)) best = t0;
+      }
+      return best;
+    },
   };
 }
 
@@ -393,17 +441,24 @@ export function createCity(planet, worldUp, opts = {}) {
   // Flattening pads: list of {x,z,r,y} — locally flattened footprints
   // -------------------------------------------------------------------------
   const flattenPads = [];
+  // Highest pad wins. Two things matter here: the raw sample is hoisted out of
+  // the loop (one fbm evaluation instead of one per overlapping pad), and the
+  // result is a max rather than "whichever pad happened to be pushed last" —
+  // pads are pushed from five different places and overlap freely, so an
+  // order-dependent rule let a house pad get dragged down into a neighbouring
+  // lower plaza pad. Blend weights still fall to zero at each rim, so the
+  // surface stays continuous.
   function flattenedHeight(x, z) {
+    const raw = sampleGroundLocalY(x, z);
     let best = null;
     for (const p of flattenPads) {
       const d = Math.hypot(x - p.x, z - p.z);
-      if (d <= p.r) {
-        const blend = 1 - THREE.MathUtils.smoothstep(d, p.r * 0.6, p.r);
-        if (best === null) best = p.y;
-        best = THREE.MathUtils.lerp(sampleGroundLocalY(x, z), p.y, blend);
-      }
+      if (d > p.r) continue;
+      const blend = 1 - THREE.MathUtils.smoothstep(d, p.r * 0.6, p.r);
+      const y = THREE.MathUtils.lerp(raw, p.y, blend);
+      if (best === null || y > best) best = y;
     }
-    return best === null ? sampleGroundLocalY(x, z) : best;
+    return best === null ? raw : best;
   }
 
   // -------------------------------------------------------------------------
@@ -484,12 +539,6 @@ export function createCity(planet, worldUp, opts = {}) {
 
   // House slots: one per grounded citizen, ringed around the plaza, keeping
   // clear of the walkway corridor and the tower.
-  const angDiff = (a, b) => {
-    let d = a - b;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
-    return Math.abs(d);
-  };
   const groundedCitizens = [];
   let penthouseCitizen = null;
   for (let i = 0; i < roster.length; i++) {
@@ -499,23 +548,53 @@ export function createCity(planet, worldUp, opts = {}) {
   }
   const houseSlots = [];
   {
-    const n = Math.max(groundedCitizens.length, 1);
     const start = gateBearing + 0.7;
     const span = Math.PI * 2 - 1.4; // leave the gate corridor open
+    const CLEAR = 5; // gap between neighbouring footprints, surface units
+    const halves = groundedCitizens.map(
+      (c) => ((ROLE_KITS[c.build ?? c.role] ?? ROLE_KITS.resident).half) * C.HOUSE_SCALE
+    );
+    const maxHalf = Math.max(...halves, 0);
+    const sumHalf = halves.reduce((a, b) => a + b, 0);
+
+    // Houses are laid out by ACCUMULATED angular width, not by dividing the
+    // arc evenly. At 2x scale a footprint is up to 28 units across, and even
+    // spacing plus the old tower nudge let neighbours interpenetrate: the
+    // nudge pushed a house off the tower's bearing and straight into the house
+    // next door. Packing by width can't overlap by construction.
+    //
+    // House i needs angular width 2*(half_i + CLEAR/2)/d, so the ring has to
+    // satisfy (2*sum(half) + n*CLEAR)/d <= span. The tower now sits well
+    // inside the ring, so the nudge is gone — the clamp below keeps the ring
+    // outside the tower's balcony instead.
+    const towerClear = towerDist + (C.TOWER_HALF + 3.0 + 0.6) + maxHalf + 3;
+    const ringMin = Math.max(
+      C.HOUSE_RING_MIN,
+      (2 * sumHalf + halves.length * CLEAR) / span,
+      towerClear
+    );
+    // Stay inside the town, and therefore inside the levelled ground disc.
+    const ringMax = Math.max(ringMin + 1, Math.min(ringMin * 1.35, radius - maxHalf - 8));
+    const ringSpread = ringMax - ringMin;
+    // Angles are solved at ringMin (the tightest ring); pushing a house
+    // outward from there only increases its distance from its neighbours.
+    const used = (2 * sumHalf + halves.length * CLEAR) / ringMin;
+    const slack = Math.max(0, span - used) / (halves.length + 1);
+
+    let a = start + slack;
     for (let i = 0; i < groundedCitizens.length; i++) {
-      let a = start + ((i + 0.5) / n) * span;
-      // nudge out of the tower's wedge
-      if (angDiff(a, towerBearing) < 0.5) a += (a > towerBearing ? 1 : -1) * (0.55 - angDiff(a, towerBearing));
-      a += (rng() - 0.5) * 0.12;
-      let d = C.HOUSE_RING_MIN + rng() * (C.HOUSE_RING_MAX - C.HOUSE_RING_MIN);
+      const w = (halves[i] + CLEAR / 2) / ringMin; // half-width in radians
+      a += w;
+      let d = ringMin + rng() * ringSpread;
       let hx = Math.cos(a) * d, hz = Math.sin(a) * d;
-      // snap to dry ground: walk the bearing/distance a little if needed
+      // Snap to dry ground by stepping OUTWARD only — moving along the ring
+      // would eat into a neighbour's slot, but moving out cannot.
       for (let attempt = 0; attempt < 10 && isWetLocal(hx, hz); attempt++) {
-        a += 0.13 * (attempt % 2 === 0 ? 1 : -1) * (attempt + 1);
-        d = C.HOUSE_RING_MIN + ((attempt * 7) % (C.HOUSE_RING_MAX - C.HOUSE_RING_MIN));
+        d = ringMin + ((attempt + 1) * 7) % Math.max(ringSpread, 1);
         hx = Math.cos(a) * d; hz = Math.sin(a) * d;
       }
       houseSlots.push({ x: hx, z: hz, citizen: groundedCitizens[i] });
+      a += w + slack;
     }
   }
 
@@ -620,7 +699,8 @@ export function createCity(planet, worldUp, opts = {}) {
   function buildHouse(slot) {
     const citizen = slot.citizen;
     const kit = ROLE_KITS[citizen.build ?? citizen.role] ?? ROLE_KITS.resident;
-    const half = kit.half;
+    const S = C.HOUSE_SCALE;
+    const half = kit.half * S;
     const cx = slot.x, cz = slot.z;
     const by = flattenedHeight(cx, cz);
     flattenPads.push({ x: cx, z: cz, r: half + 3, y: by });
@@ -682,8 +762,11 @@ export function createCity(planet, worldUp, opts = {}) {
       // side: 'back' (-U) or +V / -V
       const isBack = side === 'back';
       const sV = side === '+v' ? 1 : -1;
-      const wins = half >= 6.5 ? 2 : 1;
-      const positions = wins === 2 ? [-half * 0.45, half * 0.45] : [0];
+      // One window per ~4.5 units of wall, so the doubled walls get more
+      // openings rather than the same two stretched across twice the span.
+      const wins = THREE.MathUtils.clamp(Math.round(half / 4.5), 1, 3);
+      const positions = wins === 3 ? [-half * 0.55, 0, half * 0.55]
+        : wins === 2 ? [-half * 0.45, half * 0.45] : [0];
       const w0 = C.WIN_SILL, w1 = C.WIN_SILL + C.WIN_H; // vertical band
       // helper emitting a wall box in this wall's own coordinates: `along` is
       // the lateral axis of the wall, band [a0,a1]; the wall's U/V band is fixed.
@@ -733,8 +816,25 @@ export function createCity(planet, worldUp, opts = {}) {
 
     // ------------------------- furnishing kits ------------------------------
     // Kits place along (u,v): the door is at +U, the back wall at -U.
-    let anchor = { u: -half + 2.2, v: 0 };
-    const K = kit.kind;
+    //
+    // Everything below is authored against the ORIGINAL kit footprint, in
+    // absolute insets from the wall ("-half + 1.0"). Doubling `half` alone
+    // would leave human-scale furniture hugging the walls of a cavernous empty
+    // room, so the block shadows `half`, `H`, `rect` and `boxUV` to scale the
+    // layout about the room centre — the kit lines themselves are untouched.
+    //
+    // U/V only, never Y: scaling height would lift furniture off the floor slab
+    // and push the stage riser past STRUCT_STEP_UP, making it unclimbable.
+    const boxUVFull = boxUV, rectFull = rect;
+    const K = kit.kind; // also read by the home manifest, below the block
+    let anchor;
+    {
+      const half = kit.half;
+      const H = C.ROOM_H / S;
+      const rect = (u0, u1, v0, v1) => rectFull(u0 * S, u1 * S, v0 * S, v1 * S);
+      const boxUV = (b, u0, u1, v0, v1, y0, y1, solid) =>
+        boxUVFull(b, u0 * S, u1 * S, v0 * S, v1 * S, y0, y1, solid);
+    anchor = { u: -half + 2.2, v: 0 };
     if (K === 'shop') {
       boxUV(furnGeos, -half + 1.0, -half + 1.8, -half + 1.2, half - 1.2, 0.3, 1.3); // counter
       boxUV(warmGeos, -half + 1.05, -half + 1.75, -half + 1.4, half - 1.4, 1.3, 1.38); // counter light
@@ -783,6 +883,10 @@ export function createCity(planet, worldUp, opts = {}) {
       boxUV(warmGeos, half - 1.9, half - 1.3, -half + 1.05, -half + 1.15, 0.55, 1.25); // hearth glow
       anchor = { u: -half + 2.4, v: -1.3 };
     }
+    } // end kit-space block
+    // Lift the resident's standing spot into the scaled room (Y is untouched).
+    anchor.u *= S;
+    anchor.v *= S;
 
     // Structure + NPC steering collider + world-frame collider.
     structures.push(makeStructure(cx, cz, by, surfaces, walls, half + 0.6));
@@ -841,6 +945,14 @@ export function createCity(planet, worldUp, opts = {}) {
       if (solid) walls.push({ x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1, y0, y1 });
       return r;
     };
+    // Collision WITHOUT geometry. The tower's envelope is glass, but a glass
+    // wall still stops you — this pushes the same AABB the opaque box used to
+    // while the visible surface is emitted separately by curtain().
+    const wallOnly = (u0, u1, v0, v1, y0, y1) => {
+      const r = rect(u0, u1, v0, v1);
+      walls.push({ x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1, y0, y1 });
+      return r;
+    };
 
     // Shaft interior: u in [-4.9,-0.9], v in [-2,2]. Cab doorway faces +U.
     const SU0 = -4.9, SU1 = -0.9, SV = 2.0;
@@ -868,21 +980,23 @@ export function createCity(planet, worldUp, opts = {}) {
       [EH, EH + 0.3, -EH, EH], [-EH - 0.3, -EH, -EH, EH],
     ]) boxUV(roofGeos, a0, a1, b0, b1, TOP + C.PENT_H + C.ROOF_T, TOP + C.PENT_H + C.ROOF_T + 0.6);
 
-    // Shell walls, ground to penthouse floor (the shaft section). Front (+U)
-    // gets the lobby doorway; the rest are solid.
+    // Shell walls, ground to penthouse floor (the shaft section). The envelope
+    // is GLASS all the way up — these calls carry the collision only, and
+    // curtain() below emits the visible glazing. Front (+U) keeps the lobby
+    // doorway; the rest run uninterrupted.
     const T = C.WALL_T;
     // front wall: two segments + band above the door up to TOP
     for (const s of [-1, 1]) {
-      boxUV(wallGeos, EH - T, EH, s === -1 ? -EH : DOOR_V + 0.1, s === -1 ? -(DOOR_V + 0.1) : EH, 0, TOP, true);
+      wallOnly(EH - T, EH, s === -1 ? -EH : DOOR_V + 0.1, s === -1 ? -(DOOR_V + 0.1) : EH, 0, TOP);
     }
-    boxUV(wallGeos, EH - T, EH, -(DOOR_V + 0.1), DOOR_V + 0.1, DOOR_H2, TOP, true);
+    wallOnly(EH - T, EH, -(DOOR_V + 0.1), DOOR_V + 0.1, DOOR_H2, TOP);
     // entry frame neon
     for (const s of [-1, 1]) boxUV(trimGeos, EH + 0.02, EH + 0.14, s * (DOOR_V + 0.24) - 0.1, s * (DOOR_V + 0.24) + 0.1, 0, DOOR_H2);
     boxUV(trimGeos, EH + 0.02, EH + 0.14, -(DOOR_V + 0.34), DOOR_V + 0.34, DOOR_H2 + 0.02, DOOR_H2 + 0.2);
-    // back + side shells, solid to TOP
-    boxUV(wallGeos, -EH, -EH + T, -EH, EH, 0, TOP, true);
+    // back + side shells, full height
+    wallOnly(-EH, -EH + T, -EH, EH, 0, TOP);
     for (const sv of [-1, 1]) {
-      boxUV(wallGeos, -EH, EH, sv > 0 ? EH - T : -EH, sv > 0 ? EH : -EH + T, 0, TOP, true);
+      wallOnly(-EH, EH, sv > 0 ? EH - T : -EH, sv > 0 ? EH : -EH + T, 0, TOP);
     }
     // Corner neon strips: the town's night landmark, full height.
     for (const su of [-1, 1]) for (const sv of [-1, 1]) {
@@ -893,63 +1007,103 @@ export function createCity(planet, worldUp, opts = {}) {
     // Shaft internal walls (lobby side): front shaft wall with the cab doorway
     // opening at the BOTTOM and the penthouse level; sides solid full height.
     // Between floors the doorway band is covered by the moving gates below.
+    // Glass here too, so the cab is visible climbing the core from the lobby.
+    // These are thin internal partitions rather than the outer envelope, so
+    // they go in as plain glass boxes — no mullion grid needed.
     const SF0 = SU1, SF1 = SU1 + 0.35; // shaft front wall band in U
     for (const s of [-1, 1]) {
-      boxUV(wallGeos, SF0, SF1, s === -1 ? -SV : DOOR_V, s === -1 ? -DOOR_V : SV, 0, TOP, true);
+      boxUV(paneGeos, SF0, SF1, s === -1 ? -SV : DOOR_V, s === -1 ? -DOOR_V : SV, 0, TOP, true);
     }
     // band above the bottom doorway up to the top doorway
-    boxUV(wallGeos, SF0, SF1, -DOOR_V, DOOR_V, DOOR_H2, TOP, true);
+    boxUV(paneGeos, SF0, SF1, -DOOR_V, DOOR_V, DOOR_H2, TOP, true);
     for (const sv of [-1, 1]) {
-      boxUV(wallGeos, SU0 - 0.35, SU1, sv > 0 ? SV : -SV - 0.35, sv > 0 ? SV + 0.35 : -SV, 0, TOP, true);
+      boxUV(paneGeos, SU0 - 0.35, SU1, sv > 0 ? SV : -SV - 0.35, sv > 0 ? SV + 0.35 : -SV, 0, TOP, true);
     }
 
-    // Penthouse: glass curtain on three sides over a knee wall; solid behind
-    // the shaft; balcony off the front.
+    // Penthouse: glazed floor to ceiling on all four sides. The knee walls are
+    // now collision-only (they used to be the opaque base of the curtain), so
+    // the governor's suite is a glass box. The front knee is still split around
+    // a 2-wide balcony doorway at v = 0 — the only way out onto the deck.
     const P0 = TOP + 0.3, P1 = TOP + C.PENT_H;
     void P0;
-    // Knee walls (collision keeps you in; the glass above is visual). The
-    // front knee is split around a 2-wide balcony doorway at v = 0.
     for (const s of [-1, 1]) {
-      boxUV(wallGeos, EH - T, EH, s === -1 ? -EH : 1.0, s === -1 ? -1.0 : EH, TOP, TOP + C.KNEE, true);
+      wallOnly(EH - T, EH, s === -1 ? -EH : 1.0, s === -1 ? -1.0 : EH, TOP, TOP + C.KNEE);
     }
-    for (const sv of [-1, 1]) boxUV(wallGeos, -EH, EH, sv > 0 ? EH - T : -EH, sv > 0 ? EH : -EH + T, TOP, TOP + C.KNEE, true);
-    boxUV(wallGeos, -EH, -EH + T, -EH, EH, TOP, P1, true); // solid back
+    for (const sv of [-1, 1]) wallOnly(-EH, EH, sv > 0 ? EH - T : -EH, sv > 0 ? EH : -EH + T, TOP, TOP + C.KNEE);
+    wallOnly(-EH, -EH + T, -EH, EH, TOP, P1); // back, full height
 
-    // Glass curtain: pane + scrim + mullions on front and sides. The front
-    // curtain leaves the balcony doorway open (two spans around v = ±1.1).
-    const curtain = (side, spans) => {
-      const isFront = side === 'front';
-      const sv = side === '+v' ? 1 : -1;
-      const g0 = TOP + C.KNEE + 0.05, g1 = P1 - 0.1;
-      for (const [v0, v1] of spans) {
-        const paneB = (bucket, inset, thick) => {
-          if (isFront) boxUV(bucket, EH - inset - thick, EH - inset, v0, v1, g0, g1);
-          else boxUV(bucket, v0, v1, sv > 0 ? EH - inset - thick : -EH + inset, sv > 0 ? EH - inset : -EH + inset + thick, g0, g1);
-        };
-        paneB(paneGeos, 0.12, 0.05);
-        paneB(scrimGeos, 0.18, 0.03);
-        const span = v1 - v0;
+    // Glass curtain: pane + scrim + mullions on any of the four faces, over any
+    // height band. `spans` are the ranges along the face; `withScrim` is off for
+    // the tall shell below — the scrim is ADDITIVE, and four 42-unit panels of
+    // it read as a solid glowing slab through the bloom pass.
+    const curtain = (side, spans, g0, g1, withScrim = true) => {
+      const horiz = side === 'front' || side === 'back';
+      const s = side === 'front' || side === '+v' ? 1 : -1;
+      // Emit a box on the face, `inset` in from it and `thick` deep, spanning
+      // [a0,a1] along the face and [y0,y1] in height.
+      const face = (bucket, inset, thick, a0, a1, y0, y1) => {
+        const n0 = s > 0 ? EH - inset - thick : -EH + inset;
+        const n1 = s > 0 ? EH - inset : -EH + inset + thick;
+        if (horiz) boxUV(bucket, n0, n1, a0, a1, y0, y1);
+        else boxUV(bucket, a0, a1, n0, n1, y0, y1);
+      };
+      for (const [a0, a1] of spans) {
+        face(paneGeos, 0.12, 0.05, a0, a1, g0, g1);
+        if (withScrim) face(scrimGeos, 0.18, 0.03, a0, a1, g0, g1);
+        // vertical mullions every <= 2.2 units
+        const span = a1 - a0;
         const n = Math.max(1, Math.ceil(span / 2.2));
         for (let i = 0; i <= n; i++) {
-          const a = v0 + (i / n) * span;
-          if (isFront) boxUV(mullionGeos, EH - 0.24, EH - 0.1, a - 0.05, a + 0.05, g0, g1);
-          else boxUV(mullionGeos, a - 0.05, a + 0.05, sv > 0 ? EH - 0.24 : -EH + 0.1, sv > 0 ? EH - 0.1 : -EH + 0.24, g0, g1);
+          const a = a0 + (i / n) * span;
+          face(mullionGeos, 0.1, 0.14, a - 0.05, a + 0.05, g0, g1);
+        }
+        // horizontal transoms every 10 units, so the tall shell reads as
+        // stacked floors rather than one blank sheet. No-ops on short bands.
+        for (let y = g0 + 10; y < g1 - 1; y += 10) {
+          face(mullionGeos, 0.1, 0.14, a0, a1, y - 0.05, y + 0.05);
         }
       }
     };
-    curtain('front', [[-EH + 0.4, -1.1], [1.1, EH - 0.4]]);
-    curtain('+v', [[-EH + 0.4, EH - 0.4]]);
-    curtain('-v', [[-EH + 0.4, EH - 0.4]]);
+
+    // Shell glazing: ground to the penthouse floor, all four faces. Scrim off
+    // (see curtain) — 42 units of additive glass would read as a light column.
+    const SG0 = 0.3; // sits on the ground slab
+    curtain('front', [[-EH + 0.35, -(DOOR_V + 0.1)], [DOOR_V + 0.1, EH - 0.35]], SG0, TOP, false);
+    curtain('front', [[-(DOOR_V + 0.1), DOOR_V + 0.1]], DOOR_H2, TOP, false); // over the lobby door
+    curtain('back', [[-EH + 0.35, EH - 0.35]], SG0, TOP, false);
+    curtain('+v', [[-EH + 0.35, EH - 0.35]], SG0, TOP, false);
+    curtain('-v', [[-EH + 0.35, EH - 0.35]], SG0, TOP, false);
+
+    // Penthouse glazing: floor to ceiling on all four sides now (the knee walls
+    // above are collision-only), leaving the balcony doorway open on the front.
+    const PG0 = TOP + 0.05, PG1 = P1 - 0.1;
+    curtain('front', [[-EH + 0.4, -1.1], [1.1, EH - 0.4]], PG0, PG1);
+    curtain('+v', [[-EH + 0.4, EH - 0.4]], PG0, PG1);
+    curtain('-v', [[-EH + 0.4, EH - 0.4]], PG0, PG1);
+    curtain('back', [[-EH + 0.4, EH - 0.4]], PG0, PG1);
 
     // Balcony doorway trim: glowing posts flanking the opening.
     for (const s of [-1, 1]) boxUV(trimGeos, EH - 0.05, EH + 0.08, s * 1.08 - 0.06, s * 1.08 + 0.06, TOP, TOP + C.KNEE + 0.4);
     const BAL = 3.0; // balcony depth
-    boxUV(floorGeos, EH, EH + BAL, -3.5, 3.5, TOP, TOP + 0.3);
-    surfaces.push({ ...rect(EH, EH + BAL, -3.5, 3.5), y: TOP + 0.3 });
-    // balcony parapets (three outer edges), real walls
-    boxUV(wallGeos, EH + BAL - 0.15, EH + BAL, -3.5, 3.5, TOP, TOP + C.PARAPET, true);
-    for (const s of [-1, 1]) boxUV(wallGeos, EH, EH + BAL, s === -1 ? -3.5 : 3.35, s === -1 ? -3.35 : 3.5, TOP, TOP + C.PARAPET, true);
-    boxUV(trimGeos, EH + BAL - 0.12, EH + BAL - 0.02, -3.5, 3.5, TOP + C.PARAPET, TOP + C.PARAPET + 0.08);
+    const BO = EH + BAL; // balcony outer edge
+    // The deck wraps the whole penthouse. Four rects tile the square annulus
+    // without overlapping — the ±U pieces run the full depth and the ±V pieces
+    // stop short of them, so no two coplanar faces ever land on each other.
+    for (const [u0, u1, v0, v1] of [
+      [EH, BO, -BO, BO], [-BO, -EH, -BO, BO],
+      [-EH, EH, EH, BO], [-EH, EH, -BO, -EH],
+    ]) {
+      boxUV(floorGeos, u0, u1, v0, v1, TOP, TOP + 0.3);
+      surfaces.push({ ...rect(u0, u1, v0, v1), y: TOP + 0.3 });
+    }
+    // Parapet ring + neon lip around all four outer edges, tiled the same way.
+    for (const [u0, u1, v0, v1] of [
+      [BO - 0.15, BO, -BO, BO], [-BO, -BO + 0.15, -BO, BO],
+      [-BO + 0.15, BO - 0.15, BO - 0.15, BO], [-BO + 0.15, BO - 0.15, -BO, -BO + 0.15],
+    ]) {
+      boxUV(wallGeos, u0, u1, v0, v1, TOP, TOP + C.PARAPET, true);
+      boxUV(trimGeos, u0, u1, v0, v1, TOP + C.PARAPET, TOP + C.PARAPET + 0.08);
+    }
 
     // Penthouse furnishing: the governor's suite.
     boxUV(furnGeos, SU1 + 0.8, SU1 + 3.0, -EH + 0.8, -EH + 2.0, TOP + 0.3, TOP + 1.2); // lounge
