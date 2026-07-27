@@ -22,13 +22,6 @@ import { ship } from './ship.js';
 import { planets, SUN, setPlanetSpinFrozen } from './planet.js';
 import { Astronaut } from './astronaut.js';
 import { createDressing } from './dressing.js';
-import {
-  initTerraform,
-  terraformEnter,
-  terraformExit,
-  updateTerraform,
-  setViewGetter,
-} from './terraform.js';
 import { createDiamondRain } from './diamondrain.js';
 import { createMarineSnow } from './marinesnow.js';
 // World entities spawned around the landing site. All parented (directly or
@@ -98,6 +91,11 @@ const _target = new THREE.Vector3();
 const _wish = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
 const _desired = new THREE.Vector3();
+// Walk-camera wall clamp: the two ends of the line-of-sight segment plus the
+// walker's feet, all in city-local space.
+const _camSegA = new THREE.Vector3();
+const _camSegB = new THREE.Vector3();
+const _camFeetLocal = new THREE.Vector3();
 const _camDir = new THREE.Vector3();
 const _camOffset = new THREE.Vector3();
 const _basis = new THREE.Matrix4();
@@ -225,9 +223,15 @@ function toSurfaceLocal(planet, worldDir, out) {
 // Manual transform (not worldToLocal) so it never reads a one-frame-stale
 // matrixWorld, and stays allocation-free via the out vector.
 function playerLocalInto(group, invQuat, out) {
+  return worldToLocalInto(ship.position, group, invQuat, out);
+}
+
+// Same transform for an arbitrary world point (the walk camera needs it for
+// the two ends of its line-of-sight segment, not just the walker).
+function worldToLocalInto(worldPt, group, invQuat, out) {
   const planet = walk.planet;
   out
-    .subVectors(ship.position, planet.body.position)
+    .subVectors(worldPt, planet.body.position)
     .applyAxisAngle(_yAxisV, -planet.surface.rotation.y) // world -> surface-local
     .sub(group.position)
     .applyQuaternion(invQuat); // surface-local -> patch-local
@@ -243,10 +247,6 @@ export function initWalk(scene) {
   astronaut.attachVehicles(buildVehicles()); // quest-vehicle meshes, hidden
   scene.add(astronaut.group);
   stationWalk.initStationWalk(astronaut); // the station walker shares the body
-  // Terrain manipulator: installs each terraform planet's CPU edit field and
-  // replays persisted sculpting onto the baked geometry (visible from orbit).
-  initTerraform();
-  setViewGetter(() => walk.view);
 }
 
 // The nearest rocky (terra) planet you could stand on, and your altitude above
@@ -309,11 +309,17 @@ export function enterWalk(planet) {
   walk.boardIdle = 0;
   walk.camDist = C.WALK_CAM_DIST;
   camSnap = true;
-  // The story worlds hold still while you walk them — no spin means no
-  // co-rotation compensation, which is what caused surface clipping there.
-  if (planet.cfg.name === 'shadowreach' || planet.cfg.name === 'actuality') {
-    setPlanetSpinFrozen(planet, true);
-  }
+  // EVERY world holds still while you walk it. A spinning planet forces the
+  // walker's world position to be counter-rotated by the spin delta each tick,
+  // and every terrain query then undoes that rotation again — at r=900-1400
+  // that float round-trip is what made the ground jitter and clip underfoot.
+  // The two story worlds pinned themselves for exactly this reason; freezing
+  // universally removes the jitter everywhere instead of just there.
+  // setPlanetSpinFrozen latches the current angle and re-anchors the phase on
+  // release, so there's no snap entering or leaving.
+  // Trade-off: the sky (world/planetsky.js, parented to planet.surface) and the
+  // day/night terminator hold still for the duration of the visit too.
+  setPlanetSpinFrozen(planet, true);
   // Seed the spin tracker so the first stepWalk delta is ~0 (no jump on entry).
   lastSpinAngle = planet.surface.rotation.y;
 
@@ -408,9 +414,6 @@ export function enterWalk(planet) {
     // The basecamp's lodge and lift towers need the shadow box to reach them.
     if (planet.cfg.name === 'wyattmattoe') planetSky.setShadowExtent(90, 300);
   }
-
-  // Terrain manipulator (terra only): reticle, handheld prop, RAISE/LOWER UI.
-  terraformEnter(planet, astronaut.group);
 
   // Diamond rain (neptunia): a walker-local glitter volume, storm-scheduled.
   if (planet.cfg.diamondRain) {
@@ -739,7 +742,6 @@ export function exitWalk(camera) {
     camera.updateProjectionMatrix();
   }
 
-  terraformExit(); // hide the tool + UI before the site tears down
   if (diamondRain) {
     diamondRain.dispose();
     diamondRain = null;
@@ -2012,7 +2014,6 @@ export function updateWalkCamera(camera, delta = 0) {
       camera.fov = C.FOV;
       camera.updateProjectionMatrix();
     }
-    updateTerraform(camera, delta, performance.now() * 0.001);
     return;
   }
 
@@ -2036,6 +2037,30 @@ export function updateWalkCamera(camera, delta = 0) {
   const eyeH = walk.mode === 'swim' ? C.WALK_TP_SWIM_EYE : C.WALK_TP_EYE;
   _target.copy(ship.position).addScaledVector(_up, eyeH);
   _desired.copy(_target).addScaledVector(_look, -camDist);
+
+  // Indoors, pull the boom in to the first wall it crosses. Without this the
+  // camera happily sits outside the building the player is standing in — the
+  // terrain clamp below is the only other occlusion test, and it knows nothing
+  // about structures. Houses are twice the size now (world/city.js
+  // HOUSE_SCALE), which gives the boom room to sit; this keeps it honest in
+  // doorways, small rooms and the elevator tower.
+  if (city && city.structures.length) {
+    playerLocalInto(city.group, _cityInvQuat, _camFeetLocal);
+    worldToLocalInto(_target, city.group, _cityInvQuat, _camSegA);
+    worldToLocalInto(_desired, city.group, _cityInvQuat, _camSegB);
+    let hit = null;
+    for (let i = 0; i < city.structures.length; i++) {
+      const t = city.structures[i].segmentHit(
+        _camSegA.x, _camSegA.z, _camSegB.x, _camSegB.z, _camFeetLocal.y
+      );
+      if (t !== null && (hit === null || t < hit)) hit = t;
+    }
+    if (hit !== null) {
+      // 0.85 keeps the near plane off the wall face.
+      const d = Math.max(camDist * hit * 0.85, C.WALK_CAM_WALL_MIN);
+      _desired.copy(_target).addScaledVector(_look, -d);
+    }
+  }
 
   // Keep the camera above the terrain and out of the water.
   _camDir.subVectors(_desired, planet.body.position);
@@ -2085,7 +2110,6 @@ export function updateWalkCamera(camera, delta = 0) {
     camera.fov = fov;
     camera.updateProjectionMatrix();
   }
-  updateTerraform(camera, delta, performance.now() * 0.001);
 }
 
 // Remove v's component along the (unit) up vector, leaving it in the tangent

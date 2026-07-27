@@ -71,6 +71,7 @@ import {
   planets,
   SUN,
 } from './planet.js';
+import { initCityFlatten } from './cityflatten.js';
 import {
   initWalk,
   nearestTerraFloor,
@@ -136,6 +137,9 @@ const scene = new THREE.Scene();
 // --- the planetary system (terra + gas giants; gravity/floor registered
 // inside initPlanets) ---
 initPlanets(scene);
+// Level the terrain under every registry town. Must run before
+// startPlanetBake() below, so the town discs bake into the mesh flat.
+initCityFlatten(planets);
 
 // The on-foot astronaut (hidden until a disembark) lives in the world scene.
 initWalk(scene);
