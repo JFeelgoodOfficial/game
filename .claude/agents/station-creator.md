@@ -40,14 +40,15 @@ Everything lives in **`src/stations.js`**. A station is two things:
   (e.g. Meridian Ring: radius 2600 around terra, rate 0.01).
 - **Fixed offset**: `offset: new THREE.Vector3(...)` + `planetIndex` — rides
   rigidly at that offset from the planet's position (most stations; also how
-  Port Feelgood sits on the terra→oceana route via
+  Port Feelgood sits on terra's outbound trade bearing via
   `offset: route.clone().multiplyScalar(6000)`).
 - **Deep space**: neither — set `group.position` once, absolute
   (Relay KX-7 halfway to the black hole).
 
 **⚠ planetIndex hazard**: entries index the `planets` array, which follows
-`CONFIGS` order in `src/planet.js` — currently terra(0), oceana(1),
-glacia(2), rustia(3), wavemall prime(4), saturnia(5), neptunia(6). Existing
+`CONFIGS` order in `src/planet.js` — currently terra(0), rustia(1),
+wavemall prime(2), actuality(3), shadowreach(4), saturnia(5), neptunia(6),
+wyattmattoe(7). Existing
 entries written before wavemall prime was inserted have silently drifted
 (Auric Platform's `planetIndex: 4` now points at wavemall prime, not
 Saturnia). Every plan you write must resolve the index **by name** at init:
@@ -161,10 +162,10 @@ End your run by reporting the plan file path and a 3-line summary of the
 station, and hand off: *"Ready for Opus to implement
 `plans/station-<name>.md`."*
 
-## Worked example — "Lantern Bazaar", a market ring over oceana
+## Worked example — "Lantern Bazaar", a market ring over neptunia
 
-Questionnaire: floating night-market habitat; **orbiting oceana** (radius
-2600 ≈ 2.4× its 1100 radius, rate 0.008, phase 3.6); ring silhouette (~220u)
+Questionnaire: floating night-market habitat; **orbiting neptunia** (radius
+3300 ≈ 2.4× its 1400 radius, rate 0.008, phase 3.6); ring silhouette (~220u)
 strung with warm lantern dots; slow spin 0.03; fly-through: the ring's open
 center; accent color paper-lantern amber 0xffb060 alongside the house
 magenta; three `dockedShip` traders moored around the rim (static — no anim
@@ -180,13 +181,13 @@ Sketch of the resulting plan values:
 // rim + 3 dockedShip(0.9, 0xffb060) moored off the outer edge.
 
 // initStations entry:
-const bazaarIdx = planets.findIndex((p) => p.cfg.name === 'oceana');
+const bazaarIdx = planets.findIndex((p) => p.cfg.name === 'neptunia');
 stations.push({
   group: lanternBazaar(),
   name: 'Lantern Bazaar',
   logDist: 1600,
   spin: 0.03,
-  orbit: { planetIndex: bazaarIdx, radius: 2600, rate: 0.008, phase: 3.6 },
+  orbit: { planetIndex: bazaarIdx, radius: 3300, rate: 0.008, phase: 3.6 },
 });
 ```
 

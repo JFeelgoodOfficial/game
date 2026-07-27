@@ -52,5 +52,15 @@ export const currentBoardable = () => (mod ? mod.currentBoardable() : false);
 export const enterStationWalk = (station) =>
   mod ? mod.enterStationWalk(station) : false;
 
+// Quest vehicles (selector menu + debug).
+export const deployVehicle = (id) => (mod ? mod.deployVehicle(id) : false);
+export const stowVehicle = () => mod && mod.stowVehicle();
+export const vehicleState = () => (mod ? mod.vehicleState() : { vehicle: null, fuel: 0 });
+
 // Live objects for the dev-only debug handle; null until the chunk lands.
-export const walkDebug = () => (mod ? { walk: mod.walk, walkSite: mod.walkSite } : null);
+export const walkDebug = () =>
+  mod
+    ? { walk: mod.walk, walkSite: mod.walkSite,
+        deployVehicle: mod.deployVehicle, stowVehicle: mod.stowVehicle,
+        vehicleState: mod.vehicleState }
+    : null;

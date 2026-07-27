@@ -2,13 +2,13 @@
 // (standard materials), with emissive accent strips that catch the bloom.
 // No gravity, no collision (GDD 1.2): scenery you can fly around and
 // through. Eight of them:
-//   - Port Feelgood: a 1.4km open-truss drydock between terra and oceana —
-//     the bore is a wide open tunnel you fly straight through, past lit
-//     docking bays and a handful of parked ships.
+//   - Port Feelgood: a 1.4km open-truss drydock on terra's outbound trade
+//     bearing — the bore is a wide open tunnel you fly straight through,
+//     past lit docking bays and a handful of parked ships.
 //   - Meridian Ring: a torus ring station in slow orbit around terra.
 //   - Auric Platform: a drydock platform near Saturnia's rings.
 //   - Relay KX-7: a small deep-space relay on the route to the black hole.
-//   - Frostwatch Relay: a listening post hanging off glacia.
+//   - Frostwatch Relay: a listening post hanging off wyattmattoe.
 //   - Halcyon Platform: a survey platform in neptunia's shadow.
 //   - Foundry Anchorage: a mining rig built around an asteroid off rustia —
 //     beams carve at glowing excavation pits, a debris stream rises to the
@@ -1374,11 +1374,11 @@ export function initStations(scene) {
   // and neptunia, stranding two stations off the wrong worlds).
   const idx = (name) => planets.findIndex((p) => p.cfg.name === name);
 
-  // Port Feelgood: parked on the terra→oceana run, bore aimed down the
-  // route so travellers fly straight through. No spin — the fixed
+  // Port Feelgood: parked on terra's outbound trade bearing, bore aimed
+  // down the route so travellers fly straight through. No spin — the fixed
   // orientation is the point (spin would swing the tunnel off the route).
   const mega = megaStation();
-  const route = new THREE.Vector3(0.9, -0.11, -0.42).normalize(); // toward oceana
+  const route = new THREE.Vector3(0.9, -0.11, -0.42).normalize(); // outbound trade bearing
   mega.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), route);
   stations.push({
     group: mega,
@@ -1416,7 +1416,7 @@ export function initStations(scene) {
   relay.position.y += 600;
   stations.push({ group: relay, name: 'Relay KX-7', logDist: 1600, spin: 0.09 });
 
-  // Frostwatch Relay: a listening post hanging off glacia.
+  // Frostwatch Relay: a listening post hanging off wyattmattoe's ranges.
   const frostwatch = relayStation();
   frostwatch.scale.setScalar(1.35);
   stations.push({
@@ -1425,7 +1425,7 @@ export function initStations(scene) {
     logDist: 1600,
     spin: -0.06,
     offset: new THREE.Vector3(1800, 950, -420),
-    planetIndex: idx('glacia'),
+    planetIndex: idx('wyattmattoe'),
   });
 
   // Halcyon Platform: a survey platform in neptunia's shadow.

@@ -17,8 +17,19 @@ Dev builds expose `window.__debug` (src/game.js). Wait for
 
 Useful members: `planets`, `ship`, `input` (set `input.forward = true` to walk),
 `walkHere()` (land on nearest terra floor under the ship), `walkStep(n)`
-(synchronous 60 Hz ticks), `walkExit()`, `walkSite()` → `{ city, parked, crowd,
-dressing, wavemall, interiorCrowds }`, `fps()`.
+(synchronous 60 Hz ticks), `walkExit()`, `walkSite()` → `{ city, parked,
+citizens, wonders, dressing, wavemall, interiorCrowds, beaconInfo }`, `fps()`,
+`cityInfo(world)` / `cityCount`, `journal()` / `inventory()` (quest stages +
+owned vehicles), `deployVehicle(id)` / `stowVehicle()` / `vehicleState()`.
+
+Towns v2: `city.homes` maps each citizen (roster index) to their building —
+`homes[i].anchor` is where the resident stands; `city.elevator` exposes the
+tower cab (`{state, cabY, cabSpot, interact({kind:'cab'})}` — the ride is
+stepped from stepWalk, so `walkStep` drives it). The governor's wonder-tour
+beacon chain advances in the rAF update, NOT stepWalk — after teleporting to
+a beacon, yield real time (`waitForTimeout`) and re-check `journal().quests`.
+Headless rAF can throttle to ~1 frame/sec under swiftshader: wait on state
+with `waitForFunction`, never fixed short timeouts.
 
 Land on a specific planet: set `ship.position` to
 `planet.body.position + dir * (planet.radius + 20)` for any unit `dir`, zero
@@ -43,10 +54,11 @@ position deltas as approximate.
 ## Worth driving
 - Walk physics: teleport + `walkStep`, read back position (walls block, floors
   lift, `walk.grounded`).
-- NPC interaction: interior crowds only scan the ACTIVE rig pool — call
+- NPC interaction: crowds scan in the module's local frame — call
   `m.update(dt, playerLocalVec, 1)` a few times with the player nearby before
   `m.nearestInteractable(playerLocal, r)`; `m.interact(e)` returns the dialogue
-  payload, then `m.endInteract(e)`.
+  payload, then `m.endInteract(e)`. Town citizens (`walkSite().citizens`)
+  y-gate their scan: put the query point within 3 u of the citizen's floor.
 - Teardown: `walkExit()` then re-land; watch for pageerrors.
 - Terra regression after wavemall changes (and vice versa): the walk.js spawn
   branch forks on `planet.cfg.name === 'wavemall prime'`.

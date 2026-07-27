@@ -107,7 +107,7 @@ function makeSite(planet, worldUp) {
     },
     heightAt(dir) {
       const h = groundHeight(dir.x, dir.y, dir.z, seaLevel, amp, shape, deepAmp);
-      // Glacia: the frozen sea is walkable ground at the water sphere.
+      // Frozen-sea worlds (wyattmattoe): the ice is walkable ground at the water sphere.
       return frozen ? Math.max(h, C.WALK_WATER_LEVEL) : h;
     },
     // True water depth used for "don't grow underwater" tests (0 on dry or
@@ -445,7 +445,7 @@ function createRocks(site, dress, meshes, disposables, materials) {
   attachRelief(mat, materials, 'rock', 2, 0.8);
   disposables.push(mat);
   // Optional per-planet tint pulls the boulders toward the local palette
-  // (glacia's blued ice rubble, rustia's oxide rocks).
+  // (wyattmattoe's granite scree, rustia's oxide rocks).
   const tint = dress.rockTint ? new THREE.Color(dress.rockTint) : null;
 
   const perVariant = C.DRESS_ROCKS;

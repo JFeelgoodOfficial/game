@@ -210,6 +210,54 @@ export const C = {
   BOARD_FOV_KICK: 12.0, // extra third-person FOV at full board speed
   BOARD_CAM_PULL: 0.45, // fractional extra TP cam distance at full speed
 
+  // --- quest vehicles (src/inventory.js; deployed via the selector, I) ---
+  // Motorcycle: the snowboard's carve/ballistics chassis with an engine —
+  // powered on any terrain, harder grip, real brakes.
+  MOTO_MAX_SPEED: 34.0, // engine-limited top speed (board coasts to 46 downhill)
+  MOTO_THROTTLE: 15.0, // units/sec^2 while W is held
+  MOTO_PULL: 20.0, // downhill pull per unit slope (weaker than the board's 30)
+  MOTO_GRIP: 9.0, // /s sideways decay — tires bite harder than an edge
+  MOTO_ROLL_DRAG: 0.4, // /s forward decay off-throttle
+  MOTO_BRAKE_DRAG: 3.4, // extra /s decay while S is held
+  MOTO_CARVE_RATE: 2.0, // rad/s steering yaw while grounded
+  MOTO_CARVE_AIR: 0.6, // rad/s mid-air attitude yaw
+  MOTO_JUMP: 7.0, // Space hop — a bike is no ollie machine
+  MOTO_LAUNCH_SPEED: 14.0, // below this, crests never launch the bike
+  // Jetpack: hold Space to thrust. Tuned so the penthouse (~46 u) is an easy
+  // climb from the street but the fuel runs dry long before orbit; the hard
+  // ceiling backstops it.
+  JET_THRUST: 26.0, // upward accel while thrusting, units/sec^2
+  JET_MAX_UP: 13.0, // vertical speed cap under thrust
+  JET_FUEL_SECS: 7.0, // full tank of continuous thrust
+  JET_REGEN_SECS: 5.0, // grounded seconds to refill from empty
+  JET_CEILING: 90.0, // max height above local ground — thrust cuts out
+  JET_AIR_ACCEL: 10.0, // horizontal air control while the pack is worn
+  // Hang glider: opens the moment you're airborne. Sink replaces free fall;
+  // W dives for speed, S flares to bleed it, A/D banks the canopy. Flying
+  // slow mushes — the sink deepens as airspeed decays toward the stall.
+  GLIDE_SINK: 1.7, // trim sink rate, units/sec
+  GLIDE_DIVE_SINK: 7.5, // sink while diving (W)
+  GLIDE_FLARE_SINK: 0.7, // sink while flaring (S)
+  GLIDE_TRIM_SPEED: 15.0, // hands-off airspeed
+  GLIDE_FAST: 28.0, // airspeed a full dive builds toward
+  GLIDE_MIN_SPEED: 8.0, // a long flare bleeds down to this
+  GLIDE_STALL_SPEED: 8.0, // below this the canopy mushes (extra sink)
+  GLIDE_TURN: 1.6, // rad/s bank steering
+  GLIDE_GRIP: 2.6, // /s sideways-velocity decay — the canopy tracks its nose
+  // Ultralight plane: taxi with W, rotate past takeoff speed, then the
+  // camera pitch flies it — look up to climb, down to dive. Energy-coupled:
+  // climbing costs airspeed, diving builds it.
+  PLANE_TAKEOFF_SPEED: 15.0, // ground speed needed to rotate
+  PLANE_ROTATE_SPEED: 19.0, // taxi speed the throttle builds toward
+  PLANE_CLIMB_INIT: 6.0, // vertical speed handed over at rotation
+  PLANE_MAX_SPEED: 36.0, // full-throttle airspeed
+  PLANE_TRIM_SPEED: 18.0, // idle-throttle airspeed (powered glide)
+  PLANE_MAX_CLIMB: 10.0, // vertical speed cap, climbing
+  PLANE_MAX_SINK: 14.0, // vertical speed cap, diving
+  PLANE_STALL_SPEED: 10.0, // below this the nose drops whatever you do
+  PLANE_TURN: 1.2, // rad/s bank steering
+  PLANE_CEILING: 170.0, // max height above local ground — it's no spaceship
+
   // --- handheld terrain manipulator (terra only — cfg.terraform) ---
   // Brush radius sits well above terra's ~16 u vertex spacing so every stamp
   // moves a visible patch of the mesh, not a sub-vertex bump.

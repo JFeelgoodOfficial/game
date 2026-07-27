@@ -13,7 +13,7 @@
 // your feet land on the same relief the surface shader draws. Water: the sea
 // mesh sits at radius + WALK_WATER_LEVEL and the seabed is the base sphere, so
 // water depth = WALK_WATER_LEVEL - groundAt; deep enough and the walker swims,
-// riding the surface on buoyancy. Glacia's frozen sea is walkable ground.
+// riding the surface on buoyancy. Wyattmattoe's frozen lakes are walkable ground.
 
 import * as THREE from 'three';
 import { C } from './constants.js';
@@ -37,10 +37,10 @@ import { createMarineSnow } from './marinesnow.js';
 // world/ship.js is the parked-ship MESH, unrelated to ./ship.js (flight model).
 import { createShip as createParkedShip } from '../world/ship.js';
 import { createCity, CITY_STYLES } from '../world/city.js';
-import { createCrowd } from '../world/aliens.js';
+import { createCrowd } from '../world/aliens.js'; // wavemall interior crowds only
+import { createCitizens } from '../world/citizens.js';
 import { createWonder } from '../world/wonders.js';
 import { nearestCity, wonderLocalDir } from '../world/cityRegistry.js';
-import { createVendors } from '../world/vendors.js';
 import { createCreatures } from '../world/creatures.js';
 import { createWavemallPrime, createCrowd as createWavemallCrowd } from '../world/wavemallprime.js';
 import { createWyattmattoe } from '../world/wyattmattoe.js';
@@ -68,7 +68,11 @@ import {
   setWaypoint,
   completeWaypoint,
   clearWaypoint,
+  questStage,
+  setQuestStage,
 } from './journal.js';
+import { grantItem, hasItem, ownedItems } from './inventory.js';
+import { buildVehicles } from '../world/vehicles.js';
 // Station-interior walk (Orbital Art Gallery). Same public surface, flat
 // station-local frame. Every export below dispatches there while a dock is
 // active, so game.js keeps driving phase 'walk' and never knows which
@@ -117,6 +121,8 @@ export const walk = {
   swimming: false,
   diving: false, // underwater free-swim (divable worlds; C toggles)
   boarding: false, // snowboard (boardable worlds; B toggles)
+  vehicle: null, // deployed quest vehicle id (inventory.js) or null
+  jetFuel: 1, // jetpack tank, 0..1 — drains on thrust, refills grounded
   carve: 0, // smoothed board steer lean, -1..1 — feeds the body roll
   boardIdle: 0, // secs grounded at ~standstill (board auto-exit timer)
   view: 'tp', // 'fp' | 'tp'
@@ -139,10 +145,15 @@ let lastSpinAngle = 0; // surface.rotation.y at the previous walk tick (co-rotat
 // every visit — only its scene graph is built lazily per landing.
 let parked = null; // parked ship mesh (world/ship.js) — takeoff anchor
 let city = null; // the adopted registry city (world/city.js), or null (wilderness)
-let crowd = null; // citizens inside the city (world/aliens.js)
-let vendors = null; // named vendor NPCs with static dialogue (world/vendors.js)
-let wonders = null; // the city's unique wonder (world/wonders.js)
-let wonderColliders = null; // surface-local {position,radius,height} cylinders
+let citizens = null; // the town's residents — real people (world/citizens.js)
+let wonders = null; // the city's wonders, one module each (world/wonders.js)
+let wonderColliders = null; // surface-local {position,radius,height} cylinders (all wonders, flat)
+let wonderSpots = null; // per-wonder CITY-LOCAL positions — the governor's tour beacons
+let tourReach = 0; // >0: the active beacon is a governor-tour stop with this reach
+// radius. Wonders carry solid central colliders (the Veil's pool is ~43 u),
+// so "standing under it" completes from the plaza's edge, not its center.
+const TOUR_WONDER_REACH = 48;
+const TOUR_RETURN_REACH = 6;
 let creatures = null; // planet wildlife (world/creatures.js)
 let diamondRain = null; // walker-local diamond-rain volume (cfg.diamondRain)
 let marineSnow = null; // diver-local particulate volume (cfg.divable)
@@ -159,8 +170,8 @@ let planetSky = null;
 // take real people). The registry owns everything it hands out; it is disposed
 // LAST in exitWalk, after every consumer has torn down.
 let surfaceMaterials = null;
-// Interior occupants: one small crowd per enterable lobby (+ tower balcony).
-// Each rides city.group's local frame, so it shares the crowd's player-local.
+// Interior occupants (wavemall prime only): one small crowd per store lobby.
+// Each rides its wing's district-local frame.
 let interiorCrowds = []; // [{ module, groupParent }]
 
 // Interaction state (world/interaction.js contract, host side). The focus is
@@ -229,6 +240,7 @@ export function initWalk(scene) {
   worldScene = scene; // world modules that own the sky need the root (fog, env map)
   astronaut = new Astronaut();
   astronaut.group.visible = false;
+  astronaut.attachVehicles(buildVehicles()); // quest-vehicle meshes, hidden
   scene.add(astronaut.group);
   stationWalk.initStationWalk(astronaut); // the station walker shares the body
   // Terrain manipulator: installs each terraform planet's CPU edit field and
@@ -260,7 +272,7 @@ export function nearestTerraFloor(pos) {
 
 // Radial distance of the walkable floor: the terrain (signed — real seafloor
 // relief on divable worlds), or the ice sheet where the sea is frozen
-// (glacia — you stand on it, never swim under it).
+// (wyattmattoe — you stand on it, never swim under it).
 function floorRadius(planet, up) {
   let r = planet.radius + planet.body.terrainAt(up);
   if (planet.water && planet.water.frozen && r < planet.water.r) r = planet.water.r;
@@ -291,6 +303,8 @@ export function enterWalk(planet) {
   walk.swimming = false;
   walk.diving = false;
   walk.boarding = false;
+  walk.vehicle = null; // vehicles deploy per surface visit (selector, I)
+  walk.jetFuel = 1;
   walk.carve = 0;
   walk.boardIdle = 0;
   walk.camDist = C.WALK_CAM_DIST;
@@ -365,6 +379,11 @@ export function enterWalk(planet) {
   }
   // This world carries the snowboard — say so once per disembark.
   if (planet.cfg.boardable) showViewToast('B — SNOWBOARD');
+  // Earned vehicles ride along everywhere the story worlds don't own.
+  else if (ownedItems().length &&
+    !['wavemall prime', 'actuality', 'shadowreach'].includes(planet.cfg.name)) {
+    showViewToast('I — VEHICLES');
+  }
 
   // Walk-session material registry for the generic worlds (the story worlds
   // build their own instance). ~8 ms of canvas work, spawn-time only.
@@ -372,7 +391,7 @@ export function enterWalk(planet) {
     surfaceMaterials = createActualityMaterials({ quality: settings.quality });
   }
 
-  // Dress the landing site (terra/oceana get the full valley; ice and rock
+  // Dress the landing site (terra gets the full valley; ice and rock
   // worlds get boulders; gasless of course never reach here).
   dressing = createDressing(planet, _up, surfaceMaterials);
 
@@ -560,6 +579,8 @@ function spawnWorldEntities(planet) {
       style,
       seed: cityDef.seed,
       padLocal: cityDef.pad,
+      citizens: cityDef.citizens,
+      materials: surfaceMaterials, // shared PBR registry — city NEVER disposes it
     });
     city.def = cityDef;
     planet.surface.add(city.group);
@@ -568,9 +589,10 @@ function spawnWorldEntities(planet) {
     // A landing on or into the city: the parked ship belongs on the landing
     // pad — never among the fixed buildings. Outskirts landings (inside
     // attach range but off the footprint) keep the generic PARK_OFFSET spot.
+    // The pad itself sits OUTSIDE cityDef.radius now — gate on outerRadius.
     playerLocalInto(city.group, _cityInvQuat, _cityLocal);
     const landD = Math.hypot(_cityLocal.x, _cityLocal.z);
-    if (landD <= cityDef.radius + 10) {
+    if (landD <= (city.outerRadius ?? cityDef.radius) + 12) {
       _cityPt.copy(city.padLocal)
         .applyQuaternion(city.group.quaternion)
         .add(city.group.position); // surface-local pad point
@@ -612,80 +634,53 @@ function spawnWorldEntities(planet) {
       }
     }
 
-    // Citizens live inside the city group, in its flat local x/z space.
-    // cityId is the registry id, so each city keeps its own culture, species
-    // and name pool (aliens.js hashes the id) — stable across landings.
-    crowd = createCrowd(
-      {
-        groundHeightAt: city.groundLocalYAt,
-        plazaCenters: city.plazaCenters,
-        colliders: city.collidersLocal,
-        cityId: cityDef.id,
-      },
-      {}
-    );
-    city.group.add(crowd.group);
-
-    // Interior occupants: a tiny bounded crowd per enterable lobby — a
-    // shopkeeper (stationary) and a browser in shops, a couple of loungers
-    // otherwise — plus a lone caretaker on the tower balcony. Each shares
-    // the city's local frame.
-    interiorCrowds = [];
-    for (const l of city.lobbies ?? []) {
-      const isShop = l.flavor === 'shop';
-      const m = createCrowd(
-        {
-          cityId: cityDef.id,
-          plazaCenters: [{ x: l.x, z: l.z, r: 1 }],
-          colliders: [],
-          groundHeightAt: () => l.floorY,
-        },
-        {
-          population: isShop ? 2 : 3, maxRigs: 3, seed: l.seed, questChance: 0,
-          culture: isShop ? 'shopkeeper' : 'lounge', stationaryFirst: isShop,
-        }
-      );
-      city.group.add(m.group);
-      interiorCrowds.push(m);
-    }
-    if (city.balconySpot) {
-      const b = city.balconySpot;
-      const m = createCrowd(
-        {
-          cityId: cityDef.id,
-          plazaCenters: [{ x: b.x, z: b.z, r: 1 }],
-          colliders: [],
-          groundHeightAt: () => b.y,
-        },
-        { population: 1, maxRigs: 1, seed: (city.lobbies?.length ?? 0) + 101, questChance: 0, culture: 'caretaker', stationaryFirst: true }
-      );
-      city.group.add(m.group);
-      interiorCrowds.push(m);
-    }
-
-    // Named vendors with static hand-authored dialogue trees, at fixed
-    // registry spots (plazas, lobbies, the pad, the tower balcony).
-    vendors = createVendors(planet, cityDef, city, {
-      neon: style.palette.neonPrimary,
-    });
-    city.group.add(vendors.group);
-
-    // --- the city's unique wonder: one globally-unique type per city, at a
-    // fixed bearing/distance from the site (visible from town, a short walk).
-    wonderLocalDir(planet, cityDef, _patchUp)
-      .applyAxisAngle(_yAxisV, planet.surface.rotation.y); // -> world dir
-    wonders = createWonder(cityDef.wonder.type, planet, _patchUp, {
-      seed: cityDef.wonder.seed,
+    // The town's residents: one named REAL PERSON per building (people.js
+    // anatomy through world/citizens.js), each standing in their own home —
+    // walk in through the open doorway and talk. Vendor-tree speakers,
+    // procedural residents, and the penthouse governor all live here.
+    citizens = createCitizens(planet, cityDef, city, {
       materials: surfaceMaterials,
-      // Wonders share the city's neon identity (palette.accent/secondary).
-      palette: {
-        accent: style.palette.neonPrimary,
-        secondary: style.palette.neonSecondaryA,
-      },
-    }); // adds its group to planet.surface itself
-    wonderColliders = Array.isArray(wonders.collider)
-      ? wonders.collider
-      : wonders.collider ? [wonders.collider] : null;
+      palette: style.palette,
+    });
+    city.group.add(citizens.group);
+
+    // --- the city's wonders: each registry entry at a fixed bearing/distance
+    // from the site (visible from town, a short walk; the governor's tour
+    // quest chains through all of them in order).
+    wonders = [];
+    wonderColliders = [];
+    wonderSpots = [];
+    for (const w of cityDef.wonders) {
+      wonderLocalDir(planet, cityDef, w, _patchUp)
+        .applyAxisAngle(_yAxisV, planet.surface.rotation.y); // -> world dir
+      const mod = createWonder(w.type, planet, _patchUp, {
+        seed: w.seed,
+        materials: surfaceMaterials,
+        // Wonders share the city's neon identity (palette.accent/secondary).
+        palette: {
+          accent: style.palette.neonPrimary,
+          secondary: style.palette.neonSecondaryA,
+        },
+      }); // adds its group to planet.surface itself
+      wonders.push(mod);
+      if (Array.isArray(mod.collider)) wonderColliders.push(...mod.collider);
+      else if (mod.collider) wonderColliders.push(mod.collider);
+      // The wonder's surface-local position, re-expressed in the CITY's flat
+      // frame — where the governor's tour beacons live (parented to city.group).
+      wonderSpots.push(
+        mod.group.position.clone().sub(city.group.position).applyQuaternion(_cityInvQuat)
+      );
+    }
+
+    // Governor quest: dialogue layered onto the penthouse citizen, and a
+    // mid-tour re-arm — a saved half-finished tour points its beacon at the
+    // next unvisited wonder as soon as the town spawns.
+    citizens.setGovernorHandler(governorInteract);
+    const tourStage = questStage(cityDef.id);
+    if (typeof tourStage === 'number') {
+      if (tourStage < cityDef.wonders.length) armTourBeacon(tourStage);
+      else armReturnBeacon();
+    }
   }
 
   // --- wyattmattoe only: the Highline Basecamp — an ADDITIVE textured scene
@@ -773,30 +768,26 @@ export function exitWalk(camera) {
   // Tear down the landing-site entities. dispose() clears children but (except
   // ship/wonders) doesn't detach from planet.surface — remove explicitly so
   // empty groups don't accumulate across repeated landings.
-  if (crowd) {
-    city.group.remove(crowd.group);
-    crowd.dispose();
-    crowd = null;
+  if (citizens) {
+    city.group.remove(citizens.group);
+    citizens.dispose();
+    citizens = null;
   }
   for (const m of interiorCrowds) {
-    m.group.parent?.remove(m.group); // city lobby or wavemall wing group
+    m.group.parent?.remove(m.group); // wavemall wing group
     m.dispose();
   }
   interiorCrowds = [];
-  if (vendors) {
-    city.group.remove(vendors.group);
-    vendors.dispose();
-    vendors = null;
-  }
   if (city) {
     city.dispose();
     planet.surface.remove(city.group);
     city = null;
   }
   if (wonders) {
-    wonders.dispose(); // removes its own group from planet.surface
+    for (const w of wonders) w.dispose(); // each removes its group from planet.surface
     wonders = null;
     wonderColliders = null;
+    wonderSpots = null;
   }
   if (creatures) {
     creatures.dispose();
@@ -848,6 +839,7 @@ export function exitWalk(camera) {
 
   setPlanetSpinFrozen(planet, false); // resume the day (no-op if never frozen)
   walk.active = false;
+  walk.vehicle = null;
   walk.planet = null;
 }
 
@@ -862,6 +854,11 @@ export function toggleWalkView() {
 export function stepWalk(dt) {
   if (stationWalk.stationActive()) return stationWalk.stepStationWalk(dt);
   const planet = walk.planet;
+
+  // The elevator cab is a MOVING walkable surface — advance it here, in the
+  // physics step, so the rising floor and the walker stay in exact lockstep
+  // (city.update only handles visuals: neon, motes, traffic).
+  if (city?.elevator) city.elevator.step(dt);
 
   // Co-rotate with the planet's spin so the ground doesn't slide underfoot —
   // you turn with the planet's day, the way standing on a world works. The
@@ -927,7 +924,9 @@ export function stepWalk(dt) {
   // anywhere; entering needs solid ground under the feet.
   if (input.toggleBoard) {
     input.toggleBoard = false;
-    if (walk.boarding) {
+    if (walk.vehicle) {
+      walk.vehicle = null; // B also dismounts a quest vehicle
+    } else if (walk.boarding) {
       walk.boarding = false;
     } else if (planet.cfg.boardable && walk.grounded && !walk.swimming && !diving) {
       walk.boarding = true;
@@ -938,20 +937,27 @@ export function stepWalk(dt) {
       boardGroundVel = 0;
     }
   }
-  if (walk.swimming) walk.boarding = false; // splashed into open water — swim
+  if (walk.swimming) { walk.boarding = false; walk.vehicle = null; } // splashed — swim
 
   // --- planar movement: velocity approaches the wish direction ---
   _right.crossVectors(walk.heading, _up).normalize();
   const fwd = (input.forward ? 1 : 0) - (input.reverse ? 1 : 0);
   const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-  if (walk.boarding) {
-    // --- SNOWBOARD: gravity-fed carving (boardable worlds; B toggles) -----
-    // No wish velocity: the fall line accelerates you, the board's grip
-    // swings the velocity toward wherever the nose points, and the only
-    // engine on flat ground is a weak W hop-skate. Everything below stays
-    // in the walker's tangent-plane plumbing, so co-rotation, the city
-    // push-out, and floating origin behave exactly as they do on foot.
-    const carveRate = walk.grounded ? C.BOARD_CARVE_RATE : C.BOARD_CARVE_AIR;
+  const moto = !walk.boarding && walk.vehicle === 'motorcycle';
+  const gliding = walk.vehicle === 'hangglider' && !walk.grounded && !walk.swimming;
+  const flying = walk.vehicle === 'plane' && !walk.swimming;
+  if (walk.boarding || moto) {
+    // --- SNOWBOARD / MOTORCYCLE: carve-and-ballistics riding ---------------
+    // The board is gravity-fed: the fall line accelerates you, the edge's
+    // grip turns heading changes into carves, and the only engine on flat
+    // ground is a weak W hop-skate. The motorcycle is the same chassis with
+    // an engine: W is real throttle on any terrain, the tires grip harder,
+    // S is a real brake. Everything below stays in the walker's
+    // tangent-plane plumbing, so co-rotation, the city push-out, and
+    // floating origin behave exactly as they do on foot.
+    const carveRate = walk.grounded
+      ? (moto ? C.MOTO_CARVE_RATE : C.BOARD_CARVE_RATE)
+      : (moto ? C.MOTO_CARVE_AIR : C.BOARD_CARVE_AIR);
     if (strafe !== 0) {
       // A/D carve steers the shared heading (mouse look already yawed it).
       walk.heading.applyAxisAngle(_up, -strafe * carveRate * dt);
@@ -991,29 +997,70 @@ export function stepWalk(dt) {
 
     if (walk.grounded) {
       // Downhill pull (uphill it opposes the velocity and bleeds it off).
-      walk.vel.addScaledVector(_bDown, C.BOARD_PULL * gscale * dt);
-      // Anisotropic friction on the board axes: near-free forward glide,
+      walk.vel.addScaledVector(_bDown, (moto ? C.MOTO_PULL : C.BOARD_PULL) * gscale * dt);
+      // Anisotropic friction on the ride axes: near-free forward glide,
       // strong sideways grip — grip is what turns a heading change into a
-      // carve instead of a drift. S skids extra drag into the glide.
+      // carve instead of a drift. S skids/brakes extra drag into the glide.
       const vAlong = walk.vel.dot(_bt1);
       const vSide = walk.vel.dot(_bt2);
-      const kAlong = Math.exp(-(C.BOARD_GLIDE_DRAG + (input.reverse ? C.BOARD_BRAKE_DRAG : 0)) * fric * dt);
-      const kSide = Math.exp(-C.BOARD_GRIP * fric * dt);
+      const kAlong = Math.exp(-((moto ? C.MOTO_ROLL_DRAG : C.BOARD_GLIDE_DRAG)
+        + (input.reverse ? (moto ? C.MOTO_BRAKE_DRAG : C.BOARD_BRAKE_DRAG) : 0)) * fric * dt);
+      const kSide = Math.exp(-(moto ? C.MOTO_GRIP : C.BOARD_GRIP) * fric * dt);
       walk.vel.set(0, 0, 0)
         .addScaledVector(_bt1, vAlong * kAlong)
         .addScaledVector(_bt2, vSide * kSide);
-      // Flat/uphill: W pushes a slow hop-skate (never fights real speed).
-      if (input.forward && walk.vel.length() < C.BOARD_SKATE_SPEED) {
+      if (moto) {
+        // Engine: W is throttle toward the nose, up to the engine limit.
+        if (input.forward && vAlong < C.MOTO_MAX_SPEED) {
+          walk.vel.addScaledVector(_bt1, C.MOTO_THROTTLE * dt);
+        }
+      } else if (input.forward && walk.vel.length() < C.BOARD_SKATE_SPEED) {
+        // Board on flat/uphill: W pushes a slow hop-skate.
         walk.vel.addScaledVector(_bt1, C.BOARD_SKATE_ACCEL * dt);
       }
     }
-    // Soft speed cap — tucking (holding W at speed) raises it a touch.
-    const cap = C.BOARD_MAX_SPEED * (input.forward && walk.grounded ? C.BOARD_TUCK_CAP : 1);
+    // Soft speed cap — board tucking (holding W at speed) raises it a touch.
+    const cap = moto
+      ? C.MOTO_MAX_SPEED * 1.06
+      : C.BOARD_MAX_SPEED * (input.forward && walk.grounded ? C.BOARD_TUCK_CAP : 1);
     const sp = walk.vel.length();
     if (sp > cap) walk.vel.multiplyScalar(1 - Math.min(1, 3 * dt) * (1 - cap / sp));
-    // Standing still on the ground long enough steps off the board.
-    walk.boardIdle = walk.grounded && sp < 1.0 ? walk.boardIdle + dt : 0;
-    if (walk.boardIdle > C.BOARD_IDLE_EXIT) walk.boarding = false;
+    // Standing still on the board long enough steps off it (the bike idles).
+    if (!moto) {
+      walk.boardIdle = walk.grounded && sp < 1.0 ? walk.boardIdle + dt : 0;
+      if (walk.boardIdle > C.BOARD_IDLE_EXIT) walk.boarding = false;
+    }
+    ship.position.addScaledVector(walk.vel, dt);
+  } else if (gliding || flying) {
+    // --- AERO (hang glider / ultralight): the nose leads, the velocity
+    // follows. A/D banks the heading; W and S are energy controls (dive/
+    // flare on the kite, throttle/brake on the plane). The vertical half of
+    // the model — sink, climb, stall — lives in the vertical section below.
+    const turnRate = flying ? C.PLANE_TURN : C.GLIDE_TURN;
+    if (strafe !== 0) {
+      walk.heading.applyAxisAngle(_up, -strafe * turnRate * dt);
+      projectTangent(walk.heading, _up);
+      walk.heading.normalize();
+      _right.crossVectors(walk.heading, _up).normalize();
+    }
+    walk.carve += (strafe - walk.carve) * Math.min(1, 4 * dt); // bank pose/camera
+    projectTangent(walk.vel, _up);
+    const along = walk.vel.dot(walk.heading);
+    const vSide = walk.vel.dot(_right);
+    let target;
+    if (flying) {
+      target = walk.grounded
+        ? (input.forward ? C.PLANE_ROTATE_SPEED : 0)
+        : input.forward ? C.PLANE_MAX_SPEED : C.PLANE_TRIM_SPEED;
+    } else {
+      target = input.forward ? C.GLIDE_FAST : input.reverse ? C.GLIDE_MIN_SPEED : C.GLIDE_TRIM_SPEED;
+    }
+    let newAlong = along + (target - along) * Math.min(1, (flying ? 1.1 : 0.7) * dt);
+    if (flying && walk.grounded && input.reverse) newAlong *= Math.exp(-2.5 * dt); // wheel brake
+    const grip = Math.exp(-(flying ? 3.0 : C.GLIDE_GRIP) * dt);
+    walk.vel.set(0, 0, 0)
+      .addScaledVector(walk.heading, newAlong)
+      .addScaledVector(_right, vSide * grip);
     ship.position.addScaledVector(walk.vel, dt);
   } else {
     _wish.set(0, 0, 0);
@@ -1051,7 +1098,9 @@ export function stepWalk(dt) {
         ? C.WALK_ACCEL_SWIM
         : walk.grounded
           ? C.WALK_ACCEL_GROUND
-          : C.WALK_ACCEL_AIR;
+          : walk.vehicle === 'jetpack'
+            ? C.JET_AIR_ACCEL
+            : C.WALK_ACCEL_AIR;
     _move.subVectors(_wish, walk.vel);
     const gap = _move.length();
     const step = accel * dt;
@@ -1068,7 +1117,9 @@ export function stepWalk(dt) {
   let wavemallGroundR = -1;
   let actualityGroundR = -1;
   let cityD = Infinity;
-  const cityR = city?.def?.radius ?? C.CITY_RADIUS; // per-city footprint (registry)
+  // Per-city reach: the pad sits OUTSIDE the town radius now, so collision and
+  // the flattened-deck ground extend to outerRadius (pad + walkway included).
+  const cityR = city?.outerRadius ?? city?.def?.radius ?? C.CITY_RADIUS;
   if (city) {
     playerLocalInto(city.group, _cityInvQuat, _cityLocal);
     cityD = Math.hypot(_cityLocal.x, _cityLocal.z);
@@ -1263,23 +1314,24 @@ export function stepWalk(dt) {
       walk.vUp = SHORE_HOP;
       r += walk.vUp * dt;
     }
-  } else if (walk.boarding) {
-    // Board vertical: while grounded the terrain hands the walker a radial
+  } else if (walk.boarding || walk.vehicle === 'motorcycle') {
+    // Ride vertical: while grounded the terrain hands the walker a radial
     // rate (boardGroundVel); a crest launches the ride when the ballistic
     // continuation of that rate clears the dropping face — no keypress, the
-    // convexity itself throws you. Space ollies on top of whatever the lip
-    // gave. Landing keeps the tangent momentum, so the ride continues.
+    // convexity itself throws you. Space ollies/hops on top of whatever the
+    // lip gave. Landing keeps the tangent momentum, so the ride continues.
+    const motoV = !walk.boarding;
     const gscale = planet.cfg?.walkGravityScale ?? 1;
     if (walk.grounded) {
       const groundVel = dt > 0 ? (surfaceR - boardPrevGroundR) / dt : 0;
       if (input.brake && !walk.jumpHeld) {
         walk.grounded = false;
-        walk.vUp = Math.max(boardGroundVel, 0) + C.BOARD_JUMP; // ollie keeps the lip's pop
+        walk.vUp = Math.max(boardGroundVel, 0) + (motoV ? C.MOTO_JUMP : C.BOARD_JUMP);
         r += walk.vUp * dt;
       } else {
         const vBal = boardGroundVel - C.WALK_GRAVITY * gscale * dt;
         const rBal = r + vBal * dt;
-        if (walk.vel.length() > C.BOARD_LAUNCH_SPEED && rBal > surfaceR + 0.05) {
+        if (walk.vel.length() > (motoV ? C.MOTO_LAUNCH_SPEED : C.BOARD_LAUNCH_SPEED) && rBal > surfaceR + 0.05) {
           walk.grounded = false; // the crest launched the ride
           walk.vUp = vBal;
           r = rBal;
@@ -1304,6 +1356,65 @@ export function stepWalk(dt) {
       }
     }
     boardPrevGroundR = surfaceR;
+  } else if (walk.vehicle === 'jetpack' && input.brake && walk.jetFuel > 0) {
+    // --- JETPACK: hold Space to thrust straight up. Fuel-limited, with a
+    // hard ceiling above local ground so the pack tops out under the cloud
+    // deck (the ship is for orbit). Cutting thrust hands back to the plain
+    // fall branch below; landing refuels.
+    walk.grounded = false;
+    walk.jetFuel = Math.max(0, walk.jetFuel - dt / C.JET_FUEL_SECS);
+    walk.vUp = Math.min(walk.vUp + C.JET_THRUST * dt, C.JET_MAX_UP);
+    if (r - surfaceR > C.JET_CEILING) walk.vUp = Math.min(walk.vUp, 0);
+    r += walk.vUp * dt;
+    if (r < surfaceR) r = surfaceR; // skimming under thrust never digs in
+  } else if (walk.vehicle === 'hangglider' && !walk.grounded && !walk.swimming) {
+    // --- HANG GLIDER: the kite opens the moment you're airborne. Sink
+    // replaces free fall; diving deepens it, flaring flattens it, and losing
+    // airspeed below the stall mushes the canopy down hard.
+    const along = walk.vel.dot(walk.heading);
+    const mush = Math.max(0, 1 - along / C.GLIDE_STALL_SPEED) * 4;
+    const sinkTarget = (input.forward ? -C.GLIDE_DIVE_SINK
+      : input.reverse ? -C.GLIDE_FLARE_SINK : -C.GLIDE_SINK) - mush;
+    walk.vUp += (sinkTarget - walk.vUp) * Math.min(1, 2.2 * dt);
+    r += walk.vUp * dt;
+    if (r <= surfaceR) {
+      r = surfaceR;
+      walk.grounded = true;
+      walk.vUp = 0;
+    }
+  } else if (walk.vehicle === 'plane' && !walk.swimming) {
+    // --- ULTRALIGHT: taxi until rotation speed, then the camera pitch flies
+    // it — look up to climb, down to dive — under a hard ceiling. Slowing
+    // below the stall drops the nose no matter where you look.
+    if (walk.grounded) {
+      if (input.forward && walk.vel.length() > C.PLANE_TAKEOFF_SPEED) {
+        walk.grounded = false;
+        walk.vUp = C.PLANE_CLIMB_INIT;
+        r += walk.vUp * dt;
+      } else if (walk.vUp <= 0 && r <= surfaceR + GROUND_SNAP) {
+        r = surfaceR; // rolling — follow the strip
+        walk.vUp = 0;
+      } else {
+        walk.grounded = false;
+        walk.vUp -= C.WALK_GRAVITY * (planet.cfg?.walkGravityScale ?? 1) * dt;
+        r += walk.vUp * dt;
+        if (r <= surfaceR) { r = surfaceR; walk.grounded = true; walk.vUp = 0; }
+      }
+    } else {
+      const along = walk.vel.length();
+      let climbCmd = THREE.MathUtils.clamp(
+        Math.sin(walk.pitch) * along * 0.8, -C.PLANE_MAX_SINK, C.PLANE_MAX_CLIMB
+      );
+      if (along < C.PLANE_STALL_SPEED) climbCmd -= (1 - along / C.PLANE_STALL_SPEED) * 8;
+      if (r - surfaceR > C.PLANE_CEILING) climbCmd = Math.min(climbCmd, 0);
+      walk.vUp += (climbCmd - walk.vUp) * Math.min(1, 2 * dt);
+      r += walk.vUp * dt;
+      if (r <= surfaceR) {
+        r = surfaceR; // touched down — back to rolling, momentum kept
+        walk.grounded = true;
+        walk.vUp = 0;
+      }
+    }
   } else if (walk.vUp <= 0 && r <= surfaceR + GROUND_SNAP) {
     r = surfaceR; // grounded: follow the terrain up and down
     walk.grounded = true;
@@ -1321,6 +1432,9 @@ export function stepWalk(dt) {
     }
   }
   walk.jumpHeld = input.brake;
+  if (walk.vehicle === 'jetpack' && walk.grounded) {
+    walk.jetFuel = Math.min(1, walk.jetFuel + dt / C.JET_REGEN_SECS);
+  }
 
   ship.position.copy(planet.body.position).addScaledVector(_up, r);
   ship.velocity.set(0, 0, 0);
@@ -1331,14 +1445,28 @@ export function stepWalk(dt) {
     ? 'swim'
     : walk.boarding
       ? 'board'
-      : !walk.grounded
-        ? 'jump'
-        : hSpeed > 0.6
-          ? 'run'
-          : 'idle';
+      : walk.vehicle === 'motorcycle'
+        ? 'moto'
+        : walk.vehicle === 'jetpack' && !walk.grounded
+          ? 'jet'
+          : walk.vehicle === 'hangglider' && !walk.grounded
+            ? 'glide'
+            : walk.vehicle === 'plane'
+              ? 'plane'
+              : !walk.grounded
+                ? 'jump'
+                : hSpeed > 0.6
+                  ? 'run'
+                  : 'idle';
   walk.speed01 = walk.boarding
     ? Math.min(hSpeed / C.BOARD_MAX_SPEED, 1)
-    : Math.min(hSpeed / C.WALK_RUN_SPEED, 1);
+    : walk.mode === 'moto'
+      ? Math.min(hSpeed / C.MOTO_MAX_SPEED, 1)
+      : walk.mode === 'plane'
+        ? Math.min(hSpeed / C.PLANE_MAX_SPEED, 1)
+        : walk.mode === 'glide'
+          ? Math.min(hSpeed / C.GLIDE_FAST, 1)
+          : Math.min(hSpeed / C.WALK_RUN_SPEED, 1);
   if (hSpeed > 0.4) {
     // The body turns smoothly toward where it's actually moving.
     _fwd.copy(walk.vel).multiplyScalar(1 / hSpeed);
@@ -1381,7 +1509,7 @@ export function updateWalkVisuals(dt, t) {
   _fwd.crossVectors(_right, _up).normalize();
   _basis.makeBasis(_right, _up, _fwd);
   astronaut.group.quaternion.setFromRotationMatrix(_basis);
-  astronaut.update(dt, walk.mode, walk.speed01, walk.carve);
+  astronaut.update(dt, walk.mode, walk.speed01, walk.carve, walk.vehicle);
   // The body is only drawn in third person: the FP camera sits inside the
   // helmet and the rig has no first-person-safe arms.
   astronaut.group.visible = walk.view === 'tp';
@@ -1389,7 +1517,7 @@ export function updateWalkVisuals(dt, t) {
   const sunDot = Math.max(_up.dot(SUN), 0);
   if (dressing) dressing.update(t, sunDot);
   if (parked) parked.update(dt, t, sunDot);
-  if (wonders) wonders.update(t, sunDot);
+  if (wonders) for (const w of wonders) w.update(t, sunDot);
 
   if (planetSky) {
     // The sky anchor wants the player in planet.surface's unrotated frame —
@@ -1409,22 +1537,14 @@ export function updateWalkVisuals(dt, t) {
   focusD2 = Infinity;
 
   if (city) {
-    city.update(t, sunDot);
-    // Citizens want the player in the city's flat local x/z frame.
-    if (crowd) {
-      crowd.update(dt, playerLocalInto(city.group, _cityInvQuat, _playerLocal), sunDot);
-      scanModule(crowd, TALK_DIST_CROWD);
+    city.update(t, sunDot); // neon/motes/traffic (the elevator steps in stepWalk)
+    // Citizens and the elevator buttons share the city's flat local frame.
+    playerLocalInto(city.group, _cityInvQuat, _playerLocal);
+    if (city.elevator) scanModule(city.elevator, 2.6);
+    if (citizens) {
+      citizens.update(dt, _playerLocal, sunDot);
+      scanModule(citizens, TALK_DIST_VENDOR);
       if (beacon && beaconParent === city.group) updateBeacon(t);
-    }
-    // Interior occupants share the same city-local player position — reuse it.
-    for (const m of interiorCrowds) {
-      m.update(dt, _playerLocal, sunDot);
-      scanModule(m, TALK_DIST_CROWD);
-    }
-    // Named vendors share the city-local frame too.
-    if (vendors) {
-      vendors.update(dt, _playerLocal, sunDot);
-      scanModule(vendors, TALK_DIST_VENDOR);
     }
   }
   if (wyattmattoe) {
@@ -1563,7 +1683,8 @@ export function walkInteract() {
 export function walkPromptText() {
   if (stationWalk.stationActive()) return stationWalk.stationPromptText();
   if (isDialogueOpen() || !focusEntity) return null;
-  return 'E — TALK';
+  // Entities may carry their own prompt (elevator buttons: 'E — PENTHOUSE').
+  return focusEntity.prompt ?? 'E — TALK';
 }
 
 // An accepted Quest offer (interaction.js): the module only described intent;
@@ -1586,6 +1707,100 @@ function applyOffer(offer, module) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// The governor's wonder tour (world/cityRegistry.js quest blocks). Stage lives
+// in the journal: undefined = never accepted, N = tour stops reached, 'done' =
+// reward claimed. The chain is a sequence of beacons — one per wonder, then
+// the elevator tower door — advanced by the ordinary beacon-reach check.
+// ---------------------------------------------------------------------------
+function armTourBeacon(i) {
+  const def = city?.def;
+  if (!def || !wonderSpots?.[i]) return;
+  setWaypoint(def.wonders[i].title);
+  spawnBeacon(wonderSpots[i], citizens);
+  tourReach = TOUR_WONDER_REACH;
+}
+
+function armReturnBeacon() {
+  const def = city?.def;
+  const ph = city?.homes?.find((h) => h.penthouse);
+  if (!def || !ph) return;
+  setWaypoint('return to the governor');
+  _cityPt.set(ph.doorX, city.groundLocalYAt(ph.doorX, ph.doorZ), ph.doorZ);
+  spawnBeacon(_cityPt.clone(), citizens);
+  tourReach = TOUR_RETURN_REACH;
+}
+
+// A tour beacon was reached: count the stop, aim the next one.
+function advanceTour() {
+  const def = city?.def;
+  if (!def?.quest) return;
+  const st = questStage(def.id);
+  if (typeof st !== 'number') return;
+  const n = def.wonders.length;
+  if (st < n) {
+    const next = st + 1;
+    setQuestStage(def.id, next);
+    if (next < n) armTourBeacon(next);
+    else armReturnBeacon();
+  }
+  // st === n means the tower-door return beacon — the governor takes it from here.
+}
+
+// Governor dialogue (world/citizens.js setGovernorHandler): offer, reminder,
+// completion + reward, thanks — all from the registry quest block.
+function governorInteract(c, { fill, speakerFor }) {
+  const def = city.def;
+  const q = def.quest;
+  const speaker = speakerFor(c);
+  if (!q) return { speaker, lines: [fill('Welcome to {{cityName}}.', c)] };
+  const st = questStage(def.id);
+  if (st === 'done') return { speaker, lines: [fill(q.thanks, c)] };
+  if (st === undefined) {
+    return {
+      speaker,
+      lines: q.offer.map((l) => fill(l, c)),
+      offer: {
+        kind: 'choice',
+        prompt: 'Walk the tour?',
+        options: [
+          { label: 'I’ll walk the tour.', outcomeTag: `menu:${def.id}:gov:accept` },
+          { label: 'Another time.', outcomeTag: `menu:${def.id}:gov:later` },
+        ],
+      },
+    };
+  }
+  if (st >= def.wonders.length) {
+    // Tour complete — hand over the vehicle.
+    grantItem(q.reward);
+    setQuestStage(def.id, 'done');
+    removeBeacon();
+    clearWaypoint();
+    return { speaker, lines: [fill(q.complete, c)] };
+  }
+  // Mid-tour reminder, with the next stop's flavor line.
+  const nextLine = q.wonderLines?.[st]
+    ? fill(q.wonderLines[st], c)
+    : `Next: ${def.wonders[st].title}.`;
+  return { speaker, lines: [fill(q.remind, c), nextLine] };
+}
+governorInteract.onOutcome = (tag) => {
+  const m = /^menu:([^:]+):gov:(\w+)$/.exec(tag ?? '');
+  if (!m || m[1] !== city?.def?.id) return null;
+  if (m[2] !== 'accept') return null; // 'later' just closes the panel
+  const def = city.def;
+  const gov = citizens.citizens.find((x) => x.dialogue === 'governor');
+  setQuestStage(def.id, 0);
+  armTourBeacon(0);
+  const first = def.quest.wonderLines?.[0]
+    ? citizens.fill(def.quest.wonderLines[0], gov)
+    : `Start at ${def.wonders[0].title}.`;
+  return {
+    speaker: citizens.speakerFor(gov),
+    lines: [first, 'The beacon knows the way. Come back when you have stood under them all.'],
+  };
+};
+
 // Waypoint beacon: an emissive column at the quest marker. The marker is a
 // Vector3 in the SOURCE module's group-local frame (contract), so the beacon
 // is parented there — planet spin and origin rebases carry it for free, and
@@ -1593,6 +1808,7 @@ function applyOffer(offer, module) {
 function spawnBeacon(marker, module) {
   if (!marker || !marker.isVector3) return;
   removeBeacon();
+  // (removeBeacon cleared tourReach; the arm functions re-set it after spawn)
   // Interior crowds (quest-free) never reach here; crowd and any interior
   // module live under city.group, creatures under its own group, and the
   // wavemall crowd under its own (its quests are codex-only today, but stay safe).
@@ -1624,13 +1840,17 @@ function updateBeacon(t) {
   beacon.material.emissiveIntensity = 1.0 + Math.sin(t * 3) * 0.4;
   const dx = beacon.position.x - _playerLocal.x;
   const dz = beacon.position.z - _playerLocal.z;
-  if (dx * dx + dz * dz < 9) {
+  const reach = tourReach > 0 ? tourReach : 3;
+  if (dx * dx + dz * dz < reach * reach) {
+    const wasTour = tourReach > 0;
     completeWaypoint();
     removeBeacon();
+    if (wasTour) advanceTour(); // count the stop, arm the next beacon
   }
 }
 
 function removeBeacon() {
+  tourReach = 0;
   if (!beacon) return;
   beacon.material.dispose(); // geometry is shared; freed in exitWalk
   beaconParent.remove(beacon);
@@ -1666,13 +1886,46 @@ export function promptReturnToShip() {
   showViewToast('RETURN TO YOUR SHIP TO TAKE OFF');
 }
 
+// ---------------------------------------------------------------------------
+// Quest vehicles (src/inventory.js): deployed from the selector menu. The
+// story total-conversions and the station keep their narrative spaces
+// vehicle-free; water stows everything.
+// ---------------------------------------------------------------------------
+export function deployVehicle(id) {
+  if (stationWalk.stationActive()) return false;
+  if (!walk.active || !walk.planet || !hasItem(id)) return false;
+  if (wavemall || actuality || shadowreach) return false;
+  if (walk.swimming || walk.diving) return false;
+  walk.boarding = false;
+  walk.vehicle = id;
+  walk.carve = 0;
+  walk.jetFuel = 1;
+  // Seed the ride's ground tracker so frame 1 reads zero terrain motion.
+  boardPrevGroundR = ship.position.distanceTo(walk.planet.body.position);
+  boardGroundVel = 0;
+  return true;
+}
+
+export function stowVehicle() {
+  walk.vehicle = null;
+}
+
+export function vehicleState() {
+  return { vehicle: walk.vehicle, fuel: walk.jetFuel };
+}
+
 // dev/verification handle (main.js __debug): the landing-site entities.
 export function walkSite() {
   return {
-    city, parked, crowd, vendors, wonders, dressing, wavemall, actuality,
+    city, parked, citizens, wonders, dressing, wavemall, actuality,
     shadowreach, interiorCrowds,
     creatures, diamondRain, marineSnow, planetSky, wyattmattoe,
     station: stationWalk.stationSite(),
+    // Governor-tour beacon internals, for headless verification.
+    beaconInfo: beacon
+      ? { x: beacon.position.x, z: beacon.position.z, tourReach,
+          parentIsCity: beaconParent === city?.group }
+      : null,
   };
 }
 
@@ -1774,7 +2027,9 @@ export function updateWalkCamera(camera, delta = 0) {
   }
 
   // Boarding at speed eases the orbit out for a wider view of the line.
-  const bFrac = walk.boarding ? Math.min(walk.speed01 * 1.3, 1) : 0;
+  const bFrac = walk.boarding || walk.mode === 'moto' || walk.mode === 'glide' || walk.mode === 'plane'
+    ? Math.min(walk.speed01 * 1.3, 1)
+    : 0;
   boardCamEase += (bFrac - boardCamEase) * Math.min(1, 4 * delta);
   const camDist = walk.camDist * (1 + C.BOARD_CAM_PULL * boardCamEase);
 
@@ -1818,7 +2073,8 @@ export function updateWalkCamera(camera, delta = 0) {
 
   // A touch of extra FOV at full sprint — the demo's speed rush. The board
   // widens further, scaled by how fast the ride actually is.
-  const wantKick = walk.boarding
+  const wantKick = walk.boarding || walk.mode === 'moto'
+      || walk.mode === 'glide' || walk.mode === 'plane'
     ? boardCamEase
     : walk.mode === 'run' && input.boost && walk.speed01 > 0.55
       ? 1

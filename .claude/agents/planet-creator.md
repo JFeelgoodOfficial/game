@@ -28,7 +28,7 @@ under `plans/`.
   terrain minimum. Ice world = `frozenSea`. Never propose new shaders or
   systems for a normal planet.
 - Any `type: 'terra'` planet is landable (G key). **Cities are PERMANENT and
-  registry-driven** (`world/cityRegistry.js`): each world carries 2–3 fixed
+  registry-driven** (`world/cityRegistry.js`): each world carries ONE fixed flagship
   city entries (site, seed, style, landing pad, unique wonder, named vendors),
   the G auto-land arcs to the nearest city pad (`beginAutoLand` in
   `src/game.js`), and `spawnWorldEntities` in `src/walk.js` builds the
@@ -59,8 +59,7 @@ under `plans/`.
     hand-authored branching trees per world voice, never generated.
   - **Wildlife**: dispatcher in `world/creatures.js` `createCreatures`
     (~line 1067) switches on the planet name — one bespoke `build*` recipe per
-    world (terra: Tended Mat, oceana: Shoal-People, glacia: Slow Crystalline,
-    rustia: Rust Choir). Fallback: `buildGeneric` ("Unclassified Biology").
+    world (terra: Tended Mat, rustia: Rust Choir, wyattmattoe: Ridge Kites). Fallback: `buildGeneric` ("Unclassified Biology").
     Every recipe must return the shared contract
     `{ group, update, dispose, nearestInteractable, interact, endInteract }`.
   - **Citizen voice**: `CULTURES` banks in `world/aliens.js` (~line 114:
@@ -118,8 +117,8 @@ order:
    - `dir`: a normalized `THREE.Vector3` visibly distinct from the existing
      seven planets; `distance()` between ~20000 and ~90000.
    - `radius()` 800–1200 for rocky worlds; **`mass()` tuned so surface
-     g ≈ 30** — scale from the existing entries (oceana: r 1100 → 1.04e6;
-     glacia: r 900 → 6.9e5; rustia: r 800 → 5.5e5; mass ∝ r²).
+     g ≈ 30** — scale from the existing entries (neptunia: r 1400 → 1.7e6;
+     shadowreach: r 900 → 6.9e5; rustia: r 800 → 5.5e5; mass ∝ r²).
    - Archetype knobs: ocean world → `seaLevel ~0.62`; dry world →
      `seaLevel 0.02` + `water: null` + `clouds: false`; ice world →
      `frozenSea: true` + low-gloss water; floaty moon →

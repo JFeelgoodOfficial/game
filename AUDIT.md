@@ -102,9 +102,10 @@ audit branch, what was already good, and what was deliberately deferred.
   Merging static parts would cut draw calls but complicate the per-part animation.
 - **Disembark hitch**: world spawn (grass placement up to 144k noise-checked attempts,
   city/creatures build) is synchronous on `enterWalk`. Chunking it over frames or a
-  worker would smooth the transition. (The permanent-city registry did not change
-  this cost: still exactly one city is built per landing — the nearest registry
-  entry — plus its single wonder and a handful of vendor rigs.)
+  worker would smooth the transition. (The towns-v2 rework kept this roughly
+  neutral: still exactly one town per landing, but it's now ~9 merged buildings +
+  an 8-person people.js crowd + 2–3 wonders instead of a 260-instance skyline,
+  a 48-alien crowd, and one wonder.)
 - **Mobile/touch**: only the WARP button has touch handlers; dialogue is keyboard-only.
   Either a touch scheme or a friendly "desktop only" notice is still needed —
   `index.html` ships a mobile viewport meta but the game is unplayable on touch.
