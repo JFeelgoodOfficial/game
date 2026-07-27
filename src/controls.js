@@ -4,7 +4,7 @@
 // in-flight CTRL popup is gone. Driven per frame from game.js via
 // updateControls().
 
-import { currentGravityScale, currentBoardable } from './walkLazy.js';
+import { currentGravityScale, currentBoardable, cottageActive } from './walkLazy.js';
 import { setEquipButtonVisible } from './vehicleMenu.js';
 
 const CSS = `
@@ -53,9 +53,20 @@ const WALK_LINES = [
   'P — PHOTO · R — RECORD (PICS)',
 ];
 
+// The cottage has no NPCs, no equipment and no quests — listing keys that do
+// nothing is worse than listing none. Four lines, and one of them is the way out.
+const COTTAGE_LINES = [
+  'W A S D — MOVE · MOUSE — LOOK',
+  'SHIFT — RUN · SPACE — JUMP',
+  'T — VIEW · SCROLL — ZOOM',
+  'G — BOARD (AT THE PAD) · , . — MUSIC',
+];
+
 let walkHint, gravLine, boardLine, objLine;
+let lineEls = [];
 let lastWalkOn = null;
 let lastObjective = null;
+let lastLines = null;
 
 export function initControls() {
   const style = document.createElement('style');
@@ -68,10 +79,13 @@ export function initControls() {
   title.className = 'wh-title';
   title.textContent = 'ON FOOT';
   walkHint.appendChild(title);
-  for (const line of WALK_LINES) {
+  // One element per line, reused: the two key sets are different lengths, so
+  // the surplus rows hide rather than churn the DOM on every world change.
+  const rows = Math.max(WALK_LINES.length, COTTAGE_LINES.length);
+  for (let i = 0; i < rows; i++) {
     const el = document.createElement('div');
-    el.textContent = line;
     walkHint.appendChild(el);
+    lineEls.push(el);
   }
   gravLine = document.createElement('div');
   gravLine.className = 'wh-grav';
@@ -101,16 +115,29 @@ export function setObjective(text) {
   if (text) objLine.textContent = text;
 }
 
+function setLines(lines) {
+  if (lines === lastLines) return;
+  lastLines = lines;
+  for (let i = 0; i < lineEls.length; i++) {
+    const text = lines[i];
+    lineEls[i].style.display = text ? '' : 'none';
+    if (text) lineEls[i].textContent = text;
+  }
+}
+
 export function updateControls(phase) {
   // walk hint: on-foot only
   const walkOn = phase === 'walk';
+  const cottage = walkOn && cottageActive();
   if (walkOn !== lastWalkOn) {
     walkHint.classList.toggle('on', walkOn);
-    setEquipButtonVisible(walkOn);
+    // No equipment in the cottage — the quest vehicles don't come here.
+    setEquipButtonVisible(walkOn && !cottage);
     lastWalkOn = walkOn;
     if (walkOn) {
       gravLine.style.display = currentGravityScale() < 0.7 ? '' : 'none';
       boardLine.style.display = currentBoardable() ? '' : 'none';
     }
   }
+  if (walkOn) setLines(cottage ? COTTAGE_LINES : WALK_LINES);
 }

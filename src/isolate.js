@@ -115,10 +115,22 @@ const iso = {
 // the system-wide globals, exactly like shadowreach. Bloom threshold sits
 // above the daylit sky's luminance but below the city neon so the permanent
 // registry cities still glow at night.
+// The cottage is not a planet at all (world/cottage.js, src/cottageWalk.js) —
+// it is a flat world at the scene origin, so it isolates with a NULL keep:
+// every planet hides, including the one the flight sim was near. Its preset is
+// otherwise the generic daylit-sky one. soleLight because it plants its own
+// sun, hemisphere and PMREM environment; the threshold clears its sky so the
+// bloom lands on the fire and the pad lamps and nowhere else.
 const GENERIC_RENDER = { exposure: 0.4, bloomThreshold: 2.2, bloomStrength: 0.5, soleLight: true };
 const WORLD_RENDER = {
   actuality: { exposure: 0.32, bloomThreshold: 2.4, bloomStrength: 0.5 },
   shadowreach: { exposure: 0.62, bloomThreshold: 1.15, bloomStrength: 0.62, soleLight: true },
+  // Exposure 0.8 because that is what world/cottage.js was AUTHORED at (its
+  // standalone form opened the renderer at 0.85, same ACES curve). Stopping it
+  // down to the generic 0.4 the way a procedural planet sky wants turned a
+  // midmorning garden into dusk — this world's Sky, sun elevation and
+  // environment intensity were all balanced against the brighter stop.
+  cottage: { exposure: 0.8, bloomThreshold: 2.6, bloomStrength: 0.4, soleLight: true },
   terra: GENERIC_RENDER,
   rustia: GENERIC_RENDER,
   neptunia: GENERIC_RENDER,
@@ -168,11 +180,13 @@ function setSkyVisible(v, keep) {
 }
 
 // Stage one — touchdown. Stops the simulation and clears the far field.
+// `planet` may be null (the cottage), which hides EVERY planet — correct, since
+// that world is nowhere near any of them.
 export function acquireUniverse(planet) {
   if (iso.active) return;
   iso.active = true;
-  iso.keep = planet;
-  setFarFieldVisible(false, planet);
+  iso.keep = planet ?? null;
+  setFarFieldVisible(false, iso.keep);
 }
 
 // Stage one release — liftoff, or boarding the ship (which on a walkable world
@@ -187,11 +201,16 @@ export function releaseUniverse() {
 // Stage two — stepping out, once the world module exists and owns the sky.
 // `renderer` and the AO pass are handed in rather than imported so this module
 // stays free of the composer's construction order.
-export function acquireSurface(planet, renderer, aoPass, camera, bloomPass) {
+// `keep` is either a planet (a landing) or a bare preset NAME (the cottage,
+// which has no planet to keep visible). A string keeps nothing and only picks
+// the render tuning.
+export function acquireSurface(keep, renderer, aoPass, camera, bloomPass) {
   if (iso.surface) return;
+  const named = typeof keep === 'string';
   iso.surface = true;
-  iso.surfaceKeep = planet ?? iso.keep;
-  const R = WORLD_RENDER[iso.surfaceKeep?.cfg?.name] ?? DEFAULT_RENDER;
+  iso.surfaceKeep = named ? null : (keep ?? iso.keep);
+  const R = (named ? WORLD_RENDER[keep] : WORLD_RENDER[iso.surfaceKeep?.cfg?.name])
+    ?? DEFAULT_RENDER;
   setSkyVisible(false, iso.surfaceKeep);
 
   if (camera) {
