@@ -71,7 +71,7 @@ import {
   questStage,
   setQuestStage,
 } from './journal.js';
-import { grantItem, hasItem } from './inventory.js';
+import { grantItem, hasItem, ownedItems } from './inventory.js';
 import { buildVehicles } from '../world/vehicles.js';
 // Station-interior walk (Orbital Art Gallery). Same public surface, flat
 // station-local frame. Every export below dispatches there while a dock is
@@ -379,6 +379,11 @@ export function enterWalk(planet) {
   }
   // This world carries the snowboard — say so once per disembark.
   if (planet.cfg.boardable) showViewToast('B — SNOWBOARD');
+  // Earned vehicles ride along everywhere the story worlds don't own.
+  else if (ownedItems().length &&
+    !['wavemall prime', 'actuality', 'shadowreach'].includes(planet.cfg.name)) {
+    showViewToast('I — VEHICLES');
+  }
 
   // Walk-session material registry for the generic worlds (the story worlds
   // build their own instance). ~8 ms of canvas work, spawn-time only.

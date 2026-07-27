@@ -28,7 +28,7 @@ under `plans/`.
   terrain minimum. Ice world = `frozenSea`. Never propose new shaders or
   systems for a normal planet.
 - Any `type: 'terra'` planet is landable (G key). **Cities are PERMANENT and
-  registry-driven** (`world/cityRegistry.js`): each world carries 2–3 fixed
+  registry-driven** (`world/cityRegistry.js`): each world carries ONE fixed flagship
   city entries (site, seed, style, landing pad, unique wonder, named vendors),
   the G auto-land arcs to the nearest city pad (`beginAutoLand` in
   `src/game.js`), and `spawnWorldEntities` in `src/walk.js` builds the
