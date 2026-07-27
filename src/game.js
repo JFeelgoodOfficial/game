@@ -492,6 +492,13 @@ if (import.meta.env.DEV) {
     get walkSite() {
       return walkDebug()?.walkSite;
     },
+    // Quest vehicles, for headless verification and the selector menu.
+    get deployVehicle() {
+      return walkDebug()?.deployVehicle;
+    },
+    get vehicleState() {
+      return walkDebug()?.vehicleState;
+    },
     ship,
     player: playerState,
     // Quest/codex record (interaction system), for headless verification.

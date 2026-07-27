@@ -210,6 +210,29 @@ export const C = {
   BOARD_FOV_KICK: 12.0, // extra third-person FOV at full board speed
   BOARD_CAM_PULL: 0.45, // fractional extra TP cam distance at full speed
 
+  // --- quest vehicles (src/inventory.js; deployed via the selector, I) ---
+  // Motorcycle: the snowboard's carve/ballistics chassis with an engine —
+  // powered on any terrain, harder grip, real brakes.
+  MOTO_MAX_SPEED: 34.0, // engine-limited top speed (board coasts to 46 downhill)
+  MOTO_THROTTLE: 15.0, // units/sec^2 while W is held
+  MOTO_PULL: 20.0, // downhill pull per unit slope (weaker than the board's 30)
+  MOTO_GRIP: 9.0, // /s sideways decay — tires bite harder than an edge
+  MOTO_ROLL_DRAG: 0.4, // /s forward decay off-throttle
+  MOTO_BRAKE_DRAG: 3.4, // extra /s decay while S is held
+  MOTO_CARVE_RATE: 2.0, // rad/s steering yaw while grounded
+  MOTO_CARVE_AIR: 0.6, // rad/s mid-air attitude yaw
+  MOTO_JUMP: 7.0, // Space hop — a bike is no ollie machine
+  MOTO_LAUNCH_SPEED: 14.0, // below this, crests never launch the bike
+  // Jetpack: hold Space to thrust. Tuned so the penthouse (~46 u) is an easy
+  // climb from the street but the fuel runs dry long before orbit; the hard
+  // ceiling backstops it.
+  JET_THRUST: 26.0, // upward accel while thrusting, units/sec^2
+  JET_MAX_UP: 13.0, // vertical speed cap under thrust
+  JET_FUEL_SECS: 7.0, // full tank of continuous thrust
+  JET_REGEN_SECS: 5.0, // grounded seconds to refill from empty
+  JET_CEILING: 90.0, // max height above local ground — thrust cuts out
+  JET_AIR_ACCEL: 10.0, // horizontal air control while the pack is worn
+
   // --- handheld terrain manipulator (terra only — cfg.terraform) ---
   // Brush radius sits well above terra's ~16 u vertex spacing so every stamp
   // moves a visible patch of the mesh, not a sub-vertex bump.

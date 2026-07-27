@@ -163,16 +163,43 @@ export class Astronaut {
     deck.visible = false;
     this.board = deck;
     this.group.add(deck);
+
+    // Quest vehicles (world/vehicles.js), attached lazily by walk.js once the
+    // walker initializes. Keyed by inventory id; each entry remembers whether
+    // it rides the travel frame (group) or the torso (body).
+    this.vehicles = {};
+  }
+
+  // Attach the four quest-vehicle meshes. `built` is world/vehicles.js
+  // buildVehicles() output: { id: { group, parent } }.
+  attachVehicles(built) {
+    for (const id of Object.keys(built)) {
+      const v = built[id];
+      (v.parent === 'body' ? this.body : this.group).add(v.group);
+      if (v.parent === 'body') v.group.position.set(0, 0.35, -0.26); // on the back
+      v.group.visible = false;
+      this.vehicles[id] = v;
+    }
   }
 
   // ---------------------------------------------------------------------------
   // Procedural animation with per-joint blending
   // ---------------------------------------------------------------------------
-  update(dt, mode, speed01, lean = 0) {
+  update(dt, mode, speed01, lean = 0, vehicle = null) {
     this.time += dt;
     const t = this.time;
     const k = 1 - Math.exp(-11 * dt);
     this.board.visible = mode === 'board';
+    // Vehicle visibility: the mount shows whenever it's deployed; the kite
+    // only opens once airborne (mode 'glide') — on the ground it's stowed.
+    if (this.vehicles.motorcycle) this.vehicles.motorcycle.group.visible = vehicle === 'motorcycle';
+    if (this.vehicles.jetpack) this.vehicles.jetpack.group.visible = vehicle === 'jetpack';
+    if (this.vehicles.hangglider) this.vehicles.hangglider.group.visible = vehicle === 'hangglider' && mode === 'glide';
+    if (this.vehicles.plane) this.vehicles.plane.group.visible = vehicle === 'plane';
+    if (this.vehicles.plane?.group.userData.prop) {
+      this.vehicles.plane.group.userData.prop.rotation.z +=
+        dt * (mode === 'plane' ? 40 : 2);
+    }
 
     // targets
     const tg = {
@@ -236,6 +263,42 @@ export class Astronaut {
       tg.kneeL = 0.25 + Math.max(0, -Math.sin(sp * 2.2)) * 0.35;
       tg.kneeR = 0.25 + Math.max(0, Math.sin(sp * 2.2)) * 0.35;
       tg.bodyRoll = Math.sin(sp) * 0.14;
+    } else if (mode === 'moto' || mode === 'plane') {
+      // Seated riding tuck: hips folded, knees up, arms forward to the bars,
+      // whole body rolling into the carve (moto) / bank (plane).
+      const tuck = mode === 'moto' ? 0.2 + speed01 * 0.2 : 0.15;
+      tg.hipL = -1.25; tg.hipR = -1.25;
+      tg.kneeL = 1.45; tg.kneeR = 1.45;
+      tg.shL.x = -0.95; tg.shR.x = -0.95;
+      tg.shL.z = 0.25; tg.shR.z = -0.25;
+      tg.elL = -0.55; tg.elR = -0.55;
+      tg.bodyPitch = 0.25 + tuck;
+      tg.bodyY = mode === 'moto' ? -0.34 : -0.3;
+      tg.bodyRoll = lean * 0.4;
+      tg.headPitch = -0.2 - tuck * 0.4;
+    } else if (mode === 'jet') {
+      // Upright thrust: slight forward lean, legs together and trailing,
+      // arms held low and out for balance.
+      tg.hipL = 0.35; tg.hipR = 0.3;
+      tg.kneeL = 0.5; tg.kneeR = 0.55;
+      tg.shL.x = 0.25; tg.shR.x = 0.25;
+      tg.shL.z = 0.55; tg.shR.z = -0.55;
+      tg.elL = -0.3; tg.elR = -0.3;
+      tg.bodyPitch = 0.3;
+      tg.bodyRoll = lean * 0.25;
+      tg.headPitch = -0.25;
+    } else if (mode === 'glide') {
+      // Prone under the kite: the swimmer's body line, hands up on the
+      // control bar, head up to the horizon.
+      tg.bodyPitch = -1.25;
+      tg.bodyY = -0.35;
+      tg.headPitch = 1.0;
+      tg.shL.x = -1.7; tg.shR.x = -1.7;
+      tg.shL.z = 0.3; tg.shR.z = -0.3;
+      tg.elL = -0.8; tg.elR = -0.8;
+      tg.hipL = 0.2; tg.hipR = 0.2;
+      tg.kneeL = 0.35; tg.kneeR = 0.35;
+      tg.bodyRoll = lean * 0.5;
     } else if (mode === 'board') {
       // Sideways (regular) stance over the deck, helmet turned down the fall
       // line, knees sinking deeper as the ride speeds up, arms out for

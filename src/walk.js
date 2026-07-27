@@ -71,7 +71,8 @@ import {
   questStage,
   setQuestStage,
 } from './journal.js';
-import { grantItem } from './inventory.js';
+import { grantItem, hasItem } from './inventory.js';
+import { buildVehicles } from '../world/vehicles.js';
 // Station-interior walk (Orbital Art Gallery). Same public surface, flat
 // station-local frame. Every export below dispatches there while a dock is
 // active, so game.js keeps driving phase 'walk' and never knows which
@@ -120,6 +121,8 @@ export const walk = {
   swimming: false,
   diving: false, // underwater free-swim (divable worlds; C toggles)
   boarding: false, // snowboard (boardable worlds; B toggles)
+  vehicle: null, // deployed quest vehicle id (inventory.js) or null
+  jetFuel: 1, // jetpack tank, 0..1 — drains on thrust, refills grounded
   carve: 0, // smoothed board steer lean, -1..1 — feeds the body roll
   boardIdle: 0, // secs grounded at ~standstill (board auto-exit timer)
   view: 'tp', // 'fp' | 'tp'
@@ -237,6 +240,7 @@ export function initWalk(scene) {
   worldScene = scene; // world modules that own the sky need the root (fog, env map)
   astronaut = new Astronaut();
   astronaut.group.visible = false;
+  astronaut.attachVehicles(buildVehicles()); // quest-vehicle meshes, hidden
   scene.add(astronaut.group);
   stationWalk.initStationWalk(astronaut); // the station walker shares the body
   // Terrain manipulator: installs each terraform planet's CPU edit field and
@@ -299,6 +303,8 @@ export function enterWalk(planet) {
   walk.swimming = false;
   walk.diving = false;
   walk.boarding = false;
+  walk.vehicle = null; // vehicles deploy per surface visit (selector, I)
+  walk.jetFuel = 1;
   walk.carve = 0;
   walk.boardIdle = 0;
   walk.camDist = C.WALK_CAM_DIST;
@@ -828,6 +834,7 @@ export function exitWalk(camera) {
 
   setPlanetSpinFrozen(planet, false); // resume the day (no-op if never frozen)
   walk.active = false;
+  walk.vehicle = null;
   walk.planet = null;
 }
 
@@ -912,7 +919,9 @@ export function stepWalk(dt) {
   // anywhere; entering needs solid ground under the feet.
   if (input.toggleBoard) {
     input.toggleBoard = false;
-    if (walk.boarding) {
+    if (walk.vehicle) {
+      walk.vehicle = null; // B also dismounts a quest vehicle
+    } else if (walk.boarding) {
       walk.boarding = false;
     } else if (planet.cfg.boardable && walk.grounded && !walk.swimming && !diving) {
       walk.boarding = true;
@@ -923,20 +932,25 @@ export function stepWalk(dt) {
       boardGroundVel = 0;
     }
   }
-  if (walk.swimming) walk.boarding = false; // splashed into open water — swim
+  if (walk.swimming) { walk.boarding = false; walk.vehicle = null; } // splashed — swim
 
   // --- planar movement: velocity approaches the wish direction ---
   _right.crossVectors(walk.heading, _up).normalize();
   const fwd = (input.forward ? 1 : 0) - (input.reverse ? 1 : 0);
   const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-  if (walk.boarding) {
-    // --- SNOWBOARD: gravity-fed carving (boardable worlds; B toggles) -----
-    // No wish velocity: the fall line accelerates you, the board's grip
-    // swings the velocity toward wherever the nose points, and the only
-    // engine on flat ground is a weak W hop-skate. Everything below stays
-    // in the walker's tangent-plane plumbing, so co-rotation, the city
-    // push-out, and floating origin behave exactly as they do on foot.
-    const carveRate = walk.grounded ? C.BOARD_CARVE_RATE : C.BOARD_CARVE_AIR;
+  const moto = !walk.boarding && walk.vehicle === 'motorcycle';
+  if (walk.boarding || moto) {
+    // --- SNOWBOARD / MOTORCYCLE: carve-and-ballistics riding ---------------
+    // The board is gravity-fed: the fall line accelerates you, the edge's
+    // grip turns heading changes into carves, and the only engine on flat
+    // ground is a weak W hop-skate. The motorcycle is the same chassis with
+    // an engine: W is real throttle on any terrain, the tires grip harder,
+    // S is a real brake. Everything below stays in the walker's
+    // tangent-plane plumbing, so co-rotation, the city push-out, and
+    // floating origin behave exactly as they do on foot.
+    const carveRate = walk.grounded
+      ? (moto ? C.MOTO_CARVE_RATE : C.BOARD_CARVE_RATE)
+      : (moto ? C.MOTO_CARVE_AIR : C.BOARD_CARVE_AIR);
     if (strafe !== 0) {
       // A/D carve steers the shared heading (mouse look already yawed it).
       walk.heading.applyAxisAngle(_up, -strafe * carveRate * dt);
@@ -976,29 +990,39 @@ export function stepWalk(dt) {
 
     if (walk.grounded) {
       // Downhill pull (uphill it opposes the velocity and bleeds it off).
-      walk.vel.addScaledVector(_bDown, C.BOARD_PULL * gscale * dt);
-      // Anisotropic friction on the board axes: near-free forward glide,
+      walk.vel.addScaledVector(_bDown, (moto ? C.MOTO_PULL : C.BOARD_PULL) * gscale * dt);
+      // Anisotropic friction on the ride axes: near-free forward glide,
       // strong sideways grip — grip is what turns a heading change into a
-      // carve instead of a drift. S skids extra drag into the glide.
+      // carve instead of a drift. S skids/brakes extra drag into the glide.
       const vAlong = walk.vel.dot(_bt1);
       const vSide = walk.vel.dot(_bt2);
-      const kAlong = Math.exp(-(C.BOARD_GLIDE_DRAG + (input.reverse ? C.BOARD_BRAKE_DRAG : 0)) * fric * dt);
-      const kSide = Math.exp(-C.BOARD_GRIP * fric * dt);
+      const kAlong = Math.exp(-((moto ? C.MOTO_ROLL_DRAG : C.BOARD_GLIDE_DRAG)
+        + (input.reverse ? (moto ? C.MOTO_BRAKE_DRAG : C.BOARD_BRAKE_DRAG) : 0)) * fric * dt);
+      const kSide = Math.exp(-(moto ? C.MOTO_GRIP : C.BOARD_GRIP) * fric * dt);
       walk.vel.set(0, 0, 0)
         .addScaledVector(_bt1, vAlong * kAlong)
         .addScaledVector(_bt2, vSide * kSide);
-      // Flat/uphill: W pushes a slow hop-skate (never fights real speed).
-      if (input.forward && walk.vel.length() < C.BOARD_SKATE_SPEED) {
+      if (moto) {
+        // Engine: W is throttle toward the nose, up to the engine limit.
+        if (input.forward && vAlong < C.MOTO_MAX_SPEED) {
+          walk.vel.addScaledVector(_bt1, C.MOTO_THROTTLE * dt);
+        }
+      } else if (input.forward && walk.vel.length() < C.BOARD_SKATE_SPEED) {
+        // Board on flat/uphill: W pushes a slow hop-skate.
         walk.vel.addScaledVector(_bt1, C.BOARD_SKATE_ACCEL * dt);
       }
     }
-    // Soft speed cap — tucking (holding W at speed) raises it a touch.
-    const cap = C.BOARD_MAX_SPEED * (input.forward && walk.grounded ? C.BOARD_TUCK_CAP : 1);
+    // Soft speed cap — board tucking (holding W at speed) raises it a touch.
+    const cap = moto
+      ? C.MOTO_MAX_SPEED * 1.06
+      : C.BOARD_MAX_SPEED * (input.forward && walk.grounded ? C.BOARD_TUCK_CAP : 1);
     const sp = walk.vel.length();
     if (sp > cap) walk.vel.multiplyScalar(1 - Math.min(1, 3 * dt) * (1 - cap / sp));
-    // Standing still on the ground long enough steps off the board.
-    walk.boardIdle = walk.grounded && sp < 1.0 ? walk.boardIdle + dt : 0;
-    if (walk.boardIdle > C.BOARD_IDLE_EXIT) walk.boarding = false;
+    // Standing still on the board long enough steps off it (the bike idles).
+    if (!moto) {
+      walk.boardIdle = walk.grounded && sp < 1.0 ? walk.boardIdle + dt : 0;
+      if (walk.boardIdle > C.BOARD_IDLE_EXIT) walk.boarding = false;
+    }
     ship.position.addScaledVector(walk.vel, dt);
   } else {
     _wish.set(0, 0, 0);
@@ -1036,7 +1060,9 @@ export function stepWalk(dt) {
         ? C.WALK_ACCEL_SWIM
         : walk.grounded
           ? C.WALK_ACCEL_GROUND
-          : C.WALK_ACCEL_AIR;
+          : walk.vehicle === 'jetpack'
+            ? C.JET_AIR_ACCEL
+            : C.WALK_ACCEL_AIR;
     _move.subVectors(_wish, walk.vel);
     const gap = _move.length();
     const step = accel * dt;
@@ -1250,23 +1276,24 @@ export function stepWalk(dt) {
       walk.vUp = SHORE_HOP;
       r += walk.vUp * dt;
     }
-  } else if (walk.boarding) {
-    // Board vertical: while grounded the terrain hands the walker a radial
+  } else if (walk.boarding || walk.vehicle === 'motorcycle') {
+    // Ride vertical: while grounded the terrain hands the walker a radial
     // rate (boardGroundVel); a crest launches the ride when the ballistic
     // continuation of that rate clears the dropping face — no keypress, the
-    // convexity itself throws you. Space ollies on top of whatever the lip
-    // gave. Landing keeps the tangent momentum, so the ride continues.
+    // convexity itself throws you. Space ollies/hops on top of whatever the
+    // lip gave. Landing keeps the tangent momentum, so the ride continues.
+    const motoV = !walk.boarding;
     const gscale = planet.cfg?.walkGravityScale ?? 1;
     if (walk.grounded) {
       const groundVel = dt > 0 ? (surfaceR - boardPrevGroundR) / dt : 0;
       if (input.brake && !walk.jumpHeld) {
         walk.grounded = false;
-        walk.vUp = Math.max(boardGroundVel, 0) + C.BOARD_JUMP; // ollie keeps the lip's pop
+        walk.vUp = Math.max(boardGroundVel, 0) + (motoV ? C.MOTO_JUMP : C.BOARD_JUMP);
         r += walk.vUp * dt;
       } else {
         const vBal = boardGroundVel - C.WALK_GRAVITY * gscale * dt;
         const rBal = r + vBal * dt;
-        if (walk.vel.length() > C.BOARD_LAUNCH_SPEED && rBal > surfaceR + 0.05) {
+        if (walk.vel.length() > (motoV ? C.MOTO_LAUNCH_SPEED : C.BOARD_LAUNCH_SPEED) && rBal > surfaceR + 0.05) {
           walk.grounded = false; // the crest launched the ride
           walk.vUp = vBal;
           r = rBal;
@@ -1291,6 +1318,17 @@ export function stepWalk(dt) {
       }
     }
     boardPrevGroundR = surfaceR;
+  } else if (walk.vehicle === 'jetpack' && input.brake && walk.jetFuel > 0) {
+    // --- JETPACK: hold Space to thrust straight up. Fuel-limited, with a
+    // hard ceiling above local ground so the pack tops out under the cloud
+    // deck (the ship is for orbit). Cutting thrust hands back to the plain
+    // fall branch below; landing refuels.
+    walk.grounded = false;
+    walk.jetFuel = Math.max(0, walk.jetFuel - dt / C.JET_FUEL_SECS);
+    walk.vUp = Math.min(walk.vUp + C.JET_THRUST * dt, C.JET_MAX_UP);
+    if (r - surfaceR > C.JET_CEILING) walk.vUp = Math.min(walk.vUp, 0);
+    r += walk.vUp * dt;
+    if (r < surfaceR) r = surfaceR; // skimming under thrust never digs in
   } else if (walk.vUp <= 0 && r <= surfaceR + GROUND_SNAP) {
     r = surfaceR; // grounded: follow the terrain up and down
     walk.grounded = true;
@@ -1308,6 +1346,9 @@ export function stepWalk(dt) {
     }
   }
   walk.jumpHeld = input.brake;
+  if (walk.vehicle === 'jetpack' && walk.grounded) {
+    walk.jetFuel = Math.min(1, walk.jetFuel + dt / C.JET_REGEN_SECS);
+  }
 
   ship.position.copy(planet.body.position).addScaledVector(_up, r);
   ship.velocity.set(0, 0, 0);
@@ -1318,14 +1359,20 @@ export function stepWalk(dt) {
     ? 'swim'
     : walk.boarding
       ? 'board'
-      : !walk.grounded
-        ? 'jump'
-        : hSpeed > 0.6
-          ? 'run'
-          : 'idle';
+      : walk.vehicle === 'motorcycle'
+        ? 'moto'
+        : walk.vehicle === 'jetpack' && !walk.grounded
+          ? 'jet'
+          : !walk.grounded
+            ? 'jump'
+            : hSpeed > 0.6
+              ? 'run'
+              : 'idle';
   walk.speed01 = walk.boarding
     ? Math.min(hSpeed / C.BOARD_MAX_SPEED, 1)
-    : Math.min(hSpeed / C.WALK_RUN_SPEED, 1);
+    : walk.mode === 'moto'
+      ? Math.min(hSpeed / C.MOTO_MAX_SPEED, 1)
+      : Math.min(hSpeed / C.WALK_RUN_SPEED, 1);
   if (hSpeed > 0.4) {
     // The body turns smoothly toward where it's actually moving.
     _fwd.copy(walk.vel).multiplyScalar(1 / hSpeed);
@@ -1368,7 +1415,7 @@ export function updateWalkVisuals(dt, t) {
   _fwd.crossVectors(_right, _up).normalize();
   _basis.makeBasis(_right, _up, _fwd);
   astronaut.group.quaternion.setFromRotationMatrix(_basis);
-  astronaut.update(dt, walk.mode, walk.speed01, walk.carve);
+  astronaut.update(dt, walk.mode, walk.speed01, walk.carve, walk.vehicle);
   // The body is only drawn in third person: the FP camera sits inside the
   // helmet and the rig has no first-person-safe arms.
   astronaut.group.visible = walk.view === 'tp';
@@ -1745,6 +1792,34 @@ export function promptReturnToShip() {
   showViewToast('RETURN TO YOUR SHIP TO TAKE OFF');
 }
 
+// ---------------------------------------------------------------------------
+// Quest vehicles (src/inventory.js): deployed from the selector menu. The
+// story total-conversions and the station keep their narrative spaces
+// vehicle-free; water stows everything.
+// ---------------------------------------------------------------------------
+export function deployVehicle(id) {
+  if (stationWalk.stationActive()) return false;
+  if (!walk.active || !walk.planet || !hasItem(id)) return false;
+  if (wavemall || actuality || shadowreach) return false;
+  if (walk.swimming || walk.diving) return false;
+  walk.boarding = false;
+  walk.vehicle = id;
+  walk.carve = 0;
+  walk.jetFuel = 1;
+  // Seed the ride's ground tracker so frame 1 reads zero terrain motion.
+  boardPrevGroundR = ship.position.distanceTo(walk.planet.body.position);
+  boardGroundVel = 0;
+  return true;
+}
+
+export function stowVehicle() {
+  walk.vehicle = null;
+}
+
+export function vehicleState() {
+  return { vehicle: walk.vehicle, fuel: walk.jetFuel };
+}
+
 // dev/verification handle (main.js __debug): the landing-site entities.
 export function walkSite() {
   return {
@@ -1858,7 +1933,9 @@ export function updateWalkCamera(camera, delta = 0) {
   }
 
   // Boarding at speed eases the orbit out for a wider view of the line.
-  const bFrac = walk.boarding ? Math.min(walk.speed01 * 1.3, 1) : 0;
+  const bFrac = walk.boarding || walk.mode === 'moto'
+    ? Math.min(walk.speed01 * 1.3, 1)
+    : 0;
   boardCamEase += (bFrac - boardCamEase) * Math.min(1, 4 * delta);
   const camDist = walk.camDist * (1 + C.BOARD_CAM_PULL * boardCamEase);
 
@@ -1902,7 +1979,7 @@ export function updateWalkCamera(camera, delta = 0) {
 
   // A touch of extra FOV at full sprint — the demo's speed rush. The board
   // widens further, scaled by how fast the ride actually is.
-  const wantKick = walk.boarding
+  const wantKick = walk.boarding || walk.mode === 'moto'
     ? boardCamEase
     : walk.mode === 'run' && input.boost && walk.speed01 > 0.55
       ? 1
