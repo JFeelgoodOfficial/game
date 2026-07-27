@@ -31,8 +31,35 @@ export const input = {
   togglePause: false, // Backspace edge-trigger: pause/resume. game.js reads and zeroes it.
   mouseX: 0, // accumulated pixels since last consume
   mouseY: 0,
+  // Analog walk axes, written only by the on-foot touch sticks (touchControls.js).
+  // Zero means "nobody is touching the stick, the keys drive movement"; the walk
+  // modules fall back to the WASD booleans in that case.
+  moveX: 0, // strafe, -1 (left) .. +1 (right)
+  moveY: 0, // forward, -1 (back) .. +1 (forward)
   wheel: 0, // accumulated scroll since last consume (third-person zoom)
 };
+
+// Every walker resolves its movement axes the same way, so they share this:
+// the analog touch stick when it is pushed, the WASD booleans otherwise. `mag`
+// is 0..1 and scales the target speed, so a half-pushed stick walks slowly —
+// on the keyboard it is always 1 (a diagonal's 1.41 clamps), which is exactly
+// what the normalize() in each walker already produced.
+//
+// Reuses one object per call, like the scratch vectors in walk.js: this runs
+// inside the fixed-timestep loop.
+const _axes = { fwd: 0, strafe: 0, mag: 0 };
+export function moveAxes() {
+  let fwd = (input.forward ? 1 : 0) - (input.reverse ? 1 : 0);
+  let strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+  if (input.moveX !== 0 || input.moveY !== 0) {
+    fwd = input.moveY;
+    strafe = input.moveX;
+  }
+  _axes.fwd = fwd;
+  _axes.strafe = strafe;
+  _axes.mag = Math.min(1, Math.hypot(fwd, strafe));
+  return _axes;
+}
 
 // The 3D cockpit registers a gate so a click that pressed a dashboard button,
 // grabbed the wheel, or opened the nav hologram doesn't also grab pointer

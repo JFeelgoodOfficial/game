@@ -25,7 +25,7 @@
 
 import * as THREE from 'three';
 import { C } from './constants.js';
-import { input } from './input.js';
+import { input, moveAxes } from './input.js';
 import { ship } from './ship.js';
 import { setStationFrozen, updateGalleryUniforms } from './stations.js';
 import * as GL from './galleryLayout.js';
@@ -484,8 +484,9 @@ export function stepStationWalk(dt) {
 
   const sinY = Math.sin(sWalk.yaw);
   const cosY = Math.cos(sWalk.yaw);
-  const fwd = (input.forward ? 1 : 0) - (input.reverse ? 1 : 0);
-  const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+  const axes = moveAxes(); // WASD, or the analog touch stick when it's pushed
+  const fwd = axes.fwd;
+  const strafe = axes.strafe;
   // heading (sinY, cosY); right = heading x up = (-cosY, sinY) in xz
   _wish.set(
     sinY * fwd + -cosY * strafe,
@@ -493,7 +494,7 @@ export function stepStationWalk(dt) {
     cosY * fwd + sinY * strafe
   );
   const targetSpeed = input.sprint ? C.WALK_RUN_SPEED : C.WALK_SPEED;
-  if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(targetSpeed);
+  if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(targetSpeed * axes.mag);
 
   const accel = sWalk.grounded ? C.WALK_ACCEL_GROUND : C.WALK_ACCEL_AIR;
   _move.subVectors(_wish, sWalk.vel);

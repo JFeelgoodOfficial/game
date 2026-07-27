@@ -126,6 +126,7 @@ import {
 } from './settingsPanel.js';
 import { initCompass, updateCompass } from './compass.js';
 import { initControls, updateControls, setObjective } from './controls.js';
+import { initTouchControls, updateTouchControls } from './touchControls.js';
 import { initCapture, capturePendingPhoto, updateCapture, updateRecordingFrame, requestPhoto, toggleRecording, isGalleryOpen } from './capture.js';
 import { initCredits, openCredits, closeCredits, isCreditsOpen } from './credits.js';
 import lensingFrag from './shaders/lensing.frag?raw';
@@ -175,6 +176,7 @@ initHolonav(cockpitShell);
 setPointerLockGate(cockpitPointerGate);
 initCompass();
 initControls();
+initTouchControls();
 initCapture(renderer);
 initCredits();
 initJournal();
@@ -1075,6 +1077,12 @@ function frame(now) {
   }
   // "click to steer" hint only makes sense with the sim live and unpaused
   hintEl.classList.toggle('off', paused || (phase !== 'fly' && phase !== 'walk'));
+
+  // On-foot touch sticks (no-op on desktop). Runs before the walk step below so
+  // the look travel it injects is consumed by the same stepWalk tick a mouse
+  // delta would have fed. Flight needs nothing here — the 3D dashboard already
+  // owns touch — so the sticks hide outside the walk phase.
+  updateTouchControls(delta, phase, paused);
 
   if (phase === 'fly') {
     // C: stand up out of the seat / sit back down at it. Standing is

@@ -21,7 +21,7 @@
 
 import * as THREE from 'three';
 import { C } from './constants.js';
-import { input } from './input.js';
+import { input, moveAxes } from './input.js';
 import { ship } from './ship.js';
 import { createCottage } from '../world/cottage.js';
 import { createShip as createParkedShip } from '../world/ship.js';
@@ -178,12 +178,13 @@ export function stepCottageWalk(dt) {
 
   const sinY = Math.sin(cWalk.yaw);
   const cosY = Math.cos(cWalk.yaw);
-  const fwd = (input.forward ? 1 : 0) - (input.reverse ? 1 : 0);
-  const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+  const axes = moveAxes(); // WASD, or the analog touch stick when it's pushed
+  const fwd = axes.fwd;
+  const strafe = axes.strafe;
   // heading (sinY, cosY); right = heading x up = (-cosY, sinY) in xz
   _wish.set(sinY * fwd + -cosY * strafe, 0, cosY * fwd + sinY * strafe);
   const targetSpeed = input.sprint ? C.COTTAGE_RUN_SPEED : C.COTTAGE_WALK_SPEED;
-  if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(targetSpeed);
+  if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(targetSpeed * axes.mag);
 
   const accel = cWalk.grounded ? C.WALK_ACCEL_GROUND : C.WALK_ACCEL_AIR;
   _move.subVectors(_wish, cWalk.vel);
