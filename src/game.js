@@ -641,6 +641,7 @@ if (import.meta.env.DEV) {
   window.__THREE = THREE; // headless probes build raycasters/vectors against it
   window.__scene = scene;
   window.__camera = camera;
+  window.__renderer = renderer; // renderer.info is how headless checks for leaks
 }
 
 const DT = 1 / 60;

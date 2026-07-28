@@ -392,6 +392,7 @@ export function cottageSite() {
     cWalk,
     parked,
     colliders: cottage.colliders.length,
+    garden: cottage.garden,
     pad: cottage.pad.clone(),
     spawn: cottage.spawn.clone(),
     nearPad: nearPad(),

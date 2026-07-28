@@ -29,6 +29,15 @@
 // world/actuality-sky.js follows. Getting this wrong is how you end up flying
 // the solar system through cottage-garden fog.
 //
+// THE GARDEN. Wildflowers out to the treeline, a fenced kitchen garden behind
+// the house, butterflies over the drifts, and a woman on the sunny side cutting
+// stems into a bouquet. She never notices you and there is nothing to say to
+// her — that is the point of her, and of this place. All of it lives in
+// world/cottage-garden.js and its three ported modules; the only things this
+// file owns are the two exclusion clauses in the tuft and shrub loops, and the
+// call itself. Everything out there is a merged prototype scattered as an
+// InstancedMesh, the same bargain the grass tufts and the blossom dots strike.
+//
 // THE ROOF IS A SHELL, NOT A BLOCK. The thatch used to be a solid extrusion and
 // the room had a flat ceiling at WH with cross beams hanging to 2.46 — against
 // a first-person eye at 2.14. It read as a crawlspace. The ceiling is now
@@ -49,6 +58,7 @@
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { settings } from '../src/settings.js';
+import { createKitchenGarden, VEG } from './cottage-garden.js';
 
 /* ---------------------------------------------------------------- seeded rng */
 function mulberry32(a) {
@@ -66,6 +76,9 @@ const FY = 0.42;   // interior floor level
 const PAD_Z = 34;  // landing pad centre, down the path past the garden gate
 const PAD_R = 9;   // pad deck radius
 const PAD_Y = 0.3; // pad deck height above the grass
+// The kitchen garden's footprint, so the grass and the shrub scatter can stay
+// out of it. The plot itself is placed by world/cottage-garden.js.
+const inVeg = (x, z) => Math.abs(x - VEG.cx) < VEG.hx && Math.abs(z - VEG.cz) < VEG.hz;
 
 // The sky dome must sit inside isolate.js's ISO_FAR (4000) or it clips. The
 // fog (FogExp2 0.0075) is opaque by ~400 u, so nothing between here and there
@@ -928,6 +941,8 @@ export function createCottage(scene, opts = {}) {
     if (inHouse) { x *= 3; z *= 3; }
     // and none on the landing pad deck
     if (x * x + (z - PAD_Z) * (z - PAD_Z) < (PAD_R + 1) * (PAD_R + 1)) { x *= 4; z *= 4; }
+    // nor in the vegetable plot — the mulch is the ground in there
+    if (inVeg(x, z)) { x *= 3; z *= 3; }
     dummy.position.set(x, 0, z);
     dummy.rotation.set(rand(-0.16, 0.16), rand(0, 6.28), rand(-0.16, 0.16));
     dummy.scale.set(rand(0.7, 1.4), rand(0.5, 1.3), rand(0.7, 1.4));
@@ -1002,6 +1017,9 @@ export function createCottage(scene, opts = {}) {
     const sx = Math.cos(a) * r, sz = Math.sin(a) * r;
     // keep the pad approach clear
     if (sx * sx + (sz - PAD_Z) * (sz - PAD_Z) < (PAD_R + 4) * (PAD_R + 4)) continue;
+    // this loop scatters at r 16..38 and the plot's far corner is at 16.0, so
+    // without this a shrub can grow through the kitchen garden fence
+    if (inVeg(sx, sz)) continue;
     shrub(sx, sz, rand(0.6, 1.3), rand(0.8, 1.7), rng() > 0.4);
   }
   [clumps, clumpsDark, petals, petals2].forEach((m) => {
@@ -1064,6 +1082,17 @@ export function createCottage(scene, opts = {}) {
   }
   tree(-15, -10, 1.35); tree(18, -9, 1.15); tree(16, 14, 1.25);
   tree(-17, 12, 1.0); tree(-24, -20, 1.5); tree(26, 3, 1.3);
+
+  /* ---------------------------------------------------------------- kitchen garden */
+  // Wildflowers out to the treeline, nine raised beds behind the house,
+  // butterflies over the drifts, and a woman on the sunny side cutting stems.
+  // All of it built as merged prototypes scattered as InstancedMeshes — the
+  // same trade the tufts and the blossom dots above already make. Placed here,
+  // after the trees, because the exclusion predicate needs pathX and the pad.
+  const garden = createKitchenGarden({
+    parent: group, rand, low, track, collide,
+    frame: { HX, HZ, PAD_Z, PAD_R, pathX, pathZ0: HZ + 1.6, pathZ1: PAD_Z - PAD_R },
+  });
 
   // dry-stone garden wall + gate posts, with the gate on the path to the pad
   const wallStone = new THREE.InstancedMesh(
@@ -1262,6 +1291,7 @@ export function createCottage(scene, opts = {}) {
       pos.setXYZ(i, bx + Math.sin(elapsed * 0.6 + by * 3) * 0.9, y, bz + Math.cos(elapsed * 0.45 + bx) * 0.9);
     }
     pos.needsUpdate = true;
+    garden.update(dt, elapsed);
     updateAudio(dt);
   }
 
@@ -1280,6 +1310,7 @@ export function createCottage(scene, opts = {}) {
     if (!alive) return;
     alive = false;
     disposeAudio();
+    garden.dispose();
     group.parent?.remove(group);
     group.traverse((o) => {
       if (o.isInstancedMesh) o.dispose();
@@ -1308,6 +1339,7 @@ export function createCottage(scene, opts = {}) {
     shipSpot: new THREE.Vector3(-1.6, PAD_Y, PAD_Z + 0.6),
     floorYAt,
     insideHouse,
+    garden,
     update,
     preRender,
     dispose,
