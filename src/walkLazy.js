@@ -12,13 +12,40 @@
 
 let mod = null;
 let pendingScene = null;
+let loading = false;
+let attempts = 0;
+let retryAt = 0;
 
 function load() {
-  if (mod) return;
-  import('./walk.js').then((m) => {
-    mod = m;
-    m.initWalk(pendingScene);
-  });
+  if (mod || loading) return;
+  loading = true;
+  import('./walk.js')
+    .then((m) => {
+      // initWalk BEFORE publishing `mod`: its last line is what gives
+      // cottageWalk its scene, and a half-initialised module that still reports
+      // itself loaded is the worse failure — walkLoaded() says yes, the cottage
+      // gate says no, and the sun sequence holds white forever instead of
+      // simply retrying the load.
+      m.initWalk(pendingScene);
+      mod = m;
+      loading = false;
+      attempts = 0;
+    })
+    .catch((err) => {
+      loading = false;
+      attempts++;
+      // This used to be a bare .then(), so the rejection was silent and nothing
+      // downstream could tell a slow load from a dead one. Flying into the sun
+      // then hung on a full-amber screen with no way out but a reload.
+      //
+      // Retrying only helps when the module FETCHED and initWalk threw — the
+      // browser caches a failed module fetch against its specifier, so
+      // re-importing the same URL never re-requests it. A genuinely dead fetch
+      // needs a page reload, which is what the sun sequence now tells the
+      // player when it gives up (game.js, 'ascend').
+      console.warn(`[walk] chunk load failed (attempt ${attempts})`, err);
+      retryAt = performance.now() + Math.min(1000 * 2 ** (attempts - 1), 30000);
+    });
 }
 
 export function initWalk(scene) {
@@ -26,6 +53,16 @@ export function initWalk(scene) {
   // start fetching once boot has settled; rIC where available
   if (window.requestIdleCallback) window.requestIdleCallback(load, { timeout: 3000 });
   else setTimeout(load, 1500);
+}
+
+// Re-arm the load if an earlier attempt failed. Called every frame from
+// game.js; a no-op once the chunk is in, and rate-limited by the backoff while
+// it is not. Everything that gates on walkLoaded() — landing, docking, the
+// cottage — recovers on its own through this.
+export function ensureWalkLoaded() {
+  if (mod) return true;
+  if (!loading && attempts > 0 && performance.now() >= retryAt) load();
+  return false;
 }
 
 export const walkLoaded = () => !!mod;
