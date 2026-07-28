@@ -144,6 +144,11 @@ export const C = {
   // the world reset both hide), then fade the white out on the other side.
   ASCEND_FLASH: 0.42, // seconds of ramp to white — matches EXPLODE_TIME * 0.35
   ASCEND_FADE: 1.8, // seconds of white fading off the garden. Unhurried.
+  // How long the sun sequence may hold at full white waiting for the cottage
+  // before it gives up and hands back the death menu. The wait is normally a
+  // frame or two; this only fires when the walk chunk cannot be fetched at all,
+  // where an unbounded hold is a dead screen the player cannot escape.
+  ASCEND_GIVE_UP: 12.0,
   DEPART_FLASH: 0.55, // seconds of ramp to white when you take off from the pad
   DEPART_FADE: 1.2, // seconds of white fading off Terra
   COTTAGE_WALK_SPEED: 3.2, // u/s on foot. The world is human-scale, not planet-

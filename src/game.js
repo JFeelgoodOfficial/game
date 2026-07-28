@@ -93,6 +93,7 @@ import {
   walkDebug,
   enterStationWalk,
   walkLoaded,
+  ensureWalkLoaded,
   enterCottageWalk,
   cottageActive,
 } from './walkLazy.js';
@@ -139,6 +140,22 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 document.body.appendChild(renderer.domElement);
+
+// Losing the GL context used to be invisible and terminal: the canvas freezes
+// on its last frame while the DOM overlays stay painted, so a loss during a
+// heavy build — the cottage's 16k tufts, canvas textures and PMREM bake, all in
+// one frame — read as the screen simply stopping on full amber. Phones under
+// memory pressure are where this happens. We don't try to restore (that means
+// re-uploading every texture and geometry); we just stop pretending nothing
+// happened and give the player the one thing that does fix it.
+let contextLost = false;
+renderer.domElement.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault(); // keeps the canvas alive rather than tearing it down
+  contextLost = true;
+  console.error('[gl] context lost');
+  updateHeatUI(0, C.CRACK_AT, 0, null); // drop any flash/vignette still on screen
+  showMenu('dead', 'GRAPHICS CONTEXT LOST — RELOAD TO CONTINUE');
+});
 
 const scene = new THREE.Scene();
 
@@ -659,6 +676,10 @@ let burnedBySun = false; // which burn is killing us — the sun's is the doorwa
 // the seconds the current transition wants for its fade-out (0 = hold).
 let flash = 0;
 let flashFade = 0;
+// Sun-death watchdog: how long 'ascend' has been sitting at full white waiting
+// for the cottage, and whether building it threw outright.
+let ascendWait = 0;
+let ascendBroken = false;
 // Out-of-seat sub-mode within 'fly' (interior.js): the ship coasts on
 // attitude hold while the pilot walks the corridor. Not a phase — heat,
 // capture, nav, and the accumulator must all keep running.
@@ -1053,6 +1074,7 @@ initMenu(() => {
 });
 
 function frame(now) {
+  if (contextLost) return; // don't re-arm: every draw into a lost context throws
   requestAnimationFrame(frame);
   let delta = (now - last) / 1000;
   last = now;
@@ -1077,6 +1099,11 @@ function frame(now) {
   }
   // "click to steer" hint only makes sense with the sim live and unpaused
   hintEl.classList.toggle('off', paused || (phase !== 'fly' && phase !== 'walk'));
+
+  // Re-arm the on-foot chunk if its fetch failed. No-op once it is in; without
+  // this a single failed load was permanent, and everything gated on it —
+  // landing, docking, the sun's cottage — stayed broken until a reload.
+  ensureWalkLoaded();
 
   // On-foot touch sticks (no-op on desktop). Runs before the walk step below so
   // the look travel it injects is consumed by the same stepWalk tick a mouse
@@ -1280,11 +1307,41 @@ function frame(now) {
     // and keep trying: a beat too long on white beats dropping into nowhere.
     warpT += delta;
     flash = Math.min(warpT / C.ASCEND_FLASH, 1);
-    if (flash >= 1 && enterHeaven()) {
-      phase = 'walk';
-      flashFade = C.ASCEND_FADE;
-      warpT = 0;
-      accumulator = 0;
+    if (flash >= 1) {
+      // enterHeaven() is a predicate re-polled every frame, not a timer: false
+      // until the lazy walk chunk has landed. Two things made that never
+      // happen — a chunk fetch that failed (now retried, see walkLazy.js) and
+      // a throw inside the heavy cottage build. Either one pinned the screen at
+      // full amber with no way out: 'ascend' consumes no input, and Backspace
+      // only pauses in 'fly'/'walk'. So bound the wait and always leave a door.
+      ascendWait += delta;
+      let arrived = false;
+      try {
+        arrived = enterHeaven();
+      } catch (err) {
+        console.error('[ascend] cottage build failed', err);
+        ascendBroken = true;
+      }
+      if (arrived) {
+        phase = 'walk';
+        flashFade = C.ASCEND_FADE;
+        warpT = 0;
+        accumulator = 0;
+        ascendWait = 0;
+      } else if (ascendBroken || ascendWait >= C.ASCEND_GIVE_UP) {
+        // Give back the death menu rather than a screen that never resolves.
+        // enterHeaven may have hidden the universe on its way out, so put it
+        // back before the menu uses it as a backdrop. Say what actually went
+        // wrong: with the walk chunk dead nothing can land either, and a
+        // reload is the only thing that re-fetches it.
+        releaseIsolation(renderer, aoPass, camera, bloomPass);
+        phase = 'menu';
+        showMenu('dead', 'THE FAR SIDE DIDN\'T LOAD — RELOAD TO TRY AGAIN');
+        flash = 0;
+        flashFade = 0;
+        ascendWait = 0;
+        ascendBroken = false;
+      }
     }
   } else if (phase === 'depart') {
     // Boarding on the pad. White out, tear the world down and reset behind it,
