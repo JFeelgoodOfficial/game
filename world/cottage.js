@@ -29,6 +29,18 @@
 // world/actuality-sky.js follows. Getting this wrong is how you end up flying
 // the solar system through cottage-garden fog.
 //
+// THE ROOF IS A SHELL, NOT A BLOCK. The thatch used to be a solid extrusion and
+// the room had a flat ceiling at WH with cross beams hanging to 2.46 — against
+// a first-person eye at 2.14. It read as a crawlspace. The ceiling is now
+// vaulted into the roof volume (4.08 m at the apex), which means the thatch had
+// to become a hollow section: a solid extrusion caps its own underside, and
+// that cap is a FRONT face from the room below. Both the roof and the vault are
+// swept by hand as (x, section) grids rather than extruded, because the two
+// dormers punch real holes through both and an ExtrudeGeometry hole would
+// tunnel the whole length of the roof. Three surfaces close the result up —
+// the gable infill panels, the roof's end caps and the dormers' own shells —
+// and every one of them is a hole you can see the sky through if it goes wrong.
+//
 // Textures live in public/textures/ (the three.js examples set) and are
 // addressed through import.meta.env.BASE_URL, because vite.config.js builds
 // with base './'. The thatch and the lime plaster are generated to canvas at
@@ -376,12 +388,122 @@ export function createCottage(scene, opts = {}) {
     track(new THREE.PlaneGeometry(HX * 2 - WT, HZ * 2 - WT)), M.wood);
   floor.rotation.x = -Math.PI / 2; floor.position.y = FY; floor.receiveShadow = true;
   group.add(floor);
-  const ceil = new THREE.Mesh(track(new THREE.PlaneGeometry(HX * 2, HZ * 2)),
-    track(new THREE.MeshStandardMaterial({ color: 0xefe8d8, roughness: 0.95 })));
-  ceil.rotation.x = Math.PI / 2; ceil.position.y = WH - 0.02; ceil.receiveShadow = true;
-  group.add(ceil);
-  for (let i = -3; i <= 3; i++) box(HX * 2, 0.2, 0.22, M.beam, 0, WH - 0.14, i * 1.0);
-  box(0.24, 0.24, HZ * 2, M.beam, 0, WH - 0.14, 0);
+  /* ---------------------------------------------------------------- vault */
+  // The room used to be flat-ceilinged at WH with seven cross beams hanging to
+  // y=2.46 — and the first-person eye sits at FY + WALK_EYE_HEIGHT = 2.14, so
+  // you walked the whole cottage with timber 32 cm above your eyeline. It read
+  // as a crawlspace.
+  //
+  // The thatch above is a SOLID extrusion (see thatchRoof below) rising to 5.82
+  // at the apex, and from in here its faces are backfaces and are culled. That
+  // whole volume is therefore free: the ceiling opens into the roof and the
+  // exterior silhouette does not change by a millimetre.
+  const VS = HZ - WT / 2;              // springing — the inner face of the side walls
+  const VAPEX = 4.5;                   // 4.08 m of headroom down the centre
+  const VCTRL = WH + (VAPEX - WH) * 0.82;
+  // One quadratic per slope, mirroring the curve the thatch itself uses, so the
+  // ceiling echoes the roof over it. u: 0 = -Z springing, 0.5 = apex, 1 = +Z.
+  function vaultAt(u) {
+    const s = u <= 0.5 ? -1 : 1;
+    const t = u <= 0.5 ? u * 2 : (1 - u) * 2;
+    const mt = 1 - t;
+    return [
+      s * (mt * mt * VS + 2 * t * mt * VS * 0.42),
+      mt * mt * WH + 2 * t * mt * VCTRL + t * t * VAPEX,
+    ];
+  }
+  // The two eyebrow dormers are opened into the room rather than left as
+  // exterior dressing: the vault passes straight through their cavities, so the
+  // cells that fall inside one are simply not emitted and daylight drops in.
+  const DORMER_X = [-2.3, 2.3];
+  function inDormer(x, z, y) {
+    for (const dx of DORMER_X) {
+      if (Math.abs(x - dx) < 0.62 && z > 2.0 && z < 3.5 && y > 3.1 && y < 4.2) return true;
+    }
+    return false;
+  }
+  const ceilMat = track(new THREE.MeshStandardMaterial({
+    map: plasterMapIn, bumpMap: plasterMapIn, bumpScale: 0.4,
+    color: 0xefe8d8, roughness: 0.95,
+  }));
+  (function vault() {
+    // A parametric (x, u) grid, not an ExtrudeGeometry: an extruded Shape's
+    // holes would tunnel the entire length of the roof, and we need two windows
+    // in the surface.
+    const NX = 48, NU = 44, half = HX - WT / 2;
+    const pos = [], uv = [], idx = [];
+    for (let i = 0; i <= NX; i++) {
+      const x = -half + (i / NX) * half * 2;
+      for (let j = 0; j <= NU; j++) {
+        const [z, y] = vaultAt(j / NU);
+        pos.push(x, y, z);
+        uv.push((i / NX) * 4, (j / NU) * 3);
+      }
+    }
+    for (let i = 0; i < NX; i++) for (let j = 0; j < NU; j++) {
+      // Cell centre decides the cut, so an opening has clean edges either side.
+      const [cz, cy] = vaultAt((j + 0.5) / NU);
+      const cx = -half + ((i + 0.5) / NX) * half * 2;
+      if (inDormer(cx, cz, cy)) continue;
+      const a = i * (NU + 1) + j, b = a + NU + 1;
+      // (a, b, a+1) winds the normal to -Y — down, into the room.
+      idx.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    const m = new THREE.Mesh(track(g), ceilMat);
+    m.receiveShadow = true;   // no cast: the thatch over it already does that
+    group.add(m);
+  })();
+
+  // Gable infill. The end walls stop at WH and the vault springs from there, so
+  // without these two panels there is a triangle of open air at each end of the
+  // room — and through it you would see the thatch's culled backfaces, i.e.
+  // straight out to the sky. Double-sided, because the roof overhangs past them
+  // and they are the gable wall from the garden side too: one-sided, you can
+  // stand outside and look through the wall into the roof cavity.
+  const gableMat = track(new THREE.MeshStandardMaterial({
+    map: plasterMapIn, bumpMap: plasterMapIn, bumpScale: 0.4,
+    roughness: 0.95, side: THREE.DoubleSide,
+  }));
+  for (const s of [-1, 1]) {
+    const shape = new THREE.Shape();
+    shape.moveTo(-VS, WH);
+    for (let j = 0; j <= 44; j++) { const [z, y] = vaultAt(j / 44); shape.lineTo(z, y); }
+    shape.lineTo(VS, WH);
+    shape.closePath();
+    const panel = new THREE.Mesh(track(new THREE.ShapeGeometry(shape)), gableMat);
+    panel.position.x = s * (HX - WT / 2);
+    panel.rotation.y = -s * Math.PI / 2;
+    panel.castShadow = true;
+    panel.receiveShadow = true;
+    group.add(panel);
+  }
+
+  // Rafters over the vault and collar ties across it — the cottage read, moved
+  // up into the roof where it belongs. The ties sit at 3.55, a clear 1.41 m
+  // above the eye.
+  for (let i = 0; i < 9; i++) {
+    const x = -3.6 + i * 0.9;
+    const pts = [];
+    for (let j = 0; j <= 20; j++) {
+      const [z, y] = vaultAt(j / 20);
+      pts.push(new THREE.Vector3(x, y - 0.055, z));
+    }
+    const r = new THREE.Mesh(track(new THREE.TubeGeometry(
+      new THREE.CatmullRomCurve3(pts), 22, 0.045, 5, false)), M.beam);
+    r.castShadow = true; r.receiveShadow = true;
+    group.add(r);
+  }
+  for (const x of [-2.9, 0, 2.9]) box(0.16, 0.18, 4.1, M.beam, x, 3.55, 0);
+  box(HX * 2 - WT, 0.16, 0.18, M.beam, 0, VAPEX - 0.09, 0);   // ridge
+
+  // The fireplace breast stopped at the old ceiling. Carry it up past the vault
+  // and let the ceiling clip it — anything above that surface is unseeable.
+  box(2.6, 0.9, 0.55, M.brick, -3.0, 3.17, -HZ + 0.55);
 
   /* windows: frame + mullions + glass */
   function window4(x, y, z, w, h, rotY) {
@@ -442,21 +564,101 @@ export function createCottage(scene, opts = {}) {
   /* ---------------------------------------------------------------- thatched roof */
   (function thatchRoof() {
     const halfW = HZ + 0.6, ridge = 3.3, len = HX * 2 + 1.3;
-    const shape = new THREE.Shape();
-    shape.moveTo(-halfW, 0);
-    shape.lineTo(-halfW * 0.94, 0.42);
-    shape.quadraticCurveTo(-halfW * 0.42, ridge * 0.82, 0, ridge);
-    shape.quadraticCurveTo(halfW * 0.42, ridge * 0.82, halfW * 0.94, 0.42);
-    shape.lineTo(halfW, 0);
-    const geo = track(new THREE.ExtrudeGeometry(shape, {
-      depth: len, bevelEnabled: true, bevelSize: 0.16,
-      bevelThickness: 0.16, bevelSegments: 3, curveSegments: 28,
-    }));
-    geo.rotateY(Math.PI / 2);
-    geo.translate(-len / 2 + 0.16, WH - 0.18, 0);
+    // The section is a C, not a filled block. It used to be solid, and a solid
+    // extrusion has a flat closing cap across its underside — which is a FRONT
+    // face seen from the room below, so it read as a thatch lid hanging at 2.52
+    // the moment the flat ceiling came out. Walking the outline back along an
+    // inner curve makes the roof a shell of real thatch depth (~0.5 at the eave,
+    // 0.7 at the ridge) with an open soffit, and leaves the vault room to sit
+    // inside it. The outer profile is untouched, so the exterior is unchanged.
+    const inZ = VS + 0.5;        // inner face starts inside the wall, never on show
+    // Clearance over the plaster vault has to beat the 0.16 bevel below, or the
+    // straw pokes through the ceiling. 0.57 at the apex leaves ~0.25 at the worst
+    // point, near the springing.
+    const inApex = VAPEX - (WH - 0.18) + 0.57;
+    // The section is swept as a grid rather than run through ExtrudeGeometry,
+    // for the same reason the vault is: the dormers have to punch a real hole
+    // through the thatch, and an extruded Shape's holes tunnel the entire
+    // length of the roof. Sweeping by hand means a cell that lands inside a
+    // dormer is simply not emitted. The outer profile is the original one,
+    // point for point.
+    const outer = new THREE.Path();
+    outer.moveTo(-halfW, 0);
+    outer.lineTo(-halfW * 0.94, 0.42);
+    outer.quadraticCurveTo(-halfW * 0.42, ridge * 0.82, 0, ridge);
+    outer.quadraticCurveTo(halfW * 0.42, ridge * 0.82, halfW * 0.94, 0.42);
+    outer.lineTo(halfW, 0);
+    const inner = new THREE.Path();
+    inner.moveTo(inZ, 0);
+    inner.quadraticCurveTo(inZ * 0.42, inApex * 0.82, 0, inApex);
+    inner.quadraticCurveTo(-inZ * 0.42, inApex * 0.82, -inZ, 0);
+    // one closed loop: over the top on the outside, back along the underside
+    const loop = outer.getPoints(48).concat(inner.getPoints(36));
+    const N = loop.length, NX = 44, x0 = -len / 2 + 0.16;
+    // A cell is thatch unless it falls inside a dormer's cavity.
+    const cutRoof = (x, z, y) => {
+      for (const dx of DORMER_X) {
+        if (Math.abs(x - dx) < 0.70 && z > 2.0 && z < 3.5 && y > 3.05 && y < 4.25) return true;
+      }
+      return false;
+    };
+    const pos = [], uv = [], idx = [];
+    for (let i = 0; i <= NX; i++) {
+      const x = x0 + (i / NX) * len;
+      for (let j = 0; j < N; j++) {
+        pos.push(x, WH - 0.18 + loop[j].y, loop[j].x);
+        uv.push((i / NX) * 5, (j / N) * 4);
+      }
+    }
+    for (let i = 0; i < NX; i++) for (let j = 0; j < N; j++) {
+      const j2 = (j + 1) % N;
+      const cx = x0 + ((i + 0.5) / NX) * len;
+      if (cutRoof(cx, (loop[j].x + loop[j2].x) / 2,
+        WH - 0.18 + (loop[j].y + loop[j2].y) / 2)) continue;
+      const a = i * N + j, a2 = i * N + j2, b = a + N, b2 = a2 + N;
+      idx.push(a, b, a2, a2, b, b2);
+    }
+    const geo = track(new THREE.BufferGeometry());
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
     const roof = new THREE.Mesh(geo, M.thatch);
     roof.castShadow = true; roof.receiveShadow = true;
     group.add(roof);
+    // Gable end caps, closing the swept tube. Double-sided: the two ends want
+    // opposite winding and there is no cost worth arguing about in two small
+    // fans — get this wrong and you can see straight into the roof cavity from
+    // the garden.
+    const capMat = track(new THREE.MeshStandardMaterial({
+      map: thatchMap, bumpMap: thatchMap, bumpScale: 3, roughness: 1,
+      color: 0xcfae7c, side: THREE.DoubleSide,
+    }));
+    // Built as an explicit strip between the two profiles rather than a
+    // triangulated Shape — the arch polygon defeats ShapeUtils and comes back
+    // empty, which is a hole you only notice from out in the garden.
+    const K = 40;
+    const oPts = outer.getSpacedPoints(K), iPts = inner.getSpacedPoints(K);
+    for (const s of [0, 1]) {
+      const cp = [], ci = [];
+      for (let k = 0; k <= K; k++) {
+        const o = oPts[k], n = iPts[K - k];
+        cp.push(x0 + s * len, WH - 0.18 + o.y, o.x);
+        cp.push(x0 + s * len, WH - 0.18 + n.y, n.x);
+      }
+      for (let k = 0; k < K; k++) {
+        const a = k * 2;
+        ci.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
+      const cap = track(new THREE.BufferGeometry());
+      cap.setAttribute('position', new THREE.Float32BufferAttribute(cp, 3));
+      cap.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array((K + 1) * 4), 2));
+      cap.setIndex(ci);
+      cap.computeVertexNormals();
+      const m = new THREE.Mesh(cap, capMat);
+      m.castShadow = true; m.receiveShadow = true;
+      group.add(m);
+    }
     // rolled ridge + eave fringe
     const ridgeRoll = cyl(0.3, 0.3, len, M.thatch, 0, WH + ridge - 0.28, 0, 16);
     ridgeRoll.rotation.z = Math.PI / 2;
@@ -466,12 +668,28 @@ export function createCottage(scene, opts = {}) {
     });
   })();
 
-  // dormer windows (eyebrow style) on the front slope
+  // Dormer windows (eyebrow style) on the front slope. These are open to the
+  // room: the vault below is cut away under each one, so the body cannot be a
+  // solid block with a glass sticker on the front the way it was — you would be
+  // looking up at its underside. It is a bottomless plaster shell with a real
+  // aperture in its face, and daylight comes down through it onto the floor.
   function dormer(x) {
     const g = new THREE.Group();
     g.position.set(x, WH + 0.95, HZ - 0.75);
-    const body = new THREE.Mesh(track(new THREE.BoxGeometry(1.5, 1.05, 1.5)), M.plaster);
-    body.castShadow = true; body.receiveShadow = true; g.add(body);
+    const panel = (w, h, d, px, py, pz) => {
+      const m = new THREE.Mesh(track(new THREE.BoxGeometry(w, h, d)), M.plaster);
+      m.position.set(px, py, pz);
+      m.castShadow = true; m.receiveShadow = true; g.add(m);
+    };
+    panel(1.5, 0.08, 1.5, 0, 0.485, 0);        // head
+    panel(1.5, 1.05, 0.08, 0, 0, -0.71);       // back
+    panel(0.08, 1.05, 1.5, -0.71, 0, 0);       // cheeks
+    panel(0.08, 1.05, 1.5, 0.71, 0, 0);
+    // face, built around a 0.95 x 0.75 aperture for the glass
+    panel(1.5, 0.10, 0.08, 0, 0.475, 0.71);
+    panel(1.5, 0.20, 0.08, 0, -0.425, 0.71);
+    panel(0.275, 0.75, 0.08, -0.6125, 0.05, 0.71);
+    panel(0.275, 0.75, 0.08, 0.6125, 0.05, 0.71);
     const hood = new THREE.Mesh(
       track(new THREE.SphereGeometry(1.02, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2)), M.thatch);
     hood.scale.set(1, 0.72, 1.15); hood.position.y = 0.5; hood.castShadow = true; g.add(hood);
@@ -639,8 +857,10 @@ export function createCottage(scene, opts = {}) {
   const bedLight = new THREE.PointLight(0xffcf94, 5, 5, 2);
   bedLight.position.set(-2.4, FY + 0.55, 0.7); group.add(bedLight);
 
-  // hanging pendant over the table
-  cyl(0.012, 0.012, 0.8, M.metal, 2.4, WH - 0.55, -1.4, 8);
+  // Hanging pendant over the table. It used to drop 0.8 from the flat ceiling;
+  // the vault over this spot is at y ~ 3.96, so the cord is now a proper 2.1 m
+  // drop and the shade stays exactly where it was.
+  cyl(0.012, 0.012, 2.12, M.metal, 2.4, 2.9, -1.4, 8);
   const shade = new THREE.Mesh(track(new THREE.ConeGeometry(0.3, 0.28, 20, 1, true)),
     track(new THREE.MeshStandardMaterial({
       color: 0x2f3b33, roughness: 0.5, side: THREE.DoubleSide,
