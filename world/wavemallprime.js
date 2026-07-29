@@ -44,6 +44,9 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeStructure } from './city.js';
 import { createCrowd as createPeople } from './people.js';
+import {
+  HEADS, DEPT_LINES, PLAZA_LINES, DEPT_CODEX, PLAZA_CODEX,
+} from './wavemall-dialogue.js';
 
 /* ----------------------------------------------------------------------
  * Registry relief (world/actuality-materials.js, optional): tiling normal +
@@ -1988,26 +1991,16 @@ export function createWonderField(planet, worldUp, opts = {}) {
 // Frame-loop scratch — module scope so crowd updates never allocate.
 const _toWp = new THREE.Vector3();
 
-const DIALOGUE_BANK = {
-  employeeGreeting: [
-    'Your satisfaction is our directive.',
-    'How may Wave Mall serve you today?',
-    'Every transfer is an opportunity for excellence.',
-    'The escalators run continuously. So do we.',
-  ],
-  callerFragment: [
-    'I was just on hold...',
-    'I think I ordered something. I forget what.',
-    'They said an operator was coming. That was a while ago.',
-    'Do you know where Feluzia\'s stage is? I want to see how it ends.',
-    'Eight levels. I have been to five. I think.',
-  ],
-  farewell: [
-    'Your call is important to us.',
-    'Please hold. Please hold. Please—',
-    'Thank you for shopping at Wave Mall.',
-  ],
-};
+// The chain variant a head speaks in, from the shared chain stage (owned by
+// the host — src/walk.js seeds it from the journal and advances it on
+// wavemall:* outcome tags) versus the head's own level. 'won' only exists on
+// the top floor, where the queue ends.
+function stageVariant(stage, level) {
+  if (stage >= 8 && level === 7) return 'won';
+  if (stage > level) return 'after';
+  if (stage === level) return 'current';
+  return 'early';
+}
 
 // Caller clothing: muted mall-goer tones. Employees wear their department's
 // accent — the uniform IS the badge.
@@ -2073,6 +2066,15 @@ export function createCrowd(host, opts = {}) {
     return -1;
   }
 
+  // Which floor's voice this crowd speaks with. `level` is 0..7 for an
+  // interior crowd, undefined for the plaza — every use below guards with
+  // `!= null` because level 0 is falsy.
+  const level = opts.level != null ? opts.level : null;
+  const bank = level != null ? DEPT_LINES[level] : PLAZA_LINES;
+  const codexPool = level != null ? DEPT_CODEX[level] : PLAZA_CODEX;
+  const chainState = opts.chainState ?? null;
+  const headDef = level != null ? HEADS[level] : null;
+
   for (let i = 0; i < count; i++) {
     const isEmployee = rng() < (opts.employeeRatio ?? C.EMPLOYEE_RATIO);
     const accent = DEPTS[Math.floor(rng() * DEPTS.length)].accent;
@@ -2088,12 +2090,30 @@ export function createCrowd(host, opts = {}) {
       rect: -1,
       waypoint: new THREE.Vector3(),
       yaw: rng() * Math.PI * 2,
-      quest: rng() < C.QUEST_CHANCE ? { kind: 'codex', subject: `wavemall-lore-${i}` } : null,
+      quest: rng() < C.QUEST_CHANCE
+        ? { kind: 'codex', subject: codexPool[i % codexPool.length] }
+        : null,
       seed: rng() * 1000,
     };
     c.rect = pickIn(null, pos);
     c.waypoint.copy(pos);
     citizens.push(c);
+  }
+
+  // The department head: citizen 0, renamed and pinned at their post. The
+  // override happens AFTER the loop (so the rng draw sequence for the other
+  // citizens is untouched for a given seedKey) and BEFORE createPeople below
+  // (whose cloth callback reads citizens in creation order).
+  if (headDef && citizens.length) {
+    const c = citizens[0];
+    c.head = headDef;
+    c.isEmployee = true;
+    c.pinned = true;
+    c.pos.set(headDef.post.x, headDef.post.y ?? 0, headDef.post.z);
+    c.waypoint.copy(c.pos);
+    c.yaw = headDef.post.yaw ?? 0;
+    c.prompt = headDef.prompt;
+    c.quest = null; // heads offer authored codex leaves from their trees instead
   }
 
   // The visuals: a real crowd (world/people.js) over the citizen sim above.
@@ -2105,6 +2125,9 @@ export function createCrowd(host, opts = {}) {
     place: (i) => ({ pos: citizens[i].pos, quat: _qIdent }),
     cloth: (r) => {
       const c = citizens[clothIdx++ % count];
+      // The head wears the department's SIGN color — associates wear the
+      // accent, so the one fixed figure at the post reads as in charge.
+      if (c.head && level != null) return DEPTS[level].sign;
       return c.isEmployee ? c.accent : CALLER_CLOTH[Math.floor(r * CALLER_CLOTH.length)];
     },
     maxRigs: opts.maxRigs ?? 10,
@@ -2117,7 +2140,18 @@ export function createCrowd(host, opts = {}) {
     for (let ci = 0; ci < citizens.length; ci++) {
       const c = citizens[ci];
       let moving = false;
-      if (!c.talking) {
+      if (c.pinned) {
+        // Heads keep their post. Face the player while talking; otherwise
+        // ease back to the posted yaw.
+        if (c.talking && playerPos) {
+          c.yaw = Math.atan2(playerPos.x - c.pos.x, playerPos.z - c.pos.z);
+        } else {
+          const want = c.head.post.yaw ?? 0;
+          let dy = want - c.yaw;
+          dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+          c.yaw += dy * Math.min(1, 3 * dt);
+        }
+      } else if (!c.talking) {
         _toWp.copy(c.waypoint).sub(c.pos);
         const dist = _toWp.length();
         if (dist < 1) pickIn(c, c.waypoint);
@@ -2132,7 +2166,10 @@ export function createCrowd(host, opts = {}) {
       }
 
       const distToPlayer = playerPos ? c.pos.distanceTo(playerPos) : Infinity;
-      if (host.groundHeightAt &&
+      // The ground conform skips pinned heads: their post carries its own y
+      // (Feluzia stands on the L8 stage deck at +1.4, which groundHeightAt —
+      // a constant slab height for interior crowds — would stamp flat).
+      if (!c.pinned && host.groundHeightAt &&
           (distToPlayer < C.CULL_DIST || (frameIx + ci) % 30 === 0)) {
         c.pos.y = host.groundHeightAt(c.pos.x, c.pos.z);
       }
@@ -2155,18 +2192,103 @@ export function createCrowd(host, opts = {}) {
     return best;
   }
 
+  /* --- the department head's dialogue tree ------------------------------
+   * citizens.js's vendor-tree pattern: choice offers carry outcome tags, the
+   * host routes accepted tags back through onOutcome, and a returned payload
+   * keeps the panel open — that recursion IS the tree walk. `menu:` tags are
+   * navigation (never journaled); `wavemall:transfer:<level>` and
+   * `wavemall:win` are real outcomes the host journals and uses to advance
+   * the shared chain stage BEFORE onOutcome runs, so the follow-up payload
+   * already speaks from the post-transfer world.
+   * ------------------------------------------------------------------- */
+  function headVariant() {
+    return stageVariant(chainState?.stage ?? 0, level ?? 0);
+  }
+  function headSpeaker() {
+    // dialogue.js renders species as the subtitle slot — the head's title
+    // reads better there than 'human-adjacent'.
+    return { name: headDef.name, species: headDef.title, cityId: 'wavemall prime' };
+  }
+  // One shared filter for menu building AND tag resolution, so the visible
+  // option index in a menu tag can never disagree with the list it indexes.
+  // (Safe because the stage only moves via wavemall:* tags, which don't use
+  // option indices — pure menu: navigation never changes the variant.)
+  function visibleOptions(node, variant) {
+    return node.options.filter((o) => {
+      if (!o.when) return true;
+      if (o.when === 'notWon') return variant !== 'won';
+      return o.when === variant;
+    });
+  }
+  function menuFor(nodeKey) {
+    const node = headDef?.nodes?.[nodeKey];
+    if (!node) return undefined;
+    const vis = visibleOptions(node, headVariant());
+    if (!vis.length) return undefined;
+    return {
+      kind: 'choice',
+      prompt: node.prompt,
+      options: vis.map((o, vi) => ({
+        label: o.label,
+        outcomeTag: o.transfer ? `wavemall:transfer:${level}`
+          : o.win ? 'wavemall:win'
+          : `menu:wm:${level}:${nodeKey}:${vi}`,
+      })),
+    };
+  }
+  function onOutcome(tag) {
+    if (!headDef || level == null) return null;
+    if (tag === `wavemall:transfer:${level}` || (tag === 'wavemall:win' && level === 7)) {
+      // The option's own lines lead into the head's transfer/win speech.
+      // Each head has at most one transfer and one win option, so the tag
+      // alone identifies it.
+      const key = tag === 'wavemall:win' ? 'win' : 'transfer';
+      const opt = Object.values(headDef.nodes)
+        .flatMap((n) => n.options)
+        .find((o) => o[key]);
+      const speech = key === 'win' ? headDef.winLines : headDef.transferLines;
+      return {
+        speaker: headSpeaker(),
+        lines: [...(opt?.lines ?? []), ...(speech ?? [])],
+      };
+    }
+    const m = /^menu:wm:(\d+):([^:]+):(\d+)$/.exec(tag ?? '');
+    if (!m || Number(m[1]) !== level) return null;
+    const node = headDef.nodes?.[m[2]];
+    if (!node) return null;
+    const opt = visibleOptions(node, headVariant())[Number(m[3])];
+    if (!opt) return null;
+    return {
+      speaker: headSpeaker(),
+      lines: opt.lines ?? [],
+      offer: opt.next ? menuFor(opt.next)
+        : opt.codex ? { kind: 'codex', subject: opt.codex }
+        : undefined,
+    };
+  }
+
   function interact(citizen) {
     citizen.talking = true;
-    const bank = citizen.isEmployee ? DIALOGUE_BANK.employeeGreeting : DIALOGUE_BANK.callerFragment;
+    if (citizen.head) {
+      const greet = citizen.head.greeting[headVariant()] ?? citizen.head.greeting.current;
+      return {
+        speaker: headSpeaker(),
+        lines: greet,
+        offer: menuFor('root'),
+      };
+    }
+    const pool = citizen.isEmployee ? bank.employee : bank.caller;
     const rngLocal = mulberry32(citizen.seed | 0);
-    const line = bank[Math.floor(rngLocal() * bank.length)];
-    const farewell = DIALOGUE_BANK.farewell[Math.floor(rngLocal() * DIALOGUE_BANK.farewell.length)];
+    const line = pool[Math.floor(rngLocal() * pool.length)];
+    const farewell = bank.farewell[Math.floor(rngLocal() * bank.farewell.length)];
     // Host dialogue renderer (src/dialogue.js) reads speaker.name/.species/
     // .cityId — speaker must be an object, not a bare string.
     return {
       speaker: {
         name: citizen.isEmployee
-          ? (citizen.dept ? `${citizen.dept} Associate` : 'Wave Mall Employee')
+          // The RAMDA department's running joke: every employee is Ramda.
+          ? (level === 5 ? 'Ramda'
+            : citizen.dept ? `${citizen.dept} Associate` : 'Wave Mall Employee')
           : 'Caller',
         species: 'human-adjacent',
         cityId: 'wavemall prime',
@@ -2184,7 +2306,10 @@ export function createCrowd(host, opts = {}) {
     people.dispose();
   }
 
-  return { group, update, sunDot: 1, dispose, count, nearestInteractable, interact, endInteract, citizens, people };
+  return {
+    group, update, sunDot: 1, dispose, count,
+    nearestInteractable, interact, endInteract, onOutcome, citizens, people,
+  };
 }
 
 /* ----------------------------------------------------------------------
@@ -2245,6 +2370,13 @@ export function createWavemallPrime(planet, siteDir, opts = {}) {
   }
   function endInteract(citizen) {
     crowd.endInteract(citizen);
+  }
+  // scanModule makes THIS handle the focusModule for plaza conversations, so
+  // accepted choice tags route here — forward to the plaza crowd's tree
+  // walker. (Interior crowds are scanned as their own modules and carry their
+  // own onOutcome.)
+  function onOutcome(tag) {
+    return crowd.onOutcome?.(tag) ?? null;
   }
 
   // Collision: one zone covering the whole site. A surface-local player point
@@ -2314,6 +2446,7 @@ export function createWavemallPrime(planet, siteDir, opts = {}) {
     nearestInteractable,
     interact,
     endInteract,
+    onOutcome,
     resolveCollisions,
     groundRadiusAt,
     segmentHit,
