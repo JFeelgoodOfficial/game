@@ -35,6 +35,7 @@ import { createWonder } from '../world/wonders.js';
 import { nearestCity, wonderLocalDir, citiesForWorld } from '../world/cityRegistry.js';
 import { createCreatures } from '../world/creatures.js';
 import { createWavemallPrime, createCrowd as createWavemallCrowd } from '../world/wavemallprime.js';
+import { HEADS as WAVEMALL_HEADS } from '../world/wavemall-dialogue.js';
 import { createWyattmattoe } from '../world/wyattmattoe.js';
 import { createActuality, ACTUALITY_SITE } from '../world/actuality.js';
 import { settings } from './settings.js';
@@ -177,6 +178,13 @@ let surfaceMaterials = null;
 // Interior occupants (wavemall prime only): one small crowd per store lobby.
 // Each rides its wing's district-local frame.
 let interiorCrowds = []; // [{ module, groupParent }]
+// Wave Mall's transfer chain — the "Your Call is Important to Us" quest.
+// stage 0..8 = the level currently holding your call (8 = Feluzia's win).
+// One shared object handed to every wavemall crowd so the department heads
+// all speak from the same queue position; walk.js owns advancing it (the
+// modules only return intent, per the interaction contract) and mirrors it
+// into the journal as questStage('wavemall prime').
+let wavemallChain = null;
 
 // Interaction state (world/interaction.js contract, host side). The focus is
 // re-scanned every frame from the modules' nearestInteractable(); the talk
@@ -502,9 +510,18 @@ function spawnWorldEntities(planet) {
   // building (src/cityflatten.js).
   if (planet.cfg.name === 'wavemall prime') {
     const def = citiesForWorld('wavemall prime')[0];
+    // Re-seed the transfer chain from the journal, so a returning caller's
+    // department heads greet them at the right point in the queue.
+    const savedStage = questStage('wavemall prime');
+    wavemallChain = {
+      stage: typeof savedStage === 'number'
+        ? Math.max(0, Math.min(8, Math.floor(savedStage)))
+        : 0,
+    };
     wavemall = createWavemallPrime(planet, def.site.clone(), {
       materials: surfaceMaterials,
       quality: settings.quality,
+      chainState: wavemallChain,
     });
     planet.surface.add(wavemall.group);
     _wavemallInvQuat.copy(wavemall.crowd.group.quaternion).invert();
@@ -552,6 +569,7 @@ function spawnWorldEntities(planet) {
           seedKey: `level-${f.level}`, count: 9, maxRigs: 4,
           materials: surfaceMaterials, employeeRatio: 0.35,
           deptName: f.dept.name, deptAccent: f.dept.accent,
+          level: f.level, chainState: wavemallChain,
         }
       );
       f.group.add(m.group);
@@ -872,6 +890,7 @@ export function exitWalk(camera) {
     m.dispose();
   }
   interiorCrowds = [];
+  wavemallChain = null; // journal keeps the stage; re-landing re-seeds it
   if (city) {
     city.dispose();
     planet.surface.remove(city.group);
@@ -1818,6 +1837,9 @@ function applyOffer(offer, module) {
     addCodex(offer.subject);
   } else if (offer.kind === 'choice') {
     if (!offer.outcomeTag?.startsWith('menu:')) addOutcome(offer.outcomeTag);
+    // The chain advances BEFORE onOutcome, so the head's follow-up payload
+    // (the transfer speech, the win) already speaks from the new stage.
+    if (offer.outcomeTag?.startsWith('wavemall:')) advanceWavemallChain(offer.outcomeTag);
     return module.onOutcome?.(offer.outcomeTag) ?? null; // module learns which option resolved
   } else if (offer.kind === 'waypoint') {
     setWaypoint(offer.targetHint);
@@ -1825,6 +1847,27 @@ function applyOffer(offer, module) {
     setObjective(offer.targetHint);
   }
   return null;
+}
+
+// Wave Mall's transfer chain (see the wavemallChain note at the top): a
+// department head's accepted transfer/win option lands here. Monotonic —
+// re-picking an old transfer never rewinds the queue — and mirrored into the
+// journal so a return visit resumes where the hold music left off.
+function advanceWavemallChain(tag) {
+  if (!wavemallChain) return;
+  const m = /^wavemall:(?:transfer:(\d+)|win)$/.exec(tag ?? '');
+  if (!m) return;
+  const next = m[1] != null ? Math.min(8, Number(m[1]) + 1) : 8;
+  if (next <= wavemallChain.stage) return;
+  wavemallChain.stage = next;
+  setQuestStage('wavemall prime', next);
+  if (next >= 8) {
+    setObjective(null);
+    showViewToast('YOU WIN — YOUR CALL WAS IMPORTANT TO US', 6);
+  } else {
+    const head = WAVEMALL_HEADS[next];
+    setObjective(`holding for ${head?.name ?? 'the next department'} — level ${next + 1}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
