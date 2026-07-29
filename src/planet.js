@@ -91,7 +91,12 @@ const CONFIGS = [
     dir: new THREE.Vector3(0.55, 0.2, -0.1).normalize(),
     distance: () => 20000,
     radius: () => 950,
-    mass: () => 7.7e5, // surface g ~= 30
+    mass: () => 7.7e5, // surface g ~= 30 (flight model, unchanged)
+    // Lower than rustia's 0.35 — ON FOOT ONLY. Jumps hang, the eight-storey
+    // atrium reads as a drop worth taking, and stepping off a balcony is a
+    // slow float down rather than a fall. The mall's floor pitch (FLOOR_H 12
+    // in world/wavemallprime.js) is set against the jump apex this implies.
+    walkGravityScale: 0.2,
     skyColor: () => 0xb6a3c9, // module's skyLavender
     spin: () => 0.01,
     atmoColor: 0xc9a0e0,

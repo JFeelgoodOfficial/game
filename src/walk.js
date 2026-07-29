@@ -30,10 +30,9 @@ import { createMarineSnow } from './marinesnow.js';
 // world/ship.js is the parked-ship MESH, unrelated to ./ship.js (flight model).
 import { createShip as createParkedShip } from '../world/ship.js';
 import { createCity, CITY_STYLES } from '../world/city.js';
-import { createCrowd } from '../world/aliens.js'; // wavemall interior crowds only
 import { createCitizens } from '../world/citizens.js';
 import { createWonder } from '../world/wonders.js';
-import { nearestCity, wonderLocalDir } from '../world/cityRegistry.js';
+import { nearestCity, wonderLocalDir, citiesForWorld } from '../world/cityRegistry.js';
 import { createCreatures } from '../world/creatures.js';
 import { createWavemallPrime, createCrowd as createWavemallCrowd } from '../world/wavemallprime.js';
 import { createWyattmattoe } from '../world/wyattmattoe.js';
@@ -447,6 +446,9 @@ export function enterWalk(planet) {
     planet.surface.add(planetSky.group);
     // The basecamp's lodge and lift towers need the shadow box to reach them.
     if (planet.cfg.name === 'wyattmattoe') planetSky.setShadowExtent(90, 300);
+    // The mall is 106 m of facade over a 240 m plaza — the default box clips
+    // its own shadow off halfway up the building.
+    else if (planet.cfg.name === 'wavemall prime') planetSky.setShadowExtent(150, 420);
   }
 
   // Diamond rain (neptunia): a walker-local glitter volume, storm-scheduled.
@@ -487,38 +489,76 @@ function spawnWorldEntities(planet) {
   parked.group.rotateY(Math.atan2(_siteT1.x, _siteT1.z));
 
   // Total conversion: the wavemall module replaces the stock city / crowd /
-  // wonders / creatures wholesale for this world. The parked ship above is
-  // still the boarding point as usual (the module's own boardingPad is unused).
-  // Early return leaves those four handles null — every `if (city)` / etc.
-  // guard downstream short-circuits.
+  // wonders / creatures wholesale for this world. Early return leaves those
+  // four handles null — every `if (city)` / etc. guard downstream
+  // short-circuits.
+  //
+  // Like actuality, this world has ONE site: the eight-level department store,
+  // its plaza and its landing pad are permanent architecture pinned by
+  // world/cityRegistry.js ('wavemall-flagship'), so the module anchors on the
+  // registry site rather than wherever the ship happened to come down. The
+  // pad-targeted auto-land (game.js) already aims every assisted landing at
+  // that pad, and the registry entry is also what levels the terrain under the
+  // building (src/cityflatten.js).
   if (planet.cfg.name === 'wavemall prime') {
-    toSurfaceLocal(planet, _up, _localUp);
-    wavemall = createWavemallPrime(planet, _localUp.clone(), {
+    const def = citiesForWorld('wavemall prime')[0];
+    wavemall = createWavemallPrime(planet, def.site.clone(), {
       materials: surfaceMaterials,
       quality: settings.quality,
     });
     planet.surface.add(wavemall.group);
     _wavemallInvQuat.copy(wavemall.crowd.group.quaternion).invert();
-    // Shopkeepers inside the enterable department stores: one tiny bounded
-    // crowd per lobby, living in its wing's district-local frame (each entry
-    // carries the wing group + inverse quaternion for playerLocalInto). Real
-    // people (the mall's own people-backed crowd), all in uniform — they pace
-    // a counter-width disc and greet with the employee dialogue bank.
+
+    // The ship belongs ON the pad, not one PARK_OFFSET behind whatever patch
+    // of plain we touched down on. Ask the module for the pad deck — it owns
+    // that ground (groundRadiusAt) and the deck sits above raw terrain.
+    wavemall.padSurfacePoint(_cityPt);
+    _localUp.copy(_cityPt).normalize();
+    parked.group.position.copy(_localUp).multiplyScalar(_cityPt.length() + C.PARK_LIFT);
+    parked.group.quaternion.setFromUnitVectors(_yAxisV, _localUp);
+    // Nose at the doors, so it reads as having set down facing the mall.
+    wavemall.localToSurface(0, 0, 0, _siteT1);
+    _siteT1.sub(parked.group.position)
+      .applyQuaternion(_qTmp.copy(parked.group.quaternion).invert());
+    parked.group.rotateY(Math.atan2(_siteT1.x, _siteT1.z));
+
+    // Step out on the pad's inboard edge, at the foot of the causeway, facing
+    // up the walk at the entrance.
+    wavemall.localToSurface(
+      0, wavemall.pad.y + 0.1, wavemall.pad.z - wavemall.pad.r + 2, _cityPt
+    );
+    ship.position.copy(_cityPt)
+      .applyAxisAngle(_yAxisV, planet.surface.rotation.y)
+      .add(planet.body.position);
+    _up.subVectors(ship.position, planet.body.position).normalize();
+    wavemall.localToSurface(0, 0, 0, _cityPt);
+    _cityPt.applyAxisAngle(_yAxisV, planet.surface.rotation.y).add(planet.body.position);
+    walk.heading.subVectors(_cityPt, ship.position);
+    projectTangent(walk.heading, _up);
+    if (walk.heading.lengthSq() < 1e-6) walk.heading.set(1, 0, 0);
+    walk.heading.normalize();
+    walk.facing.copy(walk.heading);
+
+    // Shoppers on EVERY level. Each level gets its own bounded crowd living in
+    // that level's own frame (the module hands over the group + inverse
+    // quaternion for playerLocalInto), wandering rect-bounded so a stroll
+    // never cuts across the open atrium. Employees wear their floor's
+    // department accent and answer to its name.
     interiorCrowds = [];
-    for (const l of wavemall.lobbies ?? []) {
+    for (const f of wavemall.floors) {
       const m = createWavemallCrowd(
-        { radius: 0.9, cx: l.x, cz: l.z, avoid: [], groundHeightAt: () => l.floorY },
+        { rects: f.rects, groundHeightAt: () => f.floorY },
         {
-          seedKey: `lobby-${l.seed}`, count: 2, maxRigs: 3,
-          materials: surfaceMaterials, employeeRatio: 1,
+          seedKey: `level-${f.level}`, count: 9, maxRigs: 4,
+          materials: surfaceMaterials, employeeRatio: 0.35,
+          deptName: f.dept.name, deptAccent: f.dept.accent,
         }
       );
-      l.group.add(m.group);
-      m.hostGroup = l.group;
-      m.hostInvQuat = l.invQuat;
+      f.group.add(m.group);
+      m.hostGroup = f.group;
+      m.hostInvQuat = f.invQuat;
       interiorCrowds.push(m);
     }
-    wavemall.holdMusic.initAudio(); // the G keypress that landed us is fresh user activation
     return;
   }
 
@@ -828,7 +868,7 @@ export function exitWalk(camera) {
     citizens = null;
   }
   for (const m of interiorCrowds) {
-    m.group.parent?.remove(m.group); // wavemall wing group
+    m.group.parent?.remove(m.group); // wavemall level frame
     m.dispose();
   }
   interiorCrowds = [];
@@ -855,7 +895,7 @@ export function exitWalk(camera) {
     wyattmattoe = null;
   }
   if (wavemall) {
-    wavemall.dispose(); // stops the hold-music oscillator + closes its AudioContext
+    wavemall.dispose(); // frees the mall's textures, materials and geometry
     planet.surface.remove(wavemall.group); // dispose() clears children but doesn't detach
     wavemall = null;
   }
@@ -2223,6 +2263,20 @@ export function updateWalkCamera(camera, delta = 0) {
     }
     if (hit !== null) {
       // 0.85 keeps the near plane off the wall face.
+      const d = Math.max(camDist * hit * 0.85, C.WALK_CAM_WALL_MIN);
+      _desired.copy(_target).addScaledVector(_look, -d);
+    }
+  } else if (wavemall) {
+    // Same job inside the mall — eight levels of storefronts, party walls and
+    // an outer shell, all of which the boom would otherwise sit happily
+    // outside of. The module works in its own frame, so hand it the sight
+    // line and the feet in surface-local space and let it convert.
+    const rotY = planet.surface.rotation.y;
+    _camFeetLocal.subVectors(ship.position, planet.body.position).applyAxisAngle(_yAxisV, -rotY);
+    _camSegA.subVectors(_target, planet.body.position).applyAxisAngle(_yAxisV, -rotY);
+    _camSegB.subVectors(_desired, planet.body.position).applyAxisAngle(_yAxisV, -rotY);
+    const hit = wavemall.segmentHit(_camSegA, _camSegB, _camFeetLocal);
+    if (hit !== null) {
       const d = Math.max(camDist * hit * 0.85, C.WALK_CAM_WALL_MIN);
       _desired.copy(_target).addScaledVector(_look, -d);
     }

@@ -28,6 +28,7 @@ const PLANETS = {
   rustia: { radius: 800, seaLevel: 0.02, amp: 60, shape: DEFAULT_SHAPE, deepAmp: 0, water: false, frozen: false },
   neptunia: { radius: 1400, seaLevel: 0.68, amp: 95, shape: { ridge: 0.34, ridgeFreq: 3.5, valley: 0.05 }, deepAmp: 70, water: true, frozen: false },
   wyattmattoe: { radius: 1050, seaLevel: 0.42, amp: 280, shape: { ridge: 0.58, ridgeFreq: 2.7, valley: 0.18 }, deepAmp: 0, water: true, frozen: true },
+  'wavemall prime': { radius: 950, seaLevel: 0.02, amp: 14, shape: DEFAULT_SHAPE, deepAmp: 0, water: false, frozen: false },
 };
 const WALK_WATER_LEVEL = 1.5; // src/constants.js — water.r = radius + this
 const WET_MARGIN = 0.6; // a touch stricter than city.js's 0.4
@@ -99,6 +100,25 @@ function localToDir(W, site, x, z) {
 // A pad candidate passes when its footprint (center + ring r=12) and the
 // walkway line back to the town edge are all dry and the footprint height
 // spread stays under the slope cap.
+// A module-owned pad (an entry with no citizens — world/wavemallprime.js is
+// one building, not a town) is placed by the module's own architecture, so
+// there is nothing to search for: the pad coordinates are a fixed part of the
+// layout. Check the declared footprint is dry and level and leave it alone.
+function checkPad(W, def) {
+  const site = [def.site.x, def.site.y, def.site.z];
+  const hs = [];
+  for (let i = 0; i <= 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const x = i === 0 ? def.pad.x : def.pad.x + Math.cos(a) * 12;
+    const z = i === 0 ? def.pad.z : def.pad.z + Math.sin(a) * 12;
+    const dir = localToDir(W, site, x, z);
+    if (W.isWet(dir)) return { ok: false, why: 'wet' };
+    hs.push(W.g(dir));
+  }
+  const spread = Math.max(...hs) - Math.min(...hs);
+  return { ok: spread <= 6, why: `slope spread ${spread.toFixed(2)}`, spread };
+}
+
 function probePad(W, def) {
   const site = [def.site.x, def.site.y, def.site.z];
   const curBearing = Math.atan2(def.pad.z, def.pad.x);
@@ -204,9 +224,15 @@ function probeWonders(W, def) {
 for (const def of CITIES) {
   const W = makeWorld(def.world);
   if (!W) { console.log(`${def.id}: no planet params`); continue; }
+  console.log(`\n=== ${def.id} (${def.world}, radius ${def.radius}) ===`);
+  if (!def.citizens || def.citizens.length === 0) {
+    // Module-owned site: validate the declared pad, never relocate it.
+    const chk = checkPad(W, def);
+    console.log(`pad: { x: ${def.pad.x}, z: ${def.pad.z} } module-owned — ${chk.ok ? 'OK' : 'FAILED'} (${chk.why})`);
+    continue;
+  }
   const pad = probePad(W, def);
   const ws = probeWonders(W, def);
-  console.log(`\n=== ${def.id} (${def.world}, radius ${def.radius}) ===`);
   console.log(pad ? `pad: { x: ${pad.x}, z: ${pad.z} }${pad.moved ? '  (bearing adjusted)' : ''}` : 'pad: NO DRY SITE FOUND');
   for (const w of ws) {
     console.log(`wonder ${w.title}: bearing ${w.bearing}, dist ${w.dist}${w.kept ? ' (native, kept)' : ''}${w.FAILED ? '  ** FAILED — keep provisional, place manually' : ''}`);

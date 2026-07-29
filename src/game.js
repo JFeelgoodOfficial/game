@@ -70,6 +70,7 @@ import {
   startPlanetBake,
   atmosphereAt,
   planets,
+  setPlanetSpinFrozen,
   SUN,
 } from './planet.js';
 import { initCityFlatten } from './cityflatten.js';
@@ -729,6 +730,7 @@ function enterHeaven() {
   heat = 0;
   standing = false;
   standBlend = 0;
+  thawLandedPlanet();
   landState = null;
   landedPlanet = null;
   _padLocalDir.set(0, 0, 0);
@@ -949,6 +951,7 @@ function stepLanded(dt, piloted) {
     ship.quaternion.slerpQuaternions(_landStartQuat, _landUprightQuat, k);
   }
   if (piloted && (input.forward || input.brake)) {
+    thawLandedPlanet(); // the day resumes the moment the skids leave
     landState = null;
     landedPlanet = null;
     _padLocalDir.set(0, 0, 0);
@@ -990,6 +993,21 @@ function checkTouchdown() {
 // (see the two-stage note in src/isolate.js).
 function touchdownIsolate(p) {
   if (isIsolatingWorld(p.cfg.name)) acquireUniverse(p);
+  // ...and the planet under the skids stops turning with it. Walk mode has
+  // always frozen the spin (the ground can't slide underfoot while you stand
+  // on it), but the window between touchdown and stepping out was still a
+  // live day: the terminator crept, the sky wheeled, and a pad-pinned ship
+  // rode the rotation. Freezing here makes "the world holds still while you
+  // are on it" true for the whole visit rather than most of it. The freeze is
+  // a latch (src/planet.js) — resuming re-anchors the phase, so neither edge
+  // snaps, and the virtual day keeps advancing the sun for the light.
+  setPlanetSpinFrozen(p, true);
+}
+
+// Undo the touchdown freeze. Stepping out doesn't need this (enterWalk
+// re-freezes the same planet, idempotently); liftoff and the hard resets do.
+function thawLandedPlanet() {
+  if (landedPlanet) setPlanetSpinFrozen(landedPlanet, false);
 }
 
 // Backspace — real pause (audit fix: Escape only dropped pointer lock while
@@ -1026,6 +1044,7 @@ function resetToStart() {
   // finale's game reset. A stranded pause would hand the flight sim an invisible
   // solar system. Both stages, and a no-op when neither is held.
   releaseIsolation(renderer, aoPass, camera, bloomPass);
+  thawLandedPlanet(); // a reset from the pad must not strand a frozen day
   ship.position.set(0, 0, 0);
   ship.velocity.set(0, 0, 0);
   ship.quaternion.identity();
