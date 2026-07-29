@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.165.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.165.0/examples/jsm/"}}
+</script>
+<script type="module" src="wave-mall.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; background: #0a0620; overflow: hidden; }
+  a { color: #ffc9ec; text-decoration: none; }
+  a:hover { color: #a9f7ff; }
+</style>
+</helmet>
+<div style="position: relative; width: 100%; height: 100vh; background: radial-gradient(ellipse at 50% 40%, #241a4a, #0a0620 70%); overflow: hidden; font-family: 'Space Grotesk', system-ui, sans-serif; color: #f4e9ff;">
+
+  <x-import component-from-global-scope="wave-mall" style="position: absolute; inset: 0;" floor="{{ floor }}" pixelation="{{ pixelation }}" bloom="{{ bloom }}" tour="{{ tour }}" hint-size="100%,100%"></x-import>
+
+  <div style="position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 200px 40px rgba(10,6,32,0.85);"></div>
+
+  <div style="position: absolute; top: 26px; left: 30px; display: flex; flex-direction: column; gap: 10px; pointer-events: none;">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <div style="font-family: 'Press Start 2P', monospace; font-size: 22px; letter-spacing: 1px; color: #ff5fc8; text-shadow: 0 0 14px rgba(212,64,143,0.9), 0 0 34px rgba(212,64,143,0.5); padding: 10px 16px; background: rgba(212,64,143,0.12); border: 2px solid rgba(255,95,200,0.55); border-radius: 2px;">Wave Mall&#8482;</div>
+      <div style="font-family: 'Press Start 2P', monospace; font-size: 9px; line-height: 1.9; color: #7ad7e0; text-shadow: 0 0 10px rgba(130,247,255,0.6);">INTERDIMENSIONAL<br />RETAIL ANOMALY · 8 LEVELS</div>
+    </div>
+    <div style="font-size: 12px; letter-spacing: 0.24em; color: #b6a3c9; text-transform: uppercase;">Your call is important to us</div>
+  </div>
+
+  <div style="position: absolute; top: 26px; right: 30px; width: 268px; background: rgba(13,10,26,0.72); backdrop-filter: blur(6px); border: 2px solid rgba(64,212,200,0.35); border-radius: 3px; overflow: hidden; box-shadow: 0 0 40px rgba(64,212,200,0.15);">
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 11px 14px; background: rgba(64,212,200,0.14); border-bottom: 1px solid rgba(64,212,200,0.3);">
+      <span style="font-family: 'Press Start 2P', monospace; font-size: 9px; color: #a9f7ff; letter-spacing: 1px;">DIRECTORY</span>
+      <span style="font-size: 10px; letter-spacing: 0.2em; color: #7ad7e0;">TAKE ESCALATOR</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column;">
+      <button type="button" onClick="{{ pOut }}" style="display: grid; grid-template-columns: 4px 30px 1fr; align-items: center; gap: 11px; padding: 9px 13px; background: rgba(212,64,143,0.1); border: 0; border-bottom: 1px solid rgba(182,163,201,0.12); font: inherit; color: #f4e9ff; text-align: left; cursor: pointer;" style-hover="background: rgba(212,64,143,0.24);">
+        <span style="width: 4px; height: 22px; background: #ff5fc8; box-shadow: 0 0 10px #ff5fc8; opacity: {{ aOut }};"></span>
+        <span style="font-family: 'Press Start 2P', monospace; font-size: 10px; color: #ff5fc8;">P</span>
+        <span><span style="display: block; font-size: 13px; font-weight: 700; letter-spacing: 0.06em;">THE PLAZA</span><span style="display: block; font-size: 10px; color: #b6a3c9;">grand entrance · outside</span></span>
+      </button>
+      <button type="button" onClick="{{ p7 }}" style="display: grid; grid-template-columns: 4px 30px 1fr; align-items: center; gap: 11px; padding: 9px 13px; background: transparent; border: 0; border-bottom: 1px solid rgba(182,163,201,0.12); font: inherit; color: #f4e9ff; text-align: left; cursor: pointer;" style-hover="background: rgba(255,216,138,0.12);">
+        <span style="width: 4px; height: 22px; background: #ffd88a; box-shadow: 0 0 10px #ffd88a; opacity: {{ a7 }};"></span>
+        <span style="font-family: 'Press Start 2P', monospace; font-size: 10px; color: #ffd88a;">L8</span>
+        <span><span style="display: block; font-size: 13px; font-weight: 700; letter-spacing: 0.06em;">FELUZIA</span><span style="display: block; font-size: 10px; color: #b6a3c9;">disco championship stage</span></span>
+      </button>
+      <button type="button" onClick="{{ p6 }}" style="display: grid; grid-template-columns: 4px 30px 1fr; align-items: center; gap: 11px; padding: 9px 13px; background: transparent; border: 0; border-bottom: 1px solid rgba(182,163,201,0.12); font: inherit; color: #f4e9ff; text-align: left; cursor: pointer;" style-hover="background: rgba(123,255,138,0.1);">
+        <span style="width: 4px; height: 22px; background: #7bff8a; box-shadow: 0 0 10px #7bff8a; opacity: {{ a6 }};"></span>
+        <span style="font-family: 'Press Start 2P', monospace; font-size: 10px; color: #7bff8a;">L7</span>
+        <span><span style="display: block; font-size: 13px; font-weight: 700; letter-spacing: 0.06em;">SPORTING GOODS</span><span style="display: block; font-size: 10px; color: #b6a3c9;">zero-g gear · courts · trails</span></span>
+      </button>
+      <button type="button" onClick="{{ p5 }}" style="display: grid; grid-template-columns: 4px 30px 1fr; align-items: center; gap: 11px; padding: 9px 13px; background: transparent; border: 0; border-bottom: 1px solid rgba(182,163,201,0.12); font: inherit; color: #f4e9ff; text-align: left; cursor: pointer;" style-hover="background: rgba(255,210,63,0.12);">
+        <span style="width: 4px; height: 22px; background: #ffd23f; box-shadow: 0 0 10px #ffd23f; opacity: {{ a5 }};"></span>
+        <span style="font-family: 'Press Start 2P', monospace; font-size: 10px; color: #ffd23f;">L6</span>
+        <span><span style="display: block; font-size: 13px; font-weight: 700; letter-spacing: 0.06em;">RAMDA</span><span style="display: block; font-size: 10px; color: #b6a3c9;">numerology · timepieces · curios</span></span>
+      </button>
+      <button type="button" onClick="{{ p4 }}" style="display: grid; grid-template-columns: 4px 30px 1fr; align-items: center; gap: 11px; padding: 9px 13px; background: transparent; border: 0; border-bottom: 1px solid rgba(182,163,201,0.12); font: inherit; color: #f4e9ff; text-align: left; cursor: pointer;" style-hover="background: rgba(255,95,168,0.12);">
+        <span style="width: 4px; height: 22px; background: #ff5fa8; box-shadow: 0 0 10px #ff5fa8; opacity: {{ a4 }};"></span>
+        <span style="font-family: 'Press Start 2P', monospace; font-size: 10px; color: #ff5fa8;">L5</span>
+        <span><span style="display: block; font-size: 13px; font-weight: 700; letter-spacing: 0.06em;">MEN'S CASUALWEAR</span><span style="display: block; font-size: 10px; color: #b6a3c9;">daywear · synthwear · denim</span></span>
+      </button>
+      <button type="button" onClick="{{ p3 }}" style="display: grid; grid-template-columns: 4px 30px 1fr; align-items: center; gap: 11px; padding: 9px 13px; background: transparent; border: 0; border-bottom: 1px solid rgba(182,163,201,0.12); font: inherit; color: #f4e9ff; text-align: left; cursor: pointer;" style-hover="background: rgba(255,255,255,0.1);">
+        <span style="width: 4px; height: 22px; background: #ffffff; box-shadow: 0 0 10px #ffffff; opacity: {{ a3 }};"></span>
+        <span style="font-family: 'Press Start 2P', monospace; font-size: 10px; color: #ffffff;">L4</span>
+        <span><span style="display: block; font-size: 13px; font-weight: 700; letter-spacing: 0.06em;">XAVIER'S GIFTS</span><span style="display: block; font-size: 10px; color: #b6a3c9;">gifts · wrapping · occasions</span></span>
+      </button>
+      <button type="button" onClick="{{ p2 }}" style="display: grid; grid-template-columns: 4px 30px 1fr; align-items: center; gap: 11px; padding: 9px 13px; background: transparent; border: 0; border-bottom: 1px solid rgba(182,163,201,0.12); font: inherit; color: #f4e9ff; text-align: left; cursor: pointer;" style-hover="background: rgba(95,208,255,0.12);">
+        <span style="width: 4px; height: 22px; background: #5fd0ff; box-shadow: 0 0 10px #5fd0ff; opacity: {{ a2 }};"></span>
+        <span style="font-family: 'Press Start 2P', monospace; font-size: 10px; color: #5fd0ff;">L3</span>
+        <span><span style="display: block; font-size: 13px; font-weight: 700; letter-spacing: 0.06em;">ELECTRONICS</span><span style="display: block; font-size: 10px; color: #b6a3c9;">audio · holo · compute · repair</span></span>
+      </button>
+      <button type="button" onClick="{{ p1 }}" style="display: grid; grid-template-columns: 4px 30px 1fr; align-items: center; gap: 11px; padding: 9px 13px; background: transparent; border: 0; border-bottom: 1px solid rgba(182,163,201,0.12); font: inherit; color: #f4e9ff; text-align: left; cursor: pointer;" style-hover="background: rgba(255,138,51,0.12);">
+        <span style="width: 4px; height: 22px; background: #ff8a33; box-shadow: 0 0 10px #ff8a33; opacity: {{ a1 }};"></span>
+        <span style="font-family: 'Press Start 2P', monospace; font-size: 10px; color: #ff8a33;">L2</span>
+        <span><span style="display: block; font-size: 13px; font-weight: 700; letter-spacing: 0.06em;">GLASTELLE</span><span style="display: block; font-size: 10px; color: #b6a3c9;">orbital psychology · ascend</span></span>
+      </button>
+      <button type="button" onClick="{{ p0 }}" style="display: grid; grid-template-columns: 4px 30px 1fr; align-items: center; gap: 11px; padding: 9px 13px; background: transparent; border: 0; font: inherit; color: #f4e9ff; text-align: left; cursor: pointer;" style-hover="background: rgba(255,95,200,0.12);">
+        <span style="width: 4px; height: 22px; background: #ff5fc8; box-shadow: 0 0 10px #ff5fc8; opacity: {{ a0 }};"></span>
+        <span style="font-family: 'Press Start 2P', monospace; font-size: 10px; color: #ff5fc8;">L1</span>
+        <span><span style="display: block; font-size: 13px; font-weight: 700; letter-spacing: 0.06em;">HOME DECOR</span><span style="display: block; font-size: 10px; color: #b6a3c9;">furniture · lighting · rugs · plants</span></span>
+      </button>
+    </div>
+  </div>
+
+  <div style="position: absolute; bottom: 26px; left: 30px; display: flex; flex-direction: column; gap: 8px;">
+    <div style="display: flex; align-items: baseline; gap: 12px;">
+      <span style="font-family: 'Press Start 2P', monospace; font-size: 15px; color: #a9f7ff; text-shadow: 0 0 14px rgba(130,247,255,0.7);">{{ levelTag }}</span>
+      <span style="font-size: 19px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;">{{ levelName }}</span>
+    </div>
+    <div style="font-size: 12px; letter-spacing: 0.2em; color: #b6a3c9; text-transform: uppercase;">{{ levelTag2 }}</div>
+    <div style="display: flex; gap: 8px; margin-top: 4px;">
+      <button type="button" onClick="{{ down }}" style="font-family: 'Press Start 2P', monospace; font-size: 9px; padding: 10px 15px; color: #ffc9ec; background: rgba(212,64,143,0.14); border: 1px solid rgba(212,64,143,0.55); border-radius: 2px; cursor: pointer;" style-hover="background: rgba(212,64,143,0.3);">&#9660; DOWN</button>
+      <button type="button" onClick="{{ up }}" style="font-family: 'Press Start 2P', monospace; font-size: 9px; padding: 10px 15px; color: #ffc9ec; background: rgba(212,64,143,0.14); border: 1px solid rgba(212,64,143,0.55); border-radius: 2px; cursor: pointer;" style-hover="background: rgba(212,64,143,0.3);">&#9650; UP</button>
+      <button type="button" onClick="{{ toggleTour }}" style="font-family: 'Press Start 2P', monospace; font-size: 9px; padding: 10px 15px; color: #a9f7ff; background: rgba(64,212,200,0.12); border: 1px solid rgba(64,212,200,0.5); border-radius: 2px; cursor: pointer;" style-hover="background: rgba(64,212,200,0.28);">{{ tourLabel }}</button>
+    </div>
+  </div>
+
+  <div style="position: absolute; bottom: 28px; right: 30px; font-size: 10px; letter-spacing: 0.26em; color: #7ad7e0; text-align: right; line-height: 2; text-transform: uppercase; pointer-events: none;">Drag to look &#183; scroll to zoom<br />mall hours: perpetual</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;pixelation&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:0.5,&quot;min&quot;:0,&quot;max&quot;:1,&quot;step&quot;:0.05,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Look&quot;},&quot;bloom&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:0.95,&quot;min&quot;:0,&quot;max&quot;:2.2,&quot;step&quot;:0.05,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Look&quot;}}">
+const NAMES = [
+  ['L1', 'Home Decor', 'floating mint sofas · three moons · galaxy carpet'],
+  ['L2', 'Glastelle', 'venus gas walls · atmosphere orbs · green terminals'],
+  ['L3', 'Electronics Department', 'circuit walls · holo displays · anomalous signals'],
+  ['L4', "Xavier's Gifts", 'rune-lit boxes · star maps · dimensional portals'],
+  ['L5', "Men's Casualwear", '80s space fashion · mirrored fitting rooms'],
+  ['L6', 'Ramda', 'floating numerals 1–9 · counting terminals'],
+  ['L7', 'Sporting Goods', 'cosmic courts · jerseys · dance-floor arena'],
+  ['L8', 'Feluzia', 'championship stage · trophies · confetti'],
+];
+
+class Component extends DCLogic {
+  state = { floor: 0, tour: false };
+
+  go = (n) => this.setState({ floor: Math.max(-1, Math.min(7, n)) });
+
+  renderVals() {
+    const f = this.state.floor;
+    const plaza = f < 0;
+    const vals = {
+      floor: f,
+      pixelation: this.props.pixelation ?? 0.5,
+      bloom: this.props.bloom ?? 0.6,
+      tour: this.state.tour,
+      tourLabel: this.state.tour ? '\u25A0 STOP DRIFT' : '\u25B6 AUTO DRIFT',
+      toggleTour: () => this.setState((s) => ({ tour: !s.tour })),
+      up: () => this.go(f + 1),
+      down: () => this.go(f - 1),
+      levelTag: plaza ? 'P' : NAMES[f][0],
+      levelName: plaza ? 'The Plaza' : NAMES[f][1],
+      levelTag2: plaza ? 'grand entrance · searchlights · always open' : NAMES[f][2],
+      pOut: () => this.go(-1),
+      aOut: plaza ? 1 : 0,
+    };
+    for (let i = 0; i < 8; i++) {
+      vals['p' + i] = () => this.go(i);
+      vals['a' + i] = i === f ? 1 : 0;
+    }
+    return vals;
+  }
+}
+</script>
+</body>
+</html>
