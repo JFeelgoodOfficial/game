@@ -40,7 +40,17 @@ first-person/third-person chooser overlay.
 Landing-site content is parented to `planet.surface` in its UNROTATED frame.
 To convert world → surface-local: subtract `planet.body.position`, then
 `applyAxisAngle(+Y, -planet.surface.rotation.y)`. Module content (city group,
-wavemall district frames `{pos, q, qInv}`) is placed in that frame.
+wavemall's `mall.anchorPos` / `anchorQ` / `anchorQInv`) is placed in that frame.
+
+Wavemall prime is one building on a fixed registry site. Mall-local
+coordinates: +Y up, the facade faces +Z, level `i`'s floor is at `y = i * 12`,
+the atrium void is `|x| < 13`, the promenades run `13 < |x| < 18.5`, and the
+landing pad is at `(0, 170)`. Round-trip a mall-local point with
+`p.applyQuaternion(mall.anchorQ).add(mall.anchorPos)` (then the surface→world
+rotation above). `walkSite().wavemall` exposes `floors` (8 entries, each
+`{level, dept, group, invQuat, floorY, rects}` — one crowd per level lives in
+that frame), `pad`, `crowd` (the plaza), `wonders`, and `segmentHit`.
+`interiorCrowds` is one bounded crowd per level, indexed level 0..7.
 
 ## Gotcha: frame-phase teleport artifact (harness-only)
 `updatePlanets` advances `surface.rotation.y` after `stepWalk` within a frame.

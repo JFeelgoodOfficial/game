@@ -219,6 +219,33 @@ export const CITIES = [
       { name: 'Brama Tull', role: 'resident', dialogue: 'proc', persona: 'cable-walker' },
     ],
   },
+
+  // --- wavemall prime: the WaveMall flagship ---------------------------------
+  // Not a town: this world is ONE BUILDING (world/wavemallprime.js), and the
+  // walk.js spawn branch early-returns for it, so nothing here ever builds a
+  // city. The entry exists for the three things the registry alone provides:
+  // a PERMANENT landing pad for the auto-land arc to target, the pad pin that
+  // keeps the parked ship on it, and the terrain levelling (src/cityflatten.js)
+  // that makes the mall's flat floor slabs sit honestly on the ground.
+  // `pad` is mall-local by construction — the module anchors on the same
+  // setFromUnitVectors(+Y, site) frame padLocalDir() maps through, with no
+  // extra yaw, so pad {x, z} and the mall's own coordinates are the same
+  // numbers. The mall faces +Z; the pad is out in front of the doors with the
+  // lit causeway climbing back to them.
+  {
+    world: 'wavemall prime',
+    id: 'wavemall-flagship',
+    name: 'WaveMall Flagship',
+    site: V(0.412000, 0.335000, -0.847000),
+    style: 'neonMetropolis', // unused (no city is built) — kept valid
+    radius: 240,             // flat core reaches past the plaza and the pad
+    seed: 0x7a5ec0de,
+    pad: { x: 0, z: 170 },   // mall-local, on the building's +Z axis
+    voice: 'neon',
+    wonders: [],             // the module places its own five landmarks
+    citizens: [],            // the module brings its own crowds
+    flavor: 'Eight levels of department store under one roof, and a queue that has never once been answered.',
+  },
 ];
 
 // ---------------------------------------------------------------------------
