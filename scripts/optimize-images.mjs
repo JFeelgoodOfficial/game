@@ -172,14 +172,24 @@ async function run() {
   // og.jpg is the card every link to the game renders as. Supernova is the
   // most legible painting at card size and it is the owner's own work.
   console.log('public/ social + icons');
+  // og.jpg is the card every link to the game renders as, and it is a real
+  // cockpit screenshot rather than anything generated here — a link preview
+  // should show the thing being linked to. It is only created if it is
+  // missing, so a run of this script never clobbers a captured shot.
+  //
+  // To refresh it: run the game (npm run dev), drive it to a view worth
+  // showing, screenshot at 1200x630, and save over public/og.jpg.
+  const ogPath = path.join(ROOT, 'public/og.jpg');
   const ogSource = path.join(ROOT, 'artgallery/Supernova.webp');
-  if (await exists(ogSource)) {
+  if (!(await exists(ogPath)) && (await exists(ogSource))) {
     const buf = await sharp(ogSource)
       .resize(1200, 630, { fit: 'cover', position: 'attention' })
       .jpeg({ quality: 82, mozjpeg: true })
       .toBuffer();
-    console.log(`  ${DRY ? '?' : '✓'} public/og.jpg ${kb(buf.length)}`);
-    if (!DRY) await writeFile(path.join(ROOT, 'public/og.jpg'), buf);
+    console.log(`  ${DRY ? '?' : '✓'} public/og.jpg ${kb(buf.length)} (placeholder from a painting — replace with a screenshot)`);
+    if (!DRY) await writeFile(ogPath, buf);
+  } else {
+    console.log('  = public/og.jpg (kept — screenshot, not generated)');
   }
 
   // The same magenta targeting ring as the inline SVG favicon in index.html,
