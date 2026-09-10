@@ -160,8 +160,14 @@ camera.
    than shipped to everyone; three.js is a `vendor-three` chunk whose hash
    survives game-code pushes; the renderer no longer requests MSAA it cannot
    use (every frame goes through the composer's targets).
-6. **`vercel.json`**: hashed `/assets` immutable for a year, unhashed `public/`
-   files a week with background revalidation, one canonical hostname.
+6. **`vercel.json`**: hashed `/assets` immutable for a year — Vite content-hashes
+   them, so a changed file is a changed URL. Everything from `public/` keeps its
+   name across deploys, so those get a week plus background revalidation instead;
+   `immutable` there would pin an edited texture in returning players' caches.
+   `index.html` keeps Vercel's default no-cache. One canonical hostname, matching
+   the canonical link tag. (Note for future edits: Vercel's schema rejects any
+   key it doesn't define, `comment` included — the file cannot carry its own
+   annotations, which is why they are here.)
 7. **SEO**: description, canonical, Open Graph and Twitter cards with a real
    preview image, `VideoGame` JSON-LD, a screen-reader-only description of the
    game and its controls (a canvas is not indexable), a `<noscript>`
