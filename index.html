@@ -3,8 +3,42 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Feelgood Space Flight</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='5' fill='none' stroke='%23d4408f' stroke-width='1.5'/%3E%3Ccircle cx='8' cy='8' r='2' fill='%23000'/%3E%3C/svg%3E">
+  <title>Feelgood Space Flight — free browser space flight sim</title>
+  <meta name="description" content="Fly a ship with real momentum through a star system of planets, nebulae and a black hole, then land and walk it. Free in the browser. Paintings by JFeelgood, music by Wave Collector.">
+  <link rel="canonical" href="https://nova7game.org/">
+  <meta name="theme-color" content="#04000a">
+  <meta name="color-scheme" content="dark">
+
+  <!-- The radio streams from jsDelivr (see src/music.js). Warming the
+       connection here means the LAUNCH click doesn't pay for DNS and TLS
+       before the first note. -->
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+
+  <!-- Link previews. og.jpg is a real cockpit shot, captured from a running
+       build (see scripts/optimize-images.mjs for how to refresh it) — the
+       thing being linked to, rather than a logo. Absolute URLs: base is './'
+       and Open Graph does not accept relative ones. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Feelgood Space Flight">
+  <meta property="og:title" content="Feelgood Space Flight">
+  <meta property="og:description" content="Fly a ship with real momentum through a star system of planets, nebulae and a black hole, then land and walk it. Free in the browser.">
+  <meta property="og:url" content="https://nova7game.org/">
+  <meta property="og:image" content="https://nova7game.org/og.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="The cockpit view of Feelgood Space Flight: a ringed planet and Terra ahead through the canopy, over the ship's lit dashboard">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Feelgood Space Flight">
+  <meta name="twitter:description" content="Fly a ship with real momentum through a star system of planets, nebulae and a black hole, then land and walk it. Free in the browser.">
+  <meta name="twitter:image" content="https://nova7game.org/og.jpg">
+
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <!-- Same ring in two forms: the inline SVG stays sharp at any size, the PNG
+       is for the places that will not take one (older Safari, some feed
+       readers, the OS when it makes a shortcut). -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='5' fill='none' stroke='%23d4408f' stroke-width='1.5'/%3E%3Ccircle cx='8' cy='8' r='2' fill='%23000'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <style>
     html, body {
       margin: 0;
@@ -101,7 +135,48 @@
     @media (pointer: coarse) {
       #hint { display: none; }
     }
+    /* Crawlable description of the game. Off-screen rather than
+       display:none — the text is real, it is what a search engine or an
+       answer engine gets to read, and a canvas is not indexable. */
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+      overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%);
+      white-space: nowrap; border: 0;
+    }
+    /* Shown only when scripts are off, where nothing else will ever paint. */
+    #noscript {
+      position: fixed; inset: 0; z-index: 90; display: flex;
+      flex-direction: column; align-items: center; justify-content: center;
+      gap: 16px; padding: 0 28px; text-align: center; background: #04000a;
+      font-family: 'Courier New', ui-monospace, monospace; color: #a9f7ff;
+    }
+    #noscript h2 {
+      margin: 0; font-size: 15px; letter-spacing: 0.3em; color: #ffc9ec;
+      font-weight: 400;
+    }
+    #noscript p { margin: 0; max-width: 52ch; font-size: 13px; line-height: 1.7; }
   </style>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    "name": "Feelgood Space Flight",
+    "url": "https://nova7game.org/",
+    "image": "https://nova7game.org/og.jpg",
+    "description": "A first-person space flight game in the browser. You sit in a cockpit and fly a ship with real momentum through a star system of planets, nebulae, a star and a black hole, land on worlds and walk them on foot, and dock at stations including an orbital art gallery.",
+    "inLanguage": "en",
+    "genre": ["Space flight simulation", "Exploration"],
+    "playMode": "SinglePlayer",
+    "applicationCategory": "GameApplication",
+    "operatingSystem": "Any",
+    "gamePlatform": "Web browser",
+    "browserRequirements": "Requires JavaScript and WebGL",
+    "author": { "@type": "Person", "name": "JFeelgood" },
+    "artist": { "@type": "Person", "name": "JFeelgood" },
+    "musicBy": { "@type": "MusicGroup", "name": "Wave Collector" },
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD", "availability": "https://schema.org/InStock" }
+  }
+  </script>
 </head>
 <body>
   <div id="menu">
@@ -115,6 +190,50 @@
     <div class="rot-msg">ROTATE YOUR DEVICE</div>
     <div class="rot-sub">LANDSCAPE ONLY</div>
   </div>
+  <!-- What the page is, in text. Everything above this line is a canvas or a
+       one-word button, so without it a crawler sees the word LOADING and an
+       answer engine has nothing to quote. -->
+  <section class="sr-only">
+    <h2>What this is</h2>
+    <p>
+      Feelgood Space Flight is a free first-person space flight game that runs
+      in a web browser, with no download and no account. You sit in the
+      cockpit of a ship with real momentum and fly it through a star system:
+      planets with weather and terrain, painted nebulae, a sun you can fall
+      into, and a black hole that bends the light around it. Gravity pulls on
+      the ship. Descend far enough and the atmosphere thickens, the horizon
+      flattens, and you can land, leave the cockpit and walk the surface on
+      foot — through towns, into buildings, and out to the stranger places the
+      system keeps.
+    </p>
+    <h2>Controls</h2>
+    <p>
+      W thrusts and S reverses, the mouse steers, F or J engages warp, space
+      brakes, N opens the nav chart, and the comma and period keys work the
+      radio. C leaves the pilot seat to walk the ship's own corridor, G lands
+      and puts you on the surface, and Backspace pauses. On a phone or tablet,
+      hold the device in landscape and use the on-screen sticks.
+    </p>
+    <h2>Credits</h2>
+    <p>
+      Built by JFeelgood with three.js and WebGL. The paintings hanging in the
+      Orbital Art Gallery, and the nebulae that take their colours from them,
+      are JFeelgood's own work. The ship's radio plays music by Wave Collector,
+      the electronic project of Neal Wright.
+    </p>
+  </section>
+
+  <noscript>
+    <div id="noscript">
+      <h2>FEELGOOD SPACE FLIGHT</h2>
+      <p>
+        This is a 3D space flight game that runs in your browser. It needs
+        JavaScript and WebGL, and both appear to be switched off. Turn them on
+        and reload to fly.
+      </p>
+    </div>
+  </noscript>
+
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

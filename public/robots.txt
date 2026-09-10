@@ -1,0 +1,7 @@
+# Feelgood Space Flight — nova7game.org
+# One page, all of it public. Crawlers and answer engines are welcome; the
+# readable description of the game lives in the markup of / itself.
+User-agent: *
+Allow: /
+
+Sitemap: https://nova7game.org/sitemap.xml

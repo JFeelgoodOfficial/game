@@ -1,0 +1,17 @@
+{
+  "name": "Feelgood Space Flight",
+  "short_name": "Space Flight",
+  "description": "Fly a ship with real momentum through a star system of planets, nebulae and a black hole, then land and walk it.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#04000a",
+  "theme_color": "#04000a",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

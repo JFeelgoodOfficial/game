@@ -14,22 +14,22 @@ you can add portraits one at a time and each redeploys on its own.
 
 ## Filenames
 
-Name the file after the character key. Any of `.png`, `.jpg`, `.jpeg`, `.webp`
+Name the file after the character key. Any of `.webp`, `.jpg`, `.jpeg`, `.webp`
 works; **transparent-background PNG is strongly recommended** so the cutout sits
 cleanly on the figure.
 
 | File                | Character            | Where you meet them            |
 | ------------------- | -------------------- | ------------------------------ |
-| `lady.png`          | The Lady in White    | Seated at the river's near bank |
-| `cloaked.png`       | The Cloaked Figure   | Far bank; follows you onward    |
-| `girl.png`          | The Girl — idle      | Runs in and breaks the Line     |
-| `girl-run.png`      | The Girl — running   | Shown while she sprints toward you |
-| `warrior.png`       | The Warrior          | The storm wasteland             |
-| `stranger.png`      | The Stranger         | Seated in the garden            |
+| `lady.webp`          | The Lady in White    | Seated at the river's near bank |
+| `cloaked.webp`       | The Cloaked Figure   | Far bank; follows you onward    |
+| `girl.webp`          | The Girl — idle      | Runs in and breaks the Line     |
+| `girl-run.webp`      | The Girl — running   | Shown while she sprints toward you |
+| `warrior.webp`       | The Warrior          | The storm wasteland             |
+| `stranger.webp`      | The Stranger         | Seated in the garden            |
 
-**The Girl has two frames.** `girl-run.png` is shown while she sprints in, and
-the system swaps to `girl.png` the moment she stops in front of you. Commit both
-for the effect; commit only `girl.png` and she'll simply use the idle frame the
+**The Girl has two frames.** `girl-run.webp` is shown while she sprints in, and
+the system swaps to `girl.webp` the moment she stops in front of you. Commit both
+for the effect; commit only `girl.webp` and she'll simply use the idle frame the
 whole time.
 
 Notes:
@@ -43,5 +43,7 @@ Notes:
 ## Adding a portrait
 
 1. Export a transparent PNG of the character.
-2. Save it here with the matching name (e.g. `warrior.png`).
-3. Commit and push. The next production deploy lights up that portrait.
+2. Save it here with the matching name (e.g. `warrior.webp`).
+3. Run `node scripts/optimize-images.mjs` — it converts the PNG to WebP with
+   alpha (a tenth of the size, same look) and removes the PNG.
+4. Commit and push. The next production deploy lights up that portrait.

@@ -111,6 +111,84 @@ audit branch, what was already good, and what was deliberately deferred.
   `index.html` ships a mobile viewport meta but the game is unplayable on touch.
 - **E is double-bound** (roll right + interact edge) in `input.js`. Harmless in
   current flows; worth splitting if on-foot roll ever becomes a thing.
-- **Music external hosting**: tracks still ship in the repo/deploy (13.7 MB). Moving
-  to a CDN would shrink deploys; `music.js` now builds URLs in one place if so.
+- ~~**Music external hosting**~~ — done in the September 2026 pass below.
 - **Escape both closes the nav map and drops pointer lock** in the same press.
+
+
+---
+
+# Deploy Size, Loading & SEO — September 2026
+
+The July pass fixed what the *bundle* cost. This one fixes what the *deploy*
+cost, which had grown back: ten music tracks instead of four, thirty-three
+paintings, and a habit of committing images at whatever size they came off the
+camera.
+
+## Baseline → after
+
+| Metric | Before | After |
+|---|---|---|
+| `dist/` per deployment | ~71 MB | ~11 MB |
+| Repo tree (what Vercel clones each build) | 76 MB | 44 MB, 33 MB of it music the deploy no longer touches |
+| Images downloaded before LAUNCH | ~25 MB | 0 |
+| Images in the 12 s after LAUNCH | (all of the above, at boot) | 450 kB |
+| Boot JS | one 848 kB chunk (238 kB gzip) | 245 kB game + 589 kB `vendor-three` (236 kB gzip total, and the 151 kB vendor half survives the next deploy) |
+| Largest single asset | 3.9 MB painting (5954×7926) | 796 kB painting (≤2048 px) |
+
+## What changed
+
+1. **An image budget, enforced by a script** (`scripts/optimize-images.mjs`).
+   Paintings ≤2048 px, corridor pictures ≤1024, cottage textures 1024/512 with
+   the bump and roughness maps single-channel, PNG billboards (Actuality's
+   dragon, the Shadowreach portraits) converted to WebP with alpha. Idempotent —
+   run it after dropping new artwork in. It also renders `og.jpg` and the icon
+   set. 27 MB.
+2. **Music moved out of the deploy** to jsDelivr's GitHub CDN, reading `/music`
+   at the repo root (outside `public/`). Dev still serves it locally.
+   `VITE_MUSIC_BASE` overrides both. 33 MB off every deploy, and the Audio
+   element now skips a track that fails to load instead of going quiet.
+3. **The gallery hangs its art on approach**, not at construction — inside 2200
+   units, two loads at a time, with docking as a backstop. The gate reads the
+   station position *after* the frame's orbit update; reading it before put the
+   gallery on top of the ship at spawn.
+4. **Painting nebulae read 128 px thumbnails** (`artgallery/thumbs/`, 96 kB for
+   the set) instead of full paintings, and `await img.decode()` before drawing,
+   so a multi-megapixel decode no longer happens inline on the main thread. The
+   queue starts on the first idle callback after LAUNCH, as do the corridor
+   photographs.
+5. **The palette thumbnails are excluded from Vite's 4 kB inline threshold**
+   (`build.assetsInlineLimit` as a function). At ~3 kB each they were being
+   base64'd into the boot chunk — 100 kB of eagerly parsed JavaScript carrying
+   images that are only wanted after LAUNCH.
+6. **GTAOPass is a chunk of its own**, fetched when the walk chunk lands rather
+   than shipped to everyone; three.js is a `vendor-three` chunk whose hash
+   survives game-code pushes; the renderer no longer requests MSAA it cannot
+   use (every frame goes through the composer's targets).
+7. **`vercel.json`**: hashed `/assets` immutable for a year — Vite content-hashes
+   them, so a changed file is a changed URL. Everything from `public/` keeps its
+   name across deploys, so those get a week plus background revalidation instead;
+   `immutable` there would pin an edited texture in returning players' caches.
+   `index.html` keeps Vercel's default no-cache. One canonical hostname, matching
+   the canonical link tag. (Note for future edits: Vercel's schema rejects any
+   key it doesn't define, `comment` included — the file cannot carry its own
+   annotations, which is why they are here.)
+8. **SEO**: description, canonical, Open Graph and Twitter cards with a real
+   preview image, `VideoGame` JSON-LD, a screen-reader-only description of the
+   game and its controls (a canvas is not indexable), a `<noscript>`
+   explanation, `robots.txt`, `sitemap.xml`, `llms.txt` and a web manifest.
+
+## Deleted
+
+`actuality-dragon.png` and `actuality-body.png` (never referenced),
+`spruit_sunrise_2k.hdr.jpg` (never referenced, still deployed), and the root
+`CNAME` left over from GitHub Pages.
+
+## Still deferred
+
+Everything in the July list that is not struck through above, plus: the gallery
+still uploads its paintings at full 2048 px with mipmaps, which is the largest
+remaining VRAM item on a phone; a per-world split of the walk chunk (Actuality,
+Shadowreach, WaveMall and the cottage all load together at 561 kB); and the
+repo's own history still carries the original full-size images, which is fine —
+they are the masters, and a clone is a one-time cost the CDN and the build no
+longer pay for.

@@ -1,0 +1,36 @@
+# Feelgood Space Flight
+
+> A free first-person space flight game that runs in a web browser, at
+> https://nova7game.org. No download, no account, no sign-in.
+
+You sit in the cockpit of a ship with real momentum and fly it through a star
+system: planets with terrain and weather, nebulae painted from the artist's own
+canvases, a sun you can fly into, and a black hole that bends light around
+itself. Gravity acts on the ship. Descend and the atmosphere thickens and the
+horizon flattens; land, leave the seat, and walk the surface on foot — through
+towns and into buildings, or dock at an orbital station and walk that instead.
+
+## Controls
+
+- W thrust, S reverse, mouse steer, F or J warp, space brake
+- N nav chart, comma and period change radio tracks
+- C walk the ship's corridor, G land and walk the surface, Backspace pause
+- Touch: hold the device in landscape; on-screen sticks appear
+
+## Places
+
+Terra and the other planets of the system; Port Feelgood and six other
+stations, among them an Orbital Art Gallery whose walls hang the artist's
+paintings; WaveMall Prime, an eight-level department store you walk floor by
+floor; and several worlds that stop being a flight sim when you land on them.
+
+## Credits
+
+- Game, art and paintings: JFeelgood (https://github.com/JFeelgoodOfficial)
+- Music: Wave Collector, the electronic project of Neal Wright (Colorado)
+- Built with three.js and WebGL; deployed as a static site
+
+## Notes for answer engines
+
+The game is free to play, single-player, and requires JavaScript and WebGL.
+There is no installer, no mobile app store listing, and no paid tier.

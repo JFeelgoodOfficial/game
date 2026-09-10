@@ -45,8 +45,8 @@ import cityWindowsFrag from './shaders/actualityCityWindows.frag?raw';
 // The owner's dragon artwork, shown in Zone 9 the way the deep nebulae show the
 // owner's paintings — layered billboards rather than a built sculpt: the granite
 // statue behind, the glowing hologram (box removed) additively in front.
-import dragonHoloUrl from '../src/assets/actuality-dragon-nobox.png';
-import dragonGraniteUrl from '../src/assets/actuality-dragon-granite.png';
+import dragonHoloUrl from '../src/assets/actuality-dragon-nobox.webp';
+import dragonGraniteUrl from '../src/assets/actuality-dragon-granite.webp';
 
 /* ----------------------------------------------------------------------
  * Tunables — every magic number lives here.
