@@ -3,6 +3,15 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   base: './',
   build: {
+    // The palette thumbnails (artgallery/thumbs) are ~3 kB each, which is under
+    // Vite's 4 kB inline threshold — so all 33 were being base64'd into the
+    // boot chunk, adding ~100 kB of eagerly-parsed JavaScript to serve images
+    // that are only wanted after LAUNCH. Keep them as files; they are fetched
+    // on idle and cached like any other asset.
+    assetsInlineLimit(filePath) {
+      if (filePath.includes('/artgallery/thumbs/')) return false;
+      return undefined; // everything else: Vite's default 4 kB rule
+    },
     // three's core is ~650 kB minified on its own; the warning at 500 kB just
     // fires every build and says nothing new. The chunks that matter are
     // watched by hand (see the build log in AUDIT.md).

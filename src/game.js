@@ -1666,3 +1666,4 @@ requestAnimationFrame(frame);
 // Bake terra vertex displacement into the geometry in background time
 // slices (see planet.js) — the GPU displacement path covers until each
 // planet swaps over.
+startPlanetBake();

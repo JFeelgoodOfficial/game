@@ -132,7 +132,7 @@ camera.
 | Repo tree (what Vercel clones each build) | 76 MB | 44 MB, 33 MB of it music the deploy no longer touches |
 | Images downloaded before LAUNCH | ~25 MB | 0 |
 | Images in the 12 s after LAUNCH | (all of the above, at boot) | 450 kB |
-| Boot JS | one 848 kB chunk | 240 kB game + 589 kB `vendor-three` (cached across deploys) |
+| Boot JS | one 848 kB chunk (238 kB gzip) | 245 kB game + 589 kB `vendor-three` (236 kB gzip total, and the 151 kB vendor half survives the next deploy) |
 | Largest single asset | 3.9 MB painting (5954×7926) | 796 kB painting (≤2048 px) |
 
 ## What changed
@@ -156,11 +156,15 @@ camera.
    so a multi-megapixel decode no longer happens inline on the main thread. The
    queue starts on the first idle callback after LAUNCH, as do the corridor
    photographs.
-5. **GTAOPass is a chunk of its own**, fetched when the walk chunk lands rather
+5. **The palette thumbnails are excluded from Vite's 4 kB inline threshold**
+   (`build.assetsInlineLimit` as a function). At ~3 kB each they were being
+   base64'd into the boot chunk — 100 kB of eagerly parsed JavaScript carrying
+   images that are only wanted after LAUNCH.
+6. **GTAOPass is a chunk of its own**, fetched when the walk chunk lands rather
    than shipped to everyone; three.js is a `vendor-three` chunk whose hash
    survives game-code pushes; the renderer no longer requests MSAA it cannot
    use (every frame goes through the composer's targets).
-6. **`vercel.json`**: hashed `/assets` immutable for a year — Vite content-hashes
+7. **`vercel.json`**: hashed `/assets` immutable for a year — Vite content-hashes
    them, so a changed file is a changed URL. Everything from `public/` keeps its
    name across deploys, so those get a week plus background revalidation instead;
    `immutable` there would pin an edited texture in returning players' caches.
@@ -168,7 +172,7 @@ camera.
    the canonical link tag. (Note for future edits: Vercel's schema rejects any
    key it doesn't define, `comment` included — the file cannot carry its own
    annotations, which is why they are here.)
-7. **SEO**: description, canonical, Open Graph and Twitter cards with a real
+8. **SEO**: description, canonical, Open Graph and Twitter cards with a real
    preview image, `VideoGame` JSON-LD, a screen-reader-only description of the
    game and its controls (a canvas is not indexable), a `<noscript>`
    explanation, `robots.txt`, `sitemap.xml`, `llms.txt` and a web manifest.
