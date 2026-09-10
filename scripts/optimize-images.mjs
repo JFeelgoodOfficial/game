@@ -16,7 +16,7 @@
 // by extension (world/shadowreach.js) or imports an explicit path
 // (world/actuality.js) — leaving both would double-ship the asset.
 
-import { readdir, stat, writeFile, unlink, access } from 'node:fs/promises';
+import { readdir, stat, writeFile, unlink, access, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
@@ -83,6 +83,25 @@ async function run() {
     const out = src.replace(/\.(png|jpe?g)$/i, '.webp');
     await convert(src, out, fit(2048, { quality: 82, effort: 5 }));
   }
+
+  // Palette thumbnails. The painting nebulae only ever read a 64x64 grid of
+  // each canvas (src/paintingnebula.js extractPalette) — downloading whole
+  // paintings for that cost ~7 MB of a first visit for pixels nobody sees.
+  // 128 px on the longest side keeps the aspect ratio the elliptical sampling
+  // mask depends on, and lands at a couple of kB each.
+  console.log('artgallery/thumbs/ (128px palette sources)');
+  await mkdir(path.join(galleryDir, 'thumbs'), { recursive: true });
+  let thumbBytes = 0;
+  for (const f of await listDir(galleryDir, /\.webp$/i)) {
+    const out = path.join(galleryDir, 'thumbs', f);
+    const buf = await sharp(path.join(galleryDir, f))
+      .resize({ width: 128, height: 128, fit: 'inside' })
+      .webp({ quality: 72, effort: 6 })
+      .toBuffer();
+    thumbBytes += buf.length;
+    if (!DRY) await writeFile(out, buf);
+  }
+  console.log(`  ${DRY ? '?' : '✓'} ${(await listDir(galleryDir, /\.webp$/i)).length} thumbnails, ${kb(thumbBytes)} total`);
 
   // --- corridor pictures inside the ship -----------------------------------
   // Five frames, each 0.5 x 0.4 world units. 1024 is already luxurious.

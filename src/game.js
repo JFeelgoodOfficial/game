@@ -17,7 +17,6 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { C } from './constants.js';
@@ -30,7 +29,11 @@ import { initTuning } from './tuning.js';
 import { initStarfield, updateStarfield } from './starfield.js';
 import { initNebula, updateNebula } from './nebula.js';
 import { initDeepNebula, updateDeepNebula, deepNebulae } from './deepnebula.js';
-import { initPaintingNebulae, paintingNebulae } from './paintingnebula.js';
+import {
+  initPaintingNebulae,
+  startPaintingNebulaBuild,
+  paintingNebulae,
+} from './paintingnebula.js';
 import { cockpitScene, CockpitOverlayPass } from './cockpit.js';
 import {
   initCockpit3d,
@@ -46,6 +49,7 @@ import { startAutoWarp, stepAutopilot, autopilotActive, cancelAutopilot } from '
 import {
   interiorScene,
   initInterior,
+  loadInteriorPictures,
   updateInterior,
   updateInteriorCamera,
   nearSeat,
@@ -136,7 +140,11 @@ import aberrationFrag from './shaders/aberration.frag?raw';
 import collapseFrag from './shaders/collapse.frag?raw';
 import skyfogFrag from './shaders/skyfog.frag?raw';
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// No antialias: every frame is drawn into the EffectComposer's own render
+// targets and the canvas only ever receives OutputPass's fullscreen quad, so
+// multisampling the default framebuffer smooths nothing and costs a
+// multisampled backbuffer plus a resolve per frame.
+const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -262,10 +270,45 @@ composer.addPass(skyfogPass);
 // Placed AFTER skyfog so skyfog still reads the RenderPass's fresh depth
 // texture (GTAOPass owns its own depth/normal targets, so it needs nothing from
 // the composer's). Radius is metres — these are rooms, not landscapes.
-const aoPass = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
-aoPass.updateGtaoMaterial({ radius: 0.5, distanceExponent: 1.4, thickness: 0.4, scale: 1.0, samples: 16 });
-aoPass.enabled = false;
-composer.addPass(aoPass);
+// The pass itself (plus its GTAO/denoise shaders and SimplexNoise) is a
+// chunk of its own, fetched the first time AO is switched on rather than
+// shipped to every visitor of a game that spends most of its time in space
+// with AO off. This stand-in carries the only part of the interface anyone
+// uses — `enabled` — so isolate.js and the debug hooks need no changes; the
+// real pass takes over the flag as soon as it lands.
+const aoPass = {
+  pass: null,
+  loading: null,
+  _enabled: false,
+  get enabled() {
+    return this._enabled;
+  },
+  set enabled(v) {
+    this._enabled = !!v;
+    if (this.pass) this.pass.enabled = this._enabled;
+    else if (this._enabled) this.load();
+  },
+  load() {
+    if (this.loading) return this.loading;
+    this.loading = import('three/addons/postprocessing/GTAOPass.js')
+      .then(({ GTAOPass }) => {
+        const p = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
+        p.updateGtaoMaterial({ radius: 0.5, distanceExponent: 1.4, thickness: 0.4, scale: 1.0, samples: 16 });
+        p.enabled = this._enabled; // AO may have been switched on while this loaded
+        // Slot it exactly where it used to sit: after skyfog, before lensing.
+        // insertPass also sizes it to the composer's current buffer.
+        composer.insertPass(p, composer.passes.indexOf(lensPass));
+        this.pass = p;
+      })
+      .catch((err) => {
+        // No AO is a look, not a failure — the world still renders. Clearing
+        // `loading` lets the next landing try again.
+        console.warn('[ao] pass failed to load', err);
+        this.loading = null;
+      });
+    return this.loading;
+  },
+};
 
 const lensPass = new ShaderPass({
   uniforms: {
@@ -425,7 +468,12 @@ if (import.meta.env.DEV) {
       playerState,
       isStanding: () => standing,
       blend: () => standBlend,
-      stand: () => { if (phase === 'fly' && !input.warp) standing = true; },
+      stand: () => {
+        if (phase === 'fly' && !input.warp) {
+          standing = true;
+          loadInteriorPictures();
+        }
+      },
       sit: () => { standing = false; },
     },
     radio: {
@@ -454,6 +502,7 @@ if (import.meta.env.DEV) {
       phase = 'fly';
       hideMenu();
       startMusic();
+      loadOwnerArt(); // same post-launch art fetch the real LAUNCH button does
     },
     // Run n physics ticks synchronously (origin maintenance included).
     // Honors the out-of-seat state like the real loop does.
@@ -1070,6 +1119,21 @@ function resetToStart() {
   snapCamera(ship);
 }
 
+// Artwork the game shows but does not need to be playable: the paintings
+// behind the outer-shell nebulae, and the photographs in the ship's corridor.
+// Both used to load during module eval — two dozen full-size images between
+// the player and the LAUNCH button — and now wait for the first idle moment
+// of an actual flight. Idempotent on both sides, so every launch path can
+// call it.
+function loadOwnerArt() {
+  const go = () => {
+    startPaintingNebulaBuild();
+    loadInteriorPictures();
+  };
+  if (window.requestIdleCallback) window.requestIdleCallback(go, { timeout: 4000 });
+  else setTimeout(go, 1500);
+}
+
 initMenu(() => {
   resetToStart();
   accumulator = 0;
@@ -1077,6 +1141,7 @@ initMenu(() => {
   setPaused(false);
   hideMenu();
   startMusic(); // user's track, from the LAUNCH click gesture
+  loadOwnerArt();
   renderer.domElement.requestPointerLock?.();
   // One-time first-launch nudge: Terra sits dead ahead of the spawn point,
   // but the nav chart is deliberately blank until bodies are discovered —
@@ -1125,6 +1190,12 @@ function frame(now) {
   // landing, docking, the sun's cottage — stayed broken until a reload.
   ensureWalkLoaded();
 
+  // AO is only ever used on foot in a story world, so the moment the on-foot
+  // chunk is in, quietly fetch the AO pass too — it is small, and having it
+  // ready means the first landing darkens its corners on frame one instead of
+  // popping a second later.
+  if (walkLoaded() && !aoPass.loading) aoPass.load();
+
   // On-foot touch sticks (no-op on desktop). Runs before the walk step below so
   // the look travel it injects is consumed by the same stepWalk tick a mouse
   // delta would have fed. Flight needs nothing here — the 3D dashboard already
@@ -1136,7 +1207,10 @@ function frame(now) {
     // blocked at warp (nobody walks at 10,000 u/s); sitting requires being
     // back at the chair. Consumed once per frame at the bottom of the loop.
     if (input.toggleInterior && !autopilotActive()) {
-      if (!standing && !input.warp) standing = true;
+      if (!standing && !input.warp) {
+        standing = true;
+        loadInteriorPictures(); // no-op after the post-launch idle load
+      }
       else if (standing && nearSeat()) {
         standing = false;
         closeCredits(); // never leave the plaque popup up in the pilot seat
@@ -1508,7 +1582,7 @@ function frame(now) {
     updateNebula(camera);
     updateDeepNebula(renderer, camera);
     updatePlanets(now / 1000, camera.position);
-    updateStations(now / 1000, ship.position);
+    updateStations(now / 1000, ship.position, phase !== 'menu');
   }
   // nav AFTER the stations are placed: a reset snaps orbiting stations back
   // to their snapshot spot for one frame, and a discovery check reading that
@@ -1592,4 +1666,3 @@ requestAnimationFrame(frame);
 // Bake terra vertex displacement into the geometry in background time
 // slices (see planet.js) — the GPU displacement path covers until each
 // planet swaps over.
-startPlanetBake();

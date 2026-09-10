@@ -100,25 +100,48 @@ function placeholderTexture(seed) {
 }
 
 let pictureCount = 0;
+// Frames whose image hasn't been fetched yet. The corridor is built during
+// boot, but nobody can walk it until they have launched and pressed C, so the
+// photographs are loaded from an idle callback afterwards rather than in the
+// middle of the loading screen.
+const pendingPictures = [];
+let picturesLoaded = false;
+
 function makePicture(w, h) {
   const g = new THREE.Group();
   const frame = new THREE.Mesh(new THREE.BoxGeometry(w + 0.07, h + 0.07, 0.03), pictureFrameMat);
   g.add(frame);
   const idx = pictureCount++;
-  let tex;
+  let mat;
   if (idx < pictureUrls.length) {
-    tex = new THREE.TextureLoader().load(pictureUrls[idx]);
-    tex.colorSpace = THREE.SRGBColorSpace;
+    // Dark glass until the photograph arrives — a frame with nothing in it
+    // reads as a frame, where a white plane would read as a bug.
+    mat = new THREE.MeshBasicMaterial({ color: 0x1a1f28 });
+    pendingPictures.push({ mat, url: pictureUrls[idx] });
+    if (picturesLoaded) loadInteriorPictures(); // a frame built after the load
   } else {
-    tex = placeholderTexture(idx + 1);
+    mat = new THREE.MeshBasicMaterial({ map: placeholderTexture(idx + 1) });
   }
-  const face = new THREE.Mesh(
-    new THREE.PlaneGeometry(w, h),
-    new THREE.MeshBasicMaterial({ map: tex })
-  );
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
   face.position.z = 0.017;
   g.add(face);
   return g;
+}
+
+// Idempotent, and safe to call from several places (post-launch idle, and
+// again when the player actually stands up) — whichever runs first wins.
+export function loadInteriorPictures() {
+  picturesLoaded = true;
+  if (!pendingPictures.length) return;
+  const loader = new THREE.TextureLoader();
+  for (const { mat, url } of pendingPictures) {
+    const tex = loader.load(url);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    mat.map = tex;
+    mat.color.setHex(0xffffff); // stop tinting once there's an image to show
+    mat.needsUpdate = true; // null -> map is a shader change
+  }
+  pendingPictures.length = 0;
 }
 
 // --- the music-credit plaque (Wave Collector) — a brass-toned panel at the

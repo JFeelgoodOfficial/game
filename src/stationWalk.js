@@ -27,7 +27,7 @@ import * as THREE from 'three';
 import { C } from './constants.js';
 import { input, moveAxes } from './input.js';
 import { ship } from './ship.js';
-import { setStationFrozen, updateGalleryUniforms } from './stations.js';
+import { setStationFrozen, updateGalleryUniforms, hangGalleryArt } from './stations.js';
 import * as GL from './galleryLayout.js';
 import { makeStructure } from '../world/city.js';
 import { createCrowd } from '../world/aliens.js';
@@ -398,6 +398,10 @@ function teardown() {
 // walkLazy's facade returns false before the walk chunk has loaded.
 export function enterStationWalk(station) {
   if (!station || !station.dock) return false;
+  // The exhibits load on approach, not at boot. By the time anyone docks they
+  // are normally already up; this makes sure of it for any arrival the
+  // approach gate didn't see.
+  hangGalleryArt();
   if (sWalk.active) teardown(); // self-cleaning (reset hardening)
   if (!structures) structures = [buildRoomStructure(), buildTowerStructure()];
 

@@ -498,15 +498,30 @@ function galleryTexture(url, onSize) {
   if (!entry) {
     entry = { tex: null, size: null, pending: [] };
     galleryTexCache.set(url, entry);
-    entry.tex = artLoader.load(url, (t) => {
-      // crisp at oblique angles, and mipmapped (three.js default) so distant
-      // pieces stay clean; sRGB set below at construction
-      t.anisotropy = GALLERY_ANISO;
-      t.needsUpdate = true;
-      entry.size = { w: t.image.width, h: t.image.height };
-      for (const cb of entry.pending) cb(entry.size.w, entry.size.h);
+    const flush = (w, h) => {
+      entry.size = { w, h };
+      for (const cb of entry.pending) cb(w, h);
       entry.pending.length = 0;
-    });
+    };
+    entry.tex = artLoader.load(
+      url,
+      (t) => {
+        // crisp at oblique angles, and mipmapped (three.js default) so distant
+        // pieces stay clean; sRGB set below at construction
+        t.anisotropy = GALLERY_ANISO;
+        t.needsUpdate = true;
+        flush(t.image.width, t.image.height);
+      },
+      undefined,
+      // A missing file must not strand the panel: without this its onSize
+      // never fires, the mesh keeps its provisional 10:7 guess, and — since
+      // the hang queue below steps on the same callback — every later panel
+      // waits behind it forever.
+      () => {
+        console.warn('[gallery] artwork failed to load:', url);
+        flush(10, 7);
+      }
+    );
     entry.tex.colorSpace = THREE.SRGBColorSpace;
     entry.tex.anisotropy = GALLERY_ANISO;
   }
@@ -516,6 +531,11 @@ function galleryTexture(url, onSize) {
   }
   return entry.tex;
 }
+
+// One placeholder canvas shared by every not-yet-hung slot: the panels are
+// only ever seen this way from outside the tower, and 24 identical canvases
+// would be 24 textures for one image.
+let unhungPlaceholder = null;
 
 function galleryPlaceholder(seed) {
   const cv = document.createElement('canvas');
@@ -1191,6 +1211,7 @@ function orbitalArtGalleryStation() {
   // stay portraits, landscapes stay landscapes, nothing gets stretched.
   const spots = GL.artSpots();
   const unitPlane = new THREE.PlaneGeometry(1, 1); // shared, scaled per piece
+  const pendingArt = []; // { artMat, url, fit } — drained by hangArt()
   for (let k = 0; k < spots.length; k++) {
     const s = spots[k];
     // color scales the unlit texture to 0.82 so even a pure-white artwork
@@ -1214,7 +1235,14 @@ function orbitalArtGalleryStation() {
     };
     if (galleryArtUrls.length) {
       fit(10, 7); // provisional until the image's real size arrives
-      artMat.map = galleryTexture(galleryArtUrls[k % galleryArtUrls.length], fit);
+      // The pixels are NOT requested here. Hanging the whole collection at
+      // construction meant every visitor downloaded and GPU-uploaded 24
+      // paintings during boot, before the title screen would even let them
+      // press LAUNCH — for a room most of them never fly to. The slot shows
+      // the same procedural placeholder an empty slot gets until hangArt()
+      // runs (see the distance gate in updateStations).
+      artMat.map = unhungPlaceholder ??= galleryPlaceholder(0);
+      pendingArt.push({ artMat, url: galleryArtUrls[k % galleryArtUrls.length], fit });
     } else {
       artMat.map = galleryPlaceholder(k + 1);
       fit(256, 180); // the placeholder canvas's own aspect
@@ -1365,7 +1393,32 @@ function orbitalArtGalleryStation() {
     updateGalleryUniforms(t);
   }
 
-  return { group: g, anim };
+  // Hang the collection. Called once, from the approach gate in
+  // updateStations or from docking — never at construction, which is the
+  // whole point. Two chains, each waiting for its own image before starting
+  // the next, so the decodes and GPU uploads spread over frames instead of
+  // landing as one hitch on approach.
+  let hung = false;
+  function hangArt() {
+    if (hung) return;
+    hung = true;
+    let i = 0;
+    const next = () => {
+      if (i >= pendingArt.length) return;
+      const { artMat, url, fit } = pendingArt[i++];
+      artMat.map = galleryTexture(url, (iw, ih) => {
+        fit(iw, ih);
+        // A cached image calls back synchronously; hopping through a task
+        // keeps this from recursing 24 deep on a warm reload.
+        setTimeout(next, 0);
+      });
+      artMat.needsUpdate = true; // placeholder -> artwork
+    };
+    next();
+    next();
+  }
+
+  return { group: g, anim, hangArt };
 }
 
 export function initStations(scene) {
@@ -1465,6 +1518,7 @@ export function initStations(scene) {
     spin: 0.015,
     orbit: { planetIndex: idx('terra'), radius: 3400, rate: 0.007, phase: 4.2 },
     anim: gallery.anim,
+    hangArt: gallery.hangArt,
     dock: { berthLocal: GL.BERTH_LOCAL },
   });
 
@@ -1473,6 +1527,19 @@ export function initStations(scene) {
     addShiftable(s.group);
   }
   return stations;
+}
+
+// Belt and braces for the approach gate above: docking is the one place the
+// art absolutely must already be on the walls, and a player who arrives by
+// some path the distance check missed (a debug teleport, a warp that lands
+// inside the gate in a single frame) should not walk into blank panels.
+export function hangGalleryArt() {
+  for (const s of stations) {
+    if (s.hangArt) {
+      s.hangArt();
+      s.hangArt = null;
+    }
+  }
 }
 
 // The dockable-station lookup for game.js's G gate and stationWalk.js's
@@ -1517,6 +1584,17 @@ export function nearestDockableStation(shipPos) {
 // rig's beam/shuttle trig used to run every frame from 90k units away.)
 const ANIM_DISTANCE_SQ = 6000 * 6000;
 
+// The gallery pulls its paintings when the ship gets this close. The exhibits
+// hang inside the Grand Hall tower, so at this range a canvas is about a pixel
+// tall through the glass — but it is still a long, slow approach from here to
+// a berth, which is all the time the loads need. Crucially it is well inside
+// the spawn distance: the gallery shares terra's orbit with the player's
+// starting position, so a generous gate would have fetched every painting the
+// moment anyone pressed LAUNCH, which is the thing this is here to avoid.
+// (enterStationWalk calls hangGalleryArt as a backstop for any arrival that
+// skips the approach entirely.)
+const ART_HANG_DISTANCE_SQ = 2200 * 2200;
+
 // While the player is walking a docked station's interior, its orbit + spin
 // are frozen so the ground doesn't drift underfoot. On resume we re-phase the
 // stateless orbit/spin so they continue smoothly from the frozen pose instead
@@ -1532,7 +1610,10 @@ export function setStationFrozen(s) {
   }
 }
 
-export function updateStations(t, shipPos) {
+// `live` is false on the title screen: the loop still runs there to keep
+// positions honest for the first frame, but nothing should start fetching
+// artwork behind a menu the player has not dismissed.
+export function updateStations(t, shipPos, live = true) {
   for (const s of stations) {
     if (s === frozenStation) continue; // held still while docked
     if (s === resumeStation) {
@@ -1562,6 +1643,15 @@ export function updateStations(t, shipPos) {
     } else if (s.offset) {
       const p = planets[s.planetIndex].group.position;
       s.group.position.set(p.x + s.offset.x, p.y + s.offset.y, p.z + s.offset.z);
+    }
+    // AFTER the position write, not before: an orbiting station's group still
+    // holds last frame's (on the first frame, its construction-time) position
+    // up to this point, and reading that put the gallery on top of the ship at
+    // spawn — which fetched the whole collection the instant anyone launched,
+    // the exact thing the gate exists to prevent.
+    if (live && s.hangArt && s.group.position.distanceToSquared(shipPos) < ART_HANG_DISTANCE_SQ) {
+      s.hangArt();
+      s.hangArt = null;
     }
   }
 }
