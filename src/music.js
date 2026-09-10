@@ -1,5 +1,5 @@
 // Ship radio (user mechanic — a deliberate override of GDD 1.2's "no sound
-// beyond, at most, engine tone"). Four Wave Collector tracks play in
+// beyond, at most, engine tone"). Ten Wave Collector tracks play in
 // sequence, starting from the LAUNCH click (a real gesture, so autoplay is
 // permitted). The radio pop-up (radioPopup.js) switches/pauses tracks and
 // shows the title; the sequential auto-advance is the user's own playlist
@@ -7,26 +7,44 @@
 
 import { settings, onSettingsChange } from './settings.js';
 
-// Tracks live in public/music/ and stream on demand — they stay out of the
-// JS bundle and out of Vite's asset pipeline. BASE_URL keeps the relative
-// `./` base working on the Pages deploy.
-const MUSIC_BASE = `${import.meta.env.BASE_URL}music/`;
+// Tracks are the heaviest thing the game touches: ten MP3s, 33 MB, and only
+// ever one of them streaming. They used to sit in public/, which meant every
+// Vercel deployment (production and every preview) shipped all 33 MB and every
+// build re-uploaded them. They now live in /music at the repo root — outside
+// public/, so the bundler and the deploy never see them — and are served from
+// jsDelivr's GitHub CDN, which reads the same public repo.
+//
+// Dev keeps a local path: Vite serves files from the project root, so this
+// works with no network. VITE_MUSIC_BASE overrides both if the tracks ever
+// move again (a mirror, a bucket) without touching this file.
+//
+// MUSIC_REF is what jsDelivr caches against. A branch is re-checked roughly
+// every 12 hours; pin a tag instead if a track is ever replaced in place and
+// the change has to be immediate.
+const MUSIC_REF = 'main';
+const MUSIC_BASE =
+  import.meta.env.VITE_MUSIC_BASE ||
+  (import.meta.env.DEV
+    ? `${import.meta.env.BASE_URL}music/`
+    : `https://cdn.jsdelivr.net/gh/JFeelgoodOfficial/game@${MUSIC_REF}/music/`);
 
 const TRACKS = [
-  { url: `${MUSIC_BASE}Wave Collector -  Move 78.mp3`, title: 'WAVE COLLECTOR — MOVE 78' },
+  { url: `${MUSIC_BASE}wave-collector-move-78.mp3`, title: 'WAVE COLLECTOR — MOVE 78' },
   { url: `${MUSIC_BASE}wave-collector-i-know-youre-there.mp3`, title: "WAVE COLLECTOR — I KNOW YOU'RE THERE" },
   { url: `${MUSIC_BASE}wave-collector-electronics-dept.mp3`, title: 'WAVE COLLECTOR — ELECTRONICS DEPT.' },
   { url: `${MUSIC_BASE}wave-collector-mens-casualwear.mp3`, title: "WAVE COLLECTOR — MEN'S CASUALWEAR" },
-  { url: `${MUSIC_BASE}Wave Collector -  One Way In.mp3`, title: 'WAVE COLLECTOR — ONE WAY IN' },
-  { url: `${MUSIC_BASE}Wave Collector -  Question Air.mp3`, title: 'WAVE COLLECTOR — QUESTION AIR' },
-  { url: `${MUSIC_BASE}Wave Collector -  The Masterpiece.mp3`, title: 'WAVE COLLECTOR — THE MASTERPIECE' },
-  { url: `${MUSIC_BASE}Wave Collector -  The Mouse Shaman (Acoustic).mp3`, title: 'WAVE COLLECTOR — THE MOUSE SHAMAN (ACOUSTIC)' },
-  { url: `${MUSIC_BASE}Wave Collector - Bright Pearl Comes Out from the Sea.mp3`, title: 'WAVE COLLECTOR — BRIGHT PEARL COMES OUT FROM THE SEA' },
-  { url: `${MUSIC_BASE}Wave Collector - Life Cycle.mp3`, title: 'WAVE COLLECTOR — LIFE CYCLE' },
+  { url: `${MUSIC_BASE}wave-collector-one-way-in.mp3`, title: 'WAVE COLLECTOR — ONE WAY IN' },
+  { url: `${MUSIC_BASE}wave-collector-question-air.mp3`, title: 'WAVE COLLECTOR — QUESTION AIR' },
+  { url: `${MUSIC_BASE}wave-collector-the-masterpiece.mp3`, title: 'WAVE COLLECTOR — THE MASTERPIECE' },
+  { url: `${MUSIC_BASE}wave-collector-the-mouse-shaman-acoustic.mp3`, title: 'WAVE COLLECTOR — THE MOUSE SHAMAN (ACOUSTIC)' },
+  { url: `${MUSIC_BASE}wave-collector-bright-pearl-comes-out-from-the-sea.mp3`, title: 'WAVE COLLECTOR — BRIGHT PEARL COMES OUT FROM THE SEA' },
+  { url: `${MUSIC_BASE}wave-collector-life-cycle.mp3`, title: 'WAVE COLLECTOR — LIFE CYCLE' },
 ];
 
 let audio = null;
 let currentIndex = 0;
+let errorSkips = 0; // consecutive failed track loads (see the 'error' handler)
+let wantPlaying = false; // last intent — an error only skips ahead if we were trying to play
 const listeners = [];
 const playListeners = [];
 
@@ -71,6 +89,7 @@ export function isMusicPlaying() {
 // If the browser refuses playback (no gesture registered yet), retry on the
 // next real interaction anywhere on the page.
 function play() {
+  wantPlaying = true;
   audio.play().catch(() => {
     const retry = () => {
       audio.play().catch(() => {});
@@ -107,6 +126,27 @@ function ensureAudio() {
   });
   audio.addEventListener('play', emitPlayState);
   audio.addEventListener('pause', emitPlayState);
+  // The tracks are on a CDN now, so a fetch can fail in ways a local file
+  // never did — one bad edge node, a network that drops mid-stream. Without
+  // this the radio just goes quiet forever on the dead track. Skip to the
+  // next one, but only while some track is still untried: ten failures in a
+  // row means the whole source is unreachable, and cycling the playlist
+  // against a dead origin helps nobody.
+  audio.addEventListener('error', () => {
+    if (!wantPlaying) return; // a source that fails while deliberately paused stays paused
+    if (errorSkips >= TRACKS.length - 1) {
+      console.warn('[radio] no track could be loaded — is the music CDN reachable?');
+      return;
+    }
+    errorSkips++;
+    setTrack(currentIndex + 1);
+    play();
+  });
+  // A track that actually starts clears the run: the next failure gets its
+  // own full set of retries.
+  audio.addEventListener('playing', () => {
+    errorSkips = 0;
+  });
 }
 
 export function nextTrack() {
@@ -134,7 +174,10 @@ export function toggleMusicPlayback() {
   ensureAudio();
   pausedByGame = false;
   if (audio.paused) play();
-  else audio.pause();
+  else {
+    wantPlaying = false;
+    audio.pause();
+  }
 }
 
 export function startMusic() {
@@ -150,6 +193,7 @@ let pausedByGame = false;
 
 export function pauseMusic() {
   if (audio && !audio.paused) {
+    wantPlaying = false;
     audio.pause();
     pausedByGame = true;
   }

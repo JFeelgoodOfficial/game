@@ -4,6 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Feelgood Space Flight</title>
+  <!-- The radio streams from jsDelivr (see src/music.js). Warming the
+       connection here means the LAUNCH click doesn't pay for DNS and TLS
+       before the first note. -->
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='5' fill='none' stroke='%23d4408f' stroke-width='1.5'/%3E%3Ccircle cx='8' cy='8' r='2' fill='%23000'/%3E%3C/svg%3E">
   <style>
     html, body {
