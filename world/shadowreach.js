@@ -47,17 +47,12 @@ import { createActualitySky } from './actuality-sky.js';
 import { createActualityMaterials } from './actuality-materials.js';
 import { createCrowd } from './people.js';
 import { Astronaut } from '../src/astronaut.js';
+import { GALLERY_FILES, galleryUrl } from '../src/gallery.js';
 
 // The owner's paintings (repo-root /artgallery, same pipeline as the Orbital
 // Art Gallery in src/stations.js). One dream-themed piece appears faintly in
 // the garden's windowpane — the window "shows a memory". Asset URLs only.
-const ART_ENTRIES = Object.entries(
-  import.meta.glob('/artgallery/*.{png,jpg,jpeg,webp}', {
-    eager: true,
-    query: '?url',
-    import: 'default',
-  })
-).sort(([a], [b]) => (a < b ? -1 : 1));
+const ART_ENTRIES = GALLERY_FILES.map((file) => [file, galleryUrl(file)]);
 const DREAM_ART_URL =
   (ART_ENTRIES.find(([path]) => /dream/i.test(path)) ?? ART_ENTRIES[0])?.[1] ?? null;
 

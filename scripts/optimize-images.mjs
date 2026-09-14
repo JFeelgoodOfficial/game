@@ -103,6 +103,16 @@ async function run() {
   }
   console.log(`  ${DRY ? '?' : '✓'} ${(await listDir(galleryDir, /\.webp$/i)).length} thumbnails, ${kb(thumbBytes)} total`);
 
+  // The gallery manifest. The paintings are served from the CDN rather than
+  // bundled (src/assetBase.js), so nothing imports them and Vite's glob can no
+  // longer discover them — this committed file is what tells the game which
+  // paintings exist. Same sort order the glob produced, so the hang order on
+  // the exhibit panels is unchanged.
+  const manifest = await listDir(galleryDir, /\.(webp|png|jpe?g)$/i);
+  const manifestPath = path.join(galleryDir, 'manifest.json');
+  console.log(`artgallery/manifest.json (${manifest.length} paintings)`);
+  if (!DRY) await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
   // --- corridor pictures inside the ship -----------------------------------
   // Five frames, each 0.5 x 0.4 world units. 1024 is already luxurious.
   console.log('src/assets/pictures/ (<=1024px, webp q80)');
