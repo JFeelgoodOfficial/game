@@ -6,27 +6,17 @@
 // logic.
 
 import { settings, onSettingsChange } from './settings.js';
+import { assetUrl } from './assetBase.js';
 
 // Tracks are the heaviest thing the game touches: ten MP3s, 33 MB, and only
 // ever one of them streaming. They used to sit in public/, which meant every
 // Vercel deployment (production and every preview) shipped all 33 MB and every
-// build re-uploaded them. They now live in /music at the repo root — outside
-// public/, so the bundler and the deploy never see them — and are served from
-// jsDelivr's GitHub CDN, which reads the same public repo.
+// build re-uploaded them. They now live in /music at the repo root, alongside
+// the paintings, and come from the CDN — see assetBase.js for the whole story.
 //
-// Dev keeps a local path: Vite serves files from the project root, so this
-// works with no network. VITE_MUSIC_BASE overrides both if the tracks ever
-// move again (a mirror, a bucket) without touching this file.
-//
-// MUSIC_REF is what jsDelivr caches against. A branch is re-checked roughly
-// every 12 hours; pin a tag instead if a track is ever replaced in place and
-// the change has to be immediate.
-const MUSIC_REF = 'main';
-const MUSIC_BASE =
-  import.meta.env.VITE_MUSIC_BASE ||
-  (import.meta.env.DEV
-    ? `${import.meta.env.BASE_URL}music/`
-    : `https://cdn.jsdelivr.net/gh/JFeelgoodOfficial/game@${MUSIC_REF}/music/`);
+// VITE_MUSIC_BASE still overrides the tracks alone, if they ever move
+// somewhere the rest of the media does not follow.
+const MUSIC_BASE = import.meta.env.VITE_MUSIC_BASE || assetUrl('music/');
 
 const TRACKS = [
   { url: `${MUSIC_BASE}wave-collector-move-78.mp3`, title: 'WAVE COLLECTOR — MOVE 78' },

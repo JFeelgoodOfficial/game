@@ -192,3 +192,68 @@ Shadowreach, WaveMall and the cottage all load together at 561 kB); and the
 repo's own history still carries the original full-size images, which is fine —
 they are the masters, and a clone is a one-time cost the CDN and the build no
 longer pay for.
+
+---
+
+# Deployment Storage — September 2026 (second pass)
+
+The September pass above cut `dist/` from ~71 MB to ~11 MB. The Vercel
+dashboard still read **3 GB**. That number is not one build: it is every build
+Vercel has kept.
+
+## What the 3 GB actually was
+
+Counted through the Vercel API on 14 September: **43 retained deployments**
+for `nova7game` (20 production, 23 PR previews, none expired), the oldest from
+26 July. Forty-one of them predate the deploy-size pass, so they are the 71 MB
+kind:
+
+    41 x ~71 MB + 2 x ~11 MB ~= 2.9 GB
+
+Nothing the game does at runtime holds that storage. It is an archive of old
+builds, and each push adds another copy. Two fixes, in that order of size.
+
+## 1. Delete the stale deployments (Vercel side, no code)
+
+    npx vercel login
+    npx vercel remove nova7game --safe --yes
+    npx vercel ls nova7game
+
+`--safe` keeps anything an alias still points at — the live production build
+and the newest deployment behind each branch alias — and drops the rest.
+Delete the leftover branch previews by URL. Rollback is a Pro/Enterprise
+feature, so on Hobby a superseded production build has no value.
+
+If Project → Settings → Deployment Retention is available, set previews to
+expire after a day; otherwise re-run the command occasionally.
+
+## 2. The paintings follow the music to the CDN
+
+| | Before | After |
+|---|---|---|
+| `dist/` per deployment | ~11 MB | **3.4 MB** |
+| `artgallery/*.webp` in the deploy | 7.4 MB (33 files) | 0 |
+
+The paintings were pulled into the bundle by three `import.meta.glob`
+calls (`src/stations.js`, `src/paintingnebula.js`, `world/shadowreach.js`).
+They now come from jsDelivr, the same CDN the music has used since the pass
+above. `src/assetBase.js` holds the base URL and the percent-encoding for
+filenames like `The Two Brothers (1).webp`; `src/gallery.js` reads the
+committed `artgallery/manifest.json`, which `scripts/optimize-images.mjs`
+now writes. `src/music.js` builds its own base from the same module.
+
+What stays bundled, deliberately: the 128 px palette thumbnails (152 kB, and
+every one is read on a first visit), the corridor pictures, the Shadowreach
+portraits, the dragon billboards and everything in `public/`.
+
+Nothing changes for the player. The gallery already hung its art on approach
+and the nebulae already read thumbnails on idle; those fetches now resolve to
+a CDN edge. Verified headless against the pre-change build on a second dev
+server: 24 painting nebulae with identical palette colours, 24 exhibit panels
+hung from 24 unique files with 5 procedural placeholders, Shadowreach's
+windowpane on `dream mountain.webp`, zero page errors and zero failed
+requests on both.
+
+Not taken: skipping preview builds for `claude/*` branches. At 3.4 MB a
+deployment, a hundred previews are 340 MB, and losing the preview URL on
+every PR costs more than that is worth.

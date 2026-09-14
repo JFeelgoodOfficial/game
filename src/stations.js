@@ -24,6 +24,7 @@ import { C } from './constants.js';
 import { addShiftable } from './origin.js';
 import { planets } from './planet.js';
 import * as GL from './galleryLayout.js';
+import { GALLERY_FILES, galleryUrl } from './gallery.js';
 
 const hullMat = new THREE.MeshStandardMaterial({
   color: 0x9aa2ad,
@@ -461,19 +462,12 @@ function miningStation() {
 // atrium where four balcony levels hang the owner's art collection on lit
 // panels. Brass-gold placards mark the approach and the entrance arch.
 
-// the owner's art: drop images into /artgallery at the repo root and they
-// hang themselves on the panels (alphabetical, cycling across 32 slots);
-// empty slots get a procedural placeholder — same contract as the corridor
-// pictures in interior.js
-const galleryArtUrls = Object.entries(
-  import.meta.glob('/artgallery/*.{png,jpg,jpeg,webp}', {
-    eager: true,
-    query: '?url',
-    import: 'default',
-  })
-)
-  .sort(([a], [b]) => (a < b ? -1 : 1))
-  .map(([, url]) => url);
+// the owner's art: drop images into /artgallery at the repo root, run
+// scripts/optimize-images.mjs, and they hang themselves on the panels
+// (alphabetical, cycling across 32 slots); empty slots get a procedural
+// placeholder — same contract as the corridor pictures in interior.js, except
+// that these are served from the CDN rather than bundled (src/gallery.js).
+const galleryArtUrls = GALLERY_FILES.map(galleryUrl);
 
 // Anisotropy for the art + signage: paintings are viewed at grazing angles
 // as you walk the decks, and 16 (clamped to the hardware max by three.js)
