@@ -181,7 +181,7 @@ const _wzW = new THREE.Vector3();
 const _wzEnv = {
   feet: _wzFeet, eye: _wzEye, aim: _wzAim, right: _wzRight, up: _wzUp,
   speed01: 0, sprinting: false, airborne: false, holstered: false, dialogue: false,
-  fire: false, ads: false, reload: false, lookDX: 0, lookDY: 0, fov: 75,
+  fire: false, ads: false, reload: false, lookDX: 0, lookDY: 0, fov: 75, assist: false,
 };
 // Generic real sky (world/planetsky.js): every landable world that doesn't
 // bring its own sky module. Must exist before beginWalk's acquireSurface hides
@@ -457,7 +457,17 @@ export function enterWalk(planet) {
 
   // Dress the landing site (terra gets the full valley; ice and rock
   // worlds get boulders; gasless of course never reach here).
-  dressing = createDressing(planet, _up, surfaceMaterials);
+  // Warzone towns are streets, not meadow: keep the forest, grass and
+  // boulders out of the town disc (and its pad) when we're landing at one.
+  let dressExclude = null;
+  if (WARZONE_WORLDS.has(planet.cfg.name)) {
+    const nc = nearestCity(planet, _up);
+    if (nc && nc.angRad * planet.radius <= C.CITY_ATTACH_RANGE + nc.def.radius) {
+      const padR = Math.hypot(nc.def.pad.x, nc.def.pad.z) + 25;
+      dressExclude = { dir: nc.def.site, radius: Math.max(nc.def.radius + 12, padR) };
+    }
+  }
+  dressing = createDressing(planet, _up, surfaceMaterials, dressExclude);
 
   // Populate the site: parked ship, city + citizens, wonders, wildlife.
   // _up still holds the world-space landing dir here.
@@ -1244,7 +1254,8 @@ export function stepWalk(dt) {
       _wish.addScaledVector(walk.heading, fwd);
       _wish.addScaledVector(_right, strafe);
       // Combat pace: no sprinting while firing, reloading or in sights.
-      const sprintOn = input.sprint && (!warzone || warzone.sprintAllowed(input.fire));
+      const sprintOn = input.sprint &&
+        (!warzone || warzone.sprintAllowed(input.fire || input.fireTouch));
       const targetSpeed = walk.swimming
         ? C.WALK_SWIM_SPEED
         : wading
@@ -2441,6 +2452,18 @@ export function walkPostRender(renderer) {
   if (warzone && walk.active) warzone.renderViewmodel(renderer);
 }
 
+// A coarse pointer means thumbs on a look stick — the warzone gives those
+// players a light aim assist that mouse players don't get.
+let _touchPlayer = null;
+function touchPlayer() {
+  if (_touchPlayer === null) {
+    _touchPlayer = typeof window !== 'undefined' &&
+      ('ontouchstart' in window ||
+        (window.matchMedia && window.matchMedia('(pointer: coarse)').matches));
+  }
+  return _touchPlayer;
+}
+
 export function walkCombatActive() {
   return !!warzone && walk.active;
 }
@@ -2462,12 +2485,16 @@ function updateWarzone(dt, t) {
 
   const env = _wzEnv;
   env.speed01 = walk.speed01;
-  env.sprinting = input.sprint && walk.speed01 > 0.3 && warzone.sprintAllowed(input.fire);
+  env.sprinting = input.sprint && walk.speed01 > 0.3 &&
+    warzone.sprintAllowed(input.fire || input.fireTouch);
   env.airborne = !walk.grounded;
   env.holstered = !combatOnFoot();
   env.dialogue = isDialogueOpen();
-  env.fire = input.fire && input.locked;
-  env.ads = input.ads && input.locked;
+  // Mouse buttons count only under pointer lock; the touch buttons
+  // (touchControls.js) have no lock to wait for.
+  env.fire = (input.fire && input.locked) || input.fireTouch;
+  env.ads = (input.ads && input.locked) || input.adsTouch;
+  env.assist = touchPlayer();
   env.reload = input.reload;
   env.lookDX = wzLookDX;
   env.lookDY = wzLookDY;

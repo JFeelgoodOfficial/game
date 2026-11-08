@@ -16,6 +16,7 @@
 import { input } from './input.js';
 import { settings } from './settings.js';
 import { C } from './constants.js';
+import { walkCombatActive } from './walkLazy.js';
 
 // Same sniff cockpit3d.js uses, widened with the media query so a coarse-pointer
 // device that reports no ontouchstart still gets the sticks.
@@ -67,6 +68,21 @@ const CSS = `
 #tcTalk { right: 162px; bottom: 112px; width: 76px; height: 50px; }
 #tcView { right: 250px; bottom: 24px; width: 76px; height: 50px; }
 #tcBoard { right: 250px; bottom: 86px; width: 76px; height: 50px; }
+/* Warzone cities (world/warzone.js): a FIRE button for each thumb, AIM as a
+   toggle (a held button would cost the thumb that steers the look stick) and
+   RELOAD. Shown only while walkCombatActive(). */
+#touchUI .tc-combat { display: none; }
+#touchUI.combat .tc-combat { display: flex; }
+#touchUI .tc-fire {
+  width: 84px; height: 84px; border-radius: 50%; font-size: 12px;
+  color: #ffd9d4; background: rgba(60,8,4,0.55); border-color: rgba(255,90,70,0.75);
+}
+#touchUI .tc-fire.held { background: rgba(255,70,50,0.45); color: #fff; border-color: #ff6a50; }
+#tcFireR { right: 34px; bottom: 166px; }
+#tcFireL { left: 34px; bottom: 166px; width: 70px; height: 70px; }
+#tcAim { right: 128px; bottom: 236px; width: 70px; height: 44px; }
+#tcAim.on { background: rgba(255,210,63,0.28); border-color: #ffd23f; color: #fff4c8; }
+#tcReload { right: 34px; bottom: 262px; width: 84px; height: 40px; }
 /* The two pre-existing on-foot buttons live where the sticks now go — EQUIPMENT
    (vehicleMenu.js) lands under the look stick on narrow screens, and PICS
    (capture.js) sits right on top of VIEW. Fold them into the same cluster.
@@ -88,6 +104,10 @@ const CSS = `
   #tcTalk { right: 144px; bottom: 94px; width: 66px; height: 44px; }
   #tcView { right: 220px; bottom: 18px; width: 66px; height: 44px; }
   #tcBoard { right: 220px; bottom: 72px; width: 66px; height: 44px; }
+  #tcFireR { right: 26px; bottom: 142px; width: 74px; height: 74px; }
+  #tcFireL { left: 26px; bottom: 142px; width: 62px; height: 62px; }
+  #tcAim { right: 112px; bottom: 200px; width: 62px; height: 40px; }
+  #tcReload { right: 26px; bottom: 228px; width: 74px; height: 36px; }
 }
 @media (pointer: coarse) and (max-height: 480px) {
   body #equipBtn { right: 220px; bottom: 126px; padding: 8px 10px; }
@@ -111,6 +131,8 @@ let root = null;
 let tcSprint = false;
 let tcJump = false;
 let uiOn = false;
+let combatOn = false;
+let aimBtn = null;
 
 function axis(stick) {
   const dx = stick.x - stick.ox;
@@ -247,6 +269,18 @@ export function initTouchControls() {
   root.appendChild(view);
   root.appendChild(board);
 
+  const fireR = button('tcFireR', 'FIRE');
+  const fireL = button('tcFireL', 'FIRE');
+  const aim = button('tcAim', 'AIM');
+  const reload = button('tcReload', 'RELOAD');
+  for (const b of [fireR, fireL, aim, reload]) {
+    b.classList.add('tc-combat');
+    root.appendChild(b);
+  }
+  fireR.classList.add('tc-fire');
+  fireL.classList.add('tc-fire');
+  aimBtn = aim;
+
   document.body.appendChild(root);
 
   bindStick(move, moveEl);
@@ -271,6 +305,19 @@ export function initTouchControls() {
   bindButton(board, () => {
     input.toggleWalk = true;
   });
+  // Two FIRE buttons share one flag: down if either thumb is on one.
+  let firing = 0;
+  const fireDown = () => { firing++; input.fireTouch = true; };
+  const fireUp = () => { firing = Math.max(0, firing - 1); input.fireTouch = firing > 0; };
+  bindButton(fireR, fireDown, fireUp);
+  bindButton(fireL, fireDown, fireUp);
+  bindButton(aim, () => {
+    input.adsTouch = !input.adsTouch;
+    aim.classList.toggle('on', input.adsTouch);
+  });
+  bindButton(reload, () => {
+    input.reload = true;
+  });
 }
 
 // Release everything we are holding. Called when the sticks go away (leaving
@@ -286,6 +333,9 @@ function clearHeld() {
     tcJump = false;
     input.brake = false;
   }
+  input.fireTouch = false;
+  input.adsTouch = false;
+  if (aimBtn) aimBtn.classList.remove('on');
 }
 
 // Called every frame from game.js, before the walk physics step, so the look
@@ -301,6 +351,17 @@ export function updateTouchControls(dt, phase, paused) {
     if (!on) clearHeld();
   }
   if (!on) return;
+
+  const combat = walkCombatActive();
+  if (combat !== combatOn) {
+    combatOn = combat;
+    root.classList.toggle('combat', combat);
+    if (!combat) {
+      input.fireTouch = false;
+      input.adsTouch = false;
+      if (aimBtn) aimBtn.classList.remove('on');
+    }
+  }
 
   // --- movement stick: analog axes the walkers read instead of WASD ---
   if (move.id !== null) {
