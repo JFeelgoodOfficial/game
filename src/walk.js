@@ -34,6 +34,7 @@ import { createCitizens } from '../world/citizens.js';
 import { createWonder } from '../world/wonders.js';
 import { nearestCity, wonderLocalDir, citiesForWorld } from '../world/cityRegistry.js';
 import { createCreatures } from '../world/creatures.js';
+import { createWarzone, WARZONE_WORLDS } from '../world/warzone.js';
 import { createWavemallPrime, createCrowd as createWavemallCrowd } from '../world/wavemallprime.js';
 import { HEADS as WAVEMALL_HEADS } from '../world/wavemall-dialogue.js';
 import { createWyattmattoe } from '../world/wyattmattoe.js';
@@ -166,6 +167,22 @@ let wyattmattoe = null; // additive basecamp scene for 'wyattmattoe' (world/wyat
 let wavemall = null; // total-conversion content for 'wavemall prime' only
 let actuality = null; // total-conversion content for 'actuality' only
 let shadowreach = null; // total-conversion narrative world for 'shadowreach' only
+// First-person combat layer over the registry city on the warzone worlds
+// (world/warzone.js) — null everywhere else, including every story world.
+let warzone = null;
+let wzLookDX = 0; // mouse travel this frame, for the viewmodel sway
+let wzLookDY = 0;
+const _wzFeet = new THREE.Vector3();
+const _wzEye = new THREE.Vector3();
+const _wzAim = new THREE.Vector3();
+const _wzRight = new THREE.Vector3();
+const _wzUp = new THREE.Vector3();
+const _wzW = new THREE.Vector3();
+const _wzEnv = {
+  feet: _wzFeet, eye: _wzEye, aim: _wzAim, right: _wzRight, up: _wzUp,
+  speed01: 0, sprinting: false, airborne: false, holstered: false, dialogue: false,
+  fire: false, ads: false, reload: false, lookDX: 0, lookDY: 0, fov: 75,
+};
 // Generic real sky (world/planetsky.js): every landable world that doesn't
 // bring its own sky module. Must exist before beginWalk's acquireSurface hides
 // the flight sim's sky, which enterWalk's creation order guarantees.
@@ -787,6 +804,13 @@ function spawnWorldEntities(planet) {
       if (tourStage < cityDef.wonders.length) armTourBeacon(tourStage);
       else armReturnBeacon();
     }
+
+    // The town is under siege: first-person combat over the whole city. The
+    // civilians stay put in their homes; the quests above keep working.
+    if (WARZONE_WORLDS.has(planet.cfg.name)) {
+      warzone = createWarzone(city, cityDef, { scene: worldScene });
+      showViewToast('COMBAT ZONE — LMB FIRE · RMB AIM · R RELOAD', 6);
+    }
   }
 
   // --- wyattmattoe only: the Highline Basecamp — an ADDITIVE textured scene
@@ -880,6 +904,10 @@ export function exitWalk(camera) {
   // Tear down the landing-site entities. dispose() clears children but (except
   // ship/wonders) doesn't detach from planet.surface — remove explicitly so
   // empty groups don't accumulate across repeated landings.
+  if (warzone) {
+    warzone.dispose(); // pulls its cover colliders off city.structures first
+    warzone = null;
+  }
   if (citizens) {
     city.group.remove(citizens.group);
     citizens.dispose();
@@ -961,6 +989,10 @@ export function exitWalk(camera) {
 export function toggleWalkView() {
   if (stationWalk.stationActive()) return stationWalk.toggleStationView();
   if (cottageWalk.cottageActive()) return cottageWalk.toggleCottageView();
+  if (warzone && combatOnFoot()) {
+    showViewToast('THIRD PERSON IS OFF IN COMBAT ZONES');
+    return walk.view;
+  }
   walk.view = toggleViewPref();
   camSnap = true;
   return walk.view;
@@ -1002,8 +1034,12 @@ export function stepWalk(dt) {
   _up.subVectors(ship.position, planet.body.position).normalize();
 
   // --- mouse look ---
-  const yaw = -input.mouseX * LOOK_SENS; // mouse right → turn right
-  walk.pitch -= input.mouseY * LOOK_SENS; // mouse up → look up
+  wzLookDX += input.mouseX;
+  wzLookDY += input.mouseY;
+  // Aiming down sights slows the look, the way a magnified sight picture does.
+  const lookK = warzone ? warzone.lookScale() : 1;
+  const yaw = -input.mouseX * LOOK_SENS * lookK; // mouse right → turn right
+  walk.pitch -= input.mouseY * LOOK_SENS * lookK; // mouse up → look up
   walk.pitch = Math.min(Math.max(walk.pitch, -MAX_PITCH), MAX_PITCH);
   input.mouseX = 0;
   input.mouseY = 0;
@@ -1207,14 +1243,17 @@ export function stepWalk(dt) {
     } else {
       _wish.addScaledVector(walk.heading, fwd);
       _wish.addScaledVector(_right, strafe);
+      // Combat pace: no sprinting while firing, reloading or in sights.
+      const sprintOn = input.sprint && (!warzone || warzone.sprintAllowed(input.fire));
       const targetSpeed = walk.swimming
         ? C.WALK_SWIM_SPEED
         : wading
           ? C.WALK_WADE_SPEED
-          : input.sprint
+          : sprintOn
             ? C.WALK_RUN_SPEED
             : C.WALK_SPEED;
-      if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(targetSpeed * moveMag);
+      const combatK = warzone && !walk.swimming ? warzone.moveScale(sprintOn) : 1;
+      if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(targetSpeed * moveMag * combatK);
     }
 
     // Keep the persistent velocity in the current tangent plane (the plane
@@ -1643,7 +1682,7 @@ export function updateWalkVisuals(dt, t) {
   astronaut.update(dt, walk.mode, walk.speed01, walk.carve, walk.vehicle);
   // The body is only drawn in third person: the FP camera sits inside the
   // helmet and the rig has no first-person-safe arms.
-  astronaut.group.visible = walk.view === 'tp';
+  astronaut.group.visible = viewMode() === 'tp';
 
   // planet.sunDir, not SUN: while you walk, the planet's spin is frozen and
   // its sun swings instead, so the day still passes over rigid ground.
@@ -1678,6 +1717,10 @@ export function updateWalkVisuals(dt, t) {
       citizens.update(dt, _playerLocal, sunDot);
       scanModule(citizens, TALK_DIST_VENDOR);
       if (beacon && beaconParent === city.group) updateBeacon(t);
+    }
+    if (warzone) {
+      updateWarzone(dt, t);
+      warzone.setViewLight(planet.sunDir ?? SUN, sunDot);
     }
   }
   if (wyattmattoe) {
@@ -2127,7 +2170,7 @@ export function vehicleState() {
 export function walkSite() {
   return {
     city, parked, citizens, wonders, dressing, wavemall, actuality,
-    shadowreach, interiorCrowds,
+    shadowreach, interiorCrowds, warzone,
     creatures, diamondRain, marineSnow, planetSky, wyattmattoe,
     station: stationWalk.stationSite(),
     cottage: cottageWalk.cottageSite(),
@@ -2246,7 +2289,7 @@ export function updateWalkCamera(camera, delta = 0) {
   _right.crossVectors(walk.heading, _up).normalize();
   _look.copy(walk.heading).applyAxisAngle(_right, walk.pitch);
 
-  if (walk.view === 'fp') {
+  if (viewMode() === 'fp') {
     const eye = walk.swimming ? C.WALK_TP_SWIM_EYE : C.WALK_EYE_HEIGHT;
     camera.position.copy(ship.position).addScaledVector(_up, eye);
     if (walk.diving && planet.water) {
@@ -2259,10 +2302,12 @@ export function updateWalkCamera(camera, delta = 0) {
     _target.copy(camera.position).add(_look);
     camera.up.copy(_up);
     camera.lookAt(_target);
-    if (camera.fov !== C.FOV) {
-      camera.fov = C.FOV;
+    const fpFov = warzone ? warzone.fov(C.FOV) : C.FOV;
+    if (Math.abs(camera.fov - fpFov) > 0.01) {
+      camera.fov = fpFov;
       camera.updateProjectionMatrix();
     }
+    if (warzone) warzone.syncCamera(camera, performance.now() / 1000);
     return;
   }
 
@@ -2373,6 +2418,98 @@ export function updateWalkCamera(camera, delta = 0) {
     camera.fov = fov;
     camera.updateProjectionMatrix();
   }
+  // Riding a vehicle in a warzone: the stowed rifle still needs its pose
+  // advanced, or it would hang in the air where the FP camera left it.
+  if (warzone) warzone.syncCamera(camera, performance.now() / 1000);
+}
+
+// --- warzone glue -----------------------------------------------------------
+// On foot (not riding, boarding or in the water) the rifle is out and the view
+// is first person: the combat layer is built around the FP camera.
+function combatOnFoot() {
+  return !walk.vehicle && !walk.boarding && !walk.swimming && !walk.diving;
+}
+
+// The view actually rendered: the stored preference, overridden to first
+// person while fighting on foot in a warzone.
+function viewMode() {
+  return warzone && combatOnFoot() ? 'fp' : walk.view;
+}
+
+// Viewmodel overlay (game.js, right after composer.render()).
+export function walkPostRender(renderer) {
+  if (warzone && walk.active) warzone.renderViewmodel(renderer);
+}
+
+export function walkCombatActive() {
+  return !!warzone && walk.active;
+}
+
+function updateWarzone(dt, t) {
+  const planet = walk.planet;
+  _up.subVectors(ship.position, planet.body.position).normalize();
+  _right.crossVectors(walk.heading, _up).normalize();
+  _look.copy(walk.heading).applyAxisAngle(_right, walk.pitch);
+  // Player feet / eye / basis, re-expressed in the city's flat frame.
+  playerLocalInto(city.group, _cityInvQuat, _wzFeet);
+  _wzW.copy(ship.position).addScaledVector(_up, C.WALK_EYE_HEIGHT);
+  worldToLocalInto(_wzW, city.group, _cityInvQuat, _wzEye);
+  _wzW.add(_look);
+  worldToLocalInto(_wzW, city.group, _cityInvQuat, _wzAim).sub(_wzEye).normalize();
+  _wzW.copy(ship.position).addScaledVector(_up, C.WALK_EYE_HEIGHT).add(_right);
+  worldToLocalInto(_wzW, city.group, _cityInvQuat, _wzRight).sub(_wzEye).normalize();
+  _wzUp.crossVectors(_wzRight, _wzAim).normalize();
+
+  const env = _wzEnv;
+  env.speed01 = walk.speed01;
+  env.sprinting = input.sprint && walk.speed01 > 0.3 && warzone.sprintAllowed(input.fire);
+  env.airborne = !walk.grounded;
+  env.holstered = !combatOnFoot();
+  env.dialogue = isDialogueOpen();
+  env.fire = input.fire && input.locked;
+  env.ads = input.ads && input.locked;
+  env.reload = input.reload;
+  env.lookDX = wzLookDX;
+  env.lookDY = wzLookDY;
+  env.fov = C.FOV;
+  wzLookDX = 0;
+  wzLookDY = 0;
+  input.reload = false;
+
+  const out = warzone.update(dt, t, env);
+  if (out.pitchKick || out.yawKick) {
+    walk.pitch = Math.min(Math.max(walk.pitch + out.pitchKick, -MAX_PITCH), MAX_PITCH);
+    walk.heading.applyAxisAngle(_up, out.yawKick);
+  }
+  if (out.respawn) redeployAtPad();
+}
+
+// Killed in action: back on the landing pad's inboard edge, facing town —
+// the same step-out spot an auto-land uses.
+function redeployAtPad() {
+  const planet = walk.planet;
+  const pad = city.padLocal;
+  const toCenter = Math.hypot(pad.x, pad.z) || 1;
+  const wx = pad.x * (1 - 13 / toCenter);
+  const wz = pad.z * (1 - 13 / toCenter);
+  _cityPt.set(wx, city.groundLocalYAt(wx, wz) + 0.1, wz)
+    .applyQuaternion(city.group.quaternion)
+    .add(city.group.position)
+    .applyAxisAngle(_yAxisV, planet.surface.rotation.y)
+    .add(planet.body.position);
+  ship.position.copy(_cityPt);
+  walk.vel.set(0, 0, 0);
+  walk.vUp = 0;
+  walk.pitch = 0;
+  _up.subVectors(ship.position, planet.body.position).normalize();
+  _cityPt.copy(city.group.position)
+    .applyAxisAngle(_yAxisV, planet.surface.rotation.y)
+    .add(planet.body.position);
+  walk.heading.subVectors(_cityPt, ship.position);
+  projectTangent(walk.heading, _up);
+  if (walk.heading.lengthSq() < 1e-6) walk.heading.set(1, 0, 0);
+  walk.heading.normalize();
+  walk.facing.copy(walk.heading);
 }
 
 // Remove v's component along the (unit) up vector, leaving it in the tangent
