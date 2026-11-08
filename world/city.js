@@ -321,6 +321,56 @@ export function makeStructure(ox, oz, baseY, surfaces, walls, halfExtent) {
       }
       return best;
     },
+    // Full 3D ray against every wall box (the warzone's ballistics). Origin
+    // (px,py,pz) is city-local, (dx,dy,dz) a unit direction. Returns the
+    // distance to the nearest entry within maxT, or -1 for a clear ray, and
+    // writes the struck face's outward normal into outN (a Vector3) on a hit.
+    // A ray that STARTS inside a box ignores that box — a muzzle tucked into
+    // a doorway jamb still fires out of it.
+    rayHit(px, py, pz, dx, dy, dz, maxT, outN) {
+      const ax = px - ox, ay = py - baseY, az = pz - oz;
+      const ex = ax + dx * maxT, ez = az + dz * maxT;
+      const lim = halfExtent + 2;
+      if ((ax < -lim && ex < -lim) || (ax > lim && ex > lim) ||
+          (az < -lim && ez < -lim) || (az > lim && ez > lim)) return -1;
+      const ix = dx !== 0 ? 1 / dx : Infinity;
+      const iy = dy !== 0 ? 1 / dy : Infinity;
+      const iz = dz !== 0 ? 1 / dz : Infinity;
+      let best = -1, bAxis = 0, bSign = 0;
+      for (const w of walls) {
+        let t0 = 0, t1 = maxT, axis = -1, sign = 0;
+        let ta = (w.x0 - ax) * ix, tb = (w.x1 - ax) * ix;
+        if (ta > tb) { const s = ta; ta = tb; tb = s; }
+        if (Number.isNaN(ta)) { if (ax < w.x0 || ax > w.x1) continue; }
+        else {
+          if (ta > t0) { t0 = ta; axis = 0; sign = dx > 0 ? -1 : 1; }
+          if (tb < t1) t1 = tb;
+          if (t0 > t1) continue;
+        }
+        ta = (w.y0 - ay) * iy; tb = (w.y1 - ay) * iy;
+        if (ta > tb) { const s = ta; ta = tb; tb = s; }
+        if (Number.isNaN(ta)) { if (ay < w.y0 || ay > w.y1) continue; }
+        else {
+          if (ta > t0) { t0 = ta; axis = 1; sign = dy > 0 ? -1 : 1; }
+          if (tb < t1) t1 = tb;
+          if (t0 > t1) continue;
+        }
+        ta = (w.z0 - az) * iz; tb = (w.z1 - az) * iz;
+        if (ta > tb) { const s = ta; ta = tb; tb = s; }
+        if (Number.isNaN(ta)) { if (az < w.z0 || az > w.z1) continue; }
+        else {
+          if (ta > t0) { t0 = ta; axis = 2; sign = dz > 0 ? -1 : 1; }
+          if (tb < t1) t1 = tb;
+          if (t0 > t1) continue;
+        }
+        if (axis < 0) continue; // started inside this box
+        if (best < 0 || t0 < best) { best = t0; bAxis = axis; bSign = sign; }
+      }
+      if (best >= 0 && outN) {
+        outN.set(bAxis === 0 ? bSign : 0, bAxis === 1 ? bSign : 0, bAxis === 2 ? bSign : 0);
+      }
+      return best;
+    },
   };
 }
 

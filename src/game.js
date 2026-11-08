@@ -92,9 +92,11 @@ import {
   walkInteract,
   walkPromptText,
   walkPreRender,
+  walkPostRender,
   walkPendingReset,
   walkBearing,
   walkObjective,
+  walkCombatActive,
   walkDebug,
   enterStationWalk,
   walkLoaded,
@@ -1461,7 +1463,7 @@ function frame(now) {
   // Camera: P photo / R record, active in gameplay unless the gallery is open.
   if ((phase === 'fly' || phase === 'walk') && !isGalleryOpen()) {
     if (input.photo) requestPhoto();
-    if (input.record) toggleRecording();
+    if (input.record && !(phase === 'walk' && walkCombatActive())) toggleRecording();
   }
   // I opens the vehicle selector, on foot only (flight ignores the press).
   if (input.toggleVehicles) {
@@ -1478,6 +1480,7 @@ function frame(now) {
   input.interact = false;
   input.photo = false;
   input.record = false;
+  input.reload = false; // walk.js consumes it first when a warzone is live
   collapsePass.enabled = warp > 0.001;
   collapsePass.uniforms.uProgress.value = warp;
   // heat 0..0.5 = warning banner; 0.5..1 = the flashing cockpit countdown.
@@ -1657,6 +1660,9 @@ function frame(now) {
 
   if (phase === 'walk') walkPreRender(renderer); // world modules draw to their RTs
   composer.render();
+  // The warzone rifle draws over the finished frame (its own scene, depth
+  // cleared) — after the post chain, before the photo/recording grabs.
+  if (phase === 'walk') walkPostRender(renderer);
   // Photo grab must be in this task — the canvas has no preserveDrawingBuffer.
   capturePendingPhoto();
   // Same constraint: composite the video frame while the backbuffer is intact.

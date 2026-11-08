@@ -4,7 +4,7 @@
 // in-flight CTRL popup is gone. Driven per frame from game.js via
 // updateControls().
 
-import { currentGravityScale, currentBoardable, cottageActive } from './walkLazy.js';
+import { currentGravityScale, currentBoardable, cottageActive, walkCombatActive } from './walkLazy.js';
 import { setEquipButtonVisible } from './vehicleMenu.js';
 
 const CSS = `
@@ -59,6 +59,17 @@ const WALK_LINES = [
   'P — PHOTO · R — RECORD (PICS)',
 ];
 
+// Warzone cities (world/warzone.js): the rifle takes the mouse buttons and R,
+// and the view is locked to first person while you fight on foot.
+const COMBAT_LINES = [
+  'W A S D — MOVE · MOUSE — LOOK',
+  'SHIFT — RUN · SPACE — JUMP',
+  'LMB — FIRE · RMB — AIM · R — RELOAD',
+  'E — TALK (CEASEFIRE) · G — BOARD AT SHIP',
+  'I — EQUIPMENT · B — USE SELECTED',
+  'P — PHOTO · , . — MUSIC',
+];
+
 // The cottage has no NPCs, no equipment and no quests — listing keys that do
 // nothing is worse than listing none. Four lines, and one of them is the way out.
 const COTTAGE_LINES = [
@@ -87,7 +98,7 @@ export function initControls() {
   walkHint.appendChild(title);
   // One element per line, reused: the two key sets are different lengths, so
   // the surplus rows hide rather than churn the DOM on every world change.
-  const rows = Math.max(WALK_LINES.length, COTTAGE_LINES.length);
+  const rows = Math.max(WALK_LINES.length, COTTAGE_LINES.length, COMBAT_LINES.length);
   for (let i = 0; i < rows; i++) {
     const el = document.createElement('div');
     walkHint.appendChild(el);
@@ -145,5 +156,5 @@ export function updateControls(phase) {
       boardLine.style.display = currentBoardable() ? '' : 'none';
     }
   }
-  if (walkOn) setLines(cottage ? COTTAGE_LINES : WALK_LINES);
+  if (walkOn) setLines(cottage ? COTTAGE_LINES : walkCombatActive() ? COMBAT_LINES : WALK_LINES);
 }

@@ -79,11 +79,14 @@ export const promptReturnToShip = () => mod && mod.promptReturnToShip();
 export const walkInteract = () => mod && mod.walkInteract();
 export const walkPromptText = () => (mod ? mod.walkPromptText() : null);
 export const walkPreRender = (renderer) => mod && mod.walkPreRender(renderer);
+export const walkPostRender = (renderer) => mod && mod.walkPostRender(renderer);
 export const walkPendingReset = () => (mod ? mod.walkPendingReset() : false);
 export const shipBearing = () => (mod ? mod.shipBearing() : null);
 // Compass target: the live quest beacon when there is one, else the ship.
 export const walkBearing = () => (mod ? mod.walkBearing() : null);
 export const walkObjective = () => (mod ? mod.walkObjective() : null);
+// True while on foot in a warzone city — R reloads there instead of recording.
+export const walkCombatActive = () => (mod ? mod.walkCombatActive() : false);
 export const currentGravityScale = () => (mod ? mod.currentGravityScale() : 1);
 export const currentBoardable = () => (mod ? mod.currentBoardable() : false);
 // Station docking (Orbital Art Gallery): false until the walk chunk lands,

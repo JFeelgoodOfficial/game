@@ -37,6 +37,12 @@ export const input = {
   moveX: 0, // strafe, -1 (left) .. +1 (right)
   moveY: 0, // forward, -1 (back) .. +1 (forward)
   wheel: 0, // accumulated scroll since last consume (third-person zoom)
+  // Warzone combat (world/warzone.js) — city worlds only. Mouse buttons are
+  // read only while the pointer is locked, so a click that grabs the lock
+  // never also fires.
+  fire: false, // LMB held
+  ads: false, // RMB held — aim down sights
+  reload: false, // R edge-trigger in a warzone (R still records elsewhere)
 };
 
 // Every walker resolves its movement axes the same way, so they share this:
@@ -91,6 +97,22 @@ export function initInput(element) {
     input.mouseY += e.movementY * settings.sensitivity * (settings.invertY ? -1 : 1);
   });
 
+  document.addEventListener('mousedown', (e) => {
+    if (!input.locked) return;
+    if (e.button === 0) input.fire = true;
+    else if (e.button === 2) input.ads = true;
+  });
+  document.addEventListener('mouseup', (e) => {
+    if (e.button === 0) input.fire = false;
+    else if (e.button === 2) input.ads = false;
+  });
+  // Right-click is aim-down-sights, never the browser menu, over the game view.
+  element.addEventListener('contextmenu', (e) => e.preventDefault());
+  // Losing the lock (Esc, alt-tab) must not leave the trigger stuck down.
+  document.addEventListener('pointerlockchange', () => {
+    if (document.pointerLockElement !== element) input.fire = input.ads = false;
+  });
+
   element.addEventListener('wheel', (e) => { input.wheel += e.deltaY; }, { passive: true });
 
   document.addEventListener('keydown', (e) => {
@@ -121,7 +143,9 @@ function setKey(e, down) {
     case 'KeyB': if (down) input.toggleBoard = true; break; // snowboard on/off on foot
     case 'KeyI': if (down) input.toggleVehicles = true; break; // vehicle selector on foot
     case 'KeyP': if (down) input.photo = true; break; // take a photo
-    case 'KeyR': if (down) input.record = true; break; // toggle screen recording
+    // R: screen recording, except in a warzone where it reloads (game.js gates
+    // the recording toggle on the combat state; both flags are edge-set here).
+    case 'KeyR': if (down) { input.record = true; input.reload = true; } break;
     case 'Backspace': if (down) input.togglePause = true; e.preventDefault(); break; // pause/resume
   }
 }
