@@ -256,7 +256,12 @@ export function createWarzone(city, def, opts = {}) {
   const ownedTex = [];
   const own = (m) => { ownedMats.push(m); return m; };
 
-  const deckY = city.groundLocalYAt(0, 0); // the levelled town disc is one height
+  // The town deck is levelled to the planet's curve, NOT to a plane: in this
+  // flat city-local frame it falls away ~10 u by the edge of a 150 u town. So
+  // everything is placed on gy(x, z), and each piece sets deckY to its own
+  // footing before it builds.
+  const gy = (x, z) => city.groundLocalYAt(x, z);
+  let deckY = gy(0, 0);
 
   // =========================================================================
   // War dressing + cover colliders
@@ -311,6 +316,7 @@ export function createWarzone(city, def, opts = {}) {
 
   // Pieces. `rot` is 0 or 1 (90 degrees); dims are given unrotated (x = long).
   function sandbags(x, z, rot) {
+    deckY = gy(x, z);
     const L = 3.4, rows = 4, per = 6;
     const bagW = L / per, bagH = 0.25, bagD = 0.62;
     for (let r = 0; r < rows; r++) {
@@ -332,6 +338,7 @@ export function createWarzone(city, def, opts = {}) {
     addCollider(x, z, rot ? bagD / 2 : L / 2, rot ? L / 2 : bagD / 2, H, true);
   }
   function jersey(x, z, rot) {
+    deckY = gy(x, z);
     const L = 3.0;
     const ry = rot ? Math.PI / 2 : 0;
     const put = (w, h, d, y) => {
@@ -351,6 +358,7 @@ export function createWarzone(city, def, opts = {}) {
     addCollider(x, z, rot ? 0.39 : L / 2, rot ? L / 2 : 0.39, 1.02, true);
   }
   function crates(x, z) {
+    deckY = gy(x, z);
     const s = 1.3;
     const crate = (cx, cy, cz, sc) => {
       boxAt('wood', s * sc, s * sc, s * sc, cx, cy + (s * sc) / 2, cz);
@@ -376,6 +384,7 @@ export function createWarzone(city, def, opts = {}) {
     addCollider(x, z, hw, hd, extra < 0.5 ? s * 1.85 : s, true);
   }
   function hulk(x, z, rot) {
+    deckY = gy(x, z);
     const ry = rot ? Math.PI / 2 : 0;
     const part = (key, w, h, d, lx, y, lz) => {
       const g = new THREE.BoxGeometry(w, h, d);
@@ -402,6 +411,7 @@ export function createWarzone(city, def, opts = {}) {
     return { x, z };
   }
   function container(x, z, rot) {
+    deckY = gy(x, z);
     const ry = rot ? Math.PI / 2 : 0;
     const key = ['contRed', 'contBlue', 'contGreen'][Math.floor(rng() * 3) % 3];
     const L = 6.0, H = 2.6, D = 2.44;
@@ -492,7 +502,7 @@ export function createWarzone(city, def, opts = {}) {
     const g = new THREE.DodecahedronGeometry(s, 0);
     g.scale(1, 0.55 + rng() * 0.4, 1 + rng() * 0.5);
     g.rotateY(rng() * Math.PI);
-    g.translate(x, deckY + s * 0.3, z);
+    g.translate(x, gy(x, z) + s * 0.3, z);
     bin('rubble', g);
   }
 
@@ -503,6 +513,86 @@ export function createWarzone(city, def, opts = {}) {
     const mesh = new THREE.Mesh(merged, M[key]);
     group.add(mesh);
   }
+  // Asphalt streets over the levelled deck. Built on a 2.5 u grid whose
+  // vertices sample the curved deck, with holes for the plaza, the walkway
+  // corridor and every building footprint (their own floors stay on top).
+  // Runs before the cover joins city.structures, so only real buildings cut.
+  {
+    const CELL = 2.5;
+    const buildings = city.structures.slice();
+    const inBuilding = (x, z) => {
+      for (const b of buildings) {
+        if (Math.abs(x - b.x) < b.halfExtent && Math.abs(z - b.z) < b.halfExtent) return true;
+      }
+      return false;
+    };
+    const pos = [], uv = [], idx = [];
+    const lift = 0.04;
+    for (let gx = -radius; gx < radius; gx += CELL) {
+      for (let gz = -radius; gz < radius; gz += CELL) {
+        const cx = gx + CELL / 2, cz = gz + CELL / 2;
+        const d = Math.hypot(cx, cz);
+        if (d > radius - 2 || d < 14 + 1.5) continue;
+        if (corridorDist(cx, cz) < 4) continue;
+        if (inBuilding(cx, cz)) continue;
+        const v = pos.length / 3;
+        for (const [x, z] of [[gx, gz], [gx + CELL, gz], [gx + CELL, gz + CELL], [gx, gz + CELL]]) {
+          pos.push(x, gy(x, z) + lift, z);
+          uv.push(x / 7, z / 7);
+        }
+        idx.push(v, v + 3, v + 1, v + 1, v + 3, v + 2);
+      }
+    }
+    if (idx.length) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.setIndex(idx);
+      g.computeVertexNormals();
+      ownedGeos.push(g);
+      const tex = canvasTex(512, (c, n) => {
+        const r = mulberry32((def.seed ^ 0xa5fa17) >>> 0);
+        c.fillStyle = '#3b3b3d';
+        c.fillRect(0, 0, n, n);
+        // aggregate speckle
+        for (let i = 0; i < 14000; i++) {
+          const v = 40 + Math.floor(r() * 50);
+          c.fillStyle = `rgba(${v},${v},${v + 2},${0.35 + r() * 0.4})`;
+          c.fillRect(r() * n, r() * n, 1 + r() * 2, 1 + r() * 2);
+        }
+        // patched repairs and oil stains
+        for (let i = 0; i < 7; i++) {
+          c.fillStyle = r() < 0.5 ? 'rgba(25,25,27,0.45)' : 'rgba(70,68,64,0.3)';
+          const w = 40 + r() * 120, h = 30 + r() * 90;
+          c.fillRect(r() * n, r() * n, w, h);
+        }
+        // cracks
+        c.strokeStyle = 'rgba(15,15,16,0.8)';
+        c.lineWidth = 1.2;
+        for (let i = 0; i < 18; i++) {
+          let x = r() * n, y = r() * n;
+          c.beginPath();
+          c.moveTo(x, y);
+          for (let k = 0; k < 8; k++) {
+            x += (r() - 0.5) * 40; y += (r() - 0.5) * 40;
+            c.lineTo(x, y);
+          }
+          c.stroke();
+        }
+      });
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.anisotropy = 4;
+      ownedTex.push(tex);
+      const mat = own(new THREE.MeshStandardMaterial({
+        map: tex, roughness: 0.93, metalness: 0,
+        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+      }));
+      const m = new THREE.Mesh(g, mat);
+      m.receiveShadow = true;
+      group.add(m);
+    }
+  }
+
   for (const st of coverStructs) city.structures.push(st);
 
   // Scorch marks on the deck.
@@ -534,7 +624,7 @@ export function createWarzone(city, def, opts = {}) {
       const g = new THREE.PlaneGeometry(s, s);
       g.rotateX(-Math.PI / 2);
       g.rotateY(rng() * Math.PI);
-      g.translate(x, deckY + 0.03, z);
+      g.translate(x, gy(x, z) + 0.07, z); // above the asphalt (+0.04)
       sg.push(g);
     }
     if (sg.length) {
@@ -557,7 +647,7 @@ export function createWarzone(city, def, opts = {}) {
   ownedMats.push(glow.mat, smoke.mat);
 
   // Fires over the wrecks: a few emitters feeding embers and a smoke column.
-  const fires = wrecks.slice(0, 4).map((w, i) => ({ x: w.x, z: w.z, acc: 0, smokeAcc: i * 0.1 }));
+  const fires = wrecks.slice(0, 4).map((w, i) => ({ x: w.x, z: w.z, y: gy(w.x, w.z), acc: 0, smokeAcc: i * 0.1 }));
 
   const TRACERS = 48;
   const tracerGeo = new THREE.BoxGeometry(1, 1, 1);
@@ -868,7 +958,12 @@ export function createWarzone(city, def, opts = {}) {
       if (t >= 0 && (best < 0 || t < best)) { best = t; hitN.copy(_n); }
     }
     if (dy < -1e-4) {
-      const tg = (deckY - oy) / dy;
+      // Ground: the deck height under the hit point, refined a few times
+      // (the deck curves, so one plane intersection lands short or long).
+      let tg = (gy(ox, oz) - oy) / dy;
+      for (let k = 0; k < 3 && tg > 0; k++) {
+        tg = (gy(ox + dx * tg, oz + dz * tg) - oy) / dy;
+      }
       if (tg >= 0 && tg <= maxT && (best < 0 || tg < best)) {
         // only the levelled disc is a flat deck; beyond it the round-off
         // doesn't matter for bullets that far out
@@ -1428,18 +1523,44 @@ export function createWarzone(city, def, opts = {}) {
       f.acc += dt;
       while (f.acc > 0.09) {
         f.acc -= 0.09;
-        glow.emit(f.x + (rng() - 0.5) * 1.6, deckY + 1.1, f.z + (rng() - 0.5) * 0.8,
+        glow.emit(f.x + (rng() - 0.5) * 1.6, f.y + 1.1, f.z + (rng() - 0.5) * 0.8,
           (rng() - 0.5) * 0.6, 1.8 + rng() * 1.5, (rng() - 0.5) * 0.6,
           0.5 + rng() * 0.5, 0.45, 0.1, 2.4, 1.0, 0.25, 0.9, 0.8, -0.5);
       }
       f.smokeAcc += dt;
       while (f.smokeAcc > 0.22) {
         f.smokeAcc -= 0.22;
-        smoke.emit(f.x + (rng() - 0.5), deckY + 1.6, f.z + (rng() - 0.5),
+        smoke.emit(f.x + (rng() - 0.5), f.y + 1.6, f.z + (rng() - 0.5),
           0.6 + (rng() - 0.5) * 0.4, 2.2 + rng(), (rng() - 0.5) * 0.4,
           6 + rng() * 3, 1.2, 7, 0.09, 0.085, 0.08, 0.55, 0.15, -0.05);
       }
     }
+  }
+
+  // Touch aim assist: a gentle pull toward the nearest visible raider whose
+  // chest sits inside a small cone around the crosshair. Never snaps; the
+  // pull fades to nothing at the cone's edge, so the thumb stays in charge.
+  const ASSIST_CONE = 0.14; // radians (~8 degrees)
+  function aimAssist(dt) {
+    let best = null, bestErr = ASSIST_CONE;
+    let bYaw = 0, bPitch = 0;
+    for (const e of enemies) {
+      if (e.state === 'dead' || !e.los) continue;
+      const tx = e.x - view.ex, ty = (e.y + 1.2 * e.s) - view.ey, tz = e.z - view.ez;
+      const d = Math.hypot(tx, ty, tz);
+      if (d < 1 || d > 90) continue;
+      const fwd = (tx * view.fx + ty * view.fy + tz * view.fz) / d;
+      if (fwd <= 0) continue;
+      const yawE = Math.atan2((tx * view.rx + ty * view.ry + tz * view.rz) / d, fwd);
+      const pitchE = Math.atan2((tx * view.ux + ty * view.uy + tz * view.uz) / d, fwd);
+      const err = Math.hypot(yawE, pitchE);
+      if (err < bestErr) { bestErr = err; best = e; bYaw = yawE; bPitch = pitchE; }
+    }
+    if (!best) return;
+    const k = Math.min(1, dt * 6) * 0.55 * (1 - bestErr / ASSIST_CONE);
+    // walk.js turns the heading LEFT for a positive yaw kick.
+    out.yawKick -= bYaw * k;
+    out.pitchKick += bPitch * k;
   }
 
   // ===========================================================================
@@ -1528,6 +1649,7 @@ export function createWarzone(city, def, opts = {}) {
     }
     out.pitchKick += w.pitchKick;
     out.yawKick += w.yawKick;
+    if (env.assist && !player.dead && !ceasefire && (env.fire || env.ads)) aimAssist(dt);
 
     // --- waves ---
     if (wave.phase === 'grace' || wave.phase === 'lull') {

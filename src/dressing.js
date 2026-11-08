@@ -496,7 +496,10 @@ function createRocks(site, dress, meshes, disposables, materials) {
 // config carries no `dress` block. `materials` is the walk session's registry
 // (world/actuality-materials.js) or null — with it, trees/shrubs/rocks pick up
 // tiling normal/roughness relief and shadow flags for the isolated render mode.
-export function createDressing(planet, worldUp, materials = null) {
+// `exclude` (optional): { dir, radius } — a surface-local unit direction and a
+// ground distance. Every instance closer than that to `dir` is dropped, so a
+// town can keep its streets clear of forest and boulders.
+export function createDressing(planet, worldUp, materials = null, exclude = null) {
   const dress = planet.cfg.dress;
   if (!dress) return null;
 
@@ -510,6 +513,7 @@ export function createDressing(planet, worldUp, materials = null) {
   if (dress.shrubs) createShrubs(site, dress, meshes, disposables, materials);
   if (dress.rocks) createRocks(site, dress, meshes, disposables, materials);
 
+  if (exclude) cullInside(meshes, exclude, planet.radius);
   for (const m of meshes) planet.surface.add(m);
 
   return {
@@ -531,4 +535,30 @@ export function createDressing(planet, worldUp, materials = null) {
       disposables.length = 0;
     },
   };
+}
+
+// Zero-scale every instance within `ex.radius` (ground distance) of `ex.dir`.
+// Instances live in planet.surface's frame, so their position's direction is
+// directly comparable with the surface-local `dir`.
+const _cullM = new THREE.Matrix4();
+const _cullP = new THREE.Vector3();
+const _cullZero = new THREE.Matrix4().makeScale(0, 0, 0);
+function cullInside(meshes, ex, planetRadius) {
+  const cosMax = Math.cos(ex.radius / planetRadius);
+  for (const m of meshes) {
+    let changed = false;
+    for (let i = 0; i < m.count; i++) {
+      m.getMatrixAt(i, _cullM);
+      _cullP.setFromMatrixPosition(_cullM);
+      if (_cullP.lengthSq() < 1e-6) continue;
+      if (_cullP.normalize().dot(ex.dir) > cosMax) {
+        m.setMatrixAt(i, _cullZero);
+        changed = true;
+      }
+    }
+    if (changed) {
+      m.instanceMatrix.needsUpdate = true;
+      m.computeBoundingSphere?.();
+    }
+  }
 }

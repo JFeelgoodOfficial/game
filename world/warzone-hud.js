@@ -40,8 +40,8 @@ const CSS = `
 #wz-health .bar { height: 7px; background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.25); }
 #wz-health .fill { height: 100%; width: 100%; background: #e8f3f5; transition: width 0.12s; }
 #wz-health .fill.low { background: #ff4a3a; }
-#wz-top { position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
-  text-align: center; text-shadow: 0 1px 3px #000; }
+#wz-top { position: absolute; top: 14px; left: 18px;
+  text-align: left; text-shadow: 0 1px 3px #000; }
 #wz-top .zone { font-size: 12px; letter-spacing: 4px; opacity: 0.8; }
 #wz-top .stats { font-size: 13px; letter-spacing: 2px; margin-top: 3px; }
 #wz-top .stats .hostile { color: #ff6b5a; }
@@ -55,6 +55,15 @@ const CSS = `
 #wz-arcs i { position: absolute; left: -60px; top: -170px; width: 120px; height: 34px;
   border-top: 5px solid rgba(255,40,30,0.9); border-radius: 50% 50% 0 0 / 100% 100% 0 0;
   transform-origin: 60px 170px; opacity: 0; }
+/* Touch: the sticks own both bottom corners, and the stats line moved up-left,
+   so ammo goes top-right and armor sits under the stats. */
+@media (pointer: coarse) {
+  #wz-ammo { top: 12px; bottom: auto; right: 18px; }
+  #wz-ammo .mag { font-size: 30px; }
+  #wz-ammo .hint { position: absolute; right: 0; top: 64px; white-space: nowrap; }
+  #wz-health { left: 18px; top: 58px; bottom: auto; transform: none; width: 170px; text-align: left; }
+  #wz-top .zone, #wz-top .stats { font-size: 11px; letter-spacing: 1px; }
+}
 #wz-dead { position: absolute; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; background: rgba(60,0,0,0.55);
   opacity: 0; transition: opacity 0.4s; text-shadow: 0 2px 6px #000; }

@@ -43,6 +43,8 @@ export const input = {
   fire: false, // LMB held
   ads: false, // RMB held — aim down sights
   reload: false, // R edge-trigger in a warzone (R still records elsewhere)
+  fireTouch: false, // FIRE touch button held (touchControls.js)
+  adsTouch: false, // AIM touch toggle (touchControls.js)
 };
 
 // Every walker resolves its movement axes the same way, so they share this:
