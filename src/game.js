@@ -39,6 +39,7 @@ import {
   initCockpit3d,
   updateCockpit3d,
   cockpitRig,
+  setCockpitStanding,
   cockpitShell,
   cockpitPointerGate,
   cockpitDebug,
@@ -50,6 +51,10 @@ import {
   interiorScene,
   initInterior,
   loadInteriorPictures,
+  openGallery,
+  nearPainting,
+  interiorInfo,
+  placePlayer,
   updateInterior,
   updateInteriorCamera,
   nearSeat,
@@ -98,7 +103,6 @@ import {
   walkObjective,
   walkCombatActive,
   walkDebug,
-  enterStationWalk,
   walkLoaded,
   ensureWalkLoaded,
   enterCottageWalk,
@@ -108,7 +112,7 @@ import { initJournal, journalState } from './journal.js';
 import { initInventory, inventoryState } from './inventory.js';
 import { CITIES, citiesForWorld, padLocalDir } from '../world/cityRegistry.js';
 import { initSun, sunAltitude, sun } from './sun.js';
-import { initStations, updateStations, nearestDockableStation } from './stations.js';
+import { initStations, updateStations } from './stations.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
 import {
   startMusic,
@@ -137,6 +141,7 @@ import { initControls, updateControls, setObjective } from './controls.js';
 import { initTouchControls, updateTouchControls } from './touchControls.js';
 import { initCapture, capturePendingPhoto, updateCapture, updateRecordingFrame, requestPhoto, toggleRecording, isGalleryOpen } from './capture.js';
 import { initCredits, openCredits, closeCredits, isCreditsOpen } from './credits.js';
+import { initArtView, openArtView, closeArtView, isArtViewOpen } from './artView.js';
 import lensingFrag from './shaders/lensing.frag?raw';
 import aberrationFrag from './shaders/aberration.frag?raw';
 import collapseFrag from './shaders/collapse.frag?raw';
@@ -207,6 +212,7 @@ initControls();
 initTouchControls();
 initCapture(renderer);
 initCredits();
+initArtView();
 initJournal();
 initInventory();
 initSettingsPanel();
@@ -332,14 +338,16 @@ const lensPass = new ShaderPass({
 });
 composer.addPass(lensPass);
 
-const cockpitPass = new CockpitOverlayPass(cockpitScene, camera);
-composer.addPass(cockpitPass);
-
-// The walkable interior rides the same overlay trick, right after the
-// cockpit: disabled (zero cost) while seated, swapped in while standing.
+// The walkable interior rides the overlay trick: disabled (zero cost) while
+// seated. It draws BEFORE the cockpit so the real dashboard rig sits inside
+// the flight deck — while standing, the cockpit pass keeps the interior's
+// depth instead of clearing it, and the two occlude each other properly.
 const interiorPass = new CockpitOverlayPass(interiorScene, camera);
 interiorPass.enabled = false;
 composer.addPass(interiorPass);
+
+const cockpitPass = new CockpitOverlayPass(cockpitScene, camera);
+composer.addPass(cockpitPass);
 
 // Half-resolution internal targets: bloom is a blur, so this is visually
 // indistinguishable and ~4x cheaper — the fps budget (GDD 2.1) goes to the
@@ -474,9 +482,14 @@ if (import.meta.env.DEV) {
         if (phase === 'fly' && !input.warp) {
           standing = true;
           loadInteriorPictures();
+          openGallery();
         }
       },
       sit: () => { standing = false; },
+      info: () => interiorInfo(),
+      place: (x, z, yaw) => placePlayer(x, z, yaw),
+      nearPainting: () => nearPainting()?.title ?? null,
+      passes: () => ({ interior: interiorPass.enabled, cockpit: cockpitPass.enabled, clearDepth: cockpitPass.clearDepth }),
     },
     radio: {
       nextTrack,
@@ -589,36 +602,6 @@ if (import.meta.env.DEV) {
     },
     // The bottom-center prompt line as the player sees it ('G — BOARD').
     promptText: () => walkPromptText(),
-    // Nearest dockable station's distance (to the whole station) + its berth,
-    // for verifying the dock gate.
-    dockInfo() {
-      const dock = nearestDockableStation(ship.position);
-      return dock
-        ? { dist: dock.dist, name: dock.station.name, berth: dock.berth.clone() }
-        : null;
-    },
-    // The gallery station's world position, for verifying freeze/undock.
-    galleryPos() {
-      const dock = nearestDockableStation(ship.position);
-      return dock ? dock.station.group.position.clone() : null;
-    },
-    // Teleport to the gallery berth and dock, for headless verification.
-    dockHere() {
-      const dock = nearestDockableStation(ship.position);
-      if (!dock) return null;
-      ship.position.copy(dock.berth);
-      ship.velocity.set(0, 0, 0);
-      if (enterStationWalk(dock.station)) {
-        heat = 0;
-        phase = 'walk';
-        accumulator = 0;
-        return dock.station.name;
-      }
-      return null;
-    },
-    get station() {
-      return walkDebug()?.walkSite?.().station;
-    },
     walkExit() {
       if (phase === 'walk') {
         endWalk();
@@ -787,6 +770,8 @@ function enterHeaven() {
   _padLocalDir.set(0, 0, 0);
   cancelAutopilot();
   closeCredits();
+  closeArtView();
+  setCockpitStanding(false);
   closeRadioPopup();
   closeVehicleMenu();
   // Whatever the flight sim was saying, it stops saying it here — a contact-
@@ -1113,6 +1098,8 @@ function resetToStart() {
   standing = false;
   standBlend = 0;
   closeCredits();
+  closeArtView();
+  setCockpitStanding(false);
   closeRadioPopup();
   closeVehicleMenu();
   resetPlayer();
@@ -1202,7 +1189,7 @@ function frame(now) {
   // the look travel it injects is consumed by the same stepWalk tick a mouse
   // delta would have fed. Flight needs nothing here — the 3D dashboard already
   // owns touch — so the sticks hide outside the walk phase.
-  updateTouchControls(delta, phase, paused);
+  updateTouchControls(delta, phase, paused, standing);
 
   if (phase === 'fly') {
     // C: stand up out of the seat / sit back down at it. Standing is
@@ -1212,19 +1199,28 @@ function frame(now) {
       if (!standing && !input.warp) {
         standing = true;
         loadInteriorPictures(); // no-op after the post-launch idle load
+        openGallery(); // first stand-up fetches the collection
       }
       else if (standing && nearSeat()) {
         standing = false;
-        closeCredits(); // never leave the plaque popup up in the pilot seat
+        closeCredits(); // never leave a popup up in the pilot seat
+        closeArtView();
       }
     }
-    // E while standing: read the corridor plaque / close its popup again.
+    // E while standing: read the plaque, look closer at a canvas, or close
+    // whichever popup is up.
     // (Handled here because input.interact is consumed right after the
     // phase blocks, before the UI section below runs.)
     if (standing && input.interact) {
       if (isCreditsOpen()) closeCredits();
+      else if (isArtViewOpen()) closeArtView();
       else if (standBlend > 0.5 && nearPlaque()) openCredits();
+      else if (standBlend > 0.5) {
+        const art = nearPainting();
+        if (art) openArtView(art.file, art.title);
+      }
     }
+    setCockpitStanding(standing);
     standBlend = Math.min(
       Math.max(standBlend + ((standing ? 1 : -1) * delta) / C.STAND_TIME, 0),
       1
@@ -1284,7 +1280,7 @@ function frame(now) {
       warpT = 0;
     }
     // G: landed — step out onto the surface. Auto-landing — abort. In free
-    // flight — dock at a berth (unchanged, checked first), else start the
+    // flight — start the
     // assisted auto-land toward the flattest nearby ground. Only from the
     // pilot seat — sit back down before stepping outside.
     if (input.toggleWalk && !standing && standBlend < 0.05 && !autopilotActive()) {
@@ -1307,25 +1303,13 @@ function frame(now) {
         landedPlanet = null;
         _padLocalDir.set(0, 0, 0);
       } else {
-        const dock = nearestDockableStation(ship.position);
+        const floor = nearestTerraFloor(ship.position);
         if (
-          dock &&
-          dock.dist < C.STATION_DOCK_RANGE &&
-          ship.velocity.length() < C.WALK_LAND_SPEED &&
-          enterStationWalk(dock.station) // false until the walk chunk lands
+          floor &&
+          floor.altitude < C.AUTOLAND_ALTITUDE &&
+          ship.velocity.length() < C.AUTOLAND_SPEED
         ) {
-          heat = 0;
-          phase = 'walk';
-          accumulator = 0;
-        } else {
-          const floor = nearestTerraFloor(ship.position);
-          if (
-            floor &&
-            floor.altitude < C.AUTOLAND_ALTITUDE &&
-            ship.velocity.length() < C.AUTOLAND_SPEED
-          ) {
-            beginAutoLand(floor);
-          }
+          beginAutoLand(floor);
         }
       }
     }
@@ -1503,7 +1487,7 @@ function frame(now) {
     updateCamera(ship);
     // interior rides the ship; the walk camera blends over the seated pose
     // (shake and turbulence below still add on top — the corridor rattles too)
-    updateInterior(ship);
+    updateInterior(ship, delta, standBlend > 0.001 && phase === 'fly');
     updateInteriorCamera(ship, delta, standBlend, standBlend >= 0.2 && phase === 'fly');
   }
   // hull-stress shake: time-hashed jitter, ramping in past half heat
@@ -1520,11 +1504,12 @@ function frame(now) {
   // the dashboard sinks out of frame for the clear window. dashBlend() (1 at
   // rest, 0 at full-window) drives the DOM dash panels (capture) the way the
   // frame image's blend used to. On foot on a planet the whole ship overlay
-  // hides; standing in the ship swaps the cockpit for the interior.
+  // hides; standing in the ship draws the interior around the cockpit.
   const dash = dashBlend();
   if (phase === 'walk') {
     cockpitRig.visible = false;
     cockpitPass.enabled = false;
+    cockpitPass.clearDepth = true;
     interiorPass.enabled = false;
     closeRadioPopup(); // a flight dialog has no business over the walk HUD
     // "E — TALK" while an alien/creature is in range (dialogue hints are on
@@ -1532,31 +1517,28 @@ function frame(now) {
     setPrompt(walkPromptText());
   } else {
     interiorPass.enabled = standBlend > 0.001;
-    cockpitPass.enabled = !interiorPass.enabled;
+    cockpitPass.enabled = true;
+    cockpitPass.clearDepth = !interiorPass.enabled;
     cockpitRig.visible = true; // the camera zoom handles the full-window view
     // the C prompt: a launch reminder while seated, "SIT" back at the chair;
     // standing, "E — READ" in front of the plaque (E handled in the fly block)
     if (phase === 'fly') {
       if (standing) {
-        setPrompt(
-          standBlend > 0.5 && nearSeat()
-            ? 'C — SIT'
-            : standBlend > 0.5 && nearPlaque() && !isCreditsOpen()
-              ? 'E — READ'
-              : null
-        );
+        let prompt = null;
+        if (standBlend > 0.5 && !isCreditsOpen() && !isArtViewOpen()) {
+          if (nearSeat()) prompt = 'C — SIT';
+          else if (nearPlaque()) prompt = 'E — READ';
+          else {
+            const art = nearPainting();
+            if (art) prompt = art.prompt || (art.prompt = `${art.title.toUpperCase()} · E — VIEW`);
+          }
+        }
+        setPrompt(prompt);
       } else {
-        // seated: landing prompts first, then the dock offer when the gallery
-        // berth is in range and the approach is slow (mirrors the G gates)
-        const dock = nearestDockableStation(ship.position);
-        const canDock =
-          dock &&
-          dock.dist < C.STATION_DOCK_RANGE &&
-          ship.velocity.length() < C.WALK_LAND_SPEED;
+        // seated: landing prompts
         let prompt = null;
         if (landState === 'landed') prompt = 'G — STEP OUT · W — LIFT OFF';
         else if (landState === 'auto') prompt = 'AUTO-LANDING · G — ABORT';
-        else if (canDock) prompt = 'G — DOCK';
         else {
           const floor = nearestTerraFloor(ship.position);
           if (
@@ -1585,7 +1567,7 @@ function frame(now) {
     updateNebula(camera);
     updateDeepNebula(renderer, camera);
     updatePlanets(now / 1000, camera.position);
-    updateStations(now / 1000, ship.position, phase !== 'menu');
+    updateStations(now / 1000, ship.position);
   }
   // nav AFTER the stations are placed: a reset snaps orbiting stations back
   // to their snapshot spot for one frame, and a discovery check reading that

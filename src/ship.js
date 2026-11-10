@@ -51,6 +51,9 @@ export function stepShip(dt, piloted = true) {
     av.z += roll * C.ROLL_TORQUE;
   } else {
     av.multiplyScalar(C.INTERIOR_SPIN_CALM); // attitude hold
+    // station-keeping: the autopilot bleeds speed off so the ship does not
+    // sail into a planet while the pilot is looking at paintings
+    ship.velocity.multiplyScalar(C.INTERIOR_BRAKE);
   }
 
   // Angular damping bleeds rotation off after input stops.

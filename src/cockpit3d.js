@@ -477,8 +477,16 @@ function pressButton(b, on) {
 // and never gate touch on the pointer lock (touch never mouse-looks).
 const hasTouchEvents = typeof window !== 'undefined' && 'ontouchstart' in window;
 
+// Out of the seat the dash is scenery: a tap on it while walking the ship
+// must not fire WARP. game.js flips this with the stand/sit state.
+let standingAway = false;
+export function setCockpitStanding(v) {
+  standingAway = v;
+  if (v) wheelDrag = null;
+}
+
 function interactive(isTouch) {
-  return curPhase === 'fly' && (isTouch || !input.locked);
+  return curPhase === 'fly' && !standingAway && (isTouch || !input.locked);
 }
 
 function setPointer(cx, cy) {

@@ -36,6 +36,14 @@ Land on a specific planet: set `ship.position` to
 `ship.velocity`, call `walkHere()`. Press key `3` once to dismiss the
 first-person/third-person chooser overlay.
 
+## Freighter interior (C in flight)
+`__debug.interior`: `stand()` / `sit()`, `blend()` (1 = fully standing),
+`passes()` (both overlay passes on while standing, `clearDepth:false`),
+`info()` → `{slots, paintings, hung, fullRes, solids, bounds, plaque, art[]}`,
+`place(x, z, yaw)` (teleport + wall push-out, ship-local metres: -z nose, the
+hall runs z 5.5..35.5, lounge to 41.5), `nearPainting()` → title or null.
+Paintings fetch on the first stand; wait on `info().hung`.
+
 ## Surface-child frames
 Landing-site content is parented to `planet.surface` in its UNROTATED frame.
 To convert world → surface-local: subtract `planet.body.position`, then

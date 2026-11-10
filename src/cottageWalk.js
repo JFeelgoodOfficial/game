@@ -1,7 +1,7 @@
 // On-foot cottage mode — the third walk mode.
 //
 // The planet walker (walk.js) is radial: up is pos - planetCenter and the floor
-// is a sphere. The station walker (stationWalk.js) is flat but rides a moving,
+// is a sphere. The old station walker was flat but rode a moving,
 // spinning station group. This one is the simplest of the three: a flat world
 // that does not move at all, parented at the scene origin, with +Y up
 // everywhere and three walkable decks (grass, the cottage floorboards, the

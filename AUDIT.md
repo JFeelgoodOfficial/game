@@ -147,7 +147,9 @@ camera.
    at the repo root (outside `public/`). Dev still serves it locally.
    `VITE_MUSIC_BASE` overrides both. 33 MB off every deploy, and the Audio
    element now skips a track that fails to load instead of going quiet.
-3. **The gallery hangs its art on approach**, not at construction — inside 2200
+3. *(Superseded 2026-11: the orbital gallery is gone; the collection hangs in
+   the freighter's hall, fetched on the first stand-up — `src/galleryArt.js`.)*
+   **The gallery hangs its art on approach**, not at construction — inside 2200
    units, two loads at a time, with docking as a backstop. The gate reads the
    station position *after* the frame's orbit update; reading it before put the
    gallery on top of the ship at spawn.
@@ -185,9 +187,9 @@ camera.
 
 ## Still deferred
 
-Everything in the July list that is not struck through above, plus: the gallery
-still uploads its paintings at full 2048 px with mipmaps, which is the largest
-remaining VRAM item on a phone; a per-world split of the walk chunk (Actuality,
+Everything in the July list that is not struck through above, plus: ~~the gallery
+still uploads its paintings at full 2048 px with mipmaps~~ (fixed 2026-11: every
+painting is resident at 768 px, the native file only for the nearest four); a per-world split of the walk chunk (Actuality,
 Shadowreach, WaveMall and the cottage all load together at 561 kB); and the
 repo's own history still carries the original full-size images, which is fine —
 they are the masters, and a clone is a one-time cost the CDN and the build no

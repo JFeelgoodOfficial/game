@@ -67,16 +67,9 @@ import {
 } from './journal.js';
 import { grantItem, hasItem, ownedItems, selectedItem } from './inventory.js';
 import { buildVehicles } from '../world/vehicles.js';
-// Station-interior walk (Orbital Art Gallery). Same public surface, flat
-// station-local frame. Every export below dispatches there while a dock is
-// active, so game.js keeps driving phase 'walk' and never knows which
-// walker is underneath. Re-exported so walkLazy can reach it.
-import * as stationWalk from './stationWalk.js';
-export { enterStationWalk } from './stationWalk.js';
-
 // The cottage — the world on the far side of the sun (src/cottageWalk.js). A
-// third walker, dispatched from the same guards as the station one: flat frame,
-// no planet, no station, nothing to talk to. Re-exported so walkLazy can reach
+// second walker, dispatched from guards at the top of each export: flat frame,
+// no planet, nothing to talk to. Re-exported so walkLazy can reach
 // it, because game.js can only enter the cottage once this chunk has loaded.
 import * as cottageWalk from './cottageWalk.js';
 export { enterCottageWalk, cottageActive, exitCottageWalk } from './cottageWalk.js';
@@ -303,7 +296,6 @@ export function initWalk(scene) {
   astronaut.group.visible = false;
   astronaut.attachVehicles(buildVehicles()); // quest-vehicle meshes, hidden
   scene.add(astronaut.group);
-  stationWalk.initStationWalk(astronaut); // the station walker shares the body
   cottageWalk.initCottageWalk(astronaut, scene); // and so does the cottage one
 }
 
@@ -858,7 +850,6 @@ function spawnWorldEntities(planet) {
 // planet so thrust climbs, at rest. (Near-planet gravity still needs boost to
 // climb out — that's the flight model, unchanged.)
 export function exitWalk(camera) {
-  if (stationWalk.stationActive()) return stationWalk.exitStationDock(camera);
   // The cottage's exit is a phase transition (white flash -> resetToStart), so
   // game.js owns it. Here we only tear the world down.
   if (cottageWalk.cottageActive()) return cottageWalk.exitCottageWalk();
@@ -997,7 +988,6 @@ export function exitWalk(camera) {
 
 // T — switch first/third person on foot. Persists as the new preference.
 export function toggleWalkView() {
-  if (stationWalk.stationActive()) return stationWalk.toggleStationView();
   if (cottageWalk.cottageActive()) return cottageWalk.toggleCottageView();
   if (warzone && combatOnFoot()) {
     showViewToast('THIRD PERSON IS OFF IN COMBAT ZONES');
@@ -1009,7 +999,6 @@ export function toggleWalkView() {
 }
 
 export function stepWalk(dt) {
-  if (stationWalk.stationActive()) return stationWalk.stepStationWalk(dt);
   if (cottageWalk.cottageActive()) return cottageWalk.stepCottageWalk(dt);
   const planet = walk.planet;
 
@@ -1661,7 +1650,6 @@ export function stepWalk(dt) {
 // its procedural animation + the dressing (grass sway, night dimming).
 // `t` is wall-clock seconds.
 export function updateWalkVisuals(dt, t) {
-  if (stationWalk.stationActive()) return stationWalk.updateStationVisuals(dt, t);
   if (cottageWalk.cottageActive()) return cottageWalk.updateCottageVisuals(dt, t);
   if (!walk.active || !astronaut) return;
   const planet = walk.planet;
@@ -1841,7 +1829,6 @@ function scanModule(module, maxDist) {
 // with this frame's focused entity. The module's interact() supplies the
 // payload and starts its own talk pose; endInteract() releases it on close.
 export function walkInteract() {
-  if (stationWalk.stationActive()) return stationWalk.stationInteract();
   if (cottageWalk.cottageActive()) return cottageWalk.cottageInteract();
   if (isDialogueOpen()) {
     advanceDialogue();
@@ -1872,7 +1859,6 @@ export function walkInteract() {
 // Bottom-center prompt line for main.js ("C — STAND UP" idiom). The dialogue
 // panel owns its own hints while open.
 export function walkPromptText() {
-  if (stationWalk.stationActive()) return stationWalk.stationPromptText();
   if (cottageWalk.cottageActive()) return cottageWalk.cottagePromptText();
   if (isDialogueOpen() || !focusEntity) return null;
   // Entities may carry their own prompt (elevator buttons: 'E — PENTHOUSE').
@@ -2121,7 +2107,6 @@ function removeBeacon() {
 // True when the walker is close enough to the parked ship to board (G).
 // Fails open when there's no parked ship, so the player is never trapped.
 export function nearParkedShip() {
-  if (stationWalk.stationActive()) return stationWalk.nearAirlock();
   if (cottageWalk.cottageActive()) return cottageWalk.nearPad();
   // Shadowreach gates boarding to the story's endpoints: you may leave at the
   // very start (in the field, before the flower) or once the dream completes in
@@ -2139,7 +2124,6 @@ export function nearParkedShip() {
 }
 
 export function promptReturnToShip() {
-  if (stationWalk.stationActive()) return stationWalk.promptReturnToAirlock();
   if (cottageWalk.cottageActive()) return cottageWalk.promptReturnToPad();
   if (shadowreach && !shadowreach.canBoard()) {
     showViewToast('THE DREAM IS NOT FINISHED');
@@ -2150,11 +2134,10 @@ export function promptReturnToShip() {
 
 // ---------------------------------------------------------------------------
 // Quest vehicles (src/inventory.js): deployed from the selector menu. The
-// story total-conversions and the station keep their narrative spaces
+// story total-conversions keep their narrative spaces
 // vehicle-free; water stows everything.
 // ---------------------------------------------------------------------------
 export function deployVehicle(id) {
-  if (stationWalk.stationActive()) return false;
   if (cottageWalk.cottageActive()) return false; // you walk this one
   if (!walk.active || !walk.planet || !hasItem(id)) return false;
   if (wavemall || actuality || shadowreach) return false;
@@ -2183,7 +2166,6 @@ export function walkSite() {
     city, parked, citizens, wonders, dressing, wavemall, actuality,
     shadowreach, interiorCrowds, warzone,
     creatures, diamondRain, marineSnow, planetSky, wyattmattoe,
-    station: stationWalk.stationSite(),
     cottage: cottageWalk.cottageSite(),
     // Governor-tour beacon internals, for headless verification. The up vector
     // is here because the tilt bug it fixes is invisible to a position-only
@@ -2220,14 +2202,13 @@ export function walkPendingReset() {
 
 // Gravity scale of the world underfoot (1 = normal). For the walk-hint UI.
 export function currentGravityScale() {
-  if (stationWalk.stationActive()) return C.STATION_GRAVITY_SCALE;
   if (cottageWalk.cottageActive()) return 1;
   return walk.active ? (walk.planet?.cfg?.walkGravityScale ?? 1) : 1;
 }
 
 // Whether the world underfoot carries the snowboard. For the walk-hint UI.
 export function currentBoardable() {
-  return walk.active && !stationWalk.stationActive() && !cottageWalk.cottageActive()
+  return walk.active && !cottageWalk.cottageActive()
     && !!walk.planet?.cfg?.boardable;
 }
 
@@ -2256,7 +2237,6 @@ function bearingToWorld(worldPt, label) {
 }
 
 export function shipBearing() {
-  if (stationWalk.stationActive()) return stationWalk.airlockBearing();
   if (cottageWalk.cottageActive()) return cottageWalk.padBearing();
   if (!walk.active || !parked || !walk.planet) return null;
   _parkPos
@@ -2272,8 +2252,7 @@ export function shipBearing() {
 // walking a circle around the town.
 export function walkBearing() {
   if (cottageWalk.cottageActive()) return cottageWalk.padBearing();
-  if (beacon && beaconParent && walk.active && walk.planet
-      && !stationWalk.stationActive()) {
+  if (beacon && beaconParent && walk.active && walk.planet) {
     // Local -> surface -> world, the same chain the pad walkway uses. Built by
     // hand rather than read off matrixWorld, which is a frame stale here.
     _parkPos
@@ -2293,7 +2272,6 @@ export function walkBearing() {
 // ship.position — absolute positions would smear across a floating-origin
 // rebase, which does fire on foot).
 export function updateWalkCamera(camera, delta = 0) {
-  if (stationWalk.stationActive()) return stationWalk.updateStationCamera(camera, delta);
   if (cottageWalk.cottageActive()) return cottageWalk.updateCottageCamera(camera, delta);
   const planet = walk.planet;
   _up.subVectors(ship.position, planet.body.position).normalize();

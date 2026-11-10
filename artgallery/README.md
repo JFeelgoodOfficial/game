@@ -1,12 +1,12 @@
-# Orbital Art Gallery collection
+# The freighter's gallery collection
 
 Drop image files here (`.png`, `.jpg`, `.jpeg`, or `.webp`, lowercase
-extensions) and they hang themselves on the exhibit panels inside the
-Orbital Art Gallery's Grand Hall tower — alphabetical order by filename,
-cycling across all 32 panel slots when there are fewer than 32 images.
-Empty slots show a procedural placeholder.
-
-Landscape images around 10:7 fit the panels best.
+extensions) and they hang themselves in the gallery hall aboard the player's
+freighter (`src/interior.js` — press C in flight to stand up and walk aft).
+They hang in alphabetical order by filename, door end first, each at its true
+aspect ratio. The hall has 34 wall spots; a spot the collection does not fill
+carries the collection card instead. The filename is the title on the plaque
+under the frame ("by JFeelgood" and camera-roll names are tidied away).
 
 ## After adding a file, run the script
 
