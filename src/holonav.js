@@ -150,7 +150,10 @@ export function initHolonav(shell) {
   // course arrow: a glowing cyan curve from the sun to the target with a cone
   // head, rebuilt each frame in updateHolonav — the travel path in the ref.
   arrowCurve = new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+    // 27 points, allocated once; updateArrow rewrites them in place
+    new THREE.BufferGeometry().setAttribute(
+      'position', new THREE.BufferAttribute(new Float32Array(27 * 3), 3)
+    ),
     new THREE.LineBasicMaterial({ color: CYAN, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending })
   );
   arrowCurve.visible = false;
@@ -456,26 +459,29 @@ function updateArrow(targetPos) {
   // control point: midway, lifted above the plane and nudged sideways so the
   // path bows like the reference rather than running dead straight
   _ac.set((_a0.x + _a1.x) / 2 - _a1.z * 0.18, 0.01 + len * 0.32, (_a0.z + _a1.z) / 2 + _a1.x * 0.18);
-  const N = 26;
-  const pts = [];
+  // Written straight into the line's position buffer (27 points, sized once
+  // in initHolonav) — this runs every frame while a destination is set.
+  const N = ARROW_SEGS;
+  const pos = arrowCurve.geometry.attributes.position;
   for (let i = 0; i <= N; i++) {
     const t = i / N;
     const u = 1 - t;
-    pts.push(
-      new THREE.Vector3(
-        u * u * _a0.x + 2 * u * t * _ac.x + t * t * _a1.x,
-        u * u * _a0.y + 2 * u * t * _ac.y + t * t * _a1.y,
-        u * u * _a0.z + 2 * u * t * _ac.z + t * t * _a1.z
-      )
+    pos.setXYZ(
+      i,
+      u * u * _a0.x + 2 * u * t * _ac.x + t * t * _a1.x,
+      u * u * _a0.y + 2 * u * t * _ac.y + t * t * _a1.y,
+      u * u * _a0.z + 2 * u * t * _ac.z + t * t * _a1.z
     );
   }
-  arrowCurve.geometry.setFromPoints(pts);
-  const end = pts[N];
-  const prev = pts[N - 1];
-  arrowHead.position.copy(end);
-  _at.subVectors(end, prev).normalize();
-  arrowHead.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), _at);
+  pos.needsUpdate = true;
+  arrowCurve.geometry.computeBoundingSphere();
+  arrowHead.position.fromBufferAttribute(pos, N);
+  _at.fromBufferAttribute(pos, N - 1);
+  _at.subVectors(arrowHead.position, _at).normalize();
+  arrowHead.quaternion.setFromUnitVectors(_yUpArrow, _at);
 }
+const ARROW_SEGS = 26;
+const _yUpArrow = new THREE.Vector3(0, 1, 0);
 
 // dev/verification handle
 export function holonavDebug() {

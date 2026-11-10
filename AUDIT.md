@@ -259,3 +259,27 @@ requests on both.
 Not taken: skipping preview builds for `claude/*` branches. At 3.4 MB a
 deployment, a hundred previews are 340 MB, and losing the preview URL on
 every PR costs more than that is worth.
+
+## November refit — performance and realism notes
+
+- **Terrain noise off the hot path.** `nearestTerraFloor` (every physics tick,
+  and every frame for the landing prompt) sampled the terrain of all seven
+  rocky worlds; it now picks the nearest by radial distance and samples one.
+  `applyAltitudeFloor` skips any body more than 3000 u below the ship before
+  its terrain query. Together that is roughly fifteen fewer noise-stack
+  evaluations per tick in open flight.
+- **Per-frame allocations removed:** the array literal per planet in
+  `updatePlanets`, 27 vectors and a geometry rebuild per frame in the nav
+  route arrow, a closure and a layout read per frame during a wheel drag, and
+  the lerp closure in the generic sky's blend.
+- **Deep nebulae are frustum-culled** with a bound padded by their largest
+  sprite; they were the most expensive thing in the sky and were drawn even
+  when behind the camera.
+- **Four fewer point lights in flight** (the orbital gallery is gone), and the
+  gallery's full-resolution texture upload is replaced by the 768 px / nearest
+  four policy in `src/galleryArt.js`.
+- **Each planet is lit from its bearing to the sun** rather than one shared
+  direction (`sunBase`; story worlds opt out with `sunFixed`).
+- **Flight has sound** (`src/sfx.js`): engine, warp and atmosphere, synthesised.
+- Not done, and still worth measuring before doing: planet geometry LOD, a
+  shader pre-warm at touchdown, merging station meshes.

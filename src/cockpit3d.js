@@ -677,6 +677,12 @@ export function initCockpit3d(domElement) {
   });
 }
 
+// Wheel-hold deflection -1..1 with a dead zone at the centre.
+function holdAxis(v) {
+  const u = Math.max(-1, Math.min(1, v));
+  return Math.abs(u) < C.WHEEL_HOLD_DEADZONE ? 0 : u;
+}
+
 export function updateCockpit3d(ship, delta, phase) {
   curPhase = phase;
   const dt = Math.min(delta, 0.05);
@@ -694,16 +700,13 @@ export function updateCockpit3d(ship, delta, phase) {
     if (curPhase !== 'fly') {
       wheelDrag = null; // a drag can't survive a landing
     } else {
-      const r = dom.getBoundingClientRect();
-      const span = Math.min(r.width, r.height) * C.WHEEL_HOLD_SPAN;
-      const axis = (px) => {
-        const u = Math.max(-1, Math.min(1, px / span));
-        return Math.abs(u) < C.WHEEL_HOLD_DEADZONE ? 0 : u;
-      };
+      // the canvas fills the window, so its size is the window's — no layout
+      // read (getBoundingClientRect) and no closure per frame
+      const span = Math.min(window.innerWidth, window.innerHeight) * C.WHEEL_HOLD_SPAN;
       const rate = C.WHEEL_HOLD_RATE * dt * settings.sensitivity;
-      input.mouseX += axis(wheelDrag.x - wheelDrag.ox) * rate;
+      input.mouseX += holdAxis((wheelDrag.x - wheelDrag.ox) / span) * rate;
       input.mouseY +=
-        axis(wheelDrag.y - wheelDrag.oy) * rate * (settings.invertY ? -1 : 1);
+        holdAxis((wheelDrag.y - wheelDrag.oy) / span) * rate * (settings.invertY ? -1 : 1);
     }
   }
 

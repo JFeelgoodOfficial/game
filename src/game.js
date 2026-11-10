@@ -141,6 +141,7 @@ import { initControls, updateControls, setObjective } from './controls.js';
 import { initTouchControls, updateTouchControls } from './touchControls.js';
 import { initCapture, capturePendingPhoto, updateCapture, updateRecordingFrame, requestPhoto, toggleRecording, isGalleryOpen } from './capture.js';
 import { MOTION_SCALE } from './motion.js';
+import { initSfx, updateSfx, sfxState } from './sfx.js';
 import { initCredits, openCredits, closeCredits, isCreditsOpen } from './credits.js';
 import { initArtView, openArtView, closeArtView, isArtViewOpen } from './artView.js';
 import lensingFrag from './shaders/lensing.frag?raw';
@@ -214,6 +215,7 @@ initTouchControls();
 initCapture(renderer);
 initCredits();
 initArtView();
+initSfx();
 initJournal();
 initInventory();
 initSettingsPanel();
@@ -439,6 +441,7 @@ if (import.meta.env.DEV) {
     input,
     camera,
     planets,
+    sun,
     blackhole,
     deepNebulae,
     paintingNebulae,
@@ -474,6 +477,7 @@ if (import.meta.env.DEV) {
       ship.angularVelocity.set(0, 0, 0);
       heat = 0.9; // skip the six-second fuse; the last tenth is the real test
     },
+    sfx: { state: () => sfxState() },
     // ship-interior walk (C); the on-foot planet walk (G) is `walk` below
     interior: {
       playerState,
@@ -735,6 +739,7 @@ let ascendBroken = false;
 // capture, nav, and the accumulator must all keep running.
 let standing = false;
 let debugClock = 0; // extra seconds fed to __debug.walkFrames
+const _sfx = { active: false, thrust: 0, boost: false, warp: false, atmo: 0, speed: 0, heat: 0, standing: false };
 let standBlend = 0; // seat <-> stand camera blend, 0..1
 
 // NMS-style landing sub-mode within 'fly' (not a phase — heat UI, nav,
@@ -1617,6 +1622,17 @@ function frame(now) {
   // there rather than fighting it. Gated on the SURFACE stage, not the universe
   // freeze: between touchdown and stepping out there is no world sky yet, and
   // this haze is the only thing drawing one through the canopy.
+  // flight sound: engine with thrust, the warp drive, air and hull heat
+  _sfx.active = phase === 'fly' && !paused;
+  _sfx.thrust = input.forward ? 1 : input.reverse ? 0.5 : 0;
+  _sfx.boost = input.forward;
+  _sfx.warp = input.warp && !standing && landState === null;
+  _sfx.atmo = _atmo.atmo;
+  _sfx.speed = Math.min(ship.velocity.length() / C.SOFT_CAP_SPEED, 1);
+  _sfx.heat = heat;
+  _sfx.standing = standing;
+  if (standing || landState !== null) _sfx.thrust = 0;
+  updateSfx(delta, _sfx);
   skyfogPass.enabled = _atmo.atmo > 0.001 && !isolated.surface;
   if (skyfogPass.enabled) {
     _up.set(_atmo.upX, _atmo.upY, _atmo.upZ).normalize();

@@ -304,22 +304,29 @@ export function initWalk(scene) {
 // its local terrain floor. Null if there are no terra planets. Mirrors the
 // altitude math in gravity.js:altitudeAboveFloor.
 export function nearestTerraFloor(pos) {
+  // The worlds are thousands of units apart, so the nearest by plain radial
+  // altitude IS the nearest by terrain altitude. Pick it with arithmetic, then
+  // sample the terrain noise once — this runs every physics tick and again
+  // every frame for the landing prompt, and used to sample all seven.
   let best = null;
-  let bestAlt = Infinity;
+  let bestRaw = Infinity;
   for (const p of planets) {
     if (p.cfg.type !== 'terra') continue;
-    _up.subVectors(pos, p.body.position);
-    const r = _up.length();
-    _up.normalize();
-    const ground = p.body.groundAt ? p.body.groundAt(_up) : 0;
-    const altitude = r - p.radius - ground;
-    if (altitude < bestAlt) {
-      bestAlt = altitude;
+    const raw = pos.distanceTo(p.body.position) - p.radius;
+    if (raw < bestRaw) {
+      bestRaw = raw;
       best = p;
     }
   }
-  return best ? { planet: best, altitude: bestAlt } : null;
+  if (!best) return null;
+  _up.subVectors(pos, best.body.position).normalize();
+  const ground = best.body.groundAt ? best.body.groundAt(_up) : 0;
+  // one result object, reused: callers read it at once and keep only .planet
+  _floorOut.planet = best;
+  _floorOut.altitude = bestRaw - ground;
+  return _floorOut;
 }
+const _floorOut = { planet: null, altitude: 0 };
 
 // Radial distance of the walkable floor: the terrain (signed — real seafloor
 // relief on divable worlds), or the ice sheet where the sea is frozen

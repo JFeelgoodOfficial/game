@@ -49,12 +49,18 @@ export function accelAt(point, out) {
 // A body may carry groundAt(dirNormalized) -> height above its base radius
 // (terra's terrain, see planet.js); the floor and the drag band then follow
 // the local ground instead of the base sphere.
+const FAR_SKIP = 3000; // units above a body's base radius
 export function applyAltitudeFloor(pos, vel, dt) {
   for (let i = 0; i < bodies.length; i++) {
     const b = bodies[i];
     if (!b.radius) continue;
     _up.subVectors(pos, b.position);
     const r = _up.length();
+    // Far from this body nothing below can fire: the drag band tops out at
+    // ATMOS_TOP, the tallest terrain is a few hundred units, and one warp tick
+    // covers under 200. Skipping here saves a terrain-noise evaluation per
+    // planet per physics tick for the seven worlds you are not near.
+    if (r - b.radius > FAR_SKIP) continue;
     _up.normalize(); // radial "up", surface → ship
     const ground = b.groundAt ? b.groundAt(_up) : 0;
     const altitude = r - b.radius - ground;

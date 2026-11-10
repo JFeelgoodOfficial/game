@@ -36,6 +36,13 @@ Land on a specific planet: set `ship.position` to
 `ship.velocity`, call `walkHere()`. Press key `3` once to dismiss the
 first-person/third-person chooser overlay.
 
+## Flight audio and lighting
+`__debug.sfx.state()` → `{built, running, active, warpLevel}`; the context only
+exists after a real key or pointer press (`page.mouse.click` / `keyboard.down`).
+`__debug.sun.group.position` and each planet's `sunBase` / `sunDir` let you
+check a planet is lit from its bearing to the sun (zero angle unless
+`cfg.sunFixed`).
+
 ## Freighter interior (C in flight)
 `__debug.interior`: `stand()` / `sit()`, `blend()` (1 = fully standing),
 `passes()` (both overlay passes on while standing, `clearDepth:false`),

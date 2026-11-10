@@ -23,8 +23,13 @@ import gasgiantFrag from './shaders/gasgiant.frag?raw';
 import ringsFrag from './shaders/rings.frag?raw';
 import waterFrag from './shaders/water.frag?raw';
 
-// The sun direction planets are lit from (the real sun sits along it at
-// C.SUN_DISTANCE — far enough that one direction serves every planet).
+// Where the sun is: it sits along this direction from the system origin at
+// C.SUN_DISTANCE. Each planet is lit from its OWN bearing to that point
+// (p.sunBase, set in initPlanets) — the worlds are spread 3-90k units from the
+// origin against a sun 150k out, so one shared direction put the terminator
+// up to ~30 degrees away from where the visible sun said it should be. Worlds
+// whose landing sites were authored against this exact vector opt out with
+// `sunFixed` in their config.
 export const SUN = new THREE.Vector3(1.0, 0.35, 0.5).normalize();
 
 export const planets = [];
@@ -88,6 +93,7 @@ const CONFIGS = [
   {
     name: 'wavemall prime', // retail-bureaucratic anomaly world (world/wavemallprime.js)
     type: 'terra',
+    sunFixed: true, // story sites are placed against the shared SUN bearing
     dir: new THREE.Vector3(0.55, 0.2, -0.1).normalize(),
     distance: () => 20000,
     radius: () => 950,
@@ -114,6 +120,7 @@ const CONFIGS = [
   {
     name: 'actuality', // bespoke narrative total-conversion world (world/actuality.js)
     type: 'terra',
+    sunFixed: true, // story sites are placed against the shared SUN bearing
     dir: new THREE.Vector3(-0.35, 0.18, -0.62).normalize(),
     distance: () => 26000,
     radius: () => 900,
@@ -135,6 +142,7 @@ const CONFIGS = [
   {
     name: 'shadowreach', // bespoke linear narrative world (world/shadowreach.js)
     type: 'terra',
+    sunFixed: true, // story sites are placed against the shared SUN bearing
     // Sun-facing landing bearing so the early story zones read in daylight
     // (SUN ~ (0.85,0.30,0.43)); the module adds local lights for late zones.
     dir: new THREE.Vector3(0.7, 0.3, 0.2).normalize(),
@@ -303,6 +311,10 @@ export function initPlanets(scene) {
     const radius = cfg.radius();
     const group = new THREE.Group();
     group.position.copy(cfg.dir).multiplyScalar(cfg.distance());
+    // This planet's bearing to the sun body (both are static, so once is enough).
+    const sunBase = cfg.sunFixed
+      ? SUN.clone()
+      : SUN.clone().multiplyScalar(C.SUN_DISTANCE).sub(group.position).normalize();
 
     const spinning = [];
     let surface;
@@ -415,7 +427,7 @@ export function initPlanets(scene) {
         group.add(rings);
         rings.updateMatrix();
         const inv = new THREE.Matrix3().setFromMatrix4(rings.matrix).invert();
-        ringMat.uniforms.uSunObj.value.copy(SUN).applyMatrix3(inv);
+        ringMat.uniforms.uSunObj.value.copy(sunBase).applyMatrix3(inv);
       }
     }
 
@@ -448,13 +460,15 @@ export function initPlanets(scene) {
     // `atmosphere` is kept on the record so an isolated world (src/isolate.js)
     // can hide the limb shell: it's an additive haze meant to be seen from
     // orbit, and standing inside it just washes the whole surface out.
-    // sunDir is the sun direction THIS planet is lit by. It equals SUN except
+    // sunDir is the sun direction THIS planet is lit by. It equals sunBase except
     // while the planet's spin is frozen underfoot, where it swings instead —
     // see updatePlanets.
     const p = {
       cfg, group, surface, clouds, waterMesh, atmosphere, spinning, radius,
-      body: null, sunDir: SUN.clone(), spinVirtualY: 0,
+      body: null, sunBase, sunDir: sunBase.clone(), spinVirtualY: 0,
     };
+    // the lit meshes, gathered once so updatePlanets has no list to build
+    p.lit = [surface, clouds, waterMesh, atmosphere].filter((m) => m?.material?.uniforms?.uSun);
 
     // gravity + altitude floor. Rocky floors follow the terrain: sample the
     // shared noise field in unrotated object space (undo the spin) with this
@@ -614,13 +628,10 @@ export function updatePlanets(t, camPos, only = null) {
         if (Math.abs(p.sunDrift) < 1e-4) p.sunDrift = 0;
       }
     }
-    if (p.sunDrift) p.sunDir.copy(SUN).applyAxisAngle(_yAxisP, -p.sunDrift);
-    else p.sunDir.copy(SUN);
+    if (p.sunDrift) p.sunDir.copy(p.sunBase).applyAxisAngle(_yAxisP, -p.sunDrift);
+    else p.sunDir.copy(p.sunBase);
     // Push the (possibly swung) sun into every lit material on this planet.
-    for (const m of [p.surface, p.clouds, p.waterMesh, p.atmosphere]) {
-      const u = m?.material?.uniforms;
-      if (u?.uSun) u.uSun.value.copy(p.sunDir);
-    }
+    for (let i = 0; i < p.lit.length; i++) p.lit[i].material.uniforms.uSun.value.copy(p.sunDir);
     if (p.cfg.type === 'terra') {
       // terra's thresholds stay live-tunable from the panel
       p.surface.material.uniforms.uSeaLevel.value = p.cfg.seaLevel();

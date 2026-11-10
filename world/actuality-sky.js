@@ -454,10 +454,14 @@ export function createActualitySky(anchor, scene, opts = {}) {
   // ~12% intervals is invisible.
   const _blend = { fog: {}, cloud: {} };
   let lastBakeK = -1;
+  // applyBlend runs every frame on the generic planets; its lerp is a closure
+  // made once here, reading the blend factor from blendK.
+  let blendK = 0;
+  const L = (x, y) => x + (y - x) * blendK;
   function applyBlend(nameA, nameB, k, renderer) {
     const a = PRESETS[nameA], b = PRESETS[nameB];
     if (!a || !b || a.interior || a.none || b.interior || b.none) return;
-    const L = (x, y) => x + (y - x) * k;
+    blendK = k;
     current = _blend;
     currentName = `${nameA}->${nameB}`;
 
