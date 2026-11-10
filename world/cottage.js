@@ -1331,12 +1331,14 @@ export function createCottage(scene, opts = {}) {
     colliders,
     // Where the player is standing when the white fades out: on the pad, beside
     // the ship, looking down the path at the cottage.
-    spawn: new THREE.Vector3(3.2, PAD_Y, PAD_Z + 2.4),
+    spawn: new THREE.Vector3(4.6, PAD_Y, PAD_Z + 1.0),
     pad: new THREE.Vector3(0, PAD_Y, PAD_Z),
     padRadius: PAD_R,
     // Where the ship sits, and which way its nose points (down the path, so it
     // is already facing out when you climb in).
-    shipSpot: new THREE.Vector3(-1.6, PAD_Y, PAD_Z + 0.6),
+    // The freighter is longer than the pad: its stern gear sits on the deck and
+    // the nose hangs out over the meadow beyond.
+    shipSpot: new THREE.Vector3(-3.4, PAD_Y, PAD_Z + 6.5),
     floorYAt,
     insideHouse,
     garden,

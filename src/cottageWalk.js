@@ -129,6 +129,7 @@ export function enterCottageWalk(opts = {}) {
   // away from the cottage, so boarding and leaving is one motion.
   parked = createParkedShip(cottage.group, {});
   parked.group.position.copy(cottage.shipSpot);
+  parked.group.position.y += C.PARK_LIFT; // gear pads on the deck
 
   const pref = getViewPref();
   if (pref) {

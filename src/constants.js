@@ -153,7 +153,7 @@ export const C = {
   DEPART_FADE: 1.2, // seconds of white fading off Terra
   COTTAGE_WALK_SPEED: 3.2, // u/s on foot. The world is human-scale, not planet-
   COTTAGE_RUN_SPEED: 6.4, // scale — WALK_SPEED (8) crosses the garden in 6 s.
-  COTTAGE_BOARD_RADIUS: 11.0, // board the ship (G) within this of the pad centre
+  COTTAGE_BOARD_RADIUS: 13.0, // board the ship (G) within this of the pad centre
   COTTAGE_CEILING: 2.7, // interior ceiling height — caps the indoor jump
 
   // --- ship interior walk (C) — owner override of GDD 1.2 ---
@@ -338,9 +338,9 @@ export const C = {
   DRESS_ROCKS: 80, // per rock variant (x3)
 
   // --- on-foot world entities (parked ship, city, wonders, creatures) ---
-  WALK_BOARD_RADIUS: 18.0, // must be this close to the parked ship to take off (G)
-  PARK_OFFSET: 14.0, // parked ship sits this far behind the disembark point
-  PARK_LIFT: 2.8, // ship-origin height above ground so the gear pads touch
+  WALK_BOARD_RADIUS: 26.0, // must be this close to the parked ship to take off (G)
+  PARK_OFFSET: 20.0, // parked ship sits this far behind the disembark point
+  PARK_LIFT: 3.9, // ship-origin height above ground so the gear pads touch
   CITY_RADIUS: 150.0, // default city footprint radius (createCity opts.radius)
   // Permanent cities (world/cityRegistry.js): a landing within this surface
   // distance of a registry site adopts that city; farther out is a

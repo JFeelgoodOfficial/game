@@ -552,11 +552,13 @@ function spawnWorldEntities(planet) {
     _localUp.copy(_cityPt).normalize();
     parked.group.position.copy(_localUp).multiplyScalar(_cityPt.length() + C.PARK_LIFT);
     parked.group.quaternion.setFromUnitVectors(_yAxisV, _localUp);
-    // Nose at the doors, so it reads as having set down facing the mall.
+    // Broadside to the doors, boarding ramp toward the mall: the freighter is
+    // as long as the pad is wide, and nose-on it would overhang the causeway
+    // where you step out.
     wavemall.localToSurface(0, 0, 0, _siteT1);
     _siteT1.sub(parked.group.position)
       .applyQuaternion(_qTmp.copy(parked.group.quaternion).invert());
-    parked.group.rotateY(Math.atan2(_siteT1.x, _siteT1.z));
+    parked.group.rotateY(Math.atan2(_siteT1.x, _siteT1.z) - Math.PI / 2);
 
     // Step out on the pad's inboard edge, at the foot of the causeway, facing
     // up the walk at the entrance.
@@ -647,10 +649,11 @@ function spawnWorldEntities(planet) {
       parkR > 0 ? parkR + C.PARK_LIFT : _target.length() + pad.y + C.PARK_LIFT
     );
     parked.group.quaternion.setFromUnitVectors(_yAxisV, _patchUp);
-    // Nose pointing back at the terrace, so it reads as having set down here.
+    // Broadside to the terrace with the boarding ramp toward it: nose-on, the
+    // freighter's bow would hang over the café tables.
     _siteT1.copy(actuality.anchor.position).sub(parked.group.position)
       .applyQuaternion(_qTmp.copy(parked.group.quaternion).invert());
-    parked.group.rotateY(Math.atan2(_siteT1.x, _siteT1.z));
+    parked.group.rotateY(Math.atan2(_siteT1.x, _siteT1.z) - Math.PI / 2);
 
     return; // city/crowd/wonders/creatures stay null (guards short-circuit)
   }
@@ -727,8 +730,9 @@ function spawnWorldEntities(planet) {
       );
       if (padD < 14) {
         const toCenter = Math.hypot(cityDef.pad.x, cityDef.pad.z) || 1;
-        const wx = cityDef.pad.x * (1 - 13 / toCenter);
-        const wz = cityDef.pad.z * (1 - 13 / toCenter);
+        // 17 clears the freighter's nose (half-length 12, parked facing town)
+        const wx = cityDef.pad.x * (1 - 17 / toCenter);
+        const wz = cityDef.pad.z * (1 - 17 / toCenter);
         _cityPt.set(wx, city.groundLocalYAt(wx, wz) + 0.1, wz)
           .applyQuaternion(city.group.quaternion)
           .add(city.group.position)
