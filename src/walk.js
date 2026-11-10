@@ -29,6 +29,7 @@ import { createMarineSnow } from './marinesnow.js';
 // rebases carry them — the world never moves without them. Aliased import:
 // world/ship.js is the parked-ship MESH, unrelated to ./ship.js (flight model).
 import { createShip as createParkedShip } from '../world/ship.js';
+import { MOTION_SCALE } from './motion.js';
 import { createCity, CITY_STYLES } from '../world/city.js';
 import { createCitizens } from '../world/citizens.js';
 import { createWonder } from '../world/wonders.js';
@@ -2300,7 +2301,20 @@ export function updateWalkCamera(camera, delta = 0) {
       camera.fov = fpFov;
       camera.updateProjectionMatrix();
     }
-    if (warzone) warzone.syncCamera(camera, performance.now() / 1000);
+    if (warzone) {
+      const now = performance.now() / 1000;
+      // Camera trauma: something heavy landed nearby. Squared so small
+      // tremors stay small; time-hashed sines, no allocation.
+      const tr = warzone.shake();
+      if (tr > 0.01) {
+        const k = tr * tr * MOTION_SCALE;
+        camera.rotateX(Math.sin(now * 41.3) * 0.022 * k);
+        camera.rotateY(Math.sin(now * 33.7 + 1.3) * 0.018 * k);
+        camera.rotateZ(Math.sin(now * 27.1 + 2.9) * 0.03 * k);
+        camera.position.addScaledVector(_up, Math.sin(now * 47.9) * 0.09 * k);
+      }
+      warzone.syncCamera(camera, now);
+    }
     return;
   }
 
@@ -2478,6 +2492,15 @@ function updateWarzone(dt, t) {
   env.ads = (input.ads && input.locked) || input.adsTouch;
   env.assist = touchPlayer();
   env.reload = input.reload;
+  // Weapon select: 1-5 draws a weapon, the wheel (free here — combat locks the
+  // view to first person, so there is no orbit distance to zoom) and the touch
+  // SWAP button step through the ones you own. Consumed even when unused, so a
+  // scroll in a firefight cannot bank up and jump the zoom later.
+  env.switchSlot = env.holstered ? 0 : input.weaponSlot;
+  env.cycle = env.holstered ? 0 : input.weaponCycle || Math.sign(input.wheel);
+  input.weaponSlot = 0;
+  input.weaponCycle = 0;
+  if (!env.holstered) input.wheel = 0;
   env.lookDX = wzLookDX;
   env.lookDY = wzLookDY;
   env.fov = C.FOV;

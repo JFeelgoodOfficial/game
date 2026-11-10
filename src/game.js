@@ -140,6 +140,7 @@ import { initCompass, updateCompass } from './compass.js';
 import { initControls, updateControls, setObjective } from './controls.js';
 import { initTouchControls, updateTouchControls } from './touchControls.js';
 import { initCapture, capturePendingPhoto, updateCapture, updateRecordingFrame, requestPhoto, toggleRecording, isGalleryOpen } from './capture.js';
+import { MOTION_SCALE } from './motion.js';
 import { initCredits, openCredits, closeCredits, isCreditsOpen } from './credits.js';
 import { initArtView, openArtView, closeArtView, isArtViewOpen } from './artView.js';
 import lensingFrag from './shaders/lensing.frag?raw';
@@ -576,6 +577,19 @@ if (import.meta.env.DEV) {
         updateOrigin(ship);
       }
     },
+    // Run n render-rate updates of the on-foot world synchronously (the
+    // warzone's monsters, weapons and waves advance here, not in stepWalk).
+    // Each frame also runs the physics ticks that fit in it, as the real loop does.
+    walkFrames(n = 1, dt = 1 / 30) {
+      debugClock += 0;
+      for (let i = 0; i < n; i++) {
+        debugClock += dt;
+        stepWalk(DT);
+        stepWalk(DT);
+        updateOrigin(ship);
+        updateWalkVisuals(dt, performance.now() / 1000 + debugClock);
+      }
+    },
     // Drop straight into the cottage, skipping the six-second sun burn. The
     // real entry is 'ascend' (fly into the star); this is the same call it
     // makes, minus the flash.
@@ -720,6 +734,7 @@ let ascendBroken = false;
 // attitude hold while the pilot walks the corridor. Not a phase — heat,
 // capture, nav, and the accumulator must all keep running.
 let standing = false;
+let debugClock = 0; // extra seconds fed to __debug.walkFrames
 let standBlend = 0; // seat <-> stand camera blend, 0..1
 
 // NMS-style landing sub-mode within 'fly' (not a phase — heat UI, nav,
@@ -1064,13 +1079,6 @@ function setPaused(v) {
   }
 }
 
-// Photosensitivity / vestibular comfort: damp the camera shake and
-// turbulence for users who asked the OS for reduced motion. (The flashing
-// heat UI is handled in CSS via the same media query.)
-const MOTION_SCALE = window.matchMedia?.('(prefers-reduced-motion: reduce)')
-  .matches
-  ? 0.25
-  : 1;
 
 const hintEl = document.getElementById('hint');
 
@@ -1465,6 +1473,8 @@ function frame(now) {
   input.photo = false;
   input.record = false;
   input.reload = false; // walk.js consumes it first when a warzone is live
+  input.weaponSlot = 0; // likewise
+  input.weaponCycle = 0;
   collapsePass.enabled = warp > 0.001;
   collapsePass.uniforms.uProgress.value = warp;
   // heat 0..0.5 = warning banner; 0.5..1 = the flashing cockpit countdown.

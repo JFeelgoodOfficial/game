@@ -87,6 +87,7 @@ const CSS = `
 #tcAim { right: 128px; bottom: 236px; width: 70px; height: 44px; }
 #tcAim.on { background: rgba(255,210,63,0.28); border-color: #ffd23f; color: #fff4c8; }
 #tcReload { right: 34px; bottom: 262px; width: 84px; height: 40px; }
+#tcSwap { right: 128px; bottom: 290px; width: 70px; height: 40px; }
 /* The two pre-existing on-foot buttons live where the sticks now go — EQUIPMENT
    (vehicleMenu.js) lands under the look stick on narrow screens, and PICS
    (capture.js) sits right on top of VIEW. Fold them into the same cluster.
@@ -113,6 +114,7 @@ const CSS = `
   #tcFireL { left: 26px; bottom: 142px; width: 62px; height: 62px; }
   #tcAim { right: 112px; bottom: 200px; width: 62px; height: 40px; }
   #tcReload { right: 26px; bottom: 228px; width: 74px; height: 36px; }
+  #tcSwap { right: 112px; bottom: 248px; width: 62px; height: 36px; }
 }
 @media (pointer: coarse) and (max-height: 480px) {
   body #equipBtn { right: 220px; bottom: 126px; padding: 8px 10px; }
@@ -282,7 +284,8 @@ export function initTouchControls() {
   const fireL = button('tcFireL', 'FIRE');
   const aim = button('tcAim', 'AIM');
   const reload = button('tcReload', 'RELOAD');
-  for (const b of [fireR, fireL, aim, reload]) {
+  const swap = button('tcSwap', 'SWAP');
+  for (const b of [fireR, fireL, aim, reload, swap]) {
     b.classList.add('tc-combat');
     root.appendChild(b);
   }
@@ -329,6 +332,9 @@ export function initTouchControls() {
   });
   bindButton(reload, () => {
     input.reload = true;
+  });
+  bindButton(swap, () => {
+    input.weaponCycle = 1;
   });
 }
 

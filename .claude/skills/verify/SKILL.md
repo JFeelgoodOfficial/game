@@ -44,6 +44,20 @@ first-person/third-person chooser overlay.
 hall runs z 5.5..35.5, lounge to 41.5), `nearPainting()` → title or null.
 Paintings fetch on the first stand; wait on `info().hung`.
 
+## Warzone (towns on terra / rustia / neptunia / wyattmattoe)
+The combat loop runs at render rate, not in `stepWalk`: drive it with
+`__debug.walkFrames(n, dt = 1/30)` (each frame also runs two physics ticks).
+`walkSite().warzone` exposes `debug()` → `{wave, phase, queue, enemies[{type,
+state, attack, hp, hpMax, x, z, air, radius}], flyers, shells, patches, crates,
+weapon{id, owned, charge}, colliders, ring, player, aim, hp, dead, trauma}`,
+plus test hooks `forceWave()`, `forceBoss()` (next wave is the titan),
+`spawn(type, x, z)` (`brute|spitter|stalker|titan|swarm`, city-local),
+`clear()`, `giveWeapon(id)`, `switchWeapon(id)` (`carbine|scatter|lance|
+plasma|arc`). To fire: `input.locked = true; input.fire = true`, step frames,
+release. Spawn along `debug().aim` from `debug().player` to put a target under
+the crosshair. Weapons found from crates persist in `__debug.inventory()`
+(`weapons`, `trophies`, `record`); `giveWeapon` is session-only.
+
 ## Surface-child frames
 Landing-site content is parented to `planet.surface` in its UNROTATED frame.
 To convert world → surface-local: subtract `planet.body.position`, then

@@ -31,6 +31,8 @@ import { camera } from './camera.js';
 import { sun } from './sun.js';
 import { GALLERY_FILES } from './gallery.js';
 import { titleOf, loadArtMid, loadArtFull, disposeArt } from './galleryArt.js';
+import { WEAPONS, WEAPON_ORDER, TROPHY_WORLDS } from './arsenal.js';
+import { hasWeapon, combatRecord } from './inventory.js';
 
 export const interiorScene = new THREE.Scene();
 
@@ -522,8 +524,10 @@ function setSlotMap(s) {
   }
 }
 
-// First stand-up: fetch and hang the collection, door end first. Idempotent.
+// Every stand-up: bring the lounge wall up to date. First stand-up: fetch and
+// hang the collection, door end first.
 export function openGallery() {
+  refreshLounge();
   if (galleryOpen) return;
   galleryOpen = true;
   titleStrip();
@@ -597,6 +601,134 @@ function dropFull(s) {
   s.full = null;
   setSlotMap(s);
   disposeArt(tex);
+}
+
+// ---------------------------------------------------------------------------
+// the lounge wall: what you have found and what you have killed
+// ---------------------------------------------------------------------------
+// On the lounge side of the hall's stern bulkhead. One canvas panel — the
+// armoury list and the combat record — and above it four mounted titan skulls,
+// one per warzone world, each hung only once a titan has died there. Redrawn
+// from inventory.js every time the pilot stands up.
+
+let loungeCanvas = null;
+let loungeTex = null;
+const skulls = []; // { world, group }
+
+function buildLoungeWall() {
+  loungeCanvas = document.createElement('canvas');
+  loungeCanvas.width = 1024;
+  loungeCanvas.height = 512;
+  loungeTex = new THREE.CanvasTexture(loungeCanvas);
+  loungeTex.colorSpace = THREE.SRGBColorSpace;
+  loungeTex.anisotropy = 4;
+  const panel = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.2, 1.6),
+    new THREE.MeshBasicMaterial({ map: loungeTex, color: 0xd2d2d2 })
+  );
+  panel.position.set(3.2, 0.25, HALL_Z1 + 0.09);
+  group.add(panel);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(3.34, 1.74, 0.04), pictureFrameMat);
+  back.position.set(3.2, 0.25, HALL_Z1 + 0.06);
+  group.add(back);
+
+  // the skulls: a blunt head, a brow plate, two horns, eyes in the brood's colour
+  const bone = new THREE.MeshStandardMaterial({ color: 0xb9ab8e, roughness: 0.75 });
+  const headGeo = new THREE.SphereGeometry(0.34, 12, 9);
+  const hornGeo = new THREE.ConeGeometry(0.09, 0.75, 7);
+  const eyeGeo = new THREE.SphereGeometry(0.055, 8, 6);
+  const boardGeo = new THREE.BoxGeometry(0.8, 1.15, 0.05);
+  TROPHY_WORLDS.forEach((w, i) => {
+    const g = new THREE.Group();
+    const board = new THREE.Mesh(boardGeo, MATS.bench);
+    board.position.z = -0.12;
+    const head = new THREE.Mesh(headGeo, bone);
+    head.scale.set(1, 0.85, 1.15);
+    head.position.z = 0.16;
+    const jaw = new THREE.Mesh(headGeo, bone);
+    jaw.scale.set(0.8, 0.3, 0.9);
+    jaw.position.set(0, -0.3, 0.24);
+    g.add(board, head, jaw);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(w.tint).multiplyScalar(1.6) });
+    for (const s of [-1, 1]) {
+      const horn = new THREE.Mesh(hornGeo, bone);
+      horn.position.set(s * 0.36, 0.3, 0.1);
+      horn.rotation.z = -s * 0.75;
+      const eye = new THREE.Mesh(eyeGeo, eyeMat);
+      eye.position.set(s * 0.14, 0.04, 0.5);
+      g.add(horn, eye);
+    }
+    g.position.set(-4.55 + i * 0.9, 0.55, HALL_Z1 + 0.2);
+    g.visible = false;
+    group.add(g);
+    skulls.push({ world: w.world, group: g });
+  });
+  // the trophy wall's own card, under the mounts
+  const card = new THREE.Mesh(
+    new THREE.PlaneGeometry(2.6, 0.3),
+    new THREE.MeshBasicMaterial({
+      color: 0xd2d2d2,
+      map: signTexture([['TITANS TAKEN — ONE MOUNT PER WORLD', 34, '600 22px monospace', '#c8a86a']], 768, 64),
+    })
+  );
+  card.position.set(-3.2, -0.45, HALL_Z1 + 0.07);
+  group.add(card);
+}
+
+export function refreshLounge() {
+  if (!loungeCanvas) return;
+  const rec = combatRecord();
+  const ctx = loungeCanvas.getContext('2d');
+  const W = 1024, H = 512;
+  ctx.fillStyle = '#12151d';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#c8a86a';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(10, 10, W - 20, H - 20);
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#c8a86a';
+  ctx.font = '600 22px monospace';
+  ctx.fillText("SHIP'S ARMOURY", 40, 48);
+  ctx.textAlign = 'right';
+  ctx.fillText('COMBAT RECORD', W - 40, 48);
+  WEAPON_ORDER.forEach((id, i) => {
+    const w = WEAPONS[id];
+    const y = 104 + i * 62;
+    const own = hasWeapon(id);
+    const tint = '#' + w.tint.toString(16).padStart(6, '0');
+    ctx.fillStyle = own ? tint : '#2a2f3a';
+    ctx.fillRect(40, y - 18, 10, 36);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = own ? '#e8d9b0' : '#4a5160';
+    ctx.font = '600 22px monospace';
+    ctx.fillText(own ? w.name : 'NOT YET FOUND', 66, y - 8);
+    ctx.fillStyle = own ? '#aab6c8' : '#3d4350';
+    ctx.font = '14px monospace';
+    ctx.fillText(
+      own ? w.blurb : `a crate waits in the town on ${(w.world || '').toUpperCase()}`,
+      66, y + 16, 560
+    );
+  });
+  ctx.textAlign = 'right';
+  const stat = (label, value, y) => {
+    ctx.fillStyle = '#aab6c8';
+    ctx.font = '15px monospace';
+    ctx.fillText(label, W - 40, y);
+    ctx.fillStyle = '#e8d9b0';
+    ctx.font = '700 44px monospace';
+    ctx.fillText(String(value), W - 40, y + 40);
+  };
+  stat('BEST WAVE HELD', rec.bestWave, 104);
+  stat('MONSTERS KILLED', rec.kills, 214);
+  let titans = 0;
+  for (const k in rec.trophies) titans += rec.trophies[k];
+  stat('TITANS SLAIN', titans, 324);
+  ctx.fillStyle = '#d4408f';
+  ctx.font = '14px monospace';
+  ctx.fillText('LAND AT A TOWN ON TERRA, RUSTIA, NEPTUNIA OR WYATTMATTOE', W - 40, 470);
+  loungeTex.needsUpdate = true;
+  for (const s of skulls) s.group.visible = (rec.trophies[s.world] || 0) > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -783,6 +915,7 @@ export function initInterior() {
   doorSign.rotation.y = Math.PI;
   group.add(doorSign);
 
+  buildLoungeWall();
   buildGallery();
   if (freeSlots.length) {
     const s = freeSlots[0];

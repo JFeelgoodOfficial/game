@@ -6,7 +6,8 @@
 // Pieces: a dynamic-spread crosshair, hitmarker (white / red on a kill, gold
 // on a headshot), ammo + weapon block, health bar plus the full-screen damage
 // vignette, directional damage arcs that point at whoever shot you, a score
-// popup, the wave banner, hostile counter, and the KIA / redeploy card.
+// popup, the wave banner, hostile counter, the weapon strip, the charge meter,
+// the titan's health bar, and the KIA / redeploy card.
 
 const CSS = `
 #wz-hud { position: fixed; inset: 0; pointer-events: none; user-select: none;
@@ -64,6 +65,27 @@ const CSS = `
   #wz-health { left: 18px; top: 58px; bottom: auto; transform: none; width: 170px; text-align: left; }
   #wz-top .zone, #wz-top .stats { font-size: 11px; letter-spacing: 1px; }
 }
+#wz-charge { position: absolute; left: 50%; top: calc(50% + 34px); width: 120px; height: 5px;
+  transform: translateX(-50%); background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.3);
+  opacity: 0; transition: opacity 0.12s; }
+#wz-charge .fill { height: 100%; width: 0; background: #60f4ff; }
+#wz-charge.full .fill { background: #fff; box-shadow: 0 0 8px #60f4ff; }
+#wz-boss { position: absolute; left: 50%; top: 104px; width: min(520px, 60vw); transform: translateX(-50%);
+  text-align: center; opacity: 0; transition: opacity 0.4s; text-shadow: 0 1px 3px #000; }
+#wz-boss .lbl { font-size: 13px; letter-spacing: 6px; color: #ff6b5a; margin-bottom: 5px; }
+#wz-boss .bar { height: 9px; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,90,70,0.6); }
+#wz-boss .fill { height: 100%; width: 100%; background: linear-gradient(90deg, #a31208, #ff4a3a); transition: width 0.15s; }
+#wz-guns { position: absolute; right: 34px; bottom: 118px; text-align: right;
+  font-size: 11px; letter-spacing: 2px; line-height: 1.75; text-shadow: 0 1px 3px #000; }
+#wz-guns div { opacity: 0.28; }
+#wz-guns div.own { opacity: 0.7; }
+#wz-guns div.on { opacity: 1; color: #ffd23f; }
+#wz-guns b { display: inline-block; width: 15px; margin-left: 8px; text-align: center;
+  border: 1px solid currentColor; font-weight: normal; }
+@media (pointer: coarse) {
+  #wz-guns { display: none; }
+  #wz-boss { top: 118px; }
+}
 #wz-dead { position: absolute; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; background: rgba(60,0,0,0.55);
   opacity: 0; transition: opacity 0.4s; text-shadow: 0 2px 6px #000; }
@@ -90,6 +112,9 @@ export function createWarzoneHud(zoneName) {
     <div id="wz-banner"><div class="big"></div><div class="small"></div></div>
     <div id="wz-health"><div class="lbl">ARMOR</div><div class="bar"><div class="fill"></div></div></div>
     <div id="wz-ammo"><div class="hint"></div><span class="mag">30</span><span class="res">/ 210</span><div class="name"></div></div>
+    <div id="wz-charge"><div class="fill"></div></div>
+    <div id="wz-boss"><div class="lbl">TITAN</div><div class="bar"><div class="fill"></div></div></div>
+    <div id="wz-guns"></div>
     <div id="wz-dead"><div class="big">KILLED IN ACTION</div><div class="small"></div></div>`;
   document.body.appendChild(root);
 
@@ -113,6 +138,11 @@ export function createWarzoneHud(zoneName) {
   const arcs = [...root.querySelectorAll('#wz-arcs i')];
   const dead = $('#wz-dead');
   const deadSmall = $('#wz-dead .small');
+  const chargeEl = $('#wz-charge');
+  const chargeFill = $('#wz-charge .fill');
+  const bossEl = $('#wz-boss');
+  const bossFill = $('#wz-boss .fill');
+  const gunsEl = $('#wz-guns');
 
   zoneEl.textContent = `${zoneName.toUpperCase()} — COMBAT ZONE`;
 
@@ -126,7 +156,7 @@ export function createWarzoneHud(zoneName) {
     spread: -1, mag: -1, res: -1, health: -1, stats: '', hint: null,
     hitT: 0, scoreT: 0, bannerT: 0, crossVis: true, vig: -1,
     arcT: new Float32Array(ARC_COUNT), arcAng: new Float32Array(ARC_COUNT), arcNext: 0,
-    deadShown: false,
+    deadShown: false, charge: -2, boss: -2,
   };
 
   function setCrosshair(spreadPx, visible) {
@@ -222,6 +252,39 @@ export function createWarzoneHud(zoneName) {
     if (on && text !== undefined && deadSmall.textContent !== text) deadSmall.textContent = text;
   }
 
+  // c01: 0..1 charge of a charge weapon, or -1 to hide the bar.
+  function setCharge(c01) {
+    const q = c01 < 0 ? -1 : Math.round(c01 * 50);
+    if (q === st.charge) return;
+    st.charge = q;
+    chargeEl.style.opacity = q > 0 ? '1' : '0';
+    if (q >= 0) chargeFill.style.width = `${q * 2}%`;
+    chargeEl.classList.toggle('full', q >= 50);
+  }
+
+  // h01: the titan's health 0..1, or -1 when there is no titan.
+  function setBoss(h01) {
+    const q = h01 < 0 ? -1 : Math.round(h01 * 200);
+    if (q === st.boss) return;
+    st.boss = q;
+    bossEl.style.opacity = q >= 0 ? '1' : '0';
+    if (q >= 0) bossFill.style.width = `${q / 2}%`;
+  }
+
+  // list: [{ slot, name, owned, active }] — called only when it changes.
+  function setWeapons(list) {
+    gunsEl.textContent = '';
+    for (const w of list) {
+      const row = document.createElement('div');
+      if (w.owned) row.className = w.active ? 'own on' : 'own';
+      row.textContent = w.owned ? w.name : '— — —';
+      const key = document.createElement('b');
+      key.textContent = String(w.slot);
+      row.appendChild(key);
+      gunsEl.appendChild(row);
+    }
+  }
+
   function setVisible(on) {
     root.classList.toggle('off', !on);
   }
@@ -253,6 +316,6 @@ export function createWarzoneHud(zoneName) {
 
   return {
     setCrosshair, setAmmo, setHint, setHealth, setStats, hitmarker, popScore,
-    showBanner, damageFrom, setDead, setVisible, update, dispose,
+    showBanner, damageFrom, setDead, setVisible, setCharge, setBoss, setWeapons, update, dispose,
   };
 }

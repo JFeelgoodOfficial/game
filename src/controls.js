@@ -59,12 +59,14 @@ const WALK_LINES = [
   'P — PHOTO · R — RECORD (PICS)',
 ];
 
-// Warzone cities (world/warzone.js): the rifle takes the mouse buttons and R,
-// and the view is locked to first person while you fight on foot.
+// Warzone cities (world/warzone.js): the weapon takes the mouse buttons, R,
+// the number row and the wheel, and the view is locked to first person while
+// you fight on foot.
 const COMBAT_LINES = [
   'W A S D — MOVE · MOUSE — LOOK',
   'SHIFT — RUN · SPACE — JUMP',
   'LMB — FIRE · RMB — AIM · R — RELOAD',
+  '1-5 / SCROLL — WEAPON · SPACE — JUMP SHOCKWAVES',
   'E — TALK (CEASEFIRE) · G — BOARD AT SHIP',
   'I — EQUIPMENT · B — USE SELECTED',
   'P — PHOTO · , . — MUSIC',

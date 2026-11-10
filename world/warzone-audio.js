@@ -219,7 +219,205 @@ export function playPickup() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// The rest of the arsenal. Each takes the carbine's three-layer recipe and
+// bends it: the scattergun is all thump and a long tail, the lance a rising
+// whine cut off by a crack, the launcher a hollow cough, the caster a buzz.
+// ---------------------------------------------------------------------------
+
+function tone(type, f0, f1, t, dur, peak, dest, attack = 0.003) {
+  const o = ctx.createOscillator();
+  o.type = type;
+  o.frequency.setValueAtTime(f0, t);
+  if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  const g = ctx.createGain();
+  env(g, t, peak, attack, dur);
+  o.connect(g).connect(dest);
+  o.start(t);
+  o.stop(t + attack + dur + 0.05);
+}
+
+function burst(kind, freq, q, t, dur, peak, dest, offset = 0) {
+  const src = noiseSrc(offset);
+  const f = ctx.createBiquadFilter();
+  f.type = kind;
+  f.frequency.value = freq;
+  f.Q.value = q;
+  const g = ctx.createGain();
+  env(g, t, peak, 0.002, dur);
+  src.connect(f).connect(g).connect(dest);
+  src.stop(t + dur + 0.1);
+}
+
+// id: an arsenal.js weapon id. charge01 scales the lance's weight.
+export function playWeaponShot(id, charge01 = 1) {
+  if (id === 'carbine') return playShot();
+  if (!ensure()) return;
+  const t = ctx.currentTime;
+  const off = (shotN++ * 0.137) % 1;
+  if (id === 'scatter') {
+    burst('highpass', 900, 0.5, t, 0.13, 1.0, master, off);
+    tone('sine', 120, 32, t, 0.26, 1.0, master);
+    burst('bandpass', 420, 0.6, t + 0.01, 0.9, 0.34, master, off + 0.4);
+  } else if (id === 'lance') {
+    const k = 0.5 + 0.5 * charge01;
+    tone('sawtooth', 2400, 180, t, 0.22, 0.32 * k, master);
+    burst('highpass', 3200, 0.7, t, 0.09, 0.9 * k, master, off);
+    tone('sine', 90, 28, t, 0.45, 0.95 * k, master);
+    burst('bandpass', 1500, 2, t + 0.02, 1.1, 0.2 * k, master, off + 0.3);
+  } else if (id === 'plasma') {
+    tone('sine', 210, 60, t, 0.28, 0.85, master);
+    burst('bandpass', 520, 1.2, t, 0.3, 0.55, master, off);
+    tone('triangle', 900, 300, t, 0.18, 0.14, master);
+  } else if (id === 'arc') {
+    tone('sawtooth', 140 + (shotN % 5) * 23, 90, t, 0.07, 0.22, master, 0.001);
+    burst('bandpass', 3800 + (shotN % 3) * 700, 5, t, 0.06, 0.3, master, off);
+  }
+}
+
+// The lance's capacitor: one held oscillator whose pitch follows the charge.
+let chargeOsc = null;
+let chargeGain = null;
+export function setChargeTone(level01) {
+  if (level01 <= 0) {
+    if (chargeOsc) {
+      const t = ctx.currentTime;
+      chargeGain.gain.cancelScheduledValues(t);
+      chargeGain.gain.setTargetAtTime(0.0001, t, 0.02);
+      chargeOsc.stop(t + 0.12);
+      chargeOsc = null;
+      chargeGain = null;
+    }
+    return;
+  }
+  if (!ensure()) return;
+  const t = ctx.currentTime;
+  if (!chargeOsc) {
+    chargeOsc = ctx.createOscillator();
+    chargeOsc.type = 'sawtooth';
+    chargeGain = ctx.createGain();
+    chargeGain.gain.value = 0.0001;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 2600;
+    chargeOsc.connect(lp).connect(chargeGain).connect(master);
+    chargeOsc.start(t);
+  }
+  chargeOsc.frequency.setTargetAtTime(180 + 900 * level01 * level01, t, 0.03);
+  chargeGain.gain.setTargetAtTime(0.03 + 0.07 * level01, t, 0.03);
+}
+
+export function playSwitch() {
+  if (!ensure()) return;
+  const t = ctx.currentTime;
+  burst('bandpass', 1700, 5, t, 0.05, 0.3, master, (shotN++ * 0.09) % 1);
+  burst('bandpass', 950, 4, t + 0.09, 0.06, 0.34, master, (shotN * 0.19) % 1);
+}
+
+// A blast at `dist` units, panned.
+export function playExplosion(dist, pan = 0, size = 1) {
+  if (!ensure()) return;
+  const t = ctx.currentTime;
+  const near = 1 / (1 + dist * 0.03);
+  const p = ctx.createStereoPanner();
+  p.pan.value = Math.max(-1, Math.min(1, pan));
+  p.connect(master);
+  tone('sine', 95 * (1.2 - 0.2 * size), 24, t, 0.5 + 0.3 * size, (0.5 + 0.5 * size) * near + 0.03, p);
+  burst('lowpass', 500 + 3000 * near, 0.5, t, 0.5 + 0.5 * size, 0.8 * near + 0.03, p, (shotN++ * 0.23) % 1);
+}
+
+// ---------------------------------------------------------------------------
+// Monsters. `size` 0..1 picks the register: a swarmling is a shriek, a titan
+// is something you feel before you hear.
+// ---------------------------------------------------------------------------
+
+function panned(pan) {
+  const p = ctx.createStereoPanner();
+  p.pan.value = Math.max(-1, Math.min(1, pan));
+  p.connect(master);
+  return p;
+}
+
+// A roar: two detuned saws falling through a moving formant, over a growl of
+// low noise. dist in units.
+export function playRoar(size, dist, pan = 0) {
+  if (!ensure()) return;
+  const t = ctx.currentTime;
+  const near = 1 / (1 + dist * 0.018);
+  const dest = panned(pan);
+  const dur = 0.7 + size * 1.3;
+  const base = 150 - 105 * size;
+  const formant = ctx.createBiquadFilter();
+  formant.type = 'bandpass';
+  formant.Q.value = 2.2;
+  formant.frequency.setValueAtTime(900 - 400 * size, t);
+  formant.frequency.exponentialRampToValueAtTime(260 - 120 * size, t + dur);
+  const g = ctx.createGain();
+  env(g, t, (0.5 + 0.5 * size) * near + 0.02, 0.08, dur);
+  formant.connect(g).connect(dest);
+  for (const det of [1, 1.013, 0.497]) {
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(base * det * 1.5, t);
+    o.frequency.exponentialRampToValueAtTime(base * det * 0.62, t + dur);
+    // a slow wobble, so it sounds like a throat rather than a synth
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 17 + size * 9;
+    const lg = ctx.createGain();
+    lg.gain.value = base * 0.09;
+    lfo.connect(lg).connect(o.frequency);
+    lfo.start(t);
+    lfo.stop(t + dur + 0.2);
+    o.connect(formant);
+    o.start(t);
+    o.stop(t + dur + 0.2);
+  }
+  burst('lowpass', 240 + 200 * (1 - size), 0.7, t, dur, (0.3 + 0.4 * size) * near + 0.01, dest, (shotN++ * 0.41) % 1);
+}
+
+// A footfall or a slam. size 0..1.
+export function playStomp(size, dist, pan = 0) {
+  if (!ensure()) return;
+  const t = ctx.currentTime;
+  const near = 1 / (1 + dist * 0.025);
+  const dest = panned(pan);
+  tone('sine', 70 - 30 * size, 22, t, 0.25 + 0.5 * size, (0.35 + 0.65 * size) * near + 0.01, dest);
+  burst('lowpass', 300, 0.6, t, 0.2 + 0.3 * size, (0.2 + 0.4 * size) * near, dest, (shotN++ * 0.29) % 1);
+}
+
+// A swarmling committing to its dive.
+export function playShriek(dist, pan = 0) {
+  if (!ensure()) return;
+  const t = ctx.currentTime;
+  const near = 1 / (1 + dist * 0.05);
+  const dest = panned(pan);
+  tone('sawtooth', 1900 + (shotN++ % 4) * 160, 3400, t, 0.22, 0.16 * near + 0.01, dest, 0.02);
+  burst('bandpass', 4200, 6, t, 0.2, 0.14 * near, dest, (shotN * 0.13) % 1);
+}
+
+// A spitter hawking a glob.
+export function playSpit(dist, pan = 0) {
+  if (!ensure()) return;
+  const t = ctx.currentTime;
+  const near = 1 / (1 + dist * 0.03);
+  const dest = panned(pan);
+  burst('bandpass', 700, 3, t, 0.16, 0.5 * near + 0.01, dest, (shotN++ * 0.37) % 1);
+  tone('sine', 320, 90, t, 0.2, 0.3 * near, dest);
+}
+
+// Acid landing, or a body bursting.
+export function playSplat(dist, pan = 0) {
+  if (!ensure()) return;
+  const t = ctx.currentTime;
+  const near = 1 / (1 + dist * 0.04);
+  const dest = panned(pan);
+  burst('lowpass', 1200, 1, t, 0.25, 0.6 * near + 0.01, dest, (shotN++ * 0.43) % 1);
+  burst('bandpass', 2600, 4, t + 0.03, 0.4, 0.16 * near, dest, (shotN * 0.11) % 1);
+}
+
 export function disposeAudio() {
+  chargeOsc = null;
+  chargeGain = null;
   if (ctx && ctx.state !== 'closed') ctx.close();
   ctx = null;
   master = null;

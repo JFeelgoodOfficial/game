@@ -3,8 +3,14 @@
 // surfaces (src/walk.js vehicle modes, selector menu). Mirrors journal.js:
 // localStorage persistence with graceful session-only degradation, and Set
 // semantics so a repeat grant never re-toasts.
+//
+// It also keeps the combat record: which weapons have been found (arsenal.js —
+// they carry across planets and sessions), the titan trophies taken per
+// world, and the best wave / lifetime kills. The freighter's lounge reads all
+// three for its trophy wall and weapon rack.
 
 import { showViewToast } from './walkview.js';
+import { WEAPONS, WEAPON_ORDER, STARTER_WEAPON } from './arsenal.js';
 
 const STORE_KEY = 'fgsf.inventory';
 
@@ -23,6 +29,10 @@ export const SNOWBOARD = 'snowboard';
 
 let items = new Set(); // owned item ids (persisted)
 let selected = null; // equipment the B key acts on (persisted)
+let weapons = new Set([STARTER_WEAPON]); // owned weapon ids (persisted)
+let trophies = {}; // world name -> titans killed there (persisted)
+let record = { bestWave: 0, kills: 0 }; // (persisted)
+let recordDirty = false;
 
 function load() {
   try {
@@ -31,6 +41,19 @@ function load() {
     const data = JSON.parse(raw);
     if (Array.isArray(data.items)) items = new Set(data.items.filter((i) => ITEMS[i]));
     if (data.selected === SNOWBOARD || ITEMS[data.selected]) selected = data.selected;
+    if (Array.isArray(data.weapons)) {
+      for (const w of data.weapons) if (WEAPONS[w]) weapons.add(w);
+    }
+    if (data.trophies && typeof data.trophies === 'object') {
+      for (const k of Object.keys(data.trophies)) {
+        const n = Math.floor(Number(data.trophies[k]));
+        if (n > 0) trophies[k] = n;
+      }
+    }
+    if (data.record && typeof data.record === 'object') {
+      record.bestWave = Math.max(0, Math.floor(Number(data.record.bestWave) || 0));
+      record.kills = Math.max(0, Math.floor(Number(data.record.kills) || 0));
+    }
   } catch {
     /* corrupt or unavailable — start empty, session-only */
   }
@@ -38,7 +61,9 @@ function load() {
 
 function save() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ items: [...items], selected }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      items: [...items], selected, weapons: [...weapons], trophies, record,
+    }));
   } catch {
     /* session-only */
   }
@@ -78,7 +103,54 @@ export function setSelectedItem(id) {
   save();
 }
 
+// ---- combat record -------------------------------------------------------
+
+// Returns false when the weapon was already owned (the crate then just
+// restocks it), so a repeat find never re-toasts.
+export function grantWeapon(id) {
+  if (!WEAPONS[id] || weapons.has(id)) return false;
+  weapons.add(id);
+  save();
+  showViewToast('WEAPON ACQUIRED — ' + WEAPONS[id].name, 6);
+  return true;
+}
+
+export function hasWeapon(id) {
+  return weapons.has(id);
+}
+
+// In slot order, so 1-5 always mean the same guns.
+export function ownedWeapons() {
+  return WEAPON_ORDER.filter((id) => weapons.has(id));
+}
+
+export function addTrophy(world) {
+  trophies[world] = (trophies[world] || 0) + 1;
+  save();
+}
+
+// Called per kill and per wave: cheap in memory, written out by flushRecord
+// (leaving the town) rather than on every kill.
+export function noteCombat(kills, wave) {
+  if (kills) record.kills += kills;
+  if (wave > record.bestWave) record.bestWave = wave;
+  recordDirty = true;
+}
+
+export function flushRecord() {
+  if (!recordDirty) return;
+  recordDirty = false;
+  save();
+}
+
+export function combatRecord() {
+  return { bestWave: record.bestWave, kills: record.kills, trophies: { ...trophies } };
+}
+
 // Debug/inspection hook (__debug.inventory()).
 export function inventoryState() {
-  return { items: [...items], selected };
+  return {
+    items: [...items], selected,
+    weapons: ownedWeapons(), trophies: { ...trophies }, record: { ...record },
+  };
 }
