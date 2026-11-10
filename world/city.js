@@ -234,7 +234,7 @@ export const CITY_STYLES = [
 // Walkable-structure helper: given axis-aligned slab/ramp surfaces and wall
 // AABBs in an origin-local frame, returns the {surfaceYAt, resolveWalls}
 // contract walk.js consumes. Shared by every citizen house and the elevator
-// tower here, and exported for stationWalk.js / actuality.js.
+// tower here, and exported for actuality.js.
 // The surfaces/walls ARRAYS are captured live — mutating a record (the
 // elevator cab floor/gates) is legal and takes effect on the next query.
 // ---------------------------------------------------------------------------

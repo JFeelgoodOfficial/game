@@ -29,13 +29,15 @@ Permanent. These are what kill hobby space games, and several were considered an
 - Walking, on planets or anywhere.
   > **Owner override (2026-07):** the original cut here was "never leave the
   > cockpit." Two walk modes have since been added, on separate keys:
-  > - **C — ship interior** (`interior.js`): stand up from the seat, walk the
-  >   corridor behind the cockpit (pictures on the walls, portholes and an aft
-  >   window showing live space), sit back down to fly. Movement is
-  >   range-clamped to the two rooms — three axis clamps, no intersection
-  >   tests — so the "no collision system" rule below still holds. The ship
-  >   coasts on attitude hold while you're up; gravity, heat, and the black
-  >   hole stay live.
+  > - **C — ship interior** (`interior.js`): stand up from the seat and walk
+  >   the freighter — flight deck, a vestibule with the Wave Collector plaque,
+  >   a 30 m gallery hall hanging the whole painting collection under a glass
+  >   roof, and a stern observation lounge. Sit back down to fly. Collision is
+  >   a short list of axis-aligned boxes with a circle push-out (the hall has
+  >   freestanding partitions, so range clamps no longer suffice); it is local
+  >   to the interior and nothing else collides. The ship holds attitude and
+  >   brakes to a drift while you're up; gravity and the black hole stay live.
+  >   (2026-11: this replaced the separate Orbital Art Gallery station.)
   > - **G — on-foot planet walk** (`walk.js`): disembark over a rocky planet
   >   when low and slow, walk its terrain (feet snap to the terrain height
   >   field the surface shader already uses — a snap-to-ground, not a general

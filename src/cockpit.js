@@ -14,9 +14,8 @@ import { Pass } from 'three/addons/postprocessing/Pass.js';
 
 export const cockpitScene = new THREE.Scene();
 
-// The canopy skeleton, factored so the walkable interior (interior.js) can
-// build the identical frame around its pilot seat — the forward view must
-// match whether you're flying or standing behind the chair.
+// The legacy canopy skeleton (unused by the interior since the freighter
+// refit: standing shows the real cockpit3d rig instead).
 export function buildCanopyFrame(mat) {
   const g = new THREE.Group();
 
@@ -80,13 +79,16 @@ export class CockpitOverlayPass extends Pass {
     this.scene = scene;
     this.camera = camera;
     this.needsSwap = false;
+    // false when an earlier overlay (the walkable interior) has already laid
+    // down depth this one must be occluded by
+    this.clearDepth = true;
   }
 
   render(renderer, writeBuffer, readBuffer) {
     const oldAutoClear = renderer.autoClear;
     renderer.autoClear = false;
     renderer.setRenderTarget(this.renderToScreen ? null : readBuffer);
-    renderer.clearDepth();
+    if (this.clearDepth) renderer.clearDepth();
     renderer.render(this.scene, this.camera);
     renderer.autoClear = oldAutoClear;
   }

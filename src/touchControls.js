@@ -6,7 +6,7 @@
 // touch player otherwise cannot reach (jump, talk, view, board).
 //
 // Everything writes into the same `input` object the keyboard writes into, so
-// all three walkers (planet, station, cottage) get the sticks for free. The look
+// every walker (planet, cottage, freighter interior) gets the sticks for free. The look
 // stick injects into input.mouseX/mouseY — the same accumulator mouse-look uses
 // — so sensitivity, invert and the fixed-timestep consume all behave identically.
 //
@@ -71,6 +71,10 @@ const CSS = `
 /* Warzone cities (world/warzone.js): a FIRE button for each thumb, AIM as a
    toggle (a held button would cost the thumb that steers the look stick) and
    RELOAD. Shown only while walkCombatActive(). */
+#tcSit { right: 250px; bottom: 24px; width: 76px; height: 50px; }
+#touchUI .tc-ship { display: none; }
+#touchUI.interior .tc-ship { display: flex; }
+#touchUI.interior #tcJump, #touchUI.interior #tcView, #touchUI.interior #tcBoard { display: none; }
 #touchUI .tc-combat { display: none; }
 #touchUI.combat .tc-combat { display: flex; }
 #touchUI .tc-fire {
@@ -83,6 +87,7 @@ const CSS = `
 #tcAim { right: 128px; bottom: 236px; width: 70px; height: 44px; }
 #tcAim.on { background: rgba(255,210,63,0.28); border-color: #ffd23f; color: #fff4c8; }
 #tcReload { right: 34px; bottom: 262px; width: 84px; height: 40px; }
+#tcSwap { right: 128px; bottom: 290px; width: 70px; height: 40px; }
 /* The two pre-existing on-foot buttons live where the sticks now go — EQUIPMENT
    (vehicleMenu.js) lands under the look stick on narrow screens, and PICS
    (capture.js) sits right on top of VIEW. Fold them into the same cluster.
@@ -104,10 +109,12 @@ const CSS = `
   #tcTalk { right: 144px; bottom: 94px; width: 66px; height: 44px; }
   #tcView { right: 220px; bottom: 18px; width: 66px; height: 44px; }
   #tcBoard { right: 220px; bottom: 72px; width: 66px; height: 44px; }
+  #tcSit { right: 220px; bottom: 18px; width: 66px; height: 44px; }
   #tcFireR { right: 26px; bottom: 142px; width: 74px; height: 74px; }
   #tcFireL { left: 26px; bottom: 142px; width: 62px; height: 62px; }
   #tcAim { right: 112px; bottom: 200px; width: 62px; height: 40px; }
   #tcReload { right: 26px; bottom: 228px; width: 74px; height: 36px; }
+  #tcSwap { right: 112px; bottom: 248px; width: 62px; height: 36px; }
 }
 @media (pointer: coarse) and (max-height: 480px) {
   body #equipBtn { right: 220px; bottom: 126px; padding: 8px 10px; }
@@ -131,6 +138,7 @@ let root = null;
 let tcSprint = false;
 let tcJump = false;
 let uiOn = false;
+let shipOn = false;
 let combatOn = false;
 let aimBtn = null;
 
@@ -264,6 +272,9 @@ export function initTouchControls() {
   const talk = button('tcTalk', 'TALK');
   const view = button('tcView', 'VIEW');
   const board = button('tcBoard', 'BOARD');
+  const sit = button('tcSit', 'SIT');
+  sit.classList.add('tc-ship');
+  root.appendChild(sit);
   root.appendChild(jump);
   root.appendChild(talk);
   root.appendChild(view);
@@ -273,7 +284,8 @@ export function initTouchControls() {
   const fireL = button('tcFireL', 'FIRE');
   const aim = button('tcAim', 'AIM');
   const reload = button('tcReload', 'RELOAD');
-  for (const b of [fireR, fireL, aim, reload]) {
+  const swap = button('tcSwap', 'SWAP');
+  for (const b of [fireR, fireL, aim, reload, swap]) {
     b.classList.add('tc-combat');
     root.appendChild(b);
   }
@@ -305,6 +317,9 @@ export function initTouchControls() {
   bindButton(board, () => {
     input.toggleWalk = true;
   });
+  bindButton(sit, () => {
+    input.toggleInterior = true;
+  });
   // Two FIRE buttons share one flag: down if either thumb is on one.
   let firing = 0;
   const fireDown = () => { firing++; input.fireTouch = true; };
@@ -317,6 +332,9 @@ export function initTouchControls() {
   });
   bindButton(reload, () => {
     input.reload = true;
+  });
+  bindButton(swap, () => {
+    input.weaponCycle = 1;
   });
 }
 
@@ -341,10 +359,17 @@ function clearHeld() {
 // Called every frame from game.js, before the walk physics step, so the look
 // travel this injects is consumed by the same stepWalk tick that mouse deltas
 // would have fed.
-export function updateTouchControls(dt, phase, paused) {
+// `standing` is the freighter-interior walk (C out of the pilot seat): same
+// sticks, but the only buttons that mean anything there are SIT and USE.
+export function updateTouchControls(dt, phase, paused, standing = false) {
   if (!root) return;
 
-  const on = phase === 'walk' && !paused;
+  const on = (phase === 'walk' || (phase === 'fly' && standing)) && !paused;
+  const inShip = on && phase === 'fly';
+  if (inShip !== shipOn) {
+    shipOn = inShip;
+    root.classList.toggle('interior', inShip);
+  }
   if (on !== uiOn) {
     uiOn = on;
     root.classList.toggle('on', on);
@@ -352,7 +377,7 @@ export function updateTouchControls(dt, phase, paused) {
   }
   if (!on) return;
 
-  const combat = walkCombatActive();
+  const combat = !inShip && walkCombatActive();
   if (combat !== combatOn) {
     combatOn = combat;
     root.classList.toggle('combat', combat);

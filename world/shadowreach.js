@@ -49,8 +49,8 @@ import { createCrowd } from './people.js';
 import { Astronaut } from '../src/astronaut.js';
 import { GALLERY_FILES, galleryUrl } from '../src/gallery.js';
 
-// The owner's paintings (repo-root /artgallery, same pipeline as the Orbital
-// Art Gallery in src/stations.js). One dream-themed piece appears faintly in
+// The owner's paintings (repo-root /artgallery, same pipeline as the
+// freighter gallery in src/interior.js). One dream-themed piece appears faintly in
 // the garden's windowpane — the window "shows a memory". Asset URLs only.
 const ART_ENTRIES = GALLERY_FILES.map((file) => [file, galleryUrl(file)]);
 const DREAM_ART_URL =

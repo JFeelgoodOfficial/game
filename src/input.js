@@ -43,6 +43,8 @@ export const input = {
   fire: false, // LMB held
   ads: false, // RMB held — aim down sights
   reload: false, // R edge-trigger in a warzone (R still records elsewhere)
+  weaponSlot: 0, // 1-5 edge-trigger: draw that weapon (0 = no request)
+  weaponCycle: 0, // +1 / -1 edge-trigger: next / previous weapon (touch SWAP)
   fireTouch: false, // FIRE touch button held (touchControls.js)
   adsTouch: false, // AIM touch toggle (touchControls.js)
 };
@@ -148,6 +150,9 @@ function setKey(e, down) {
     // R: screen recording, except in a warzone where it reloads (game.js gates
     // the recording toggle on the combat state; both flags are edge-set here).
     case 'KeyR': if (down) { input.record = true; input.reload = true; } break;
+    case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': case 'Digit5':
+      if (down) input.weaponSlot = e.code.charCodeAt(5) - 48; // warzone: draw weapon 1-5
+      break;
     case 'Backspace': if (down) input.togglePause = true; e.preventDefault(); break; // pause/resume
   }
 }

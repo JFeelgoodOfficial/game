@@ -153,20 +153,35 @@ export const C = {
   DEPART_FADE: 1.2, // seconds of white fading off Terra
   COTTAGE_WALK_SPEED: 3.2, // u/s on foot. The world is human-scale, not planet-
   COTTAGE_RUN_SPEED: 6.4, // scale — WALK_SPEED (8) crosses the garden in 6 s.
-  COTTAGE_BOARD_RADIUS: 11.0, // board the ship (G) within this of the pad centre
+  COTTAGE_BOARD_RADIUS: 13.0, // board the ship (G) within this of the pad centre
   COTTAGE_CEILING: 2.7, // interior ceiling height — caps the indoor jump
 
   // --- ship interior walk (C) — owner override of GDD 1.2 ---
-  // C stands you up out of the seat; the ship coasts on attitude hold while
-  // you walk the corridor. Movement is clamped to the interior's two rooms —
-  // simple range clamps, not a collision system. Named INTERIOR_* to stay
-  // distinct from the on-foot planet walk below (different feature, WALK_*).
-  INTERIOR_SPEED: 1.7, // u/s — interior scale is roughly metres
+  // C stands you up out of the seat; the freighter holds attitude and brakes
+  // to a drift while you walk it. Named INTERIOR_* to stay distinct from the
+  // on-foot planet walk below (different feature, WALK_*).
+  INTERIOR_SPEED: 2.2, // u/s — interior scale is metres
+  INTERIOR_RUN_SPEED: 4.4, // Shift: the hall is 30 m long
+  INTERIOR_BRAKE: 0.985, // per-tick velocity hold while nobody is at the helm
   INTERIOR_MOUSE_SENS: 0.0022, // rad of head-turn per pixel, in the corridor
   INTERIOR_PITCH_MAX: 1.35, // rad, look up/down clamp while walking the ship
   INTERIOR_SPIN_CALM: 0.985, // extra per-tick angular damping while out of the seat
   SEAT_RADIUS: 0.9, // sit back down within this distance of the seat
   STAND_TIME: 0.6, // seconds, seat <-> stand camera blend
+
+  // --- the freighter's gallery hall (interior.js) — metres ---
+  FREIGHTER_VEST_L: 4.0, // vestibule between flight deck and hall
+  FREIGHTER_HALL_W: 10.0,
+  FREIGHTER_HALL_L: 30.0, // six 5 m bays
+  FREIGHTER_HALL_H: 5.0, // floor to glass roof
+  FREIGHTER_LOUNGE_L: 6.0, // stern observation lounge
+  // painting textures (galleryArt.js): everything resident at ART_MID_PX on
+  // the long side, the native file only for the nearest ART_FULL_MAX canvases
+  ART_MID_PX: 768,
+  ART_FULL_MAX: 4,
+  ART_NEAR: 7.0, // full resolution is requested inside this distance
+  ART_FAR: 12.0, // ...and released beyond this one
+  ART_VIEW_RANGE: 3.2, // "E — VIEW" this close to the wall
 
   // --- mining station (Foundry Anchorage) ---
   MINE_BEAM_CYCLE: 7.0, // seconds each mining beam dwells on an excavation point
@@ -195,24 +210,6 @@ export const C = {
   WALK_JUMP: 10.0, // upward speed of a jump (Space), units/sec
   WALK_GRAVITY: 24.0, // felt on-foot downward accel toward planet center, units/sec^2
 
-  // --- station docking + interior walk (Orbital Art Gallery) ---
-  // G near the gallery's berth docks the ship; inside, the same walk controls
-  // run in the station's flat local frame under gentle artificial gravity.
-  // G at the airlock (or the parked ship) undocks.
-  STATION_DOCK_RANGE: 300.0, // G — DOCK allowed within this of the station (measured to the nearest of its spine/tower anchors, so flying anywhere near it works)
-  STATION_GRAVITY_SCALE: 0.3, // low-g inside the station (x WALK_GRAVITY)
-  STATION_AIRLOCK_RADIUS: 4.0, // G — UNDOCK within this of the airlock pad
-  STATION_UNDOCK_OFFSET: 60.0, // ship reappears this far off the spine
-  STATION_UNDOCK_SPEED: 6.0, // gentle drift away from the station on undock
-  STATION_GROUND_SNAP: 2.0, // interior step-down snap (planet's 8.0 is too coarse)
-  STATION_LIFT_SPEED: 9.0, // antigrav pad: steady rise up the atrium shaft, u/s
-  STATION_LIFT_EXIT_CAP: 5.0, // soft-cap residual vUp when stepping off the column
-
-  // --- gallery atmosphere fx (shaders/particles; drive uTime once per frame,
-  // zero per-frame allocation — see galleryFx in stations.js) ---
-  GALLERY_DUST: 220, // floating light motes in the atrium (one Points draw)
-  GALLERY_DUST_RISE: 0.02, // fraction of the shaft the motes drift up per second
-  GALLERY_BEAM_SPEED: 2.6, // upward scroll rate of the antigrav beam's energy bands
 
   // --- on-foot water (the sea sphere sits at planet radius + 1.5) ---
   WALK_WATER_LEVEL: 1.5, // sea surface height above the base sphere (planet.js water mesh)
@@ -341,9 +338,9 @@ export const C = {
   DRESS_ROCKS: 80, // per rock variant (x3)
 
   // --- on-foot world entities (parked ship, city, wonders, creatures) ---
-  WALK_BOARD_RADIUS: 18.0, // must be this close to the parked ship to take off (G)
-  PARK_OFFSET: 14.0, // parked ship sits this far behind the disembark point
-  PARK_LIFT: 2.8, // ship-origin height above ground so the gear pads touch
+  WALK_BOARD_RADIUS: 26.0, // must be this close to the parked ship to take off (G)
+  PARK_OFFSET: 20.0, // parked ship sits this far behind the disembark point
+  PARK_LIFT: 3.9, // ship-origin height above ground so the gear pads touch
   CITY_RADIUS: 150.0, // default city footprint radius (createCity opts.radius)
   // Permanent cities (world/cityRegistry.js): a landing within this surface
   // distance of a registry site adopts that city; farther out is a

@@ -1,16 +1,18 @@
 // ship.js
 //
-// Procedural single-seat spaceship exterior for the low-poly synthwave
-// space game. Builds one THREE.Group containing:
-//   - a single merged static mesh for the hull, fins, gear legs/footpads,
-//     canopy frame, and accent trim (vertex-colored, MeshStandardMaterial)
-//   - a separate tinted/reflective canopy bubble (MeshPhysicalMaterial)
-//   - a tiny cluster of emissive meshes (twin engine nozzles + nav light)
+// The player's freighter, as seen parked on a landing pad. One THREE.Group:
+//   - a single merged static mesh for the hold, nose, engine block, fins,
+//     gear, ramp and trim (vertex-coloured, MeshStandardMaterial)
+//   - one merged glass mesh: the cockpit canopy at the nose, the roof strip
+//     over the gallery hall and the tall windows down both flanks — the same
+//     openings you look out of from inside (src/interior.js)
+//   - a small cluster of emissive meshes (twin engine nozzles + nav light)
 //     that sit above the bloom threshold (~0.85 emissiveIntensity)
 //
-// Coordinate conventions (per current spec):
-//   local forward = +Z, local up = +Y, ship is centered at the origin.
-// Scale conventions: length ~12-16, width ~7-9, height ~3.5-5, astronaut ~1.9u.
+// Coordinate conventions: local forward = +Z, local up = +Y, the hull is
+// centred at the origin. About 24 long, 9 wide, 5 tall; astronaut ~1.9 u.
+// The interior you walk is larger than this hull, as game interiors are: the
+// exterior is sized to sit on a 20 x 14 town landing pad.
 //
 // No scene lights are added; relies entirely on the engine's existing
 // DirectionalLight/Hemisphere/Ambient lighting plus emissive materials.
@@ -25,60 +27,69 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 const C = {
   seed: 1337, // default PRNG seed, override via opts.seed
 
-  // Overall hull envelope
-  hullLength: 13.5, // nose-to-tail length along +Z
-  hullWidth: 7.6, // max width along X
-  hullHeight: 3.2, // max body height along Y (excludes canopy/gear)
-  noseTaper: 0.42, // how much the nose narrows (0-1)
-  tailTaper: 0.62, // how much the tail narrows (0-1)
-  hullSegments: 6, // radial segments for hull cross-section (low-poly)
+  // The hold: the long box that carries the gallery hall
+  holdWidth: 9.0,
+  holdHeight: 4.6,
+  holdZ0: -9.5, // aft face
+  holdZ1: 5.0, // forward face, where the nose section starts
+  hullSegments: 6, // radial segments for the nose taper (low-poly)
 
-  // Canopy / cockpit bubble
-  canopyRadius: 1.15, // bubble radius
-  canopyZ: 3.6, // canopy center offset along +Z (front-ish)
-  canopyY: 1.05, // canopy center offset along +Y
-  canopyScaleZ: 1.25, // stretch bubble along Z for a teardrop look
+  // Nose section + cockpit bubble
+  noseLength: 7.0, // tapers from the hold's forward face to the tip
+  noseTipScale: 0.3,
+  canopyRadius: 1.5,
+  canopyZ: 7.4, // canopy centre along +Z
+  canopyY: 1.25,
+  canopyScaleZ: 1.3, // stretch bubble along Z for a teardrop look
   canopyOpacity: 0.55,
 
-  // Boarding hatch (visual marker on side hull, +X side)
-  hatchWidth: 1.1,
-  hatchHeight: 1.7,
-  hatchX: 3.75, // half-width offset, slightly outside hull surface
-  hatchZ: -0.6, // hatch center along Z (just aft of midship)
-  hatchY: -0.15,
+  // Glass: roof strip over the hall, windows down each flank
+  roofGlassWidth: 5.6,
+  roofGlassZ0: -8.6,
+  roofGlassZ1: 4.2,
+  sideWindows: 5,
+  sideWindowWidth: 1.7,
+  sideWindowHeight: 2.6,
+  sideWindowPitch: 2.75, // centre-to-centre along Z
 
-  // Landing gear (3 legs: 1 nose, 2 rear)
-  gearLegRadius: 0.11,
-  gearLegLength: 1.9, // deployed length
-  gearFootRadius: 0.55,
-  gearFootHeight: 0.14,
-  noseGearZ: 4.6,
-  noseGearY: -0.9,
-  rearGearZ: -3.6,
-  rearGearX: 2.1,
-  rearGearY: -0.75,
-  gearSplayDeg: 14, // outward splay angle for rear legs
+  // Boarding hatch + ramp, +X side just aft of the nose
+  hatchWidth: 1.5,
+  hatchHeight: 2.2,
+  hatchZ: 3.1,
+  hatchY: -1.2,
+  rampLength: 4.2,
 
-  // Fins/wings
-  finSpan: 2.6,
-  finChord: 2.2,
-  finThickness: 0.12,
-  finZ: -3.0,
-  finY: 0.05,
-  finSweepDeg: 22,
+  // Landing gear: nose leg plus two pairs under the hold. Every footpad
+  // bottoms out at -gearDrop, which is what PARK_LIFT (constants.js) matches.
+  gearLegRadius: 0.17,
+  gearFootRadius: 0.75,
+  gearFootHeight: 0.18,
+  gearDrop: 3.9, // footpad underside, below the hull origin
+  noseGearZ: 8.2,
+  noseGearTop: -1.0,
+  holdGearX: 3.3,
+  holdGearZ: [-7.6, 1.6],
 
-  // Engine nozzles
-  nozzleRadius: 0.62,
-  nozzleLength: 1.35,
-  nozzleZ: -6.2,
-  nozzleX: 1.55,
-  nozzleY: -0.05,
+  // Tail fins
+  finHeight: 2.6,
+  finChord: 3.4,
+  finThickness: 0.16,
+  finX: 3.4,
+  finZ: -9.3,
+
+  // Engine block + nozzles
+  engineBlockLength: 2.5,
+  nozzleRadius: 1.25,
+  nozzleLength: 1.9,
+  nozzleZ: -12.6,
+  nozzleX: 2.25,
+  nozzleY: -0.2,
 
   // Nav light
-  navLightRadius: 0.09,
-  navLightX: -3.4,
-  navLightY: 0.35,
-  navLightZ: 3.9,
+  navLightRadius: 0.13,
+  navLightX: -4.6,
+  navLightY: 1.2,
+  navLightZ: 4.4,
 
   // Materials / palette
   hullColorA: 0x5a5f73, // base panel gray-indigo
@@ -91,13 +102,13 @@ const C = {
 
   hullMetalness: 0.55,
   hullRoughness: 0.55,
-  trimEmissiveIntensity: 0.35, // below bloom threshold, restrained glow
+  trimEmissiveIntensity: 0.16, // below bloom threshold, restrained glow
   engineEmissiveBase: 1.1, // above bloom threshold (~0.85)
   engineEmissivePulseAmp: 0.35,
   navBlinkPeriod: 2.2, // seconds per blink cycle
   navBlinkOnFrac: 0.15, // fraction of cycle the nav light is bright
 
-  groundClearance: 0.55, // approx clearance under footpads when parked
+  groundClearance: 1.6, // approx clearance under the hold when parked
 };
 
 // ---------------------------------------------------------------------------
@@ -145,160 +156,140 @@ function tintColorAttribute(geometry, baseHex, rng, variance) {
   return geometry;
 }
 
+function tintedBox(w, h, d, x, y, z, hex, rng, variance = 0.06) {
+  const g = new THREE.BoxGeometry(w, h, d);
+  g.translate(x, y, z);
+  return tintColorAttribute(g, hex, rng, variance);
+}
+
 function buildHullGeometry(rng) {
-  // Main body: a tapered low-poly cylinder-ish hull built from a lathe-like
-  // stack of scaled box cross-sections merged together, plus nose cone and
-  // tail cap. Kept low-poly (hullSegments) for the silhouette-first look.
-  const half = C.hullLength / 2;
+  const parts = [];
+  const W = C.holdWidth;
+  const H = C.holdHeight;
+  const len = C.holdZ1 - C.holdZ0;
+  const zc = (C.holdZ0 + C.holdZ1) / 2;
 
-  const body = new THREE.CylinderGeometry(
-    (C.hullWidth / 2) * 0.94,
-    (C.hullWidth / 2) * 0.94,
-    C.hullLength * 0.62,
-    C.hullSegments,
-    1,
-    false
-  );
-  body.rotateX(Math.PI / 2); // align cylinder axis to +Z
-  body.scale(1, C.hullHeight / C.hullWidth, 1);
-  body.translate(0, 0, 0);
-  tintColorAttribute(body, C.hullColorA, rng, 0.08);
+  // The hold, with a shoulder step so it does not read as a plain crate:
+  // full-width belly, slightly narrower upper works.
+  parts.push(tintedBox(W, H * 0.56, len, 0, -H * 0.22, zc, C.hullColorA, rng, 0.08));
+  parts.push(tintedBox(W * 0.94, H * 0.46, len - 0.4, 0, H * 0.27, zc, C.hullColorC, rng, 0.06));
+  // keel plate + panel bands for break-up
+  parts.push(tintedBox(W * 0.7, 0.3, len * 0.9, 0, -H / 2 - 0.1, zc, C.hullColorB, rng, 0.05));
+  for (let i = 0; i < 4; i++) {
+    const z = C.holdZ0 + 1.6 + i * ((len - 3.2) / 3);
+    parts.push(tintedBox(W + 0.16, H * 0.5, 0.35, 0, -H * 0.2, z, C.hullColorB, rng, 0.05));
+  }
 
-  const nose = new THREE.ConeGeometry(
-    (C.hullWidth / 2) * 0.94,
-    C.hullLength * C.noseTaper,
-    C.hullSegments,
-    1,
-    false
-  );
-  nose.rotateX(Math.PI / 2);
-  nose.scale(1, C.hullHeight / C.hullWidth, 1);
-  nose.translate(0, 0, C.hullLength * 0.31 + (C.hullLength * C.noseTaper) / 2);
-  tintColorAttribute(nose, C.hullColorC, rng, 0.06);
+  // Roof frame around the glass strip, with ribs across it
+  const rz = (C.roofGlassZ0 + C.roofGlassZ1) / 2;
+  const rl = C.roofGlassZ1 - C.roofGlassZ0;
+  for (const sx of [-1, 1]) {
+    parts.push(tintedBox(0.4, 0.36, rl + 0.6, sx * (C.roofGlassWidth / 2 + 0.2), H / 2 + 0.1, rz, C.hullColorB, rng, 0.04));
+  }
+  for (let i = 0; i <= 5; i++) {
+    const z = C.roofGlassZ0 + (rl * i) / 5;
+    parts.push(tintedBox(C.roofGlassWidth + 0.8, 0.3, 0.26, 0, H / 2 + 0.12, z, C.hullColorB, rng, 0.04));
+  }
 
-  const tail = new THREE.CylinderGeometry(
-    (C.hullWidth / 2) * 0.94 * 0.55,
-    (C.hullWidth / 2) * 0.94,
-    C.hullLength * C.tailTaper,
-    C.hullSegments,
-    1,
-    false
-  );
-  tail.rotateX(-Math.PI / 2);
-  tail.scale(1, C.hullHeight / C.hullWidth, 1);
-  tail.translate(0, 0, -(C.hullLength * 0.31 + (C.hullLength * C.tailTaper) / 2));
-  tintColorAttribute(tail, C.hullColorB, rng, 0.08);
+  // Nose: tapers from the hold's forward face to a blunt tip
+  const r = (W / 2) * 0.86;
+  const nose = new THREE.CylinderGeometry(r * C.noseTipScale, r, C.noseLength, C.hullSegments, 1, false);
+  nose.rotateX(Math.PI / 2); // cylinder top -> +Z
+  nose.scale(1, (H * 0.86) / (r * 2), 1);
+  nose.translate(0, -0.15, C.holdZ1 + C.noseLength / 2);
+  parts.push(tintColorAttribute(nose, C.hullColorC, rng, 0.06));
 
-  // Dorsal spine ridge for silhouette break-up
-  const spine = new THREE.BoxGeometry(0.4, 0.35, C.hullLength * 0.55);
-  spine.translate(0, C.hullHeight * 0.42, 0.4);
-  tintColorAttribute(spine, C.hullColorC, rng, 0.05);
-
-  return [body, nose, tail, spine];
+  // Engine block across the stern
+  const eb = C.engineBlockLength;
+  parts.push(tintedBox(W * 0.84, H * 0.74, eb, 0, -0.1, C.holdZ0 - eb / 2, C.hullColorB, rng, 0.08));
+  return parts;
 }
 
 function buildFinGeometry(sign, rng) {
-  // sign = +1 (right) or -1 (left)
-  const fin = new THREE.BoxGeometry(C.finSpan, C.finThickness, C.finChord);
-  fin.translate(sign * (C.hullWidth * 0.32 + C.finSpan / 2), C.finY, C.finZ);
-  const sweep = THREE.MathUtils.degToRad(C.finSweepDeg) * sign;
-  fin.rotateY(sweep);
-  tintColorAttribute(fin, C.hullColorB, rng, 0.06);
-  return fin;
+  // twin vertical tail fins, raked aft
+  const fin = new THREE.BoxGeometry(C.finThickness, C.finHeight, C.finChord);
+  fin.translate(0, C.finHeight / 2, 0);
+  fin.rotateX(-0.32);
+  fin.translate(sign * C.finX, C.holdHeight / 2 - 0.2, C.finZ);
+  return tintColorAttribute(fin, C.hullColorB, rng, 0.06);
 }
 
 function buildGearGeometry(rng) {
   const parts = [];
-
-  // Nose gear (single, straight down-ish, slightly forward tilt)
-  const noseLeg = new THREE.CylinderGeometry(
-    C.gearLegRadius,
-    C.gearLegRadius * 1.1,
-    C.gearLegLength,
-    5
-  );
-  noseLeg.translate(0, C.noseGearY - C.gearLegLength / 2, C.noseGearZ);
-  tintColorAttribute(noseLeg, C.hullColorB, rng, 0.04);
-  parts.push(noseLeg);
-
-  const noseFoot = new THREE.CylinderGeometry(
-    C.gearFootRadius,
-    C.gearFootRadius * 1.1,
-    C.gearFootHeight,
-    6
-  );
-  noseFoot.translate(
-    0,
-    C.noseGearY - C.gearLegLength - C.gearFootHeight / 2,
-    C.noseGearZ
-  );
-  tintColorAttribute(noseFoot, C.hullColorA, rng, 0.04);
-  parts.push(noseFoot);
-
-  // Rear gear pair, splayed outward
-  for (const sign of [1, -1]) {
-    const legGeo = new THREE.CylinderGeometry(
-      C.gearLegRadius,
-      C.gearLegRadius * 1.1,
-      C.gearLegLength,
-      5
-    );
-    legGeo.translate(0, -C.gearLegLength / 2, 0);
-    legGeo.rotateZ(sign * -THREE.MathUtils.degToRad(C.gearSplayDeg));
-    legGeo.translate(sign * C.rearGearX, C.rearGearY, C.rearGearZ);
-    tintColorAttribute(legGeo, C.hullColorB, rng, 0.04);
-    parts.push(legGeo);
-
-    const footOffsetX =
-      sign * (C.rearGearX + Math.sin(THREE.MathUtils.degToRad(C.gearSplayDeg)) * C.gearLegLength);
-    const footOffsetY =
-      C.rearGearY - Math.cos(THREE.MathUtils.degToRad(C.gearSplayDeg)) * C.gearLegLength - C.gearFootHeight / 2;
-
-    const footGeo = new THREE.CylinderGeometry(
-      C.gearFootRadius,
-      C.gearFootRadius * 1.1,
-      C.gearFootHeight,
-      6
-    );
-    footGeo.translate(footOffsetX, footOffsetY, C.rearGearZ);
-    tintColorAttribute(footGeo, C.hullColorA, rng, 0.04);
-    parts.push(footGeo);
+  const leg = (x, top, z) => {
+    const len = C.gearDrop - C.gearFootHeight + top;
+    const g = new THREE.CylinderGeometry(C.gearLegRadius, C.gearLegRadius * 1.15, len, 6);
+    g.translate(x, top - len / 2, z);
+    parts.push(tintColorAttribute(g, C.hullColorB, rng, 0.04));
+    const foot = new THREE.CylinderGeometry(C.gearFootRadius, C.gearFootRadius * 1.1, C.gearFootHeight, 8);
+    foot.translate(x, -C.gearDrop + C.gearFootHeight / 2, z);
+    parts.push(tintColorAttribute(foot, C.hullColorA, rng, 0.04));
+  };
+  leg(0, C.noseGearTop, C.noseGearZ);
+  for (const z of C.holdGearZ) {
+    for (const sign of [1, -1]) leg(sign * C.holdGearX, -C.holdHeight / 2, z);
   }
-
   return parts;
 }
 
 function buildTrimGeometry(rng) {
-  // Thin magenta accent strips along the hull sides — geometry only, no
-  // emissive here (that's handled by the material on this sub-group being
-  // slightly emissive but under the bloom threshold via vertex color +
-  // shared material trick is avoided; instead we give trim its own tiny
-  // emissive mesh group below in buildEmissiveBits for bloom-safe control).
+  // Thin magenta accent strips along the flanks, under the windows.
   const strips = [];
+  const len = C.holdZ1 - C.holdZ0;
   for (const sign of [1, -1]) {
-    const strip = new THREE.BoxGeometry(0.06, 0.12, C.hullLength * 0.7);
-    strip.translate(sign * (C.hullWidth / 2) * 0.95, 0.05, 0.3);
-    tintColorAttribute(strip, C.accentMagenta, rng, 0.02);
-    strips.push(strip);
+    const strip = new THREE.BoxGeometry(0.08, 0.14, len * 0.94);
+    strip.translate(sign * (C.holdWidth / 2 + 0.02), -1.25, (C.holdZ0 + C.holdZ1) / 2);
+    strips.push(tintColorAttribute(strip, C.accentMagenta, rng, 0.02));
   }
   return strips;
 }
 
 function buildHatchGeometry(rng) {
-  // A shallow inset panel that visually reads as a hatch/door outline.
-  const hatch = new THREE.BoxGeometry(0.08, C.hatchHeight, C.hatchWidth);
-  hatch.translate(C.hatchX, C.hatchY, C.hatchZ);
-  tintColorAttribute(hatch, C.hullColorC, rng, 0.03);
-  return hatch;
+  // Door panel on the +X flank, and the boarding ramp down to the pad.
+  const x = C.holdWidth / 2;
+  const hatch = tintedBox(0.1, C.hatchHeight, C.hatchWidth, x + 0.03, C.hatchY, C.hatchZ, C.hullColorC, rng, 0.03);
+  const sill = C.hatchY - C.hatchHeight / 2;
+  const drop = C.gearDrop + sill;
+  const run = Math.sqrt(Math.max(0.01, C.rampLength * C.rampLength - drop * drop));
+  const ramp = new THREE.BoxGeometry(C.rampLength, 0.12, C.hatchWidth);
+  ramp.rotateZ(-Math.atan2(drop, run));
+  ramp.translate(x + run / 2, sill - drop / 2, C.hatchZ);
+  return [hatch, tintColorAttribute(ramp, C.hullColorB, rng, 0.04)];
 }
 
 function buildCanopyFrameGeometry(rng) {
   // Ring/frame around the canopy base so the bubble looks seated in hull.
-  const frame = new THREE.TorusGeometry(C.canopyRadius * 1.02, 0.07, 5, 10);
+  const frame = new THREE.TorusGeometry(C.canopyRadius * 1.02, 0.09, 5, 12);
   frame.rotateX(Math.PI / 2);
+  frame.scale(1, 1, C.canopyScaleZ);
   frame.translate(0, C.canopyY, C.canopyZ);
   tintColorAttribute(frame, C.hullColorB, rng, 0.03);
   return frame;
+}
+
+// Every pane of glass on the ship, merged into one mesh.
+function buildGlassGeometry() {
+  const parts = [];
+  const canopy = new THREE.SphereGeometry(C.canopyRadius, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62);
+  canopy.scale(1, 0.85, C.canopyScaleZ);
+  canopy.translate(0, C.canopyY, C.canopyZ);
+  parts.push(canopy);
+  const roof = new THREE.BoxGeometry(C.roofGlassWidth, 0.1, C.roofGlassZ1 - C.roofGlassZ0);
+  roof.translate(0, C.holdHeight / 2 + 0.08, (C.roofGlassZ0 + C.roofGlassZ1) / 2);
+  parts.push(roof);
+  const z0 = (C.holdZ0 + C.holdZ1) / 2 - ((C.sideWindows - 1) * C.sideWindowPitch) / 2;
+  for (let i = 0; i < C.sideWindows; i++) {
+    for (const sign of [1, -1]) {
+      // the hatch takes the forward-most bay on the +X flank
+      if (sign === 1 && Math.abs(z0 + i * C.sideWindowPitch - C.hatchZ) < 1.6) continue;
+      const pane = new THREE.BoxGeometry(0.08, C.sideWindowHeight, C.sideWindowWidth);
+      pane.translate(sign * (C.holdWidth * 0.47 + 0.03), 0.75, z0 + i * C.sideWindowPitch);
+      parts.push(pane);
+    }
+  }
+  const merged = mergeGeometries(parts, false);
+  for (const g of parts) g.dispose();
+  return merged;
 }
 
 // ---------------------------------------------------------------------------
@@ -308,10 +299,10 @@ function buildCanopyFrameGeometry(rng) {
 /**
  * createShip(parent, opts)
  *
- * Builds a procedural, deterministic single-seat spaceship exterior and
- * attaches it to `parent`. Local forward is +Z, up is +Y, ship is centered
- * at the origin. Approx footprint: length ~13.5, width ~7.6, height ~3.2
- * (excluding canopy bulge and deployed gear).
+ * Builds the procedural, deterministic freighter exterior and attaches it
+ * to `parent`. Local forward is +Z, up is +Y, the hull is centred at the
+ * origin. Approx footprint: length ~24, width ~9, height ~5 (excluding the
+ * tail fins and deployed gear).
  *
  * @param {THREE.Object3D} parent - node to attach the ship group to.
  * @param {Object} [opts]
@@ -338,7 +329,7 @@ export function createShip(parent, opts = {}) {
     buildFinGeometry(-1, rng),
     ...buildGearGeometry(rng),
     ...buildTrimGeometry(rng),
-    buildHatchGeometry(rng),
+    ...buildHatchGeometry(rng),
     buildCanopyFrameGeometry(rng),
   ];
 
@@ -362,10 +353,8 @@ export function createShip(parent, opts = {}) {
   // Dispose the now-merged source geometries (they were consumed by merge).
   for (const g of staticGeos) g.dispose();
 
-  // --- Canopy bubble (separate mesh, tinted reflective material) ---
-  const canopyGeo = new THREE.SphereGeometry(C.canopyRadius, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.62);
-  canopyGeo.scale(1, 0.85, C.canopyScaleZ);
-  canopyGeo.translate(0, C.canopyY, C.canopyZ);
+  // --- Glass: canopy, roof strip, flank windows (one mesh, one material) ---
+  const canopyGeo = buildGlassGeometry();
 
   const canopyMaterial = new THREE.MeshPhysicalMaterial({
     color: new THREE.Color(C.canopyTint),
@@ -429,7 +418,7 @@ export function createShip(parent, opts = {}) {
   parent.add(group);
 
   // --- Boarding + clearance metadata -----------------------------------
-  const hatchPoint = new THREE.Vector3(C.hatchX, C.hatchY, C.hatchZ);
+  const hatchPoint = new THREE.Vector3(C.holdWidth / 2, C.hatchY, C.hatchZ);
   const clearance = C.groundClearance;
 
   // --- Idle animation state (no per-frame allocations) -----------------

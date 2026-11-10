@@ -8,7 +8,8 @@ system: planets with terrain and weather, nebulae painted from the artist's own
 canvases, a sun you can fly into, and a black hole that bends light around
 itself. Gravity acts on the ship. Descend and the atmosphere thickens and the
 horizon flattens; land, leave the seat, and walk the surface on foot — through
-towns and into buildings, or dock at an orbital station and walk that instead.
+towns and into buildings. The ship itself is a freighter you can stand up in
+and walk: its hold is an art gallery under a glass roof.
 
 ## Controls
 
@@ -20,8 +21,8 @@ towns and into buildings, or dock at an orbital station and walk that instead.
 ## Places
 
 Terra and the other planets of the system; Port Feelgood and six other
-stations, among them an Orbital Art Gallery whose walls hang the artist's
-paintings; WaveMall Prime, an eight-level department store you walk floor by
+stations; the gallery hall aboard your own freighter, whose walls hang the
+artist's paintings; WaveMall Prime, an eight-level department store you walk floor by
 floor; and several worlds that stop being a flight sim when you land on them.
 
 ## Credits

@@ -89,12 +89,6 @@ export const walkObjective = () => (mod ? mod.walkObjective() : null);
 export const walkCombatActive = () => (mod ? mod.walkCombatActive() : false);
 export const currentGravityScale = () => (mod ? mod.currentGravityScale() : 1);
 export const currentBoardable = () => (mod ? mod.currentBoardable() : false);
-// Station docking (Orbital Art Gallery): false until the walk chunk lands,
-// which reads as "can't dock yet" at the game.js gate — same fail-safe idea
-// as nearestTerraFloor above.
-export const enterStationWalk = (station) =>
-  mod ? mod.enterStationWalk(station) : false;
-
 // The cottage, on the far side of the sun. Same fail-safe: false until the
 // chunk lands, which game.js reads as "hold the white a little longer" rather
 // than dropping the player into an empty world.

@@ -235,7 +235,15 @@ export function makeCloud(mats, intensity, { positions, colors, sizes, frag, ble
   });
 
   const points = new THREE.Points(geo, mat);
-  points.frustumCulled = false;
+  // Cull the whole cloud when it is behind the camera: tens of thousands of
+  // large additive sprites are the most expensive thing in the sky, and half
+  // the time they are not in view. The bound is padded by the largest sprite
+  // so a cloud never pops at the screen edge.
+  geo.computeBoundingSphere();
+  let maxSize = 0;
+  for (let i = 0; i < sizes.length; i++) if (sizes[i] > maxSize) maxSize = sizes[i];
+  geo.boundingSphere.radius += maxSize;
+  points.frustumCulled = true;
   points.renderOrder = renderOrder;
   mats.push(mat);
   return points;
