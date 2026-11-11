@@ -38,6 +38,9 @@ let boostBlend = 0;
 // Glance up at the overhead window (hold V), eased so the head turns
 // rather than snaps.
 let lookBlend = 0;
+let fovOffset = 0; // degrees over C.FOV
+let fovVel = 0;
+const SPRING_DT = 1 / 60; // updateCamera's other easings are per-call too
 
 // The dashboard-visibility signal (was the frame image's blend): 1 at rest,
 // falling to 0 as the camera pushes into the full-window view. The DOM dash
@@ -52,7 +55,12 @@ export function updateCamera(ship) {
 
   // warp gets a bigger FOV kick than thrust — the speed rush
   const fovKick = input.warp ? C.WARP_FOV : C.BOOST_FOV;
-  camera.fov = C.FOV + boostBlend * fovKick;
+  // The kick rides an underdamped spring: it overshoots as a burn or warp
+  // bites and settles back, and sags past rest for a beat when one ends.
+  const w = Math.sqrt(C.FOV_SPRING);
+  fovVel += (C.FOV_SPRING * (boostBlend * fovKick - fovOffset) - 2 * C.FOV_DAMPING * w * fovVel) * SPRING_DT;
+  fovOffset += fovVel * SPRING_DT;
+  camera.fov = C.FOV + fovOffset;
   camera.updateProjectionMatrix();
 
   // Rotation lag: slerp toward the ship, never snap.

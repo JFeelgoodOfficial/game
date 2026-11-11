@@ -60,6 +60,16 @@ export const C = {
   // --- warp (user mechanic): hold F for thrust x100, release to stop dead ---
   WARP_SPEED: 10000.0, // units/sec at full warp (~Saturn in a few seconds)
   WARP_RAMP: 0.08, // per-tick slew toward warp speed
+  // Warp presentation. All of it is driven by the ship's actual speed as a
+  // fraction of WARP_SPEED, not by the key, so it builds and dies with the burn.
+  WARP_STREAK_LEN: 340.0, // world units a streak star stretches at full warp
+  WARP_STREAK_FROM: 0.06, // speed fraction below which no streaks are drawn
+  WARP_SMEAR: 0.018, // radial blur reach at the frame corners at full warp (uv)
+  WARP_CA_BOOST: 2.5, // extra chromatic aberration at full warp, x CA_STRENGTH
+  WARP_KICK: 0.55, // camera trauma added when warp engages or drops out
+  FOV_SPRING: 70.0, // stiffness of the FOV spring (1/s^2)
+  FOV_DAMPING: 0.5, // damping ratio; below 1 the FOV overshoots, then settles
+  TRAUMA_DECAY: 1.6, // camera trauma lost per second
   WARP_FOV: 26.0, // extra FOV at warp — the speed rush / star streaks
   AUTOPILOT_TURN_RATE: 1.2, // rad/s the nav auto-warp turns the ship toward a target
 

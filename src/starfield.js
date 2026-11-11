@@ -10,6 +10,8 @@
 
 import * as THREE from 'three';
 import { originOffset } from './origin.js';
+import { C } from './constants.js';
+import { MOTION_SCALE } from './motion.js';
 
 const LAYERS = [
   // near: sparse and bright. far: dense and dim (GDD 4.1).
@@ -79,6 +81,84 @@ function starColor(out) {
   return out;
 }
 
+// Warp streaks: one extra layer drawn as line segments. Both ends of a
+// segment carry the same star position, so they wrap together; the tail end
+// is pushed along the direction of travel by uStreak, and fades to nothing.
+// Hidden (no draw call) below WARP_STREAK_FROM.
+const STREAK = { count: 1600, size: 4200, rate: 0.6 };
+
+const STREAK_VERT = /* glsl */ `
+  uniform float uSize;
+  uniform vec3 uOffset;
+  uniform vec3 uStreak; // world-space stretch: travel direction x length
+  attribute vec3 aColor;
+  attribute float aEnd; // 0 head, 1 tail
+  varying vec3 vColor;
+  void main() {
+    vec3 p = mod(position - uOffset, uSize) - 0.5 * uSize;
+    float fade = 1.0 - smoothstep(0.36 * uSize, 0.5 * uSize, length(p));
+    p += uStreak * aEnd;
+    vColor = aColor * fade * (1.0 - aEnd);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+  }
+`;
+
+const STREAK_FRAG = /* glsl */ `
+  uniform float uAmount;
+  varying vec3 vColor;
+  void main() {
+    gl_FragColor = vec4(vColor * uAmount, 1.0);
+  }
+`;
+
+let streaks = null;
+let warp = 0; // eased speed fraction, 0..1
+
+// How hard the ship is warping right now, 0..1, eased. The post chain's
+// radial smear and the camera read the same value so they move together.
+export function warpAmount() {
+  return warp;
+}
+
+function initStreaks(scene) {
+  const positions = new Float32Array(STREAK.count * 6);
+  const colors = new Float32Array(STREAK.count * 6);
+  const ends = new Float32Array(STREAK.count * 2);
+  for (let i = 0; i < STREAK.count; i++) {
+    const x = Math.random() * STREAK.size, y = Math.random() * STREAK.size, z = Math.random() * STREAK.size;
+    starColor(_c);
+    const b = 0.5 + 1.6 * Math.pow(Math.random(), 2);
+    for (let e = 0; e < 2; e++) {
+      const o = i * 6 + e * 3;
+      positions[o] = x; positions[o + 1] = y; positions[o + 2] = z;
+      colors[o] = _c.r * b; colors[o + 1] = _c.g * b; colors[o + 2] = _c.b * b;
+      ends[i * 2 + e] = e;
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
+  geo.setAttribute('aEnd', new THREE.BufferAttribute(ends, 1));
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: STREAK_VERT,
+    fragmentShader: STREAK_FRAG,
+    uniforms: {
+      uSize: { value: STREAK.size },
+      uOffset: { value: new THREE.Vector3() },
+      uStreak: { value: new THREE.Vector3() },
+      uAmount: { value: 0 },
+    },
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  streaks = new THREE.LineSegments(geo, mat);
+  streaks.frustumCulled = false;
+  streaks.renderOrder = -5;
+  streaks.visible = false;
+  scene.add(streaks);
+}
+
 const layers = [];
 const _c = new THREE.Color();
 
@@ -118,6 +198,7 @@ export function initStarfield(scene) {
     scene.add(points);
     layers.push({ points, L });
   }
+  initStreaks(scene);
 }
 
 // Hide/show the whole field. Used by the isolated-world pause (see
@@ -125,11 +206,16 @@ export function initStarfield(scene) {
 // so the space starfield is neither wanted nor paid for.
 export function setStarfieldVisible(v) {
   for (const { points } of layers) points.visible = v;
+  fieldVisible = v;
+  if (!v) streaks.visible = false;
 }
 
 // Call once per render frame. absCam computed in doubles; only the small
 // wrapped remainder reaches the GPU.
-export function updateStarfield(camera, pixelRatio) {
+let fieldVisible = true;
+
+// `velocity` is the ship's, in world units per second.
+export function updateStarfield(camera, pixelRatio, velocity) {
   const ax = originOffset.x + camera.position.x;
   const ay = originOffset.y + camera.position.y;
   const az = originOffset.z + camera.position.z;
@@ -143,5 +229,25 @@ export function updateStarfield(camera, pixelRatio) {
       (((ay * L.rate) % L.size) + L.size) % L.size,
       (((az * L.rate) % L.size) + L.size) % L.size
     );
+  }
+
+  const speed = velocity.length();
+  const target = Math.min(speed / C.WARP_SPEED, 1);
+  warp += (target - warp) * 0.12;
+  const on = fieldVisible && warp > C.WARP_STREAK_FROM;
+  streaks.visible = on;
+  if (on) {
+    const k = (warp - C.WARP_STREAK_FROM) / (1 - C.WARP_STREAK_FROM);
+    const u = streaks.material.uniforms;
+    streaks.position.copy(camera.position);
+    u.uOffset.value.set(
+      (((ax * STREAK.rate) % STREAK.size) + STREAK.size) % STREAK.size,
+      (((ay * STREAK.rate) % STREAK.size) + STREAK.size) % STREAK.size,
+      (((az * STREAK.rate) % STREAK.size) + STREAK.size) % STREAK.size
+    );
+    // Reduced motion keeps the cue but halves its length.
+    const len = (C.WARP_STREAK_LEN * k * (0.5 + 0.5 * MOTION_SCALE)) / Math.max(speed, 1e-3);
+    u.uStreak.value.copy(velocity).multiplyScalar(len);
+    u.uAmount.value = k;
   }
 }

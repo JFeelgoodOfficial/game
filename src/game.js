@@ -26,7 +26,7 @@ import { altitudeAboveFloor } from './gravity.js';
 import { updateOrigin, originOffset, snapshotShiftables, restoreShiftables } from './origin.js';
 import { camera, updateCamera, snapCamera, resizeCamera, dashBlend } from './camera.js';
 import { initTuning } from './tuning.js';
-import { initStarfield, updateStarfield } from './starfield.js';
+import { initStarfield, warpAmount, updateStarfield } from './starfield.js';
 import { initNebula, updateNebula } from './nebula.js';
 import { initDeepNebula, updateDeepNebula, deepNebulae } from './deepnebula.js';
 import {
@@ -388,6 +388,7 @@ const aberrationPass = new ShaderPass({
   uniforms: {
     tDiffuse: { value: null },
     uStrength: { value: 0 },
+    uWarp: { value: 0 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -813,6 +814,9 @@ function terrainBaked() {
   }
   return (allBaked = true);
 }
+
+let trauma = 0; // camera shake impulse, 0..1, decays every frame
+let wasWarping = false;
 
 const DT = 1 / 60;
 const MAX_FRAME_DELTA = 0.1; // tab-switch guard: never spiral the accumulator
@@ -1628,8 +1632,15 @@ function frame(now) {
     updateInteriorCamera(ship, delta, standBlend, standBlend >= 0.2 && phase === 'fly');
   }
   // hull-stress shake: time-hashed jitter, ramping in past half heat
+  // Trauma: a kick when warp engages or drops out, squared so it dies away
+  // smoothly. It adds to the hull-stress term and shares its jitter.
+  if (input.warp !== wasWarping) {
+    wasWarping = input.warp;
+    if (phase === 'fly') trauma = Math.min(trauma + C.WARP_KICK, 1);
+  }
+  trauma = Math.max(trauma - C.TRAUMA_DECAY * delta, 0);
   const shake =
-    Math.max(heat - 0.5, 0) * 2 + (phase === 'explode' || phase === 'ascend' ? 1.5 : 0);
+    Math.max(heat - 0.5, 0) * 2 + (phase === 'explode' || phase === 'ascend' ? 1.5 : 0) + trauma * trauma * 3;
   if (shake > 0 && !paused) {
     const s = shake * 0.02 * MOTION_SCALE;
     camera.position.x += Math.sin(now * 0.093) * s;
@@ -1700,7 +1711,7 @@ function frame(now) {
     // even one left to spin. Skip the pass entirely.
     if (isolated.keep) updatePlanets(now / 1000, camera.position, isolated.keep);
   } else {
-    updateStarfield(camera, Q.pixelRatio);
+    updateStarfield(camera, Q.pixelRatio, ship.velocity);
     updateSun(now / 1000);
     updateNebula(camera);
     updateDeepNebula(renderer, camera);
@@ -1788,7 +1799,12 @@ function frame(now) {
     bloomPass.strength = C.BLOOM_STRENGTH;
   }
   bloomPass.radius = C.BLOOM_RADIUS;
-  aberrationPass.uniforms.uStrength.value = (C.CA_STRENGTH * 8.0) / window.innerHeight;
+  // Warp widens the colour split and adds the radial smear. Off on an isolated
+  // world, where the starfield (and so warpAmount) is not being updated.
+  const warpFx = isolated.active ? 0 : warpAmount();
+  aberrationPass.uniforms.uStrength.value =
+    (C.CA_STRENGTH * 8.0 * (1 + C.WARP_CA_BOOST * warpFx * MOTION_SCALE)) / window.innerHeight;
+  aberrationPass.uniforms.uWarp.value = C.WARP_SMEAR * warpFx * MOTION_SCALE;
 
   if (phase === 'walk') walkPreRender(renderer); // world modules draw to their RTs
   composer.render();
