@@ -35,8 +35,8 @@ const panelMat = new THREE.MeshStandardMaterial({
   roughness: 0.35,
   metalness: 0.6,
 });
-const glowMat = new THREE.MeshBasicMaterial({ color: 0xd4408f });
-const windowMat = new THREE.MeshBasicMaterial({ color: 0xbfe8ff });
+const glowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xd4408f).multiplyScalar(C.STATION_GLOW_HDR) });
+const windowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xbfe8ff).multiplyScalar(C.STATION_WINDOW_HDR) });
 
 export const stations = []; // { group, spin, orbit?: {planet, radius, rate, phase} }
 
@@ -237,7 +237,7 @@ function megaStation() {
 // rock, a debris stream climbs to the hopper under the habitat, and two ore
 // shuttles fly opposed loops between the rock face and the dock arm.
 
-const emberMat = new THREE.MeshBasicMaterial({ color: 0xffa050 });
+const emberMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffa050).multiplyScalar(C.STATION_EMBER_HDR) });
 const beamMat = new THREE.MeshBasicMaterial({
   color: 0xffa050,
   transparent: true,

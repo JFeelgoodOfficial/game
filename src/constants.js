@@ -96,6 +96,16 @@ export const C = {
   BLOOM_STRENGTH: 0.9,
   BLOOM_RADIUS: 0.4,
   CA_STRENGTH: 2.0, // chromatic aberration, pixels of RGB split at frame corners
+  // Emissive intensities, in scene-linear units where 1.0 is paper white.
+  // Tone mapping happens once, in OutputPass, so anything meant to read as a
+  // light SOURCE has to be written above 1.0 or it is just a pale surface and
+  // the bloom threshold never sees it.
+  SUN_CORE_HDR: 5.0, // photosphere at disc centre
+  SUN_CORONA: 1.1, // corona brightness at the limb
+  SUN_CORONA_RADII: 7.0, // half-width of the corona billboard, in sun radii
+  STATION_GLOW_HDR: 3.2, // accent strips and beacons
+  STATION_WINDOW_HDR: 1.7, // lit viewports
+  STATION_EMBER_HDR: 3.0, // mining pits and cutting beams
 
   // --- black hole (GDD 4.5) ---
   BH_MASS: 4.0e6, // pull at 2000 u ≈ boost thrust: close passes build real speed

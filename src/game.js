@@ -111,8 +111,8 @@ import {
 import { initJournal, journalState } from './journal.js';
 import { initInventory, inventoryState } from './inventory.js';
 import { CITIES, citiesForWorld, padLocalDir } from '../world/cityRegistry.js';
-import { initSun, sunAltitude, sun } from './sun.js';
-import { initStations, updateStations } from './stations.js';
+import { initSun, updateSun, sunAltitude, sun } from './sun.js';
+import { initStations, updateStations, stations } from './stations.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
 import {
   startMusic,
@@ -145,6 +145,7 @@ import { MOTION_SCALE } from './motion.js';
 import { initSfx, updateSfx, sfxState } from './sfx.js';
 import { initCredits, openCredits, closeCredits, isCreditsOpen } from './credits.js';
 import { initArtView, openArtView, closeArtView, isArtViewOpen } from './artView.js';
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import lensingFrag from './shaders/lensing.frag?raw';
 import aberrationFrag from './shaders/aberration.frag?raw';
 import collapseFrag from './shaders/collapse.frag?raw';
@@ -363,6 +364,19 @@ const bloomPass = new UnrealBloomPass(
   C.BLOOM_RADIUS,
   C.BLOOM_THRESHOLD
 );
+// UnrealBloomPass cuts each blur kernel off at under one sigma, so the falloff
+// ends on a cliff and a small, very bright source — a star, the sun from across
+// the system — blooms as a visible SQUARE. Same taps, same cost: reweight them
+// as a gaussian tapered to zero at the last tap, so the footprint is round.
+for (const m of bloomPass.separableBlurMaterials) {
+  const k = m.uniforms.gaussianCoefficients.value;
+  const R = k.length;
+  const sigma = R / 1.6;
+  for (let i = 0; i < R; i++) {
+    const taper = 1 - (i / R) * (i / R);
+    k[i] = Math.exp((-0.5 * i * i) / (sigma * sigma)) * taper * taper;
+  }
+}
 // composer.addPass/setSize push the full size into every pass — keep bloom
 // at half by intercepting.
 const bloomSetSize = bloomPass.setSize.bind(bloomPass);
@@ -407,6 +421,41 @@ composer.addPass(collapsePass);
 
 composer.addPass(new OutputPass());
 
+// Antialiasing, on the finished display-referred image. It has to sit after
+// tone mapping: the scene is HDR emissives on black, and smoothing those edges
+// in linear light leaves a step the tone curve then stretches back into a
+// stair. MEDIUM gets FXAA, one fullscreen pass; HIGH and ULTRA get SMAA, which
+// keeps thin struts and ring edges that FXAA softens. SMAA is three passes plus
+// two lookup textures, so it is its own chunk, fetched only by the tiers that
+// use it — FXAA stands in until it lands.
+const fxaaPass = new ShaderPass(FXAAShader);
+fxaaPass.setSize = (w, h) => fxaaPass.uniforms.resolution.value.set(1 / w, 1 / h);
+composer.addPass(fxaaPass);
+const smaa = {
+  pass: null,
+  loading: null,
+  load() {
+    if (this.loading) return;
+    this.loading = import('three/addons/postprocessing/SMAAPass.js')
+      .then(({ SMAAPass }) => {
+        const p = new SMAAPass(1, 1);
+        composer.addPass(p); // sizes it to the composer's current buffer
+        this.pass = p;
+        applyAA();
+      })
+      .catch((err) => {
+        console.warn('[aa] SMAA failed to load', err); // FXAA keeps covering
+        this.loading = null;
+      });
+  },
+};
+function applyAA() {
+  const wantSmaa = Q.aa === 'smaa';
+  if (wantSmaa && !smaa.pass) smaa.load();
+  if (smaa.pass) smaa.pass.enabled = wantSmaa;
+  fxaaPass.enabled = Q.aa === 'fxaa' || (wantSmaa && !smaa.pass);
+}
+
 function onResize() {
   resizeCamera();
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -424,6 +473,7 @@ window.addEventListener('resize', onResize);
 let appliedBase = -1;
 function applyQuality() {
   bloomPass.enabled = Q.bloom;
+  applyAA();
   if (Q.basePixelRatio !== appliedBase) {
     appliedBase = Q.basePixelRatio;
     renderer.setPixelRatio(Q.basePixelRatio);
@@ -686,6 +736,34 @@ if (import.meta.env.DEV) {
         return { w: composer.renderTarget1.width, h: composer.renderTarget1.height, canvasW: renderer.domElement.width };
       },
     },
+    // Fixed camera set-ups for before/after screenshots. Puts the ship `dist`
+    // away from a body along `dir` (a mix of sunward and sideways), looking at
+    // it, at rest. Names: sun, station, or any planet name; `side` 0 looks at
+    // the lit face, 1 puts the terminator centre-frame, 2 the night side.
+    pose(name, distR = 3, side = 0) {
+      let target, radius;
+      if (name === 'sun') {
+        target = sun.group.position;
+        radius = C.SUN_RADIUS;
+      } else if (name === 'station') {
+        target = stations[0].group.position;
+        radius = 150;
+      } else {
+        const p = planets.find((q) => q.cfg.name === name);
+        target = p.group.position;
+        radius = p.radius;
+      }
+      const toSun = new THREE.Vector3().subVectors(sun.group.position, target).normalize();
+      if (name === 'sun') toSun.copy(target).normalize().negate();
+      const sideways = new THREE.Vector3().crossVectors(toSun, new THREE.Vector3(0, 1, 0)).normalize();
+      const a = (side * Math.PI) / 2;
+      const dir = toSun.multiplyScalar(Math.cos(a)).addScaledVector(sideways, Math.sin(a) || 0.25).normalize();
+      ship.position.copy(target).addScaledVector(dir, radius * distR);
+      ship.velocity.set(0, 0, 0);
+      ship.angularVelocity.set(0, 0, 0);
+      ship.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(ship.position, target, new THREE.Vector3(0, 1, 0)));
+    },
+    hideCockpit: false, // screenshots of the world without the dashboard
     setAO(v) {
       aoPass.enabled = !!v;
     },
@@ -1575,7 +1653,7 @@ function frame(now) {
     setPrompt(walkPromptText());
   } else {
     interiorPass.enabled = standBlend > 0.001;
-    cockpitPass.enabled = true;
+    cockpitPass.enabled = !(debug && debug.hideCockpit);
     cockpitPass.clearDepth = !interiorPass.enabled;
     cockpitRig.visible = true; // the camera zoom handles the full-window view
     // the C prompt: a launch reminder while seated, "SIT" back at the chair;
@@ -1622,6 +1700,7 @@ function frame(now) {
     if (isolated.keep) updatePlanets(now / 1000, camera.position, isolated.keep);
   } else {
     updateStarfield(camera, Q.pixelRatio);
+    updateSun(now / 1000);
     updateNebula(camera);
     updateDeepNebula(renderer, camera);
     updatePlanets(now / 1000, camera.position);
