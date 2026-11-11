@@ -5,6 +5,7 @@
 
 import { settings, saveSettings } from './settings.js';
 import { Q, onQualityChange } from './quality.js';
+import { resetCoach } from './coach.js';
 
 const CSS = `
 #pauseOverlay {
@@ -56,7 +57,9 @@ const CSS = `
 }
 #settingsPanel .s-val { color: #82f7ff; min-width: 42px; text-align: right; }
 #settingsPanel .s-quality { display: flex; gap: 6px; }
-#settingsPanel .s-quality button { padding: 6px 9px; font-size: 11px; }
+#settingsPanel .s-quality { flex-wrap: wrap; justify-content: flex-end; }
+#settingsPanel .s-quality button { padding: 6px 7px; font-size: 10px; letter-spacing: 0.12em; }
+#settingsPanel button.s-small { padding: 6px 12px; font-size: 11px; }
 #settingsPanel .s-qnote {
   margin: -4px 0 10px; text-align: right; font-size: 10px;
   letter-spacing: 0.18em; color: #82f7ff; opacity: 0.75;
@@ -84,7 +87,7 @@ let overlay, panel;
 let settingsOpen = false;
 let onResumeCb = null;
 // live-updating widgets, refreshed when the panel opens
-let volSlider, volVal, muteBox, sensSlider, sensVal, invertBox, qButtons, qNote;
+let volSlider, volVal, muteBox, sensSlider, sensVal, invertBox, qButtons, qNote, motionButtons;
 
 function row(parent, label) {
   const r = document.createElement('div');
@@ -103,6 +106,7 @@ function refreshWidgets() {
   sensSlider.value = String(Math.round(settings.sensitivity * 100));
   sensVal.textContent = `${Math.round(settings.sensitivity * 100)}%`;
   invertBox.checked = settings.invertY;
+  for (const b of motionButtons) b.classList.toggle('sel', b.dataset.m === settings.reducedMotion);
   const auto = settings.qualityMode === 'auto';
   for (const b of qButtons) {
     b.classList.toggle('sel', auto ? b.dataset.q === 'auto' : b.dataset.q === settings.quality);
@@ -228,6 +232,36 @@ export function initSettingsPanel() {
   onQualityChange(() => {
     if (settingsOpen) refreshWidgets();
   });
+
+  // Camera shake, turbulence and the warp smear. SYSTEM follows the OS's
+  // reduced-motion preference.
+  const mRow = row(panel, 'SHAKE');
+  const mWrap = document.createElement('div');
+  mWrap.className = 's-quality';
+  motionButtons = [];
+  for (const [m, label] of [['system', 'SYSTEM'], ['off', 'FULL'], ['on', 'REDUCED']]) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.dataset.m = m;
+    b.addEventListener('click', () => {
+      settings.reducedMotion = m;
+      saveSettings();
+      refreshWidgets();
+    });
+    motionButtons.push(b);
+    mWrap.appendChild(b);
+  }
+  mRow.appendChild(mWrap);
+
+  const tRow = row(panel, 'TUTORIAL');
+  const tBtn = document.createElement('button');
+  tBtn.className = 's-small';
+  tBtn.textContent = 'REPLAY';
+  tBtn.addEventListener('click', () => {
+    resetCoach();
+    tBtn.textContent = 'WILL REPLAY';
+  });
+  tRow.appendChild(tBtn);
 
   const close = document.createElement('button');
   close.textContent = 'CLOSE';

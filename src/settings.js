@@ -16,6 +16,7 @@ export const settings = {
   // 'auto' lets src/quality.js pick and lower the tier; 'manual' pins it.
   qualityMode: 'auto',
   qualityProbed: false, // auto mode has already chosen `quality` on this device
+  reducedMotion: 'system', // 'system' | 'on' | 'off' — camera shake and warp smear (motion.js)
 };
 
 const TIER_NAMES = ['low', 'medium', 'high', 'ultra'];
@@ -28,6 +29,7 @@ function sanitize() {
   if (!TIER_NAMES.includes(settings.quality)) settings.quality = 'medium';
   if (settings.qualityMode !== 'manual') settings.qualityMode = 'auto';
   settings.qualityProbed = !!settings.qualityProbed;
+  if (settings.reducedMotion !== 'on' && settings.reducedMotion !== 'off') settings.reducedMotion = 'system';
 }
 
 try {

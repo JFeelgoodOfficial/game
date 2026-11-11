@@ -143,6 +143,7 @@ import { initTouchControls, updateTouchControls } from './touchControls.js';
 import { initCapture, capturePendingPhoto, updateCapture, updateRecordingFrame, requestPhoto, toggleRecording, isGalleryOpen, isRecording } from './capture.js';
 import { MOTION_SCALE } from './motion.js';
 import { initSfx, updateSfx, sfxState } from './sfx.js';
+import { initCoach, updateCoach, coachState } from './coach.js';
 import { initCredits, openCredits, closeCredits, isCreditsOpen } from './credits.js';
 import { initArtView, openArtView, closeArtView, isArtViewOpen } from './artView.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
@@ -222,6 +223,7 @@ initSfx();
 initJournal();
 initInventory();
 initSettingsPanel();
+initCoach();
 
 // --- composer (GDD 4.4) ---
 const composer = new EffectComposer(renderer);
@@ -766,6 +768,7 @@ if (import.meta.env.DEV) {
       ship.angularVelocity.set(0, 0, 0);
       ship.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(ship.position, target, new THREE.Vector3(0, 1, 0)));
     },
+    coach: coachState,
     hideCockpit: false, // screenshots of the world without the dashboard
     setAO(v) {
       aoPass.enabled = !!v;
@@ -816,6 +819,8 @@ function terrainBaked() {
   return (allBaked = true);
 }
 
+const _coach = { flying: false, turning: false, navOpen: false, landed: false };
+const _menuQ = new THREE.Quaternion();
 let trauma = 0; // camera shake impulse, 0..1, decays every frame
 let wasWarping = false;
 
@@ -1331,6 +1336,13 @@ function frame(now) {
   // owns touch — so the sticks hide outside the walk phase.
   updateTouchControls(delta, phase, paused, standing);
 
+  // Title screen: the view behind the menu pans slowly side to side instead
+  // of sitting dead still. Launch resets the ship, so nothing carries over.
+  if (phase === 'menu') {
+    _menuQ.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, C.MENU_PAN_RATE * Math.cos(now * 0.0001) * rawDelta * MOTION_SCALE);
+    ship.quaternion.multiply(_menuQ);
+  }
+
   if (phase === 'fly') {
     // C: stand up out of the seat / sit back down at it. Standing is
     // blocked at warp (nobody walks at 10,000 u/s); sitting requires being
@@ -1728,6 +1740,13 @@ function frame(now) {
   const holoActive =
     phase === 'fly' && !paused && !standing && landState === null && !autopilotActive();
   updateHolonav(ship, delta, holoActive);
+  // First-flight coaching. "Turning" is read off the ship, not the mouse, so
+  // it counts touch drags and does not care when input deltas are consumed.
+  _coach.flying = phase === 'fly' && !paused && !standing;
+  _coach.turning = ship.angularVelocity.lengthSq() > 0.0025;
+  _coach.navOpen = isHoloOpen();
+  _coach.landed = landState === 'landed';
+  updateCoach(delta, _coach);
   updateCompass(phase === 'walk' ? walkBearing() : null);
   updateControls(phase);
   setObjective(phase === 'walk' ? walkObjective() : null);

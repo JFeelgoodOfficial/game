@@ -66,6 +66,7 @@ export const C = {
   WARP_STREAK_FROM: 0.06, // speed fraction below which no streaks are drawn
   WARP_SMEAR: 0.018, // radial blur reach at the frame corners at full warp (uv)
   WARP_CA_BOOST: 2.5, // extra chromatic aberration at full warp, x CA_STRENGTH
+  MENU_PAN_RATE: 0.02, // peak yaw rate of the title-screen pan, rad/s (about 11 degrees each way)
   WARP_KICK: 0.55, // camera trauma added when warp engages or drops out
   FOV_SPRING: 70.0, // stiffness of the FOV spring (1/s^2)
   FOV_DAMPING: 0.5, // damping ratio; below 1 the FOV overshoots, then settles

@@ -26,6 +26,18 @@ const CSS = `
   max-width: 92vw; text-align: center;
   text-shadow: 0 0 8px rgba(130,247,255,0.5);
 }
+#menu .keys {
+  display: grid; grid-template-columns: repeat(5, auto); gap: 10px 26px;
+  justify-content: center; font-size: 11px; letter-spacing: 0.2em; color: #9fd8e8;
+}
+#menu .keys > div { display: flex; align-items: center; gap: 9px; white-space: nowrap; }
+#menu .keys .cap {
+  min-width: 18px; padding: 3px 8px; text-align: center; border-radius: 3px;
+  color: #ffd0ee; border: 1px solid rgba(212,64,143,0.6); background: rgba(212,64,143,0.14);
+}
+@media (max-width: 820px) {
+  #menu .keys { grid-template-columns: repeat(2, auto); gap: 6px 18px; font-size: 9px; }
+}
 #menu .dead { color: #ff7a6a; text-shadow: 0 0 12px rgba(255,80,60,0.7); }
 #menu button {
   font: inherit; font-size: 15px; letter-spacing: 0.3em; padding: 13px 46px;
@@ -215,6 +227,28 @@ export function initMenu(launchCallback) {
   showMenu('start');
 }
 
+// The controls, as labelled key caps in a grid rather than two run-on lines.
+// Built once and re-attached each time the start menu shows.
+const KEYS = [
+  ['MOUSE', 'STEER'], ['W', 'THRUST'], ['S', 'REVERSE'], ['F', 'WARP'], ['SPACE', 'BRAKE'],
+  ['N', 'NAV CHART'], ['G', 'LAND / WALK'], ['C', 'WALK SHIP'], [', .', 'RADIO'], ['⌫', 'PAUSE'],
+];
+let keyGridEl = null;
+function keyGrid() {
+  if (keyGridEl) return keyGridEl;
+  keyGridEl = document.createElement('div');
+  keyGridEl.className = 'keys';
+  for (const [k, what] of KEYS) {
+    const cell = document.createElement('div');
+    const cap = document.createElement('span');
+    cap.className = 'cap';
+    cap.textContent = k;
+    cell.append(cap, what);
+    keyGridEl.appendChild(cell);
+  }
+  return keyGridEl;
+}
+
 export function showMenu(mode, reason) {
   if (mode === 'dead') {
     sub.textContent = reason || 'HULL BURNED THROUGH — SHIP LOST';
@@ -222,9 +256,9 @@ export function showMenu(mode, reason) {
     if (sub2) sub2.textContent = '';
     button.textContent = 'FLY AGAIN';
   } else {
-    sub.textContent = 'W THRUST · S REVERSE · MOUSE STEER · F/J WARP · SPACE BRAKE · N NAV MAP · , . RADIO';
+    sub.textContent = '';
     sub.className = 'sub';
-    if (sub2) sub2.textContent = 'C — WALK SHIP · G — LAND & WALK · BACKSPACE — PAUSE';
+    if (sub2) sub2.replaceChildren(keyGrid());
     button.textContent = 'LAUNCH';
   }
   button.disabled = false;
