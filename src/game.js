@@ -130,7 +130,8 @@ import { initVehicleMenu, toggleVehicleMenu, closeVehicleMenu } from './vehicleM
 import {
   initNav, updateNav, navState, showNavToast, hideNavToast, getBodies,
 } from './nav.js';
-import { settings, onSettingsChange } from './settings.js';
+import { settings, saveSettings } from './settings.js';
+import { Q, initQuality, onQualityChange, governFrame, qualityReport } from './quality.js';
 import {
   initSettingsPanel,
   showPauseOverlay,
@@ -139,7 +140,7 @@ import {
 import { initCompass, updateCompass } from './compass.js';
 import { initControls, updateControls, setObjective } from './controls.js';
 import { initTouchControls, updateTouchControls } from './touchControls.js';
-import { initCapture, capturePendingPhoto, updateCapture, updateRecordingFrame, requestPhoto, toggleRecording, isGalleryOpen } from './capture.js';
+import { initCapture, capturePendingPhoto, updateCapture, updateRecordingFrame, requestPhoto, toggleRecording, isGalleryOpen, isRecording } from './capture.js';
 import { MOTION_SCALE } from './motion.js';
 import { initSfx, updateSfx, sfxState } from './sfx.js';
 import { initCredits, openCredits, closeCredits, isCreditsOpen } from './credits.js';
@@ -154,7 +155,8 @@ import skyfogFrag from './shaders/skyfog.frag?raw';
 // multisampling the default framebuffer smooths nothing and costs a
 // multisampled backbuffer plus a resolve per frame.
 const renderer = new THREE.WebGLRenderer({ antialias: false });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+initQuality(renderer); // picks the tier (and so the pixel ratio) before anything is sized
+renderer.setPixelRatio(Q.basePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 document.body.appendChild(renderer.domElement);
@@ -413,21 +415,24 @@ function onResize() {
 }
 window.addEventListener('resize', onResize);
 
-// Quality setting: LOW caps the render at 1x pixel ratio and drops bloom —
-// the two biggest fixed costs a weaker GPU can shed without changing the
-// scene itself. (The planet shader also reads settings.quality; planet.js.)
-let appliedQuality = null;
+// Quality: the tier sets the canvas pixel ratio and which passes exist; the
+// frame governor then trims the composer's INTERNAL resolution under it
+// (src/quality.js). The canvas itself never resizes for the governor — only
+// the render targets do, and OutputPass stretches the result back up — so a
+// step is a target reallocation, not a layout change. (The planet shader and
+// the world modules read settings.quality themselves.)
+let appliedBase = -1;
 function applyQuality() {
-  if (settings.quality === appliedQuality) return; // change events fire for any setting
-  appliedQuality = settings.quality;
-  renderer.setPixelRatio(
-    Math.min(window.devicePixelRatio, settings.quality === 'low' ? 1 : 2)
-  );
-  bloomPass.enabled = settings.quality !== 'low';
-  onResize(); // repropagate sizes at the new ratio
+  bloomPass.enabled = Q.bloom;
+  if (Q.basePixelRatio !== appliedBase) {
+    appliedBase = Q.basePixelRatio;
+    renderer.setPixelRatio(Q.basePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+  composer.setPixelRatio(Q.pixelRatio); // resizes every pass at the new scale
 }
 applyQuality();
-onSettingsChange(applyQuality);
+onQualityChange(applyQuality);
 
 // --- dev-only debug handle, for headless verification and tuning ---
 // Stripped from production along with the branch that reads it.
@@ -659,6 +664,28 @@ if (import.meta.env.DEV) {
       for (let i = 0; i < n; i++) sum += frameTimes[i];
       return n / sum;
     },
+    // Tier and governor, for headless checks. `set` pins a tier the way the
+    // settings panel does; `auto` hands control back; `feed` pushes synthetic
+    // frame times (ms) through the governor without waiting on real frames.
+    quality: {
+      report: qualityReport,
+      set(tier) {
+        settings.qualityMode = 'manual';
+        settings.quality = tier;
+        saveSettings();
+      },
+      auto() {
+        settings.qualityMode = 'auto';
+        saveSettings();
+      },
+      feed(ms, n = 1) {
+        for (let i = 0; i < n; i++) governFrame(ms / 1000, true);
+        return qualityReport();
+      },
+      buffer() {
+        return { w: composer.renderTarget1.width, h: composer.renderTarget1.height, canvasW: renderer.domElement.width };
+      },
+    },
     setAO(v) {
       aoPass.enabled = !!v;
     },
@@ -695,6 +722,17 @@ if (import.meta.env.DEV) {
   window.__scene = scene;
   window.__camera = camera;
   window.__renderer = renderer; // renderer.info is how headless checks for leaks
+}
+
+// True once every terra planet has swapped to its baked mesh. Latches, so the
+// per-frame cost after boot is one boolean test.
+let allBaked = false;
+function terrainBaked() {
+  if (allBaked) return true;
+  for (let i = 0; i < planets.length; i++) {
+    if (planets[i].cfg.type === 'terra' && !planets[i].baked) return false;
+  }
+  return (allBaked = true);
 }
 
 const DT = 1 / 60;
@@ -1165,7 +1203,12 @@ function frame(now) {
   requestAnimationFrame(frame);
   let delta = (now - last) / 1000;
   last = now;
+  const rawDelta = delta;
   if (delta > MAX_FRAME_DELTA) delta = MAX_FRAME_DELTA;
+  // Feed the governor the true frame time. Not while paused or recording, and
+  // not until every planet has swapped to baked terrain: the bake runs in
+  // main-thread slices that would read as a slow GPU.
+  governFrame(rawDelta, !paused && !isRecording() && terrainBaked());
   if (debug) {
     debug.recordFrame(delta);
     if (debug.paused) delta = 0;
@@ -1578,7 +1621,7 @@ function frame(now) {
     // even one left to spin. Skip the pass entirely.
     if (isolated.keep) updatePlanets(now / 1000, camera.position, isolated.keep);
   } else {
-    updateStarfield(camera, renderer.getPixelRatio());
+    updateStarfield(camera, Q.pixelRatio);
     updateNebula(camera);
     updateDeepNebula(renderer, camera);
     updatePlanets(now / 1000, camera.position);

@@ -377,3 +377,32 @@ export const C = {
   AUTOLAND_SPEED: 200.0, // max ship speed to start auto-land
   TAKEOFF_KICK: 8.0, // upward velocity handed back on liftoff from a landing
 };
+
+// --- quality tiers (src/quality.js) ---
+// Kept out of C on purpose: tuning.js binds C to the dev panel, and these are
+// per-tier switches, not live dials. MEDIUM is the 60 fps Intel Iris Xe target
+// (GDD 2.1) — the tier every budget is measured against. LOW sheds the fixed
+// costs a phone or software rasteriser cannot pay; HIGH and ULTRA spend the
+// headroom a discrete GPU has. `minScale` is how far the frame governor may
+// drop the internal render resolution before auto mode gives up a whole tier.
+export const TIERS = {
+  low: { pixelRatio: 1.0, bloom: false, aa: 'none', minScale: 0.6 },
+  medium: { pixelRatio: 1.5, bloom: true, aa: 'fxaa', minScale: 0.7 },
+  high: { pixelRatio: 2.0, bloom: true, aa: 'smaa', minScale: 0.7 },
+  ultra: { pixelRatio: 2.0, bloom: true, aa: 'smaa', minScale: 0.85 },
+};
+export const TIER_ORDER = ['low', 'medium', 'high', 'ultra'];
+
+// Frame governor: holds the frame rate by stepping the composer's internal
+// resolution through SCALES, one step per decision window.
+export const GOVERNOR = {
+  SCALES: [1.0, 0.85, 0.7, 0.6],
+  WINDOW: 60, // frames averaged per decision
+  SLOW: 1 / 50, // mean frame time above this steps the scale down
+  FAST: 1 / 57, // mean frame time below this counts toward stepping back up
+  UP_WINDOWS: 5, // consecutive fast windows before a step up
+  UP_WINDOWS_MAX: 60, // back-off ceiling after a step up that did not hold
+  RELAPSE_WINDOWS: 3, // a step down this soon after a step up doubles the wait
+  TIER_DROP_WINDOWS: 2, // slow windows at minScale before auto drops a tier
+  IGNORE_ABOVE: 0.5, // seconds; a frame this long is a stall, not a sample
+};

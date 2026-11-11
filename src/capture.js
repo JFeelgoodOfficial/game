@@ -182,6 +182,10 @@ export function isGalleryOpen() {
   return galleryOpen;
 }
 
+export function isRecording() {
+  return recording;
+}
+
 // --- photos ---------------------------------------------------------------
 
 export function requestPhoto() {

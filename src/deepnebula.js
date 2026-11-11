@@ -18,6 +18,7 @@
 // push a couple of uniforms. Nothing re-bakes. A tiny mass (no radius) gives a
 // gentle, always-escapable pull — like the black hole, a nebula is not a hazard.
 
+import { Q } from './quality.js';
 import * as THREE from 'three';
 import { C } from './constants.js';
 import { addShiftable } from './origin.js';
@@ -714,7 +715,7 @@ const _view = new THREE.Vector3();
 export function updateDeepNebula(renderer, camera) {
   renderer.getSize(_size);
   const scale = 0.5 * _size.y / Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5);
-  const pr = renderer.getPixelRatio();
+  const pr = Q.pixelRatio; // the composer's resolution, not the canvas's
   for (const n of deepNebulae) {
     let intensity = n.intensity * C.NEBULA_FIELD_INTENSITY;
     // Painting nebulae (records with `facing`): hazy from the side, full
