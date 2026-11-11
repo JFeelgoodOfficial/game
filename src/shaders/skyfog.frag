@@ -17,6 +17,7 @@ uniform float uDay;       // 0 night .. 1 full day at the ship's position
 uniform vec3 uSkyDay;
 uniform float uDensity;
 uniform vec3 uUpView;     // planet-away ("up") direction, in view space
+uniform vec3 uSunView;    // direction to the sun, in view space
 uniform float uAspect;
 uniform float uTanHalf;   // tan(fov/2)
 uniform float uNear;
@@ -42,6 +43,11 @@ void main() {
   vec3 sky = mix(vec3(0.01, 0.02, 0.05), uSkyDay, uDay);
   // hot, pale band right at the horizon
   vec3 hazeCol = mix(sky, uSkyDay * 1.35 + 0.08, pow(horizon, 4.0) * uDay);
+  // Low sun: the horizon toward it burns orange, strongest right at the
+  // terminator (uDay 0.5) and gone by full day or full night.
+  float lowSun = smoothstep(0.3, 0.5, uDay) * (1.0 - smoothstep(0.5, 0.78, uDay));
+  float toward = pow(max(dot(ray, normalize(uSunView)), 0.0), 3.0);
+  hazeCol = mix(hazeCol, vec3(1.25, 0.52, 0.2), lowSun * pow(horizon, 2.0) * (0.3 + 0.7 * toward));
 
   // Aerial perspective: haze builds with the distance the sightline travels
   // through the air. Cleared depth (sky) inverts to dist >= uFar, the factor

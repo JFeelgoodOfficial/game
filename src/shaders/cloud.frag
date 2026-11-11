@@ -45,6 +45,8 @@ void main() {
   float day = smoothstep(-0.1, 0.32, ndl);
   // brighter sunlit tops, cooler shadowed base
   vec3 col = mix(vec3(0.55, 0.6, 0.72), vec3(1.0), day);
+  // cloud tops near the terminator catch the same reddened sunlight the ground does
+  col *= mix(vec3(1.0, 0.55, 0.3), vec3(1.0), smoothstep(-0.05, 0.42, ndl));
 
   gl_FragColor = vec4(col, cover * (0.15 + 0.85 * day));
 }

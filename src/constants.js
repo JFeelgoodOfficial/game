@@ -76,6 +76,16 @@ export const C = {
   ATMO_SHELL: 1.25, // atmosphere radius, × planet radius (250 units thick)
   SKY_COLOR: 0x6ea0ff, // daytime sky the view washes to inside the atmosphere
   SKY_DENSITY: 0.6, // how thickly the atmosphere fogs the view
+  // Scattering shell (src/shaders/atmosphere.frag), lengths in planet radii.
+  ATMO_SCALE_HEIGHT: 0.045, // density falls by e every this much altitude
+  ATMO_TAU: 0.2, // zenith optical depth in the most-scattered colour channel
+  ATMO_SUN: 0.7, // sunlight intensity feeding the in-scatter (HDR)
+  ATMO_MIE: 0.5, // forward-scattering haze: the glow around a low sun
+  ATMO_INSIDE: 0.3, // share of the shell's effect left at ground level
+  WATER_FADE_NEAR: 2.0, // planet radii from centre: sea mesh fully drawn inside this
+  WATER_FADE_FAR: 3.5, // ...and gone beyond this, where the surface shader draws the sea
+  CITY_LIGHTS_HDR: 2.6, // night-side town glow, above the bloom threshold
+  SEA_GLINT: 5.0, // peak sun-glint intensity on open water, close up
   SKY_HAZE_DIST: 400.0, // aerial perspective: sightline distance (units) for ~63% haze on geometry
   CLOUD_COVER: 0.5, // 0 clear .. 1 overcast
   TURBULENCE: 0.16, // camera buffet inside an atmosphere, scaled by speed

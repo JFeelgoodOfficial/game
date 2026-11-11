@@ -27,6 +27,15 @@ uniform vec3 uFogColor;   // custom fog (planetsky underwater grading)
 uniform float uFogDensity;// 0 = off — raw ShaderMaterials can't read scene.fog
 uniform float uSeabedDetail; // 1 on divable worlds: grain/relief run underwater too
 
+uniform float uSeaGloss;
+uniform vec3 uSkyColor;
+uniform float uSeaGlint;
+uniform vec4 uCity; // xyz: town direction in object space, w: 1 if this world has one
+uniform float uCityHdr;
+uniform float uCloudShadow;
+uniform float uTime;
+uniform float uCover;
+
 float hash(vec3 p) {
   p = fract(p * 0.3183099 + 0.1);
   p *= 17.0;
@@ -132,11 +141,42 @@ void main() {
 
   float ndl = dot(N, S);
   float day = smoothstep(-0.12, 0.28, ndl);
-  vec3 lit = col * (0.04 + 0.96 * day);
+  vec3 Ns = normalize(vWorldNormal); // the smooth sphere, without relief
+  float muS = dot(Ns, S);
+  // Sunlight that reaches the ground near the terminator has crossed a long
+  // slant of air and arrives warm. (The limb glow itself is the air shell's.)
+  vec3 sunCol = mix(vec3(1.0, 0.5, 0.24), vec3(1.0), smoothstep(-0.05, 0.42, muS));
 
-  // faint cool rim toward the limb on the day side
-  float rim = pow(1.0 - max(dot(normalize(vWorldNormal), V), 0.0), 3.0) * day;
-  lit += vec3(0.35, 0.45, 0.7) * rim * 0.35;
+  // Cloud shadows: the cloud layer's low octaves, re-evaluated at the ground.
+  float shade = 1.0;
+  if (uCloudShadow > 0.5) {
+    float cd = fbm(p * 2.4 + vec3(uTime * 0.006, 0.0, uTime * 0.004), 3);
+    float lo = mix(0.62, 0.4, uCover) - 0.06; // 3 of the layer's 5 octaves sum lower
+    shade = 1.0 - 0.45 * smoothstep(lo, lo + 0.16, cd);
+  }
+
+  vec3 lit = col * (0.04 + 0.96 * day * shade * sunCol);
+
+  bool sea = elev < uSeaLevel;
+  // Open water seen from far out, where the sea mesh has faded away: a sky
+  // reflection at grazing angles and the sun's glint, spread wide by distance.
+  if (sea && uSeaGloss > 0.5) {
+    float ndv = max(dot(Ns, V), 0.0);
+    float fres = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
+    lit = mix(lit, uSkyColor * (0.05 + 0.95 * day), fres * 0.6);
+    vec3 H = normalize(S + V);
+    lit += vec3(1.0, 0.93, 0.78) * pow(max(dot(Ns, H), 0.0), 180.0) * day * uSeaGlint * 0.16 * sunCol;
+  }
+
+  // The town's lights on the night side: a warm cluster broken into districts.
+  if (uCity.w > 0.5 && !sea) {
+    float near = smoothstep(0.975, 0.9985, dot(p, uCity.xyz)); // ~13 degrees out to the core
+    if (near > 0.0) {
+      float blocks = vnoise(p * 150.0) * vnoise(p * 61.0 + 7.3);
+      float glow = near * near * (0.25 + 3.0 * blocks);
+      lit += vec3(1.0, 0.72, 0.38) * glow * uCityHdr * (1.0 - smoothstep(-0.15, 0.1, muS));
+    }
+  }
 
   if (uFogDensity > 0.0) {
     // vViewDir is unnormalized (camera - fragment), so its length is the view

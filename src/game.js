@@ -259,6 +259,7 @@ const skyfogPass = new SkyfogPass({
     uSkyDay: { value: new THREE.Color(C.SKY_COLOR) },
     uDensity: { value: C.SKY_DENSITY },
     uUpView: { value: new THREE.Vector3(0, 1, 0) },
+    uSunView: { value: new THREE.Vector3(0, 1, 0) },
     uAspect: { value: window.innerWidth / window.innerHeight },
     uTanHalf: { value: Math.tan((C.FOV * Math.PI) / 360) },
     uNear: { value: 0.1 },
@@ -1769,6 +1770,7 @@ function frame(now) {
     // planet-up expressed in view space, for horizon-weighted haze
     _invQuat.copy(camera.quaternion).invert();
     su.uUpView.value.copy(_up).applyQuaternion(_invQuat);
+    su.uSunView.value.copy(_atmo.p.sunDir ?? SUN).applyQuaternion(_invQuat);
     su.uAspect.value = camera.aspect;
     su.uTanHalf.value = Math.tan((camera.fov * Math.PI) / 360);
   }
