@@ -123,6 +123,8 @@ export const C = {
   SUN_CORE_HDR: 5.0, // photosphere at disc centre
   SUN_CORONA: 1.1, // corona brightness at the limb
   SUN_CORONA_RADII: 7.0, // half-width of the corona billboard, in sun radii
+  STATION_ENV: 2.2, // how strongly station metal reflects the baked sky
+  STATION_PANEL: 14.0, // hull plating cell size, world units
   STATION_GLOW_HDR: 3.2, // accent strips and beacons
   STATION_WINDOW_HDR: 1.7, // lit viewports
   STATION_EMBER_HDR: 3.0, // mining pits and cutting beams

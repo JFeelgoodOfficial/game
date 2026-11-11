@@ -197,7 +197,7 @@ initSun(scene);
 initBlackHole(scene);
 initDeepNebula(scene); // second nebula — a flyable field out past the black hole
 initPaintingNebulae(scene); // the artgallery paintings, as outer-shell nebulae
-initStations(scene);
+initStations(scene, renderer);
 
 // Initial layout of everything origin-registered (planets, sun, stations,
 // black hole), snapshotted so resets restore it exactly.
@@ -500,6 +500,7 @@ if (import.meta.env.DEV) {
     planets,
     sun,
     blackhole,
+    stationList: stations,
     deepNebulae,
     paintingNebulae,
     originOffset,

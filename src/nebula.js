@@ -43,6 +43,12 @@ function bake() {
   cubeCam.update(rendererRef, bakeScene);
 }
 
+// The baked sky, read-only, for anything that wants to reflect it (the
+// stations' environment map). Valid once initNebula has run.
+export function nebulaCubeTexture() {
+  return cubeTarget.texture;
+}
+
 export function initNebula(scene, renderer) {
   rendererRef = renderer;
 
