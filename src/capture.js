@@ -19,6 +19,7 @@
 // task as composer.render(), for the same preserveDrawingBuffer reason.
 
 import { getDialogueDisplay } from './dialogue.js';
+import { uiSound } from './sfx.js';
 
 const CSS = `
 #capBtn {
@@ -260,6 +261,7 @@ function compositeHudThenSave(out, ctx, bw, bh) {
 }
 
 function flashShutter() {
+  uiSound('shutter');
   flash.style.opacity = '0.85';
   requestAnimationFrame(() => { flash.style.opacity = '0'; });
   showToast('PHOTO SAVED — PICS');

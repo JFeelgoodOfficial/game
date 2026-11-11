@@ -19,6 +19,7 @@ import * as THREE from 'three';
 import { C } from './constants.js';
 import { input } from './input.js';
 import { settings } from './settings.js';
+import { uiSound } from './sfx.js';
 import { camera } from './camera.js';
 import { cockpitScene } from './cockpit.js';
 import { toggleRadioPopup } from './radioPopup.js';
@@ -454,6 +455,7 @@ function flash(b) {
 // release (false); only hold buttons care about release.
 function pressButton(b, on) {
   const d = b.userData.def;
+  if (on) uiSound('toggle');
   if (d.mode === 'hold') {
     input[d.flag] = on;
     if (on) flash(b);

@@ -15,6 +15,7 @@ import { getBodies, isLogged, setNavOpenProbe } from './nav.js';
 import { startAutoWarp } from './autopilot.js';
 import { label } from './holoLabel.js';
 import { C } from './constants.js';
+import { uiSound } from './sfx.js';
 
 const CYAN = 0x82f7ff,
   PINK = 0xffc9ec,
@@ -342,6 +343,7 @@ export function isHoloOpen() {
 }
 
 function select(body) {
+  uiSound('select');
   if (!body) return;
   selectedId = body.id;
   reticle.visible = true;
@@ -362,6 +364,7 @@ function deselect() {
 }
 
 function engage() {
+  uiSound('engage');
   const body = getBodies().find((b) => b.id === selectedId);
   if (body) {
     toggleHolo(false);
