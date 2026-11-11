@@ -36,6 +36,18 @@ float fbm(vec3 p) {
   return v;
 }
 
+// Rings: xyz is the ring plane's normal (world frame), w is 1 on a ringed
+// world. uRingSpan is the inner and outer radius in planet radii.
+uniform vec4 uRing;
+uniform vec2 uRingSpan;
+
+float ringHash(float n) { return fract(sin(n) * 43758.5453123); }
+float ringNoise(float x) {
+  float i = floor(x), f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(ringHash(i), ringHash(i + 1.0), f);
+}
+
 void main() {
   vec3 p = normalize(vObjPos);
 
@@ -53,6 +65,23 @@ void main() {
   // day/night
   vec3 N = normalize(vWorldNormal), S = normalize(uSun), V = normalize(vViewDir);
   float day = smoothstep(-0.12, 0.28, dot(N, S));
+  // The rings' shadow on the cloud tops: follow the sunward ray from this
+  // point to the ring plane and see whether it lands inside the rings. The
+  // band structure repeats rings.frag's first two octaves, so the dark lanes
+  // on the planet line up with the bright ones in the rings.
+  if (uRing.w > 0.5) {
+    float dn = dot(S, uRing.xyz);
+    float tr = -dot(N, uRing.xyz) / (abs(dn) < 1e-4 ? 1e-4 : dn);
+    if (tr > 0.0) {
+      float rr = length(N + S * tr);
+      float u = (rr - uRingSpan.x) / (uRingSpan.y - uRingSpan.x);
+      if (u > 0.0 && u < 1.0) {
+        float lanes = 0.5 * ringNoise(u * 26.0 + 3.7) + 0.25 * ringNoise(u * 55.4 + 7.9);
+        float dens = smoothstep(0.24, 0.36, lanes) * smoothstep(0.0, 0.06, u) * smoothstep(1.0, 0.8, u);
+        day *= 1.0 - 0.6 * dens;
+      }
+    }
+  }
   col *= (0.04 + 0.96 * day);
 
   // fresnel limb tint (thick atmosphere / methane)

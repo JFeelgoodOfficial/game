@@ -14,10 +14,13 @@ import { addBody } from './gravity.js';
 import { addShiftable } from './origin.js';
 import { groundHeight, elevationAt, DEFAULT_SHAPE } from './terrain.js';
 import { settings } from './settings.js';
+import { Q, onQualityChange } from './quality.js';
+import { citiesForWorld } from '../world/cityRegistry.js';
 import surfaceVert from './shaders/surface.vert?raw';
 import surfaceBakedVert from './shaders/surfaceBaked.vert?raw';
 import surfaceFrag from './shaders/surface.frag?raw';
 import atmosphereFrag from './shaders/atmosphere.frag?raw';
+import atmosphereLimbFrag from './shaders/atmosphereLimb.frag?raw';
 import cloudFrag from './shaders/cloud.frag?raw';
 import gasgiantFrag from './shaders/gasgiant.frag?raw';
 import ringsFrag from './shaders/rings.frag?raw';
@@ -276,6 +279,22 @@ function shapeZeroUniforms() {
   };
 }
 
+function cityUniform(worldName) {
+  const c = citiesForWorld(worldName)[0];
+  return c ? new THREE.Vector4(c.site.x, c.site.y, c.site.z, 1) : new THREE.Vector4(0, 1, 0, 0);
+}
+
+// Scattering coefficients from the planet's one authored air colour: the
+// brightest channel gets the full zenith optical depth, the others in
+// proportion. A blue-air world therefore reddens at the terminator and a
+// dusty orange one goes blue there, as Mars does.
+function atmoBeta(hex) {
+  const c = new THREE.Color(hex);
+  const m = Math.max(c.r, c.g, c.b, 1e-3);
+  const k = C.ATMO_TAU / C.ATMO_SCALE_HEIGHT / m;
+  return new THREE.Vector3(c.r * k, c.g * k, c.b * k);
+}
+
 function makeSurfaceUniforms(cfg, radius) {
   const p = cfg.palette;
   const s = cfg.shape || DEFAULT_SHAPE;
@@ -303,6 +322,19 @@ function makeSurfaceUniforms(cfg, radius) {
     // Divable worlds run the detail grain + relief shading below sea level
     // too — a diver looks at that ground from arm's length.
     uSeabedDetail: { value: cfg.divable ? 1 : 0 },
+    // Open-water gloss for the far view, where the sea mesh is faded out and
+    // this shader draws the ocean itself. 0 on dry and frozen worlds.
+    uSeaGloss: { value: cfg.water && cfg.water.gloss > 0.5 ? 1 : 0 },
+    uSkyColor: { value: new THREE.Color(cfg.skyColor()) },
+    uSeaGlint: { value: C.SEA_GLINT },
+    // The registry town, as a direction in this mesh's own frame, for the
+    // night-side lights. w = 0 on worlds without one.
+    uCity: { value: cityUniform(cfg.name) },
+    uCityHdr: { value: C.CITY_LIGHTS_HDR },
+    // Cloud shadows (HIGH and up, clouded worlds only): updatePlanets drives it.
+    uCloudShadow: { value: 0 },
+    uTime: { value: 0 },
+    uCover: { value: C.CLOUD_COVER },
   };
 }
 
@@ -346,6 +378,10 @@ export function initPlanets(scene) {
               ...shapeZeroUniforms(),
               uWaterColor: { value: new THREE.Color(cfg.water.color) },
               uGloss: { value: cfg.water.gloss },
+              uSkyColor: { value: new THREE.Color(cfg.skyColor()) },
+              uGlint: { value: C.SEA_GLINT },
+              uDetail: { value: 0 },
+              uFade: { value: 1 },
               uFogColor: { value: new THREE.Color(0) },
               uFogDensity: { value: 0 },
               uTime: { value: 0 },
@@ -394,6 +430,13 @@ export function initPlanets(scene) {
           uBandB: { value: new THREE.Color(cfg.gas.bandB) },
           uLimb: { value: new THREE.Color(cfg.gas.limb) },
           uBands: { value: cfg.gas.bands },
+          // ring plane normal: the ring mesh's +Z after its tilt about X
+          uRing: {
+            value: cfg.rings
+              ? new THREE.Vector4(0, Math.cos(cfg.rings.tilt), Math.sin(cfg.rings.tilt), 1)
+              : new THREE.Vector4(0, 1, 0, 0),
+          },
+          uRingSpan: { value: new THREE.Vector2(cfg.rings ? cfg.rings.inner : 1, cfg.rings ? cfg.rings.outer : 1) },
         },
       });
       surface = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 48), gasMat);
@@ -431,10 +474,12 @@ export function initPlanets(scene) {
       }
     }
 
-    // atmosphere limb shell
-    const atmoMat = new THREE.ShaderMaterial({
+    // The air shell. Two materials: the scattering march (MEDIUM and up) and
+    // the fresnel limb LOW keeps. Both are built here so a tier change is a
+    // material swap; a program only compiles the first time it is drawn.
+    const atmoLimbMat = new THREE.ShaderMaterial({
       vertexShader: surfaceVert,
-      fragmentShader: atmosphereFrag,
+      fragmentShader: atmosphereLimbFrag,
       uniforms: {
         uSun: { value: SUN.clone() },
         uSeaLevel: { value: 0 },
@@ -447,10 +492,42 @@ export function initPlanets(scene) {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
+    const atmoScatterMat = new THREE.ShaderMaterial({
+      vertexShader: surfaceVert,
+      fragmentShader: atmosphereFrag,
+      defines: { SAMPLES: 4 },
+      uniforms: {
+        uSun: { value: SUN.clone() },
+        uSeaLevel: { value: 0 },
+        uAmp: { value: 0 },
+        ...shapeZeroUniforms(),
+        uBeta: { value: atmoBeta(cfg.atmoColor) },
+        uRadius: { value: radius },
+        uShell: { value: C.ATMO_SHELL },
+        uH: { value: C.ATMO_SCALE_HEIGHT },
+        uSunI: { value: C.ATMO_SUN },
+        uMie: { value: C.ATMO_MIE },
+        uInside: { value: C.ATMO_INSIDE },
+      },
+      // Near faces from outside, far faces from inside; the shader discards
+      // the hemisphere that would double up.
+      side: THREE.DoubleSide,
+      transparent: true,
+      depthWrite: false,
+      // result = scatter + background * transmittance
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.SrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor,
+      blendDstAlpha: THREE.OneFactor,
+    });
     const atmosphere = new THREE.Mesh(
       new THREE.SphereGeometry(radius * C.ATMO_SHELL, 64, 32),
-      atmoMat
+      atmoScatterMat
     );
+    atmosphere.userData.limbMat = atmoLimbMat;
+    atmosphere.userData.scatterMat = atmoScatterMat;
     atmosphere.renderOrder = 2;
     group.add(atmosphere);
 
@@ -468,7 +545,9 @@ export function initPlanets(scene) {
       body: null, sunBase, sunDir: sunBase.clone(), spinVirtualY: 0,
     };
     // the lit meshes, gathered once so updatePlanets has no list to build
-    p.lit = [surface, clouds, waterMesh, atmosphere].filter((m) => m?.material?.uniforms?.uSun);
+    // (both air-shell materials, so whichever the tier swaps in is already aimed)
+    p.lit = [surface, clouds, waterMesh].filter((m) => m?.material?.uniforms?.uSun).map((m) => m.material);
+    p.lit.push(atmoLimbMat, atmoScatterMat);
 
     // gravity + altitude floor. Rocky floors follow the terrain: sample the
     // shared noise field in unrotated object space (undo the spin) with this
@@ -510,7 +589,28 @@ export function initPlanets(scene) {
 
     planets.push(p);
   }
+  applyPlanetQuality();
+  onQualityChange(applyPlanetQuality);
   return planets;
+}
+
+// Tier-dependent planet materials: which air shell, how many scattering
+// samples, and whether the sea gets its noise-wave normals. Runs on every
+// quality event (the governor's scale steps included), so it only touches a
+// material when something actually differs.
+const ATMO_SAMPLES = { medium: 4, high: 8, ultra: 12 };
+function applyPlanetQuality() {
+  const samples = ATMO_SAMPLES[Q.tier] || 0;
+  for (const p of planets) {
+    const a = p.atmosphere;
+    const want = samples ? a.userData.scatterMat : a.userData.limbMat;
+    if (a.material !== want) a.material = want;
+    if (samples && want.defines.SAMPLES !== samples) {
+      want.defines.SAMPLES = samples;
+      want.needsUpdate = true;
+    }
+    if (p.waterMesh) p.waterMesh.material.uniforms.uDetail.value = Q.tier === 'high' || Q.tier === 'ultra' ? 1 : 0;
+  }
 }
 
 // --- incremental displacement bake (audit fix) ---
@@ -631,7 +731,7 @@ export function updatePlanets(t, camPos, only = null) {
     if (p.sunDrift) p.sunDir.copy(p.sunBase).applyAxisAngle(_yAxisP, -p.sunDrift);
     else p.sunDir.copy(p.sunBase);
     // Push the (possibly swung) sun into every lit material on this planet.
-    for (let i = 0; i < p.lit.length; i++) p.lit[i].material.uniforms.uSun.value.copy(p.sunDir);
+    for (let i = 0; i < p.lit.length; i++) p.lit[i].uniforms.uSun.value.copy(p.sunDir);
     if (p.cfg.type === 'terra') {
       // terra's thresholds stay live-tunable from the panel
       p.surface.material.uniforms.uSeaLevel.value = p.cfg.seaLevel();
@@ -641,12 +741,29 @@ export function updatePlanets(t, camPos, only = null) {
       const distR = _tmp.subVectors(camPos, p.group.position).length() / p.radius;
       let oct = distR < 8 ? 6 : distR < 40 ? 4 : 3;
       if (settings.quality === 'low' && oct > 4) oct = 4;
-      p.surface.material.uniforms.uOct.value = oct;
+      const su = p.surface.material.uniforms;
+      su.uOct.value = oct;
       if (p.clouds) {
         p.clouds.material.uniforms.uTime.value = t;
         p.clouds.material.uniforms.uCover.value = C.CLOUD_COVER;
+        // The surface repeats the cloud field's low octaves to shade the
+        // ground under it: only where that is affordable, and only close
+        // enough for a cloud shadow to be more than a pixel.
+        su.uCloudShadow.value = distR < 8 && (Q.tier === 'high' || Q.tier === 'ultra') ? 1 : 0;
+        su.uTime.value = t;
+        su.uCover.value = C.CLOUD_COVER;
       }
-      if (p.waterMesh) p.waterMesh.material.uniforms.uTime.value = t;
+      if (p.waterMesh) {
+        // From far out the sea mesh fades away and the surface shader draws
+        // the ocean itself, shelf gradient and all; the two surfaces sit 1.5
+        // units apart, which the depth buffer cannot separate at that range.
+        const fade = 1 - Math.min(Math.max((distR - C.WATER_FADE_NEAR) / (C.WATER_FADE_FAR - C.WATER_FADE_NEAR), 0), 1);
+        const wm = p.waterMesh.material;
+        wm.uniforms.uTime.value = t;
+        wm.uniforms.uFade.value = fade;
+        wm.transparent = fade < 1;
+        p.waterMesh.visible = fade > 0;
+      }
     } else {
       p.surface.material.uniforms.uTime.value = t;
     }

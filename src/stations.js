@@ -19,6 +19,7 @@ import * as THREE from 'three';
 import { C } from './constants.js';
 import { addShiftable } from './origin.js';
 import { planets } from './planet.js';
+import { nebulaCubeTexture } from './nebula.js';
 
 const hullMat = new THREE.MeshStandardMaterial({
   color: 0x9aa2ad,
@@ -35,8 +36,60 @@ const panelMat = new THREE.MeshStandardMaterial({
   roughness: 0.35,
   metalness: 0.6,
 });
-const glowMat = new THREE.MeshBasicMaterial({ color: 0xd4408f });
-const windowMat = new THREE.MeshBasicMaterial({ color: 0xbfe8ff });
+// Hull plating, patched into the standard material so lighting, the
+// environment map and fog all still come from three. Object-space cells:
+// each gets a slightly different tone and roughness, with a dark seam where
+// cells meet. Seams fade out once a cell is only a couple of pixels wide, so a
+// distant station does not shimmer.
+function plate(mat) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uPanel = { value: C.STATION_PANEL };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vPlateP;\nvarying vec3 vPlateN;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPlateP = position;\nvPlateN = normal;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        uniform float uPanel;
+        varying vec3 vPlateP;
+        varying vec3 vPlateN;
+        float plateTone = 0.5;
+        float plateHash(vec3 p) {
+          p = fract(p * 0.3183099 + 0.1);
+          p *= 17.0;
+          return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+        }`
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        {
+          vec3 q = vPlateP / uPanel;
+          vec3 edge = smoothstep(0.455, 0.5, abs(fract(q) - 0.5));
+          vec3 n = abs(normalize(vPlateN));
+          // a seam only shows on faces it runs across, not the one it lies in
+          float seam = max(max(edge.x * (1.0 - n.x), edge.y * (1.0 - n.y)), edge.z * (1.0 - n.z));
+          vec3 fw = fwidth(q);
+          seam *= 1.0 - smoothstep(0.12, 0.45, max(fw.x, max(fw.y, fw.z)));
+          plateTone = plateHash(floor(q));
+          diffuseColor.rgb *= (0.86 + 0.28 * plateTone) * (1.0 - 0.55 * seam);
+        }`
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+        roughnessFactor = clamp(roughnessFactor + (plateTone - 0.5) * 0.35, 0.08, 1.0);`
+      );
+  };
+  return mat;
+}
+plate(hullMat);
+plate(darkMat);
+plate(panelMat);
+
+const glowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xd4408f).multiplyScalar(C.STATION_GLOW_HDR) });
+const windowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xbfe8ff).multiplyScalar(C.STATION_WINDOW_HDR) });
 
 export const stations = []; // { group, spin, orbit?: {planet, radius, rate, phase} }
 
@@ -237,7 +290,7 @@ function megaStation() {
 // rock, a debris stream climbs to the hopper under the habitat, and two ore
 // shuttles fly opposed loops between the rock face and the dock arm.
 
-const emberMat = new THREE.MeshBasicMaterial({ color: 0xffa050 });
+const emberMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffa050).multiplyScalar(C.STATION_EMBER_HDR) });
 const beamMat = new THREE.MeshBasicMaterial({
   color: 0xffa050,
   transparent: true,
@@ -450,7 +503,19 @@ function miningStation() {
   return { group: g, anim };
 }
 
-export function initStations(scene) {
+export function initStations(scene, renderer) {
+  // Metal with nothing to reflect renders as dull grey: at metalness 0.75
+  // three quarters of what a hull shows IS its reflection. Prefilter the baked
+  // sky once and hand it to the station materials only — setting it on the
+  // scene would relight every world module's standard materials as well.
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const env = pmrem.fromCubemap(nebulaCubeTexture()).texture;
+  pmrem.dispose();
+  for (const m of [hullMat, darkMat, panelMat]) {
+    m.envMap = env;
+    m.envMapIntensity = C.STATION_ENV;
+  }
+
   // Anchor planets are looked up by name, not raw index — CONFIGS order
   // shifts when planets are inserted (wavemall prime once bumped saturnia
   // and neptunia, stranding two stations off the wrong worlds).

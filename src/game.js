@@ -26,7 +26,7 @@ import { altitudeAboveFloor } from './gravity.js';
 import { updateOrigin, originOffset, snapshotShiftables, restoreShiftables } from './origin.js';
 import { camera, updateCamera, snapCamera, resizeCamera, dashBlend } from './camera.js';
 import { initTuning } from './tuning.js';
-import { initStarfield, updateStarfield } from './starfield.js';
+import { initStarfield, warpAmount, updateStarfield } from './starfield.js';
 import { initNebula, updateNebula } from './nebula.js';
 import { initDeepNebula, updateDeepNebula, deepNebulae } from './deepnebula.js';
 import {
@@ -111,8 +111,8 @@ import {
 import { initJournal, journalState } from './journal.js';
 import { initInventory, inventoryState } from './inventory.js';
 import { CITIES, citiesForWorld, padLocalDir } from '../world/cityRegistry.js';
-import { initSun, sunAltitude, sun } from './sun.js';
-import { initStations, updateStations } from './stations.js';
+import { initSun, updateSun, sunAltitude, sun } from './sun.js';
+import { initStations, updateStations, stations } from './stations.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
 import {
   startMusic,
@@ -130,7 +130,8 @@ import { initVehicleMenu, toggleVehicleMenu, closeVehicleMenu } from './vehicleM
 import {
   initNav, updateNav, navState, showNavToast, hideNavToast, getBodies,
 } from './nav.js';
-import { settings, onSettingsChange } from './settings.js';
+import { settings, saveSettings } from './settings.js';
+import { Q, initQuality, onQualityChange, governFrame, qualityReport } from './quality.js';
 import {
   initSettingsPanel,
   showPauseOverlay,
@@ -139,11 +140,13 @@ import {
 import { initCompass, updateCompass } from './compass.js';
 import { initControls, updateControls, setObjective } from './controls.js';
 import { initTouchControls, updateTouchControls } from './touchControls.js';
-import { initCapture, capturePendingPhoto, updateCapture, updateRecordingFrame, requestPhoto, toggleRecording, isGalleryOpen } from './capture.js';
+import { initCapture, capturePendingPhoto, updateCapture, updateRecordingFrame, requestPhoto, toggleRecording, isGalleryOpen, isRecording } from './capture.js';
 import { MOTION_SCALE } from './motion.js';
 import { initSfx, updateSfx, sfxState } from './sfx.js';
+import { initCoach, updateCoach, coachState } from './coach.js';
 import { initCredits, openCredits, closeCredits, isCreditsOpen } from './credits.js';
 import { initArtView, openArtView, closeArtView, isArtViewOpen } from './artView.js';
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import lensingFrag from './shaders/lensing.frag?raw';
 import aberrationFrag from './shaders/aberration.frag?raw';
 import collapseFrag from './shaders/collapse.frag?raw';
@@ -154,7 +157,8 @@ import skyfogFrag from './shaders/skyfog.frag?raw';
 // multisampling the default framebuffer smooths nothing and costs a
 // multisampled backbuffer plus a resolve per frame.
 const renderer = new THREE.WebGLRenderer({ antialias: false });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+initQuality(renderer); // picks the tier (and so the pixel ratio) before anything is sized
+renderer.setPixelRatio(Q.basePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 document.body.appendChild(renderer.domElement);
@@ -194,7 +198,7 @@ initSun(scene);
 initBlackHole(scene);
 initDeepNebula(scene); // second nebula — a flyable field out past the black hole
 initPaintingNebulae(scene); // the artgallery paintings, as outer-shell nebulae
-initStations(scene);
+initStations(scene, renderer);
 
 // Initial layout of everything origin-registered (planets, sun, stations,
 // black hole), snapshotted so resets restore it exactly.
@@ -219,6 +223,7 @@ initSfx();
 initJournal();
 initInventory();
 initSettingsPanel();
+initCoach();
 
 // --- composer (GDD 4.4) ---
 const composer = new EffectComposer(renderer);
@@ -256,6 +261,7 @@ const skyfogPass = new SkyfogPass({
     uSkyDay: { value: new THREE.Color(C.SKY_COLOR) },
     uDensity: { value: C.SKY_DENSITY },
     uUpView: { value: new THREE.Vector3(0, 1, 0) },
+    uSunView: { value: new THREE.Vector3(0, 1, 0) },
     uAspect: { value: window.innerWidth / window.innerHeight },
     uTanHalf: { value: Math.tan((C.FOV * Math.PI) / 360) },
     uNear: { value: 0.1 },
@@ -361,6 +367,19 @@ const bloomPass = new UnrealBloomPass(
   C.BLOOM_RADIUS,
   C.BLOOM_THRESHOLD
 );
+// UnrealBloomPass cuts each blur kernel off at under one sigma, so the falloff
+// ends on a cliff and a small, very bright source — a star, the sun from across
+// the system — blooms as a visible SQUARE. Same taps, same cost: reweight them
+// as a gaussian tapered to zero at the last tap, so the footprint is round.
+for (const m of bloomPass.separableBlurMaterials) {
+  const k = m.uniforms.gaussianCoefficients.value;
+  const R = k.length;
+  const sigma = R / 1.6;
+  for (let i = 0; i < R; i++) {
+    const taper = 1 - (i / R) * (i / R);
+    k[i] = Math.exp((-0.5 * i * i) / (sigma * sigma)) * taper * taper;
+  }
+}
 // composer.addPass/setSize push the full size into every pass — keep bloom
 // at half by intercepting.
 const bloomSetSize = bloomPass.setSize.bind(bloomPass);
@@ -371,6 +390,7 @@ const aberrationPass = new ShaderPass({
   uniforms: {
     tDiffuse: { value: null },
     uStrength: { value: 0 },
+    uWarp: { value: 0 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -405,6 +425,41 @@ composer.addPass(collapsePass);
 
 composer.addPass(new OutputPass());
 
+// Antialiasing, on the finished display-referred image. It has to sit after
+// tone mapping: the scene is HDR emissives on black, and smoothing those edges
+// in linear light leaves a step the tone curve then stretches back into a
+// stair. MEDIUM gets FXAA, one fullscreen pass; HIGH and ULTRA get SMAA, which
+// keeps thin struts and ring edges that FXAA softens. SMAA is three passes plus
+// two lookup textures, so it is its own chunk, fetched only by the tiers that
+// use it — FXAA stands in until it lands.
+const fxaaPass = new ShaderPass(FXAAShader);
+fxaaPass.setSize = (w, h) => fxaaPass.uniforms.resolution.value.set(1 / w, 1 / h);
+composer.addPass(fxaaPass);
+const smaa = {
+  pass: null,
+  loading: null,
+  load() {
+    if (this.loading) return;
+    this.loading = import('three/addons/postprocessing/SMAAPass.js')
+      .then(({ SMAAPass }) => {
+        const p = new SMAAPass(1, 1);
+        composer.addPass(p); // sizes it to the composer's current buffer
+        this.pass = p;
+        applyAA();
+      })
+      .catch((err) => {
+        console.warn('[aa] SMAA failed to load', err); // FXAA keeps covering
+        this.loading = null;
+      });
+  },
+};
+function applyAA() {
+  const wantSmaa = Q.aa === 'smaa';
+  if (wantSmaa && !smaa.pass) smaa.load();
+  if (smaa.pass) smaa.pass.enabled = wantSmaa;
+  fxaaPass.enabled = Q.aa === 'fxaa' || (wantSmaa && !smaa.pass);
+}
+
 function onResize() {
   resizeCamera();
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -413,21 +468,25 @@ function onResize() {
 }
 window.addEventListener('resize', onResize);
 
-// Quality setting: LOW caps the render at 1x pixel ratio and drops bloom —
-// the two biggest fixed costs a weaker GPU can shed without changing the
-// scene itself. (The planet shader also reads settings.quality; planet.js.)
-let appliedQuality = null;
+// Quality: the tier sets the canvas pixel ratio and which passes exist; the
+// frame governor then trims the composer's INTERNAL resolution under it
+// (src/quality.js). The canvas itself never resizes for the governor — only
+// the render targets do, and OutputPass stretches the result back up — so a
+// step is a target reallocation, not a layout change. (The planet shader and
+// the world modules read settings.quality themselves.)
+let appliedBase = -1;
 function applyQuality() {
-  if (settings.quality === appliedQuality) return; // change events fire for any setting
-  appliedQuality = settings.quality;
-  renderer.setPixelRatio(
-    Math.min(window.devicePixelRatio, settings.quality === 'low' ? 1 : 2)
-  );
-  bloomPass.enabled = settings.quality !== 'low';
-  onResize(); // repropagate sizes at the new ratio
+  bloomPass.enabled = Q.bloom;
+  applyAA();
+  if (Q.basePixelRatio !== appliedBase) {
+    appliedBase = Q.basePixelRatio;
+    renderer.setPixelRatio(Q.basePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+  composer.setPixelRatio(Q.pixelRatio); // resizes every pass at the new scale
 }
 applyQuality();
-onSettingsChange(applyQuality);
+onQualityChange(applyQuality);
 
 // --- dev-only debug handle, for headless verification and tuning ---
 // Stripped from production along with the branch that reads it.
@@ -443,6 +502,7 @@ if (import.meta.env.DEV) {
     planets,
     sun,
     blackhole,
+    stationList: stations,
     deepNebulae,
     paintingNebulae,
     originOffset,
@@ -659,6 +719,57 @@ if (import.meta.env.DEV) {
       for (let i = 0; i < n; i++) sum += frameTimes[i];
       return n / sum;
     },
+    // Tier and governor, for headless checks. `set` pins a tier the way the
+    // settings panel does; `auto` hands control back; `feed` pushes synthetic
+    // frame times (ms) through the governor without waiting on real frames.
+    quality: {
+      report: qualityReport,
+      set(tier) {
+        settings.qualityMode = 'manual';
+        settings.quality = tier;
+        saveSettings();
+      },
+      auto() {
+        settings.qualityMode = 'auto';
+        saveSettings();
+      },
+      feed(ms, n = 1) {
+        for (let i = 0; i < n; i++) governFrame(ms / 1000, true);
+        return qualityReport();
+      },
+      buffer() {
+        return { w: composer.renderTarget1.width, h: composer.renderTarget1.height, canvasW: renderer.domElement.width };
+      },
+    },
+    // Fixed camera set-ups for before/after screenshots. Puts the ship `dist`
+    // away from a body along `dir` (a mix of sunward and sideways), looking at
+    // it, at rest. Names: sun, station, or any planet name; `side` 0 looks at
+    // the lit face, 1 puts the terminator centre-frame, 2 the night side.
+    pose(name, distR = 3, side = 0) {
+      let target, radius;
+      if (name === 'sun') {
+        target = sun.group.position;
+        radius = C.SUN_RADIUS;
+      } else if (name === 'station') {
+        target = stations[0].group.position;
+        radius = 150;
+      } else {
+        const p = planets.find((q) => q.cfg.name === name);
+        target = p.group.position;
+        radius = p.radius;
+      }
+      const toSun = new THREE.Vector3().subVectors(sun.group.position, target).normalize();
+      if (name === 'sun') toSun.copy(target).normalize().negate();
+      const sideways = new THREE.Vector3().crossVectors(toSun, new THREE.Vector3(0, 1, 0)).normalize();
+      const a = (side * Math.PI) / 2;
+      const dir = toSun.multiplyScalar(Math.cos(a)).addScaledVector(sideways, Math.sin(a) || 0.25).normalize();
+      ship.position.copy(target).addScaledVector(dir, radius * distR);
+      ship.velocity.set(0, 0, 0);
+      ship.angularVelocity.set(0, 0, 0);
+      ship.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(ship.position, target, new THREE.Vector3(0, 1, 0)));
+    },
+    coach: coachState,
+    hideCockpit: false, // screenshots of the world without the dashboard
     setAO(v) {
       aoPass.enabled = !!v;
     },
@@ -696,6 +807,22 @@ if (import.meta.env.DEV) {
   window.__camera = camera;
   window.__renderer = renderer; // renderer.info is how headless checks for leaks
 }
+
+// True once every terra planet has swapped to its baked mesh. Latches, so the
+// per-frame cost after boot is one boolean test.
+let allBaked = false;
+function terrainBaked() {
+  if (allBaked) return true;
+  for (let i = 0; i < planets.length; i++) {
+    if (planets[i].cfg.type === 'terra' && !planets[i].baked) return false;
+  }
+  return (allBaked = true);
+}
+
+const _coach = { flying: false, turning: false, navOpen: false, landed: false };
+const _menuQ = new THREE.Quaternion();
+let trauma = 0; // camera shake impulse, 0..1, decays every frame
+let wasWarping = false;
 
 const DT = 1 / 60;
 const MAX_FRAME_DELTA = 0.1; // tab-switch guard: never spiral the accumulator
@@ -1165,7 +1292,12 @@ function frame(now) {
   requestAnimationFrame(frame);
   let delta = (now - last) / 1000;
   last = now;
+  const rawDelta = delta;
   if (delta > MAX_FRAME_DELTA) delta = MAX_FRAME_DELTA;
+  // Feed the governor the true frame time. Not while paused or recording, and
+  // not until every planet has swapped to baked terrain: the bake runs in
+  // main-thread slices that would read as a slow GPU.
+  governFrame(rawDelta, !paused && !isRecording() && terrainBaked());
   if (debug) {
     debug.recordFrame(delta);
     if (debug.paused) delta = 0;
@@ -1203,6 +1335,13 @@ function frame(now) {
   // delta would have fed. Flight needs nothing here — the 3D dashboard already
   // owns touch — so the sticks hide outside the walk phase.
   updateTouchControls(delta, phase, paused, standing);
+
+  // Title screen: the view behind the menu pans slowly side to side instead
+  // of sitting dead still. Launch resets the ship, so nothing carries over.
+  if (phase === 'menu') {
+    _menuQ.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, C.MENU_PAN_RATE * Math.cos(now * 0.0001) * rawDelta * MOTION_SCALE);
+    ship.quaternion.multiply(_menuQ);
+  }
 
   if (phase === 'fly') {
     // C: stand up out of the seat / sit back down at it. Standing is
@@ -1506,8 +1645,15 @@ function frame(now) {
     updateInteriorCamera(ship, delta, standBlend, standBlend >= 0.2 && phase === 'fly');
   }
   // hull-stress shake: time-hashed jitter, ramping in past half heat
+  // Trauma: a kick when warp engages or drops out, squared so it dies away
+  // smoothly. It adds to the hull-stress term and shares its jitter.
+  if (input.warp !== wasWarping) {
+    wasWarping = input.warp;
+    if (phase === 'fly') trauma = Math.min(trauma + C.WARP_KICK, 1);
+  }
+  trauma = Math.max(trauma - C.TRAUMA_DECAY * delta, 0);
   const shake =
-    Math.max(heat - 0.5, 0) * 2 + (phase === 'explode' || phase === 'ascend' ? 1.5 : 0);
+    Math.max(heat - 0.5, 0) * 2 + (phase === 'explode' || phase === 'ascend' ? 1.5 : 0) + trauma * trauma * 3;
   if (shake > 0 && !paused) {
     const s = shake * 0.02 * MOTION_SCALE;
     camera.position.x += Math.sin(now * 0.093) * s;
@@ -1532,7 +1678,7 @@ function frame(now) {
     setPrompt(walkPromptText());
   } else {
     interiorPass.enabled = standBlend > 0.001;
-    cockpitPass.enabled = true;
+    cockpitPass.enabled = !(debug && debug.hideCockpit);
     cockpitPass.clearDepth = !interiorPass.enabled;
     cockpitRig.visible = true; // the camera zoom handles the full-window view
     // the C prompt: a launch reminder while seated, "SIT" back at the chair;
@@ -1578,7 +1724,8 @@ function frame(now) {
     // even one left to spin. Skip the pass entirely.
     if (isolated.keep) updatePlanets(now / 1000, camera.position, isolated.keep);
   } else {
-    updateStarfield(camera, renderer.getPixelRatio());
+    updateStarfield(camera, Q.pixelRatio, ship.velocity);
+    updateSun(now / 1000);
     updateNebula(camera);
     updateDeepNebula(renderer, camera);
     updatePlanets(now / 1000, camera.position);
@@ -1593,6 +1740,13 @@ function frame(now) {
   const holoActive =
     phase === 'fly' && !paused && !standing && landState === null && !autopilotActive();
   updateHolonav(ship, delta, holoActive);
+  // First-flight coaching. "Turning" is read off the ship, not the mouse, so
+  // it counts touch drags and does not care when input deltas are consumed.
+  _coach.flying = phase === 'fly' && !paused && !standing;
+  _coach.turning = ship.angularVelocity.lengthSq() > 0.0025;
+  _coach.navOpen = isHoloOpen();
+  _coach.landed = landState === 'landed';
+  updateCoach(delta, _coach);
   updateCompass(phase === 'walk' ? walkBearing() : null);
   updateControls(phase);
   setObjective(phase === 'walk' ? walkObjective() : null);
@@ -1647,6 +1801,7 @@ function frame(now) {
     // planet-up expressed in view space, for horizon-weighted haze
     _invQuat.copy(camera.quaternion).invert();
     su.uUpView.value.copy(_up).applyQuaternion(_invQuat);
+    su.uSunView.value.copy(_atmo.p.sunDir ?? SUN).applyQuaternion(_invQuat);
     su.uAspect.value = camera.aspect;
     su.uTanHalf.value = Math.tan((camera.fov * Math.PI) / 360);
   }
@@ -1664,7 +1819,12 @@ function frame(now) {
     bloomPass.strength = C.BLOOM_STRENGTH;
   }
   bloomPass.radius = C.BLOOM_RADIUS;
-  aberrationPass.uniforms.uStrength.value = (C.CA_STRENGTH * 8.0) / window.innerHeight;
+  // Warp widens the colour split and adds the radial smear. Off on an isolated
+  // world, where the starfield (and so warpAmount) is not being updated.
+  const warpFx = isolated.active ? 0 : warpAmount();
+  aberrationPass.uniforms.uStrength.value =
+    (C.CA_STRENGTH * 8.0 * (1 + C.WARP_CA_BOOST * warpFx * MOTION_SCALE)) / window.innerHeight;
+  aberrationPass.uniforms.uWarp.value = C.WARP_SMEAR * warpFx * MOTION_SCALE;
 
   if (phase === 'walk') walkPreRender(renderer); // world modules draw to their RTs
   composer.render();

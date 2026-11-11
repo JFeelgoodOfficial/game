@@ -4,6 +4,8 @@
 // (key or button) — never Escape, which is reserved by pointer lock.
 
 import { settings, saveSettings } from './settings.js';
+import { Q, onQualityChange } from './quality.js';
+import { resetCoach } from './coach.js';
 
 const CSS = `
 #pauseOverlay {
@@ -54,8 +56,14 @@ const CSS = `
   width: 16px; height: 16px; accent-color: #d4408f;
 }
 #settingsPanel .s-val { color: #82f7ff; min-width: 42px; text-align: right; }
-#settingsPanel .s-quality { display: flex; gap: 8px; }
-#settingsPanel .s-quality button { padding: 6px 16px; font-size: 11px; }
+#settingsPanel .s-quality { display: flex; gap: 6px; }
+#settingsPanel .s-quality { flex-wrap: wrap; justify-content: flex-end; }
+#settingsPanel .s-quality button { padding: 6px 7px; font-size: 10px; letter-spacing: 0.12em; }
+#settingsPanel button.s-small { padding: 6px 12px; font-size: 11px; }
+#settingsPanel .s-qnote {
+  margin: -4px 0 10px; text-align: right; font-size: 10px;
+  letter-spacing: 0.18em; color: #82f7ff; opacity: 0.75;
+}
 #settingsPanel .s-quality button.sel {
   background: rgba(212,64,143,0.28); color: #ffd0ee;
   border-color: rgba(212,64,143,0.8);
@@ -71,7 +79,7 @@ const CSS = `
 }
 @media (pointer: coarse) {
   #settingsPanel .s-row input[type="checkbox"] { width: 22px; height: 22px; }
-  #settingsPanel .s-quality button { padding: 12px 16px; }
+  #settingsPanel .s-quality button { padding: 12px 10px; }
 }
 `;
 
@@ -79,7 +87,7 @@ let overlay, panel;
 let settingsOpen = false;
 let onResumeCb = null;
 // live-updating widgets, refreshed when the panel opens
-let volSlider, volVal, muteBox, sensSlider, sensVal, invertBox, qHigh, qLow;
+let volSlider, volVal, muteBox, sensSlider, sensVal, invertBox, qButtons, qNote, motionButtons;
 
 function row(parent, label) {
   const r = document.createElement('div');
@@ -98,8 +106,15 @@ function refreshWidgets() {
   sensSlider.value = String(Math.round(settings.sensitivity * 100));
   sensVal.textContent = `${Math.round(settings.sensitivity * 100)}%`;
   invertBox.checked = settings.invertY;
-  qHigh.classList.toggle('sel', settings.quality === 'high');
-  qLow.classList.toggle('sel', settings.quality === 'low');
+  for (const b of motionButtons) b.classList.toggle('sel', b.dataset.m === settings.reducedMotion);
+  const auto = settings.qualityMode === 'auto';
+  for (const b of qButtons) {
+    b.classList.toggle('sel', auto ? b.dataset.q === 'auto' : b.dataset.q === settings.quality);
+  }
+  // What is actually running: the tier auto landed on, and the governor's
+  // current internal resolution when it has trimmed any.
+  const scale = Q.scale < 1 ? ` · ${Math.round(Q.scale * 100)}% RES` : '';
+  qNote.textContent = (auto ? `AUTO → ${Q.tier.toUpperCase()}` : Q.tier.toUpperCase()) + scale;
 }
 
 function onPanelKey(e) {
@@ -191,20 +206,62 @@ export function initSettingsPanel() {
   const qRow = row(panel, 'QUALITY');
   const qWrap = document.createElement('div');
   qWrap.className = 's-quality';
-  qHigh = document.createElement('button');
-  qHigh.textContent = 'HIGH';
-  qLow = document.createElement('button');
-  qLow.textContent = 'LOW';
-  const setQ = (q) => {
-    settings.quality = q;
-    saveSettings();
-    refreshWidgets();
-  };
-  qHigh.addEventListener('click', () => setQ('high'));
-  qLow.addEventListener('click', () => setQ('low'));
-  qWrap.appendChild(qHigh);
-  qWrap.appendChild(qLow);
+  qButtons = [];
+  for (const [q, label] of [['auto', 'AUTO'], ['low', 'LOW'], ['medium', 'MED'], ['high', 'HIGH'], ['ultra', 'ULTRA']]) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.dataset.q = q;
+    b.addEventListener('click', () => {
+      if (q === 'auto') {
+        settings.qualityMode = 'auto';
+        settings.qualityProbed = false; // quality.js re-picks from the GPU on this save
+      } else {
+        settings.qualityMode = 'manual';
+        settings.quality = q;
+      }
+      saveSettings();
+      refreshWidgets();
+    });
+    qButtons.push(b);
+    qWrap.appendChild(b);
+  }
   qRow.appendChild(qWrap);
+  qNote = document.createElement('div');
+  qNote.className = 's-qnote';
+  panel.appendChild(qNote);
+  onQualityChange(() => {
+    if (settingsOpen) refreshWidgets();
+  });
+
+  // Camera shake, turbulence and the warp smear. SYSTEM follows the OS's
+  // reduced-motion preference.
+  const mRow = row(panel, 'SHAKE');
+  const mWrap = document.createElement('div');
+  mWrap.className = 's-quality';
+  motionButtons = [];
+  for (const [m, label] of [['system', 'SYSTEM'], ['off', 'FULL'], ['on', 'REDUCED']]) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.dataset.m = m;
+    b.addEventListener('click', () => {
+      settings.reducedMotion = m;
+      saveSettings();
+      refreshWidgets();
+    });
+    motionButtons.push(b);
+    mWrap.appendChild(b);
+  }
+  mRow.appendChild(mWrap);
+
+  const tRow = row(panel, 'TUTORIAL');
+  const tBtn = document.createElement('button');
+  tBtn.className = 's-small';
+  tBtn.textContent = 'REPLAY';
+  tBtn.addEventListener('click', () => {
+    resetCoach();
+    tBtn.textContent = 'WILL REPLAY';
+  });
+  tRow.appendChild(tBtn);
 
   const close = document.createElement('button');
   close.textContent = 'CLOSE';

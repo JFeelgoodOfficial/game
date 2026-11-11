@@ -27,7 +27,9 @@ export default defineConfig({
           // GTAOPass is dynamically imported for isolated story worlds only
           // (src/game.js). Folding it into the eagerly-loaded vendor chunk
           // would undo that split, so it keeps its own chunk.
-          if (/\/(GTAOPass|GTAOShader|PoissonDenoiseShader|SimplexNoise)\.js$/.test(id)) return;
+          // SMAAPass (HIGH and ULTRA antialiasing) likewise: it carries two
+          // base64 lookup textures that a MEDIUM or LOW player never needs.
+          if (/\/(GTAOPass|GTAOShader|PoissonDenoiseShader|SimplexNoise|SMAAPass|SMAAShader)\.js$/.test(id)) return;
           return 'vendor-three';
         },
       },

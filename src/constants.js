@@ -60,6 +60,17 @@ export const C = {
   // --- warp (user mechanic): hold F for thrust x100, release to stop dead ---
   WARP_SPEED: 10000.0, // units/sec at full warp (~Saturn in a few seconds)
   WARP_RAMP: 0.08, // per-tick slew toward warp speed
+  // Warp presentation. All of it is driven by the ship's actual speed as a
+  // fraction of WARP_SPEED, not by the key, so it builds and dies with the burn.
+  WARP_STREAK_LEN: 340.0, // world units a streak star stretches at full warp
+  WARP_STREAK_FROM: 0.06, // speed fraction below which no streaks are drawn
+  WARP_SMEAR: 0.018, // radial blur reach at the frame corners at full warp (uv)
+  WARP_CA_BOOST: 2.5, // extra chromatic aberration at full warp, x CA_STRENGTH
+  MENU_PAN_RATE: 0.02, // peak yaw rate of the title-screen pan, rad/s (about 11 degrees each way)
+  WARP_KICK: 0.55, // camera trauma added when warp engages or drops out
+  FOV_SPRING: 70.0, // stiffness of the FOV spring (1/s^2)
+  FOV_DAMPING: 0.5, // damping ratio; below 1 the FOV overshoots, then settles
+  TRAUMA_DECAY: 1.6, // camera trauma lost per second
   WARP_FOV: 26.0, // extra FOV at warp — the speed rush / star streaks
   AUTOPILOT_TURN_RATE: 1.2, // rad/s the nav auto-warp turns the ship toward a target
 
@@ -76,6 +87,16 @@ export const C = {
   ATMO_SHELL: 1.25, // atmosphere radius, × planet radius (250 units thick)
   SKY_COLOR: 0x6ea0ff, // daytime sky the view washes to inside the atmosphere
   SKY_DENSITY: 0.6, // how thickly the atmosphere fogs the view
+  // Scattering shell (src/shaders/atmosphere.frag), lengths in planet radii.
+  ATMO_SCALE_HEIGHT: 0.045, // density falls by e every this much altitude
+  ATMO_TAU: 0.2, // zenith optical depth in the most-scattered colour channel
+  ATMO_SUN: 0.7, // sunlight intensity feeding the in-scatter (HDR)
+  ATMO_MIE: 0.5, // forward-scattering haze: the glow around a low sun
+  ATMO_INSIDE: 0.3, // share of the shell's effect left at ground level
+  WATER_FADE_NEAR: 2.0, // planet radii from centre: sea mesh fully drawn inside this
+  WATER_FADE_FAR: 3.5, // ...and gone beyond this, where the surface shader draws the sea
+  CITY_LIGHTS_HDR: 2.6, // night-side town glow, above the bloom threshold
+  SEA_GLINT: 5.0, // peak sun-glint intensity on open water, close up
   SKY_HAZE_DIST: 400.0, // aerial perspective: sightline distance (units) for ~63% haze on geometry
   CLOUD_COVER: 0.5, // 0 clear .. 1 overcast
   TURBULENCE: 0.16, // camera buffet inside an atmosphere, scaled by speed
@@ -96,6 +117,18 @@ export const C = {
   BLOOM_STRENGTH: 0.9,
   BLOOM_RADIUS: 0.4,
   CA_STRENGTH: 2.0, // chromatic aberration, pixels of RGB split at frame corners
+  // Emissive intensities, in scene-linear units where 1.0 is paper white.
+  // Tone mapping happens once, in OutputPass, so anything meant to read as a
+  // light SOURCE has to be written above 1.0 or it is just a pale surface and
+  // the bloom threshold never sees it.
+  SUN_CORE_HDR: 5.0, // photosphere at disc centre
+  SUN_CORONA: 1.1, // corona brightness at the limb
+  SUN_CORONA_RADII: 7.0, // half-width of the corona billboard, in sun radii
+  STATION_ENV: 2.2, // how strongly station metal reflects the baked sky
+  STATION_PANEL: 14.0, // hull plating cell size, world units
+  STATION_GLOW_HDR: 3.2, // accent strips and beacons
+  STATION_WINDOW_HDR: 1.7, // lit viewports
+  STATION_EMBER_HDR: 3.0, // mining pits and cutting beams
 
   // --- black hole (GDD 4.5) ---
   BH_MASS: 4.0e6, // pull at 2000 u ≈ boost thrust: close passes build real speed
@@ -376,4 +409,33 @@ export const C = {
   AUTOLAND_ALTITUDE: 300.0, // max altitude above the floor to start auto-land
   AUTOLAND_SPEED: 200.0, // max ship speed to start auto-land
   TAKEOFF_KICK: 8.0, // upward velocity handed back on liftoff from a landing
+};
+
+// --- quality tiers (src/quality.js) ---
+// Kept out of C on purpose: tuning.js binds C to the dev panel, and these are
+// per-tier switches, not live dials. MEDIUM is the 60 fps Intel Iris Xe target
+// (GDD 2.1) — the tier every budget is measured against. LOW sheds the fixed
+// costs a phone or software rasteriser cannot pay; HIGH and ULTRA spend the
+// headroom a discrete GPU has. `minScale` is how far the frame governor may
+// drop the internal render resolution before auto mode gives up a whole tier.
+export const TIERS = {
+  low: { pixelRatio: 1.0, bloom: false, aa: 'none', minScale: 0.6 },
+  medium: { pixelRatio: 1.5, bloom: true, aa: 'fxaa', minScale: 0.7 },
+  high: { pixelRatio: 2.0, bloom: true, aa: 'smaa', minScale: 0.7 },
+  ultra: { pixelRatio: 2.0, bloom: true, aa: 'smaa', minScale: 0.85 },
+};
+export const TIER_ORDER = ['low', 'medium', 'high', 'ultra'];
+
+// Frame governor: holds the frame rate by stepping the composer's internal
+// resolution through SCALES, one step per decision window.
+export const GOVERNOR = {
+  SCALES: [1.0, 0.85, 0.7, 0.6],
+  WINDOW: 60, // frames averaged per decision
+  SLOW: 1 / 50, // mean frame time above this steps the scale down
+  FAST: 1 / 57, // mean frame time below this counts toward stepping back up
+  UP_WINDOWS: 5, // consecutive fast windows before a step up
+  UP_WINDOWS_MAX: 60, // back-off ceiling after a step up that did not hold
+  RELAPSE_WINDOWS: 3, // a step down this soon after a step up doubles the wait
+  TIER_DROP_WINDOWS: 2, // slow windows at minScale before auto drops a tier
+  IGNORE_ABOVE: 0.5, // seconds; a frame this long is a stall, not a sample
 };

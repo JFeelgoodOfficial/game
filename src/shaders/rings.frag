@@ -38,7 +38,8 @@ void main() {
   vec3 S = normalize(uSunObj);
   float along = dot(vObjPos, S);
   float axisDist = length(vObjPos - S * along);
-  float shadow = (along < 0.0 && axisDist < uPlanetR) ? 0.22 : 1.0;
+  // soft-edged: the sun is a disc, so the shadow has a penumbra
+  float shadow = along < 0.0 ? mix(0.22, 1.0, smoothstep(0.94, 1.04, axisDist / uPlanetR)) : 1.0;
 
   vec3 col = uColor * (0.35 + 0.65 * shadow);
   gl_FragColor = vec4(col, density * 0.85);

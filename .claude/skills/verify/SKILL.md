@@ -36,8 +36,25 @@ Land on a specific planet: set `ship.position` to
 `ship.velocity`, call `walkHere()`. Press key `3` once to dismiss the
 first-person/third-person chooser overlay.
 
+## Quality tiers, camera poses, coaching
+SwiftShader auto-detects as LOW (no bloom, no AA, fresnel air shell), so force
+a tier before judging a look: `__debug.quality.set('low'|'medium'|'high'|'ultra')`,
+`quality.auto()`, `quality.report()` → `{gpu, mode, tier, scale, pixelRatio,
+bloom, aa}`, `quality.buffer()` → composer vs canvas size, and
+`quality.feed(ms, n)` pushes n synthetic frame times through the governor
+(60 slow frames = one step down in render scale). Headless frame times say
+nothing about real GPUs: tier budgets need hardware.
+
+`__debug.pose(name, distR = 3, side = 0)` parks the ship looking at `sun`,
+`station`, or any planet name from `distR` radii; `side` 0 lit face, 1
+terminator, 2 night. Set `__debug.hideCockpit = true` for a clear view and
+`__debug.paused = true` to hold it. `__debug.stationList` is the stations
+array. `__debug.coach()` → `{step, total, visible, text}`; set
+`localStorage['nova7.coach'] = '6'` before load to skip the first-flight
+coaching in screenshots.
+
 ## Flight audio and lighting
-`__debug.sfx.state()` → `{built, running, active, warpLevel}`; the context only
+`__debug.sfx.state()` → `{built, running, active, warpLevel, uiCount, duck, uiGain}`; the context only
 exists after a real key or pointer press (`page.mouse.click` / `keyboard.down`).
 `__debug.sun.group.position` and each planet's `sunBase` / `sunDir` let you
 check a planet is lit from its bearing to the sun (zero angle unless

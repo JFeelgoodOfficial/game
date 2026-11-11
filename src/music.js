@@ -98,10 +98,20 @@ function setTrack(index) {
   emit();
 }
 
+let duck = 1; // 1 full level; sfx.js lowers it while the hull is loud
+
 function applyVolume() {
   if (!audio) return;
-  audio.volume = settings.musicVolume;
+  audio.volume = settings.musicVolume * duck;
   audio.muted = settings.muted;
+}
+
+// Pull the radio down under the ship's own noise (0..1, 1 = untouched).
+// Called every frame by sfx.js; only writes through on a real change.
+export function setMusicDuck(k) {
+  if (Math.abs(k - duck) < 0.01) return;
+  duck = k;
+  applyVolume();
 }
 onSettingsChange(applyVolume);
 
