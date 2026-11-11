@@ -41,6 +41,10 @@ const VERT = /* glsl */ `
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_PointSize = uPointSize * uPixelRatio * clamp(0.02 * uSize / -mv.z, 0.5, 3.5) * (1.0 + 1.6 * vSpike);
     gl_Position = projectionMatrix * mv;
+    // The field is a small cube wrapped around the camera, so its stars are
+    // physically nearer than any planet. Pin them to the far plane: everything
+    // solid then draws over them, instead of stars showing on a night side.
+    gl_Position.z = gl_Position.w;
   }
 `;
 
@@ -100,6 +104,7 @@ const STREAK_VERT = /* glsl */ `
     p += uStreak * aEnd;
     vColor = aColor * fade * (1.0 - aEnd);
     gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+    gl_Position.z = gl_Position.w; // behind everything solid, like the points
   }
 `;
 

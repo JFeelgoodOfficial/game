@@ -430,6 +430,13 @@ export function initPlanets(scene) {
           uBandB: { value: new THREE.Color(cfg.gas.bandB) },
           uLimb: { value: new THREE.Color(cfg.gas.limb) },
           uBands: { value: cfg.gas.bands },
+          // ring plane normal: the ring mesh's +Z after its tilt about X
+          uRing: {
+            value: cfg.rings
+              ? new THREE.Vector4(0, Math.cos(cfg.rings.tilt), Math.sin(cfg.rings.tilt), 1)
+              : new THREE.Vector4(0, 1, 0, 0),
+          },
+          uRingSpan: { value: new THREE.Vector2(cfg.rings ? cfg.rings.inner : 1, cfg.rings ? cfg.rings.outer : 1) },
         },
       });
       surface = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 48), gasMat);
