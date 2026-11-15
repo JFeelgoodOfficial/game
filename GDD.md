@@ -379,6 +379,13 @@ Things to do in the city:
   terrace, rings of setts with inlaid feature rings, chequered avenues edged
   in brass.
 
+Sound for the city's set pieces is synthesised in `world/skycity-audio.js`
+(no audio files): the Lance's charge whine and shot, the dragon's explosion
+(crack, sub boom, rumble, one pop per body segment in step with the fireballs,
+crackle), and the recovery drones (a rotor voice that deepens under load, a
+ping when the wire bites, a thunk when a car is set down). Level follows the
+music slider and mute.
+
 ## 6. Build sequence
 
 | Phase | Deliverable | Ship-able alone? |

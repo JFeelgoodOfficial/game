@@ -14,6 +14,7 @@
 import * as THREE from 'three';
 import { C } from './constants.js';
 import { input, moveAxes } from './input.js';
+import { setDrone, playHook, playSetDown } from '../world/skycity-audio.js';
 
 const R = {
   laps: 3,
@@ -177,6 +178,7 @@ export function endRace() {
     }
   }
   race.cars.length = 0;
+  setDrone(0);
   race.active = false;
   race.phase = 'idle';
 }
@@ -279,6 +281,21 @@ export function stepRace(dt) {
     }
   }
 
+  // The rotors: the loudest working drone, and how hard it is hauling.
+  let buzz = 0, load = 0;
+  for (const c of race.cars) {
+    if (!c.rescue || !c.drone.g.visible) continue;
+    const home = c.rescue === 'shop' && c.drone.g.position.distanceToSquared(city.shop.home) < 1;
+    if (home) { c.drone.g.visible = false; continue; } // back on the gantry: rotors off
+    const p = c.drone.g.position;
+    const l = hear(p.x, p.y, p.z);
+    if (l > buzz) {
+      buzz = l;
+      load = c.rescue === 'tow' || c.rescue === 'lower' || c.rescue === 'hook' ? 1 : 0;
+    }
+  }
+  setDrone(buzz, load);
+
   const me = race.cars[0];
   if (race.phase === 'go' && me.done) {
     race.phase = 'done';
@@ -306,6 +323,13 @@ function flyDrone(d, x, y, z, speed, dt) {
   return false;
 }
 
+// How loud something at (x, y, z) is to the player, 0..1: full volume on top
+// of you, half at 60 u, a murmur across the city.
+function hear(x, y, z) {
+  const me = race.cars[0];
+  return 1 / (1 + Math.hypot(x - me.x, y - me.y, z - me.z) / 60);
+}
+
 function stepRescue(c, dt) {
   const d = c.drone;
   const tr = city.track;
@@ -324,6 +348,7 @@ function stepRescue(c, dt) {
     if (flyDrone(d, c.x, c.y + R.wire + c.vy * 0.15, c.z, R.droneChase, dt)) {
       c.rescue = 'hook';
       c.rescueT = 0;
+      playHook(hear(c.x, c.y, c.z));
     }
   } else if (c.rescue === 'hook') {
     // the wire comes taut: the fall and the tumble die away under the drone
@@ -370,6 +395,7 @@ function stepRescue(c, dt) {
     if (there) {
       c.rescue = 'shop';
       c.rescueT = 0;
+      playSetDown(hear(bay.x, bay.y, bay.z));
       c.x = bay.x; c.y = bay.y; c.z = bay.z;
       c.heading = city.shop.heading;
     }

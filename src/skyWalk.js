@@ -26,6 +26,7 @@ import {
   race, startRace, endRace, stepRace, raceHud, raceFinishedFor, raceTowedFor,
   RACE_FINISH_HOLD, RACE_SHOP_HOLD,
 } from './skyRace.js';
+import { playLanceCharge, playLanceFire, playDragonExplosion, skyAudioState } from '../world/skycity-audio.js';
 import {
   getViewPref,
   showViewChooser,
@@ -469,6 +470,7 @@ function stepGunning(dt) {
 function pullTrigger() {
   if (!sWalk.gunning || sWalk.charge >= 0 || sWalk.lanceCool > 0) return false;
   sWalk.charge = 0;
+  playLanceCharge(GUN_CHARGE);
   return true;
 }
 
@@ -485,6 +487,7 @@ function fireLance(origin, dir, slack) {
   }
   sWalk.lanceCool = LANCE_COOLDOWN;
   sWalk.shake = Math.max(sWalk.shake, 0.55); // recoil
+  playLanceFire();
   if (!beam) {
     const g = new THREE.CylinderGeometry(1, 1, 1, 12, 1, true);
     g.rotateX(Math.PI / 2); // along +Z
@@ -511,6 +514,7 @@ function fireLance(origin, dir, slack) {
   beamT = 0;
   if (city.dragon.hitTest(origin, dir, slack)) {
     city.dragon.explode();
+    playDragonExplosion(16, 0.07); // one pop per body segment, in step with the fireballs
     sWalk.shake = 1;
     if (reticle) reticle.flash = 1;
     showViewToast('DIRECT HIT — THE DRAGON IS DOWN', 6);
@@ -843,6 +847,7 @@ export function skySite() {
     focus: focus(),
     fireLance,
     pullTrigger,
+    audio: skyAudioState(),
     nearPad: nearPad(),
     floor: city.floorYAt(sWalk.pos.x, sWalk.pos.z, sWalk.pos.y),
     // teleport the walker (city-local) for headless runs
