@@ -74,6 +74,10 @@ import { buildVehicles } from '../world/vehicles.js';
 // it, because game.js can only enter the cottage once this chunk has loaded.
 import * as cottageWalk from './cottageWalk.js';
 export { enterCottageWalk, cottageActive, exitCottageWalk } from './cottageWalk.js';
+// The Sky City over Saturnia (src/skyWalk.js): the same arrangement — its own
+// flat walker, dispatched to from every public function below.
+import * as skyWalk from './skyWalk.js';
+export { enterSkyWalk, skyActive, skyFell } from './skyWalk.js';
 
 const LOOK_SENS = 0.0022; // radians of look per pixel of mouse travel
 const MAX_PITCH = 1.483; // ~85°, so you never flip past straight up/down
@@ -231,7 +235,7 @@ function setObjective(target) {
 export function walkObjective() {
   // Nothing is asked of you in the cottage — a quest line left over from the
   // last town would be exactly the wrong thing to read there.
-  if (cottageWalk.cottageActive()) return null;
+  if (cottageWalk.cottageActive() || skyWalk.skyActive()) return null;
   return objectiveText;
 }
 const TALK_DIST_CROWD = 2.6; // ~ aliens talkTriggerDist
@@ -298,6 +302,7 @@ export function initWalk(scene) {
   astronaut.attachVehicles(buildVehicles()); // quest-vehicle meshes, hidden
   scene.add(astronaut.group);
   cottageWalk.initCottageWalk(astronaut, scene); // and so does the cottage one
+  skyWalk.initSkyWalk(astronaut); // and the Sky City's
 }
 
 // The nearest rocky (terra) planet you could stand on, and your altitude above
@@ -311,7 +316,7 @@ export function nearestTerraFloor(pos) {
   let best = null;
   let bestRaw = Infinity;
   for (const p of planets) {
-    if (p.cfg.type !== 'terra') continue;
+    if (p.cfg.type !== 'terra' || p.cfg.noLand) continue;
     const raw = pos.distanceTo(p.body.position) - p.radius;
     if (raw < bestRaw) {
       bestRaw = raw;
@@ -865,6 +870,7 @@ export function exitWalk(camera) {
   // The cottage's exit is a phase transition (white flash -> resetToStart), so
   // game.js owns it. Here we only tear the world down.
   if (cottageWalk.cottageActive()) return cottageWalk.exitCottageWalk();
+  if (skyWalk.skyActive()) return skyWalk.exitSkyWalk();
   const planet = walk.planet;
   _up.subVectors(ship.position, planet.body.position).normalize();
   const ground = planet.body.groundAt(_up);
@@ -1001,6 +1007,7 @@ export function exitWalk(camera) {
 // T — switch first/third person on foot. Persists as the new preference.
 export function toggleWalkView() {
   if (cottageWalk.cottageActive()) return cottageWalk.toggleCottageView();
+  if (skyWalk.skyActive()) return skyWalk.toggleSkyView();
   if (warzone && combatOnFoot()) {
     showViewToast('THIRD PERSON IS OFF IN COMBAT ZONES');
     return walk.view;
@@ -1012,6 +1019,7 @@ export function toggleWalkView() {
 
 export function stepWalk(dt) {
   if (cottageWalk.cottageActive()) return cottageWalk.stepCottageWalk(dt);
+  if (skyWalk.skyActive()) return skyWalk.stepSkyWalk(dt);
   const planet = walk.planet;
 
   // The elevator cab is a MOVING walkable surface — advance it here, in the
@@ -1663,6 +1671,7 @@ export function stepWalk(dt) {
 // `t` is wall-clock seconds.
 export function updateWalkVisuals(dt, t) {
   if (cottageWalk.cottageActive()) return cottageWalk.updateCottageVisuals(dt, t);
+  if (skyWalk.skyActive()) return skyWalk.updateSkyVisuals(dt, t);
   if (!walk.active || !astronaut) return;
   const planet = walk.planet;
   _up.subVectors(ship.position, planet.body.position).normalize();
@@ -1842,6 +1851,7 @@ function scanModule(module, maxDist) {
 // payload and starts its own talk pose; endInteract() releases it on close.
 export function walkInteract() {
   if (cottageWalk.cottageActive()) return cottageWalk.cottageInteract();
+  if (skyWalk.skyActive()) return skyWalk.skyInteract();
   if (isDialogueOpen()) {
     advanceDialogue();
     return;
@@ -1872,6 +1882,7 @@ export function walkInteract() {
 // panel owns its own hints while open.
 export function walkPromptText() {
   if (cottageWalk.cottageActive()) return cottageWalk.cottagePromptText();
+  if (skyWalk.skyActive()) return skyWalk.skyPromptText();
   if (isDialogueOpen() || !focusEntity) return null;
   // Entities may carry their own prompt (elevator buttons: 'E — PENTHOUSE').
   return focusEntity.prompt ?? 'E — TALK';
@@ -2120,6 +2131,7 @@ function removeBeacon() {
 // Fails open when there's no parked ship, so the player is never trapped.
 export function nearParkedShip() {
   if (cottageWalk.cottageActive()) return cottageWalk.nearPad();
+  if (skyWalk.skyActive()) return skyWalk.nearPad();
   // Shadowreach gates boarding to the story's endpoints: you may leave at the
   // very start (in the field, before the flower) or once the dream completes in
   // the garden — never mid-journey. Completed lets you "wake" from anywhere.
@@ -2137,6 +2149,7 @@ export function nearParkedShip() {
 
 export function promptReturnToShip() {
   if (cottageWalk.cottageActive()) return cottageWalk.promptReturnToPad();
+  if (skyWalk.skyActive()) return skyWalk.promptReturnToPad();
   if (shadowreach && !shadowreach.canBoard()) {
     showViewToast('THE DREAM IS NOT FINISHED');
     return;
@@ -2151,6 +2164,7 @@ export function promptReturnToShip() {
 // ---------------------------------------------------------------------------
 export function deployVehicle(id) {
   if (cottageWalk.cottageActive()) return false; // you walk this one
+  if (skyWalk.skyActive()) return false; // and this one
   if (!walk.active || !walk.planet || !hasItem(id)) return false;
   if (wavemall || actuality || shadowreach) return false;
   if (walk.swimming || walk.diving) return false;
@@ -2179,6 +2193,7 @@ export function walkSite() {
     shadowreach, interiorCrowds, warzone,
     creatures, diamondRain, marineSnow, planetSky, wyattmattoe,
     cottage: cottageWalk.cottageSite(),
+    sky: skyWalk.skySite(),
     // Governor-tour beacon internals, for headless verification. The up vector
     // is here because the tilt bug it fixes is invisible to a position-only
     // payload — assert it against the true surface normal at the base.
@@ -2215,12 +2230,13 @@ export function walkPendingReset() {
 // Gravity scale of the world underfoot (1 = normal). For the walk-hint UI.
 export function currentGravityScale() {
   if (cottageWalk.cottageActive()) return 1;
+  if (skyWalk.skyActive()) return 1;
   return walk.active ? (walk.planet?.cfg?.walkGravityScale ?? 1) : 1;
 }
 
 // Whether the world underfoot carries the snowboard. For the walk-hint UI.
 export function currentBoardable() {
-  return walk.active && !cottageWalk.cottageActive()
+  return walk.active && !cottageWalk.cottageActive() && !skyWalk.skyActive()
     && !!walk.planet?.cfg?.boardable;
 }
 
@@ -2250,6 +2266,7 @@ function bearingToWorld(worldPt, label) {
 
 export function shipBearing() {
   if (cottageWalk.cottageActive()) return cottageWalk.padBearing();
+  if (skyWalk.skyActive()) return skyWalk.padBearing();
   if (!walk.active || !parked || !walk.planet) return null;
   _parkPos
     .copy(parked.group.position)
@@ -2264,6 +2281,7 @@ export function shipBearing() {
 // walking a circle around the town.
 export function walkBearing() {
   if (cottageWalk.cottageActive()) return cottageWalk.padBearing();
+  if (skyWalk.skyActive()) return skyWalk.padBearing();
   if (beacon && beaconParent && walk.active && walk.planet) {
     // Local -> surface -> world, the same chain the pad walkway uses. Built by
     // hand rather than read off matrixWorld, which is a frame stale here.
@@ -2285,6 +2303,7 @@ export function walkBearing() {
 // rebase, which does fire on foot).
 export function updateWalkCamera(camera, delta = 0) {
   if (cottageWalk.cottageActive()) return cottageWalk.updateCottageCamera(camera, delta);
+  if (skyWalk.skyActive()) return skyWalk.updateSkyCamera(camera, delta);
   const planet = walk.planet;
   _up.subVectors(ship.position, planet.body.position).normalize();
   _right.crossVectors(walk.heading, _up).normalize();

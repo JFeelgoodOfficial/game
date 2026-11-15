@@ -17,6 +17,7 @@ uniform vec3 uSkyColor;   // what the sea reflects at grazing angles
 uniform float uGlint;     // peak sun-glint intensity (HDR)
 uniform float uDetail;    // 1 on HIGH and up: noise swell instead of sine trains
 uniform float uFade;      // 1 near, 0 far: hands the ocean to surface.frag
+uniform float uStorm;     // 0 calm .. 1 a sea in a gale: mountainous swell, breaking crests
 
 float hash(vec3 p) {
   p = fract(p * 0.3183099 + 0.1);
@@ -35,6 +36,17 @@ float vnoise(vec3 x) {
 float swell(vec3 q) {
   float t = uTime * 0.22;
   return 0.62 * vnoise(q + vec3(t, 0.0, t * 0.6)) + 0.38 * vnoise(q * 2.7 - vec3(0.0, t * 1.3, t));
+}
+
+// Storm sea: ridged noise makes sharp-crested rollers; two trains crossing at
+// different scales and speeds, so crests heap up and collapse instead of
+// marching in ranks. Returns height 0..1 (1 = the top of a breaking crest).
+float stormSea(vec3 q) {
+  float t = uTime;
+  float a = 1.0 - abs(2.0 * vnoise(q + vec3(t * 0.55, t * 0.12, t * 0.4)) - 1.0);
+  float b = 1.0 - abs(2.0 * vnoise(q * 2.3 + vec3(-t * 0.5, t * 0.3, t * 0.85)) - 1.0);
+  float c = vnoise(q * 0.31 + vec3(t * 0.08, 0.0, -t * 0.06)); // where the sea is running highest
+  return (a * a * 0.62 + b * b * 0.38) * (0.55 + 0.75 * c);
 }
 
 void main() {
@@ -65,12 +77,30 @@ void main() {
     }
   }
 
+  // The storm swell is big enough to read from hundreds of units up, so it is
+  // not gated on `near` or the quality tier the way the fine ripples are.
+  float crest = 0.0;
+  if (uStorm > 0.0) {
+    vec3 q = vObjPos * 0.021; // rollers ~50 u crest to crest
+    const float e = 0.12;
+    crest = stormSea(q);
+    vec3 grad = vec3(stormSea(q + vec3(e, 0.0, 0.0)), stormSea(q + vec3(0.0, e, 0.0)), stormSea(q + vec3(0.0, 0.0, e))) - crest;
+    vec3 n0 = normalize(vWorldNormal);
+    grad -= n0 * dot(grad, n0);
+    N = normalize(N - grad * (3.2 * uStorm));
+  }
+
   float muS = dot(normalize(vWorldNormal), S);
   float day = smoothstep(-0.12, 0.28, muS);
   // low sun arrives warm, as on land (surface.frag)
   vec3 sunCol = mix(vec3(1.0, 0.5, 0.24), vec3(1.0), smoothstep(-0.05, 0.42, muS));
 
   vec3 col = uWaterColor * (0.05 + 0.95 * day * sunCol);
+  if (uStorm > 0.0) {
+    // deep shadowed troughs, lit faces, and the slope toward the sun brighter
+    float slope = clamp(dot(N, S) - muS, -0.5, 0.5);
+    col *= mix(1.0, 0.42 + 1.1 * crest + 1.3 * slope, uStorm);
+  }
 
   // Schlick fresnel: water is a 2% mirror head-on and a full one at grazing
   // angles, where it shows the sky instead of its own colour.
@@ -81,7 +111,14 @@ void main() {
   // more unresolved wave facets share each pixel.
   vec3 H = normalize(S + V);
   float shin = mix(180.0, 420.0, near);
-  col += vec3(1.0, 0.93, 0.78) * sunCol * pow(max(dot(N, H), 0.0), shin) * day * uGloss * uGlint * mix(0.16, 1.0, near);
+  col += vec3(1.0, 0.93, 0.78) * sunCol * pow(max(dot(N, H), 0.0), shin * (1.0 - 0.8 * uStorm)) * day * uGloss * uGlint * mix(0.16, 1.0, near) * (1.0 - 0.85 * uStorm);
+
+  // Whitecaps: the crests break, and spindrift streaks down the lee faces.
+  if (uStorm > 0.0) {
+    float foam = smoothstep(0.6, 0.84, crest);
+    foam = max(foam, 0.35 * smoothstep(0.42, 0.7, crest) * vnoise(vObjPos * 0.9 + uTime * 0.7));
+    col = mix(col, vec3(0.95, 0.88, 0.7) * (0.08 + 0.92 * day), foam * uStorm);
+  }
 
   // Seen from below (divable worlds render DoubleSide): a Snell's-window
   // ceiling — bright daylight in a cone straight overhead, closing to a dark

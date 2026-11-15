@@ -4,6 +4,8 @@
 //   - Terra: continents, liquid ocean, clouds, blue sky.
 //   - Rustia: dead rock — sea level below the terrain minimum, no water.
 //   - Saturnia: ringed gold gas giant.  - Neptunia: blue ice giant.
+//     Saturnia has no surface, but it does have the Sky City
+//     (world/skycity.js), a child of its group, which is where ships land.
 // Every planet registers gravity + an altitude floor (dive into any
 // atmosphere; never land). Rocky planets' floors follow their terrain via
 // terrain.js with per-planet sea level and amplitude.
@@ -175,20 +177,35 @@ const CONFIGS = [
     // total conversion that owns 100% of the surface content.
   },
   {
+    // Once a banded gas giant. Now it is one golden ocean, pole to pole, in a
+    // permanent storm (`storm`: mountainous swell and whitecaps in water.frag,
+    // thunderheads and lightning in cloud.frag), under a heavy cloud deck, with the Sky City (world/skycity.js) riding above the
+    // weather. Sea level sits over the top of the terrain range, so no land
+    // ever breaks the surface. Nobody lands on it: `noLand` keeps it out of
+    // the landing search, and the city's approach control takes the helm
+    // long before the water.
     name: 'saturnia',
-    type: 'gas',
+    type: 'terra',
+    noLand: true,
     dir: new THREE.Vector3(-0.72, 0.1, -0.68).normalize(),
     distance: () => 45000,
     radius: () => 2600,
     mass: () => 5.8e6, // surface g ~= 30, under boost thrust: always escapable
     skyColor: () => 0xd8b06a,
-    spin: () => 0.02,
+    spin: () => 0.012,
     atmoColor: 0xe8c07a,
-    gas: {
-      base: 0xc2a06a, bandA: 0xe8d4a8, bandB: 0x8a6a42,
-      limb: 0xffd9a0, bands: 22.0,
+    seaLevel: () => 1.6, // above every peak: all ocean
+    terrainHeight: () => 60,
+    iceLat: 2, // no ice caps
+    palette: {
+      deep: 0x8a5a10, shallow: 0xe0a830, sand: 0xf0c860,
+      low: 0xe0a830, mid: 0xc88a20, high: 0xf6dc90,
     },
-    rings: { inner: 1.35, outer: 2.35, tilt: 0.47, color: 0xd8c49a },
+    water: { color: 0xc08a1c, gloss: 1.0 },
+    clouds: true,
+    cloudCover: 0.74, // a lot of weather between the sea and the city
+    storm: 1, // a sea in a permanent gale: huge breaking swell, thunderheads, lightning
+    rings: { inner: 1.7, outer: 3.5, tilt: 0.47, color: 0xd8c49a },
   },
   {
     // Once a flyby ice giant — now a landable deep-ocean world (GDD 5.7:
@@ -334,7 +351,7 @@ function makeSurfaceUniforms(cfg, radius) {
     // Cloud shadows (HIGH and up, clouded worlds only): updatePlanets drives it.
     uCloudShadow: { value: 0 },
     uTime: { value: 0 },
-    uCover: { value: C.CLOUD_COVER },
+    uCover: { value: cfg.cloudCover ?? C.CLOUD_COVER },
   };
 }
 
@@ -381,6 +398,7 @@ export function initPlanets(scene) {
               uSkyColor: { value: new THREE.Color(cfg.skyColor()) },
               uGlint: { value: C.SEA_GLINT },
               uDetail: { value: 0 },
+              uStorm: { value: cfg.storm ?? 0 },
               uFade: { value: 1 },
               uFogColor: { value: new THREE.Color(0) },
               uFogDensity: { value: 0 },
@@ -405,7 +423,8 @@ export function initPlanets(scene) {
             uAmp: { value: 0 },
             ...shapeZeroUniforms(),
             uTime: { value: 0 },
-            uCover: { value: C.CLOUD_COVER },
+            uCover: { value: cfg.cloudCover ?? C.CLOUD_COVER },
+            uStorm: { value: cfg.storm ?? 0 },
           },
           transparent: true,
           depthWrite: false,
@@ -442,36 +461,37 @@ export function initPlanets(scene) {
       surface = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 48), gasMat);
       spinning.push(surface);
       group.add(surface);
+    }
 
-      if (cfg.rings) {
-        const ringMat = new THREE.ShaderMaterial({
-          vertexShader: surfaceVert,
-          fragmentShader: ringsFrag,
-          uniforms: {
-            uSeaLevel: { value: 0 },
-            uAmp: { value: 0 },
-            ...shapeZeroUniforms(),
-            uSunObj: { value: new THREE.Vector3() },
-            uInner: { value: radius * cfg.rings.inner },
-            uOuter: { value: radius * cfg.rings.outer },
-            uPlanetR: { value: radius },
-            uColor: { value: new THREE.Color(cfg.rings.color) },
-          },
-          transparent: true,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        const rings = new THREE.Mesh(
-          new THREE.RingGeometry(radius * cfg.rings.inner, radius * cfg.rings.outer, 192, 1),
-          ringMat
-        );
-        rings.rotation.x = -Math.PI / 2 + cfg.rings.tilt;
-        rings.renderOrder = 1;
-        group.add(rings);
-        rings.updateMatrix();
-        const inv = new THREE.Matrix3().setFromMatrix4(rings.matrix).invert();
-        ringMat.uniforms.uSunObj.value.copy(sunBase).applyMatrix3(inv);
-      }
+    // Rings belong to any world that asks for them, rocky or gas.
+    if (cfg.rings) {
+      const ringMat = new THREE.ShaderMaterial({
+        vertexShader: surfaceVert,
+        fragmentShader: ringsFrag,
+        uniforms: {
+          uSeaLevel: { value: 0 },
+          uAmp: { value: 0 },
+          ...shapeZeroUniforms(),
+          uSunObj: { value: new THREE.Vector3() },
+          uInner: { value: radius * cfg.rings.inner },
+          uOuter: { value: radius * cfg.rings.outer },
+          uPlanetR: { value: radius },
+          uColor: { value: new THREE.Color(cfg.rings.color) },
+        },
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const rings = new THREE.Mesh(
+        new THREE.RingGeometry(radius * cfg.rings.inner, radius * cfg.rings.outer, 192, 1),
+        ringMat
+      );
+      rings.rotation.x = -Math.PI / 2 + cfg.rings.tilt;
+      rings.renderOrder = 1;
+      group.add(rings);
+      rings.updateMatrix();
+      const inv = new THREE.Matrix3().setFromMatrix4(rings.matrix).invert();
+      ringMat.uniforms.uSunObj.value.copy(sunBase).applyMatrix3(inv);
     }
 
     // The air shell. Two materials: the scattering march (MEDIUM and up) and
@@ -745,13 +765,13 @@ export function updatePlanets(t, camPos, only = null) {
       su.uOct.value = oct;
       if (p.clouds) {
         p.clouds.material.uniforms.uTime.value = t;
-        p.clouds.material.uniforms.uCover.value = C.CLOUD_COVER;
+        p.clouds.material.uniforms.uCover.value = p.cfg.cloudCover ?? C.CLOUD_COVER;
         // The surface repeats the cloud field's low octaves to shade the
         // ground under it: only where that is affordable, and only close
         // enough for a cloud shadow to be more than a pixel.
         su.uCloudShadow.value = distR < 8 && (Q.tier === 'high' || Q.tier === 'ultra') ? 1 : 0;
         su.uTime.value = t;
-        su.uCover.value = C.CLOUD_COVER;
+        su.uCover.value = p.cfg.cloudCover ?? C.CLOUD_COVER;
       }
       if (p.waterMesh) {
         // From far out the sea mesh fades away and the surface shader draws

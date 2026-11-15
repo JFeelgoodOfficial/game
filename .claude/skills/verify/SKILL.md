@@ -82,6 +82,32 @@ release. Spawn along `debug().aim` from `debug().player` to put a target under
 the crosshair. Weapons found from crates persist in `__debug.inventory()`
 (`weapons`, `trophies`, `record`); `giveWeapon` is session-only.
 
+## Sky City (Saturnia)
+`__debug.skyCity` is the world/skycity.js instance (`group`, `pad`, `spawn`,
+`colliders`, `surfaces`, `floorYAt(x, z, feetY)` — all CITY-LOCAL: +Y up, deck
+top y = 0, terrace y = 6, pad off the +Z edge). `skyApproach(side = 1, speed)`
+drops the ship into Saturnia's air shell (1 = far side from the city) so the
+forced auto-land fires on the next tick; `skyDock()` puts it on the pad landed;
+`skyStepOut()` or key `g` goes on foot. `skyState()` → `{landState, skyLanding,
+skyArmed, autoT, phase, flash}`. On foot, `walkSite().sky` → `{sWalk, parked,
+nearPad, floor, place(x, y, z)}`; `sWalk.pos` is city-local and `walkStep`
+drives it. Walking past any edge falls: `sWalk.falling`, then the white rises
+(render rate, needs real frames) and the game resets to the start in `fly`.
+After a liftoff `skyArmed` stays false until the ship is 300 u past the shell.
+
+City features: `skyCity.dragon` (`summon()`, `alive`, `position` city-local,
+`hitTest(origin, dir)`, `explode()`, `state.kills`; it only starts a visit
+while the camera is within 5000 u). `skyCity.lance` → `{bottom, top, room,
+turret}`; place the walker on `lance.bottom` and press `e` to ride up
+(`sWalk.inRoom`), set `sWalk.yaw/pitch` at the dragon and call
+`walkSite().sky.fireLance()` (or press `e` away from the top lift pad).
+`skyCity.booth` + `e` starts a race: `walkSite().sky.race` → `{active, phase:
+grid|go|done|fell, cars[], place}`, `cars[0]` is the player (`x, z, heading,
+speed, lap, i, out`); drive with `input.forward/left/right` and `walkStep`.
+`skyCity.track.pts[i]` is the centre line at bearing i degrees. `walkSite().sky`
+is a snapshot: re-read it for `focus` / `nearPad` after moving.
+`walkSite().sky.crowd` is the aliens.js crowd (rigs promote within 26 u).
+
 ## Surface-child frames
 Landing-site content is parented to `planet.surface` in its UNROTATED frame.
 To convert world → surface-local: subtract `planet.body.position`, then

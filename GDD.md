@@ -332,6 +332,42 @@ Acceptance: three planets that read as different places using one shader.
 
 ---
 
+### 5.8 The Sky City (Saturnia)
+
+Saturnia has no surface, so it gets a place instead: a floating city 320 units
+above the cloud tops (`world/skycity.js`), a child of the planet's group so the
+bands turn beneath it. It is the only landing on the gas giant, and the landing
+is not optional: crossing into Saturnia's air shell hands the helm to the city,
+which flies the ship round the planet on a great circle, holds it over the pad
+and sets it down (`src/game.js`, the `skyLanding` branch of the landing
+sub-state). G steps out; W lifts off with a short scripted climb.
+
+On foot (`src/skyWalk.js`) it is a flat walker in the city's own frame. The
+edges are open. Walk or jump off the deck, an arm or the pad pier and you fall;
+after a moment the screen whites out and the run restarts in the ship at the
+start, with no death menu.
+
+Saturnia itself is no longer a gas giant: it is a `terra` world with `noLand`,
+flooded pole to pole (sea level above every peak) so it reads as one golden ocean
+under a heavy cloud shell (`cloudCover`), with wider rings. The sea is in a
+permanent gale (`storm: 1`): `water.frag` draws a mountainous crossing swell
+with breaking whitecaps, `cloud.frag` darkens the cloud mass into fast-boiling
+thunderheads and fires lightning cell by cell, and the city's fill light
+flickers with it. Any planet can opt in with `storm`. There are
+a few stray clouds around and above the city.
+
+Things to do in the city:
+
+- **Inhabitants.** A crowd from `world/aliens.js` wanders the main deck; E talks.
+- **The dragon and the Lance.** A red dragon (`world/skydragon.js`) flies in
+  every so often and circles. A lift at the foot of the tallest tower goes up
+  to an open gallery; from there E or a click fires the Lance along your aim.
+  A hit bursts the dragon, which stays away for a minute.
+- **The Rim Circuit.** A bare ribbon of road on pylons outside the rim
+  (`src/skyRace.js`). E at the booth puts you on the grid with four rivals for
+  three laps. No barriers: rivals sometimes miss a bend and go over, and so
+  can you, which is the same fall and the same restart. G quits the race.
+
 ## 6. Build sequence
 
 | Phase | Deliverable | Ship-able alone? |

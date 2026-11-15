@@ -189,6 +189,20 @@ export const C = {
   COTTAGE_BOARD_RADIUS: 13.0, // board the ship (G) within this of the pad centre
   COTTAGE_CEILING: 2.7, // interior ceiling height — caps the indoor jump
 
+  // --- the Sky City over Saturnia (world/skycity.js, src/skyWalk.js) ---
+  SKY_WALK_SPEED: 5.0, // u/s on foot: the deck is 340 across, the garden was 90
+  SKY_RUN_SPEED: 11.0,
+  SKY_BOARD_RADIUS: 16.0, // board the ship (G) within this of the pad centre
+  SKY_FALL_SPEED: 70.0, // terminal velocity once you are off the edge
+  SKY_FALL_DEATH_Y: -45.0, // this far below the deck the fall is final
+  SKY_FALL_TIME: 0.9, // seconds of watching it before the white takes over
+  SKY_FALL_FLASH: 0.6, // seconds of ramp to white
+  SKY_FALL_FADE: 1.4, // seconds of white fading off the start
+  SKY_HOVER: 190.0, // auto-land arrives this far above the pad, then descends
+  SKY_DESCEND_TIME: 3.2, // seconds for that last vertical leg
+  SKY_ARC_SPEED: 700.0, // u/s used to scale the arc's duration
+  SKY_REARM_MARGIN: 300.0, // climb this far past the air shell before it re-captures
+
   // --- ship interior walk (C) — owner override of GDD 1.2 ---
   // C stands you up out of the seat; the freighter holds attitude and brakes
   // to a drift while you walk it. Named INTERIOR_* to stay distinct from the
