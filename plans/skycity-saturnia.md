@@ -1,4 +1,8 @@
-# Sky City plan — Saturnia (NOT YET IMPLEMENTED)
+# Sky City plan — Saturnia (IMPLEMENTED)
+
+Built as planned, with these differences: the liftoff is a short scripted climb
+(nose tips skyward) instead of a kick; the auto-land arrives above the pad and
+descends vertically; the nav contact for the city was not added.
 
 
 ## Context

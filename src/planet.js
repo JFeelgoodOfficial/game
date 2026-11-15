@@ -4,6 +4,8 @@
 //   - Terra: continents, liquid ocean, clouds, blue sky.
 //   - Rustia: dead rock — sea level below the terrain minimum, no water.
 //   - Saturnia: ringed gold gas giant.  - Neptunia: blue ice giant.
+//     Saturnia has no surface, but it does have the Sky City
+//     (world/skycity.js), a child of its group, which is where ships land.
 // Every planet registers gravity + an altitude floor (dive into any
 // atmosphere; never land). Rocky planets' floors follow their terrain via
 // terrain.js with per-planet sea level and amplitude.

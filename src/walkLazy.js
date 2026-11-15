@@ -96,6 +96,11 @@ export const enterCottageWalk = (opts) =>
   mod ? mod.enterCottageWalk(opts) : false;
 export const cottageActive = () => (mod ? mod.cottageActive() : false);
 export const exitCottageWalk = () => mod && mod.exitCottageWalk();
+// The Sky City over Saturnia. enterSkyWalk is false until the chunk lands,
+// which game.js reads as "G does nothing yet".
+export const enterSkyWalk = (city) => (mod ? mod.enterSkyWalk(city) : false);
+export const skyActive = () => (mod ? mod.skyActive() : false);
+export const skyFell = () => (mod ? mod.skyFell() : false);
 
 // Quest vehicles (selector menu + debug).
 export const deployVehicle = (id) => (mod ? mod.deployVehicle(id) : false);

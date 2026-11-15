@@ -82,6 +82,19 @@ release. Spawn along `debug().aim` from `debug().player` to put a target under
 the crosshair. Weapons found from crates persist in `__debug.inventory()`
 (`weapons`, `trophies`, `record`); `giveWeapon` is session-only.
 
+## Sky City (Saturnia)
+`__debug.skyCity` is the world/skycity.js instance (`group`, `pad`, `spawn`,
+`colliders`, `surfaces`, `floorYAt(x, z, feetY)` — all CITY-LOCAL: +Y up, deck
+top y = 0, terrace y = 6, pad off the +Z edge). `skyApproach(side = 1, speed)`
+drops the ship into Saturnia's air shell (1 = far side from the city) so the
+forced auto-land fires on the next tick; `skyDock()` puts it on the pad landed;
+`skyStepOut()` or key `g` goes on foot. `skyState()` → `{landState, skyLanding,
+skyArmed, autoT, phase, flash}`. On foot, `walkSite().sky` → `{sWalk, parked,
+nearPad, floor, place(x, y, z)}`; `sWalk.pos` is city-local and `walkStep`
+drives it. Walking past any edge falls: `sWalk.falling`, then the white rises
+(render rate, needs real frames) and the game resets to the start in `fly`.
+After a liftoff `skyArmed` stays false until the ship is 300 u past the shell.
+
 ## Surface-child frames
 Landing-site content is parented to `planet.surface` in its UNROTATED frame.
 To convert world → surface-local: subtract `planet.body.position`, then

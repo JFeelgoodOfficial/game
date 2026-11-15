@@ -332,6 +332,21 @@ Acceptance: three planets that read as different places using one shader.
 
 ---
 
+### 5.8 The Sky City (Saturnia)
+
+Saturnia has no surface, so it gets a place instead: a floating city 320 units
+above the cloud tops (`world/skycity.js`), a child of the planet's group so the
+bands turn beneath it. It is the only landing on the gas giant, and the landing
+is not optional: crossing into Saturnia's air shell hands the helm to the city,
+which flies the ship round the planet on a great circle, holds it over the pad
+and sets it down (`src/game.js`, the `skyLanding` branch of the landing
+sub-state). G steps out; W lifts off with a short scripted climb.
+
+On foot (`src/skyWalk.js`) it is a flat walker in the city's own frame. The
+edges are open. Walk or jump off the deck, an arm or the pad pier and you fall;
+after a moment the screen whites out and the run restarts in the ship at the
+start, with no death menu.
+
 ## 6. Build sequence
 
 | Phase | Deliverable | Ship-able alone? |

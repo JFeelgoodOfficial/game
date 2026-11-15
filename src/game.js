@@ -106,6 +106,9 @@ import {
   walkLoaded,
   ensureWalkLoaded,
   enterCottageWalk,
+  enterSkyWalk,
+  skyActive,
+  skyFell,
   cottageActive,
 } from './walkLazy.js';
 import { initJournal, journalState } from './journal.js';
@@ -113,6 +116,7 @@ import { initInventory, inventoryState } from './inventory.js';
 import { CITIES, citiesForWorld, padLocalDir } from '../world/cityRegistry.js';
 import { initSun, updateSun, sunAltitude, sun } from './sun.js';
 import { initStations, updateStations, stations } from './stations.js';
+import { createSkyCity } from '../world/skycity.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
 import {
   startMusic,
@@ -187,6 +191,10 @@ initPlanets(scene);
 // Level the terrain under every registry town. Must run before
 // startPlanetBake() below, so the town discs bake into the mesh flat.
 initCityFlatten(planets);
+// The Sky City: the one place on the gas giant a ship can set down. Built here,
+// in the boot bundle, because you see it from orbit long before you walk it.
+const saturnia = planets.find((p) => p.cfg.name === 'saturnia');
+const skyCity = createSkyCity(saturnia);
 
 // The on-foot astronaut (hidden until a disembark) lives in the world scene.
 initWalk(scene);
@@ -503,6 +511,32 @@ if (import.meta.env.DEV) {
     sun,
     blackhole,
     stationList: stations,
+    // Sky City (world/skycity.js). skyApproach() drops the ship into Saturnia's
+    // air shell opposite the city (side = 1) or beside it (side = 0) so the
+    // capture fires on the next tick; skyDock() skips the flight entirely.
+    skyCity,
+    skyState: () => ({ landState, skyLanding, skyArmed, autoT, phase, flash }),
+    skyApproach(side = 1, speed = 300) {
+      skyPadPose();
+      const d = _skyPad.clone().normalize().multiplyScalar(side ? -1 : 1);
+      if (!side) d.applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.5);
+      ship.position.copy(saturnia.body.position).addScaledVector(d, skyShellRadius() + 150);
+      ship.velocity.copy(d).multiplyScalar(-speed);
+      skyArmed = true;
+      landState = null;
+      skyLanding = false;
+    },
+    skyDock() {
+      setOnSkyPad();
+    },
+    skyStepOut() {
+      if (!enterSkyWalk(skyCity)) return false;
+      landState = null;
+      landedPlanet = null;
+      skyLanding = false;
+      phase = 'walk';
+      return true;
+    },
     deepNebulae,
     paintingNebulae,
     originOffset,
@@ -914,6 +948,7 @@ function enterHeaven() {
   thawLandedPlanet();
   landState = null;
   landedPlanet = null;
+  skyLanding = false;
   _padLocalDir.set(0, 0, 0);
   cancelAutopilot();
   closeCredits();
@@ -969,6 +1004,171 @@ function landingUpright(up, quatOut) {
   _lv1.crossVectors(up, _lv2).normalize(); // right (X = Y x Z)
   _lm.makeBasis(_lv1, up, _lv2);
   quatOut.setFromRotationMatrix(_lm);
+}
+
+// --- Sky City landing (world/skycity.js) -------------------------------------
+// Saturnia has no ground, so none of the terrain landing applies. Instead the
+// planet captures the ship: cross into its air shell and the autopilot flies
+// you round to the city and sets you on the pad. It reuses landState ('auto' /
+// 'landed') with skyLanding set, so prompts, heat and the camera need no new
+// cases. skyArmed is the latch that stops a liftoff being re-captured on the
+// spot: it only resets once the ship has climbed clear of the shell.
+let skyLanding = false;
+let skyArmed = true;
+let skyArcFrac = 0.7; // share of the auto-land spent on the arc (rest: descent)
+let skyFallT = -1; // >= 0 while the white is rising over a fall from the city
+const _skyUp = new THREE.Vector3();
+const _skyPad = new THREE.Vector3(); // pad rest point, offset from planet centre
+const _skyHover = new THREE.Vector3(); // above the pad, offset from planet centre
+const _skyStartDir = new THREE.Vector3();
+const _skyAxis = new THREE.Vector3();
+const _skyQuat = new THREE.Quaternion();
+let skyStartR = 0;
+let skyArcAng = 0;
+
+// Where the ship rests on the pad and how it sits: +Y along the city's up,
+// nose toward the city centre. Offsets are from the planet centre, which is
+// what survives a floating-origin rebase mid-arc.
+function skyPadPose() {
+  const g = skyCity.group;
+  _skyUp.set(0, 1, 0).applyQuaternion(g.quaternion);
+  _skyPad.copy(skyCity.pad).applyQuaternion(g.quaternion).add(g.position)
+    .addScaledVector(_skyUp, C.PARK_LIFT);
+  _skyHover.copy(_skyPad).addScaledVector(_skyUp, C.SKY_HOVER);
+  _landUprightQuat.copy(g.quaternion);
+}
+
+function skyShellRadius() {
+  return saturnia.radius * C.ATMO_SHELL;
+}
+
+function beginSkyAutoLand() {
+  cancelAutopilot();
+  skyPadPose();
+  landedPlanet = saturnia;
+  skyLanding = true;
+  skyArmed = false;
+  _padLocalDir.set(0, 0, 0);
+  _landStartOff.subVectors(ship.position, saturnia.body.position);
+  _landStartQuat.copy(ship.quaternion);
+  skyStartR = _landStartOff.length();
+  _skyStartDir.copy(_landStartOff).normalize();
+  _lv0.copy(_skyHover).normalize();
+  skyArcAng = _skyStartDir.angleTo(_lv0);
+  _skyAxis.crossVectors(_skyStartDir, _lv0);
+  if (_skyAxis.lengthSq() < 1e-8) {
+    // dead above or dead opposite: any axis square to the start direction
+    _skyAxis.crossVectors(_skyStartDir, Math.abs(_skyStartDir.y) < 0.9 ? _yAxis : _lv1.set(1, 0, 0));
+  }
+  _skyAxis.normalize();
+  const arcTime = THREE.MathUtils.clamp(
+    2.5 + (skyArcAng * saturnia.radius) / C.SKY_ARC_SPEED, 3.5, C.AUTOLAND_MAX_TIME
+  );
+  autoLandDuration = arcTime + C.SKY_DESCEND_TIME;
+  skyArcFrac = arcTime / autoLandDuration;
+  autoT = 0;
+  landState = 'auto';
+  showNavToast('SKY CITY APPROACH CONTROL — WE HAVE YOUR HELM', 5);
+}
+
+// Two legs. The arc swings round the planet on a great circle to a point high
+// over the pad (never lower than the city's own altitude, so a far-side entry
+// goes around the giant rather than through it, and nothing crosses the towers
+// at deck height). Then a straight vertical descent onto the pad.
+function stepSkyAutoLand(dt) {
+  skyPadPose(); // live: the group position rides origin rebases
+  autoT = Math.min(autoT + dt / autoLandDuration, 1);
+  _prevPos.copy(ship.position);
+  const hoverR = _skyHover.length();
+  if (autoT < skyArcFrac) {
+    const u = autoT / skyArcFrac;
+    const k = u * u * (3 - 2 * u);
+    _skyQuat.setFromAxisAngle(_skyAxis, skyArcAng * k);
+    _lv0.copy(_skyStartDir).applyQuaternion(_skyQuat);
+    // climb out of the deep air quickly, then ease onto the hover radius
+    const rise = Math.min(u * 4, 1);
+    const r = Math.max(
+      THREE.MathUtils.lerp(skyStartR, hoverR, k),
+      THREE.MathUtils.lerp(skyStartR, hoverR, rise * rise * (3 - 2 * rise))
+    );
+    ship.position.copy(saturnia.body.position).addScaledVector(_lv0, r);
+    ship.quaternion.slerpQuaternions(_landStartQuat, _landUprightQuat, k);
+  } else {
+    const u = (autoT - skyArcFrac) / (1 - skyArcFrac);
+    const k = u * u * (3 - 2 * u);
+    _lv0.lerpVectors(_skyHover, _skyPad, k);
+    ship.position.copy(saturnia.body.position).add(_lv0);
+    ship.quaternion.copy(_landUprightQuat);
+  }
+  ship.velocity.copy(ship.position).sub(_prevPos).divideScalar(dt);
+  ship.angularVelocity.set(0, 0, 0);
+  if (autoT >= 1) {
+    landState = 'landed';
+    settleT = 1;
+    ship.velocity.set(0, 0, 0);
+    showNavToast('SKY CITY — WELCOME ABOARD', 4);
+  }
+}
+
+// Parked on the pad. W/Space lifts off — as a short scripted climb rather
+// than a kick, because there is no ground effect up here to hold a level ship:
+// handed back flat, it would sink through the towers before the player found
+// the stick. So it rises clear and tips its nose to the sky first.
+let skyLiftT = -1;
+const SKY_LIFT_TIME = 1.8;
+const SKY_LIFT_HEIGHT = 110;
+const _skyPitched = new THREE.Quaternion();
+const _skyPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 1.05);
+function stepSkyLanded(dt, piloted) {
+  skyPadPose();
+  ship.angularVelocity.set(0, 0, 0);
+  ship.properAccel.set(0, 0, 0);
+  if (skyLiftT < 0) {
+    ship.position.copy(saturnia.body.position).add(_skyPad);
+    ship.quaternion.copy(_landUprightQuat);
+    ship.velocity.set(0, 0, 0);
+    if (piloted && (input.forward || input.brake)) skyLiftT = 0;
+    return;
+  }
+  skyLiftT = Math.min(skyLiftT + dt / SKY_LIFT_TIME, 1);
+  const k = skyLiftT * skyLiftT; // ease in: it gathers speed off the pad
+  _prevPos.copy(ship.position);
+  ship.position.copy(saturnia.body.position).add(_skyPad)
+    .addScaledVector(_skyUp, SKY_LIFT_HEIGHT * k);
+  _skyPitched.copy(_landUprightQuat).multiply(_skyPitch);
+  ship.quaternion.slerpQuaternions(
+    _landUprightQuat, _skyPitched, skyLiftT * skyLiftT * (3 - 2 * skyLiftT)
+  );
+  ship.velocity.copy(ship.position).sub(_prevPos).divideScalar(dt);
+  if (skyLiftT >= 1) {
+    landState = null;
+    landedPlanet = null;
+    skyLanding = false;
+    skyLiftT = -1;
+  }
+}
+
+// Put the ship back on the pad, landed (boarding from a walk, debug hooks).
+function setOnSkyPad() {
+  cancelAutopilot();
+  landedPlanet = saturnia;
+  landState = 'landed';
+  skyLanding = true;
+  skyArmed = false;
+  settleT = 1;
+  skyLiftT = -1;
+  _padLocalDir.set(0, 0, 0);
+  stepSkyLanded(0, false);
+}
+
+// Capture check, once per physics tick in free flight.
+function checkSkyCapture() {
+  const r = ship.position.distanceTo(saturnia.body.position);
+  if (!skyArmed) {
+    if (r > skyShellRadius() + C.SKY_REARM_MARGIN) skyArmed = true;
+    return;
+  }
+  if (r < skyShellRadius()) beginSkyAutoLand();
 }
 
 // G at low altitude: on worlds with registry cities, arc to the CLOSEST
@@ -1055,6 +1255,7 @@ function beginAutoLand(floor) {
 }
 
 function stepAutoLand(dt) {
+  if (skyLanding) return stepSkyAutoLand(dt);
   const p = landedPlanet;
   autoT = Math.min(autoT + dt / autoLandDuration, 1);
   const k = autoT * autoT * (3 - 2 * autoT); // smoothstep ease
@@ -1117,6 +1318,7 @@ function stepAutoLand(dt) {
 // the live spin, so the parked ship co-rotates and stays over the pad — the
 // old radial-from-position pin drifts relative to a fixed pad.
 function stepLanded(dt, piloted) {
+  if (skyLanding) return stepSkyLanded(dt, piloted);
   const p = landedPlanet;
   if (_padLocalDir.lengthSq() > 0.5) {
     _lv0.copy(_padLocalDir).applyAxisAngle(_yAxis, p.surface?.rotation?.y ?? 0);
@@ -1190,7 +1392,7 @@ function touchdownIsolate(p) {
 // Undo the touchdown freeze. Stepping out doesn't need this (enterWalk
 // re-freezes the same planet, idempotently); liftoff and the hard resets do.
 function thawLandedPlanet() {
-  if (landedPlanet) setPlanetSpinFrozen(landedPlanet, false);
+  if (landedPlanet && !skyLanding) setPlanetSpinFrozen(landedPlanet, false);
 }
 
 // Backspace — real pause (audit fix: Escape only dropped pointer lock while
@@ -1234,6 +1436,10 @@ function resetToStart() {
   flashFade = 0;
   landState = null;
   landedPlanet = null;
+  skyLanding = false;
+  skyArmed = true;
+  skyFallT = -1;
+  skyLiftT = -1;
   _padLocalDir.set(0, 0, 0);
   standing = false;
   standBlend = 0;
@@ -1390,6 +1596,7 @@ function frame(now) {
         if (autopilotActive()) stepAutopilot(DT, heat);
         stepShip(DT, piloted);
         if (piloted && !autopilotActive()) checkTouchdown();
+        if (landState === null) checkSkyCapture();
       }
       accumulator -= DT;
     }
@@ -1436,7 +1643,18 @@ function frame(now) {
     // assisted auto-land toward the flattest nearby ground. Only from the
     // pilot seat — sit back down before stepping outside.
     if (input.toggleWalk && !standing && standBlend < 0.05 && !autopilotActive()) {
-      if (landState === 'landed') {
+      if (skyLanding) {
+        // The Sky City. No waving off the approach — there is nowhere else to
+        // go — and stepping out needs the on-foot chunk to have arrived.
+        if (landState === 'landed' && skyLiftT < 0 && enterSkyWalk(skyCity)) {
+          landState = null;
+          landedPlanet = null;
+          skyLanding = false;
+          heat = 0;
+          phase = 'walk';
+          accumulator = 0;
+        }
+      } else if (landState === 'landed') {
         const floor = nearestTerraFloor(ship.position);
         if (floor) {
           landState = null;
@@ -1484,6 +1702,21 @@ function frame(now) {
       snapCamera(ship);
       phase = 'fly';
       accumulator = 0;
+    } else if (skyFallT >= 0 || skyFell()) {
+      // Off the edge of the Sky City. The walker is still falling under the
+      // rising white; at full white the run ends and starts over, in the ship,
+      // where the game began.
+      skyFallT = Math.max(skyFallT, 0) + delta;
+      flash = Math.min(skyFallT / C.SKY_FALL_FLASH, 1);
+      if (flash >= 1) {
+        endWalk();
+        resetToStart(); // clears skyFallT and the flash
+        flash = 1; // ...but we are still under the white
+        flashFade = C.SKY_FALL_FADE;
+        phase = 'fly';
+        accumulator = 0;
+        showNavToast('YOU FELL FROM THE SKY CITY', 5);
+      }
     } else {
       // E — talk to the focused citizen/creature, or advance the open dialogue.
       if (input.interact) walkInteract();
@@ -1494,6 +1727,13 @@ function frame(now) {
             // first, and do the teardown + reset under it ('depart' below).
             phase = 'depart';
             warpT = 0;
+          } else if (skyActive()) {
+            // Back into the seat, still parked on the pad: W lifts off.
+            endWalk();
+            setOnSkyPad();
+            snapCamera(ship);
+            phase = 'fly';
+            accumulator = 0;
           } else {
             // Board the ship and hand control back to flight.
             endWalk();
@@ -1591,7 +1831,7 @@ function frame(now) {
     }
   }
   // Every other phase: let whatever the last transition left on screen fade.
-  if (phase !== 'explode' && phase !== 'ascend' && phase !== 'depart' && flash > 0) {
+  if (phase !== 'explode' && phase !== 'ascend' && phase !== 'depart' && skyFallT < 0 && flash > 0) {
     flash = flashFade > 0 ? Math.max(0, flash - delta / flashFade) : 0;
     if (flash === 0) flashFade = 0;
   }
@@ -1698,8 +1938,8 @@ function frame(now) {
       } else {
         // seated: landing prompts
         let prompt = null;
-        if (landState === 'landed') prompt = 'G — STEP OUT · W — LIFT OFF';
-        else if (landState === 'auto') prompt = 'AUTO-LANDING · G — ABORT';
+        if (landState === 'landed') prompt = skyLanding && skyLiftT >= 0 ? null : 'G — STEP OUT · W — LIFT OFF';
+        else if (landState === 'auto') prompt = skyLanding ? 'AUTO-LANDING · SKY CITY' : 'AUTO-LANDING · G — ABORT';
         else {
           const floor = nearestTerraFloor(ship.position);
           if (
@@ -1730,6 +1970,7 @@ function frame(now) {
     updateDeepNebula(renderer, camera);
     updatePlanets(now / 1000, camera.position);
     updateStations(now / 1000, ship.position);
+    skyCity.update(delta, now / 1000, camera.position);
   }
   // nav AFTER the stations are placed: a reset snaps orbiting stations back
   // to their snapshot spot for one frame, and a discovery check reading that
