@@ -33,6 +33,19 @@ let weapons = new Set([STARTER_WEAPON]); // owned weapon ids (persisted)
 let trophies = {}; // world name -> titans killed there (persisted)
 let record = { bestWave: 0, kills: 0 }; // (persisted)
 let recordDirty = false;
+// Quest cargo and ship upgrades (the Emberdeep line on rustia, src/mineWalk.js
+// and src/patio.js). Kept apart from ITEMS on purpose: ITEMS is the vehicle
+// catalog the selector menu lists and B deploys, and a lump of ore or a deck
+// bolted to the freighter is neither. Cargo is carried and can be handed over
+// (so it is removable); an upgrade is permanent.
+export const CARGO = {
+  emberOre: { name: 'Ember Ore', hint: 'Warm to the touch. Somebody on Rustia will want this.' },
+};
+export const UPGRADES = {
+  patio: { name: 'Aft Patio', hint: 'An open deck off the stern lounge. Stand up (C) and walk aft.' },
+};
+let cargo = new Set(); // carried quest cargo ids (persisted)
+let upgrades = new Set(); // owned ship upgrade ids (persisted)
 
 function load() {
   try {
@@ -50,6 +63,9 @@ function load() {
         if (n > 0) trophies[k] = n;
       }
     }
+    // Absent in saves from before the Emberdeep existed — both stay empty.
+    if (Array.isArray(data.cargo)) cargo = new Set(data.cargo.filter((i) => CARGO[i]));
+    if (Array.isArray(data.upgrades)) upgrades = new Set(data.upgrades.filter((i) => UPGRADES[i]));
     if (data.record && typeof data.record === 'object') {
       record.bestWave = Math.max(0, Math.floor(Number(data.record.bestWave) || 0));
       record.kills = Math.max(0, Math.floor(Number(data.record.kills) || 0));
@@ -63,6 +79,7 @@ function save() {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify({
       items: [...items], selected, weapons: [...weapons], trophies, record,
+      cargo: [...cargo], upgrades: [...upgrades],
     }));
   } catch {
     /* session-only */
@@ -89,6 +106,40 @@ export function hasItem(id) {
 
 export function ownedItems() {
   return [...items];
+}
+
+// ---- quest cargo + ship upgrades -------------------------------------------
+
+// Returns false when already carried, so a second chunk never re-toasts.
+export function grantCargo(id) {
+  if (!CARGO[id] || cargo.has(id)) return false;
+  cargo.add(id);
+  save();
+  showViewToast('PICKED UP — ' + CARGO[id].name.toUpperCase(), 5);
+  return true;
+}
+
+export function hasCargo(id) {
+  return cargo.has(id);
+}
+
+// Hand a carried piece over (the governor takes the ore). False if not held.
+export function takeCargo(id) {
+  if (!cargo.delete(id)) return false;
+  save();
+  return true;
+}
+
+export function grantUpgrade(id) {
+  if (!UPGRADES[id] || upgrades.has(id)) return false;
+  upgrades.add(id);
+  save();
+  showViewToast('SHIP UPGRADE — ' + UPGRADES[id].name.toUpperCase(), 6);
+  return true;
+}
+
+export function hasUpgrade(id) {
+  return upgrades.has(id);
 }
 
 // What B activates. null means "no selection" — B then falls back to its
@@ -152,5 +203,6 @@ export function inventoryState() {
   return {
     items: [...items], selected,
     weapons: ownedWeapons(), trophies: { ...trophies }, record: { ...record },
+    cargo: [...cargo], upgrades: [...upgrades],
   };
 }

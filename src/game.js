@@ -817,6 +817,11 @@ if (import.meta.env.DEV) {
         clear: '#' + c.getHexString(),
         clearAlpha: renderer.getClearAlpha(),
         background: scene.background ? String(scene.background) : null,
+        // exposure / bloom / fog: who owns the look right now (flight, a
+        // surface sky, or the Emberdeep) — and whether it was handed back
+        exposure: renderer.toneMappingExposure,
+        bloom: { threshold: bloomPass.threshold, strength: bloomPass.strength },
+        fog: scene.fog ? { density: scene.fog.density ?? null, color: '#' + scene.fog.color.getHexString() } : null,
         passes: composer.passes.map((p) => p.constructor.name + ':' + (p.enabled ? 1 : 0)),
       };
     },
@@ -2067,7 +2072,7 @@ function frame(now) {
     (C.CA_STRENGTH * 8.0 * (1 + C.WARP_CA_BOOST * warpFx * MOTION_SCALE)) / window.innerHeight;
   aberrationPass.uniforms.uWarp.value = C.WARP_SMEAR * warpFx * MOTION_SCALE;
 
-  if (phase === 'walk') walkPreRender(renderer); // world modules draw to their RTs
+  if (phase === 'walk') walkPreRender(renderer, bloomPass); // world modules draw to their RTs
   composer.render();
   // The warzone rifle draws over the finished frame (its own scene, depth
   // cleared) — after the post chain, before the photo/recording grabs.

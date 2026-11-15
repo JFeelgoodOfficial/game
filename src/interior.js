@@ -32,7 +32,8 @@ import { sun } from './sun.js';
 import { GALLERY_FILES } from './gallery.js';
 import { titleOf, loadArtMid, loadArtFull, disposeArt } from './galleryArt.js';
 import { WEAPONS, WEAPON_ORDER, TROPHY_WORLDS } from './arsenal.js';
-import { hasWeapon, combatRecord } from './inventory.js';
+import { hasWeapon, combatRecord, hasUpgrade } from './inventory.js';
+import { buildPatio } from './patio.js';
 
 export const interiorScene = new THREE.Scene();
 
@@ -321,6 +322,12 @@ function solidPair(x0, x1, z0, z1) {
   solid(-x1, -x0, z0, z1);
 }
 let solidBuf = null;
+// The aft patio (src/patio.js, a quest upgrade). The stern doorway's solid is
+// the one box that switches: `doorSolidAt` is its offset in solidBuf, parked
+// far away while the door is open. `aftLimit` is how far aft the walker may go.
+let patio = null;
+let doorSolidAt = -1;
+let aftLimit = AFT_Z - BODY_R;
 
 function resolveWalls(p) {
   for (let pass = 0; pass < 2; pass++) {
@@ -349,7 +356,21 @@ function resolveWalls(p) {
   }
   // belt and braces: never outside the hull, whatever the boxes say
   p.x = Math.max(-HALL_HW + BODY_R, Math.min(HALL_HW - BODY_R, p.x));
-  p.z = Math.max(-0.2, Math.min(AFT_Z - BODY_R, p.z));
+  p.z = Math.max(-0.2, Math.min(aftLimit, p.z));
+}
+
+// Open or close the stern doorway to match the inventory. Cheap enough to
+// call every frame; only does anything on a change.
+function syncPatio() {
+  const want = hasUpgrade('patio');
+  if (!patio || want === patio.open) return;
+  patio.setOpen(want);
+  aftLimit = (want ? patio.z1 : AFT_Z) - BODY_R;
+  // door open: the solid goes somewhere nobody can be; shut: back in the gap
+  solidBuf[doorSolidAt + 2] = want ? 1e6 : AFT_Z;
+  solidBuf[doorSolidAt + 3] = want ? 1e6 + 1 : AFT_Z + 1;
+  // Bought while standing on a deck that just closed (debug only): step back in.
+  if (!want) resolveWalls(player.pos);
 }
 
 // ---------------------------------------------------------------------------
@@ -848,13 +869,19 @@ export function initInterior() {
   boxes('wall', HW, HW + 0.1, -0.6, 3.0, AFT_Z - 0.8, AFT_Z);
   paneX(-HW - 0.05, -0.6, 3.0, HALL_Z1 + 0.8, AFT_Z - 0.8);
   paneX(HW + 0.05, -0.6, 3.0, HALL_Z1 + 0.8, AFT_Z - 0.8);
-  // the stern window, wall to wall
-  box('wall', -HW - 0.1, HW + 0.1, F, -0.7, AFT_Z, AFT_Z + 0.1);
+  // the stern window, wall to wall. The centre bay (between the two mullions)
+  // is the patio doorway: its sill, pane and solid belong to src/patio.js,
+  // which swaps them for an opening once the upgrade is owned.
+  boxes('wall', 1.36, HW + 0.1, F, -0.7, AFT_Z, AFT_Z + 0.1);
   box('wall', -HW - 0.1, HW + 0.1, 3.1, ROOF_Y, AFT_Z, AFT_Z + 0.1);
   boxes('wall', 4.2, HW + 0.1, -0.7, 3.1, AFT_Z, AFT_Z + 0.1);
   boxes('trim', 1.36, 1.44, -0.7, 3.1, AFT_Z - 0.03, AFT_Z + 0.1);
-  paneZ(AFT_Z + 0.05, -4.2, 4.2, -0.7, 3.1);
-  solid(-HW - 1, HW + 1, AFT_Z, AFT_Z + 1);
+  paneZ(AFT_Z + 0.05, -4.2, -1.36, -0.7, 3.1);
+  paneZ(AFT_Z + 0.05, 1.36, 4.2, -0.7, 3.1);
+  solidPair(1.36, HW + 1, AFT_Z, AFT_Z + 1);
+  doorSolidAt = solids.length;
+  solid(-1.36, 1.36, AFT_Z, AFT_Z + 1);
+  patio = buildPatio({ group, MATS, glassMat, F, HW, AFT_Z, ROOF_Y, solid });
   // two couches facing the view
   for (const sx of [-1, 1]) {
     const x = sx * 2.1;
@@ -883,6 +910,7 @@ export function initInterior() {
   group.add(glass);
   for (const g of glassParts) g.dispose();
   solidBuf = new Float32Array(solids);
+  syncPatio(); // a save that already owns the upgrade opens the door at once
 
   // ---- the owner's photographs + the Wave Collector plaque (vestibule) ----
   const photoSpots = [
@@ -977,6 +1005,8 @@ export function updateInterior(ship, delta = 0, active = false) {
   group.position.copy(ship.position);
   group.quaternion.copy(ship.quaternion);
   if (!active) return;
+  syncPatio();
+  patio.update(performance.now() / 1000);
   if (sun.group) {
     _p.subVectors(sun.group.position, ship.position).normalize();
     sunLight.position.copy(ship.position).addScaledVector(_p, 50);
@@ -1087,6 +1117,14 @@ export function interiorInfo() {
     fullRes,
     solids: solidBuf.length / 4,
     bounds: { halfWidth: HALL_HW, aft: AFT_Z, hall: [HALL_Z0, HALL_Z1] },
+    // the aft patio: owned, the deck's extent, and whether the pilot is on it
+    patio: {
+      owned: !!patio?.open,
+      door: { halfWidth: patio.doorHalf, z: AFT_Z },
+      deck: [patio.z0, patio.z1],
+      aftLimit,
+      onDeck: !!patio?.open && player.pos.z > AFT_Z + 0.1,
+    },
     plaque: { x: PLAQUE_X, z: PLAQUE_Z },
     art: slots.map((s) => ({ x: s.x, z: s.z, ry: s.ry, title: s.title, w: s.w, h: s.h })),
   };
@@ -1094,6 +1132,7 @@ export function interiorInfo() {
 
 // Teleport-safe placement for headless checks: writes then resolves walls.
 export function placePlayer(x, z, yaw = player.yaw) {
+  syncPatio();
   player.pos.x = x;
   player.pos.z = z;
   player.yaw = yaw;

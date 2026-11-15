@@ -120,6 +120,24 @@ export const CITIES = [
       complete: 'Full circuit. The Claim owes you a machine — take the Redline runner and let it drink the flats.',
       thanks: 'I can hear that engine from the penthouse. Sweetest sound on Rustia.',
     },
+    // The Emberdeep: the mine under the claim, and the cathedral in it
+    // (world/minehead.js, world/embermine.js, src/mineWalk.js). A town with a
+    // `mine` block gets a headframe by the walkway; the governor's lines here
+    // are layered onto the tour dialogue by walk.js governorInteract.
+    mine: {
+      name: 'Emberdeep No. 1',
+      // one aside appended to his usual lines until the patio is fitted...
+      hint: 'And if you ever ride the cage down the Emberdeep — the headframe by the pad road — bring me up a piece of ember ore. I miss the glow up here.',
+      // ...the hand-over, carrying ore...
+      deliver: [
+        'Is that — give it here. Ember ore, straight off the live seam. Still warm. Forty years and it still does this to me.',
+        'You went all the way down. You saw what they carved. Most pilots never leave the pad.',
+        'A ship that carries this deserves somewhere to stand and look at the sky it came through. My fitters are cutting a door in your stern as we speak.',
+        'An aft patio, open to everything. Stand up from your seat, walk to the back of the lounge, and step outside.',
+      ],
+      // ...and the aside afterwards.
+      after: 'How is the patio? I keep your ore on the desk. It lights the whole room after dark.',
+    },
     citizens: [
       { name: 'Baron Rynva', role: 'governor', dialogue: 'governor', home: 'penthouse' },
       { name: 'Vaqor Ith', role: 'farmer', dialogue: 'vendor', vars: { crop: 'vat greens', lowCrop: 'dust melon' } },
