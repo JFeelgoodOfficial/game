@@ -195,7 +195,6 @@ initCityFlatten(planets);
 // in the boot bundle, because you see it from orbit long before you walk it.
 const saturnia = planets.find((p) => p.cfg.name === 'saturnia');
 const skyCity = createSkyCity(saturnia);
-skyCity.setEnvironment(renderer); // reflections for its brass, glaze and metal
 
 // The on-foot astronaut (hidden until a disembark) lives in the world scene.
 initWalk(scene);
@@ -517,7 +516,6 @@ if (import.meta.env.DEV) {
     // capture fires on the next tick; skyDock() skips the flight entirely.
     skyCity,
     skyState: () => ({ landState, skyLanding, skyArmed, autoT, phase, flash }),
-    skyLook: () => ({ on: skyLook.on, shadows: renderer.shadowMap.enabled, cast: !!sun.light.castShadow, ao: aoPass.enabled, lightPos: sun.light.position.toArray() }),
     skyApproach(side = 1, speed = 300) {
       skyPadPose();
       const d = _skyPad.clone().normalize().multiplyScalar(side ? -1 : 1);
@@ -533,7 +531,6 @@ if (import.meta.env.DEV) {
     },
     skyStepOut() {
       if (!enterSkyWalk(skyCity)) return false;
-      acquireSkyLook();
       landState = null;
       landedPlanet = null;
       skyLanding = false;
@@ -930,7 +927,6 @@ function endWalk() {
   // without ever stepping out releases the universe stage in stepLanded instead.)
   // Before exitWalk: restores visibility for the reset snapshot.
   releaseIsolation(renderer, aoPass, camera, bloomPass);
-  releaseSkyLook();
   closeVehicleMenu(); // the selector is an on-foot dialog
   exitWalk(camera);
 }
@@ -1163,73 +1159,6 @@ function setOnSkyPad() {
   skyLiftT = -1;
   _padLocalDir.set(0, 0, 0);
   stepSkyLanded(0, false);
-}
-
-// --- Sky City on foot: shadows and contact shading -----------------------------
-// In flight nothing in the game casts a shadow (a planet-scale shadow camera is
-// useless) and ambient occlusion is off (it is a full extra scene pass). On
-// foot in the city both are worth paying for: towers throw long shadows across
-// the paving and things sit on the ground instead of floating over it.
-//
-// The shadows come from the system's own sun light, so the lighting does not
-// change: for the visit it is simply moved to stand off the player along its
-// usual direction (a directional light only has a direction, so that is the
-// same light) with a shadow camera wide enough for the streets around them.
-// Everything touched here is put back by releaseSkyLook, which every way out
-// of the walk reaches through endWalk / resetToStart.
-const skyLook = { on: false, prevShadow: false, prevType: 0, dir: new THREE.Vector3() };
-function acquireSkyLook() {
-  if (skyLook.on || !sun.light) return;
-  skyLook.on = true;
-  skyLook.dir.copy(sun.light.position).normalize();
-  skyLook.prevShadow = renderer.shadowMap.enabled;
-  skyLook.prevType = renderer.shadowMap.type;
-  if (Q.tier !== 'low') {
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.shadowMap.needsUpdate = true;
-    const sh = sun.light.shadow;
-    const size = Q.tier === 'ultra' ? 4096 : 2048;
-    if (sh.mapSize.x !== size) {
-      sh.mapSize.set(size, size);
-      if (sh.map) { sh.map.dispose(); sh.map = null; }
-    }
-    const cam = sh.camera;
-    cam.left = cam.bottom = -150;
-    cam.right = cam.top = 150;
-    cam.near = 1;
-    cam.far = 900;
-    cam.updateProjectionMatrix();
-    sh.bias = -0.0005;
-    sh.normalBias = 0.5;
-    sun.light.castShadow = true;
-    aoPass.enabled = true;
-  }
-}
-function updateSkyLook() {
-  if (!skyLook.on) return;
-  // keep the shadow camera centred on the walker; snap it to shadow texels so
-  // the edges do not crawl as you move
-  const texel = 300 / sun.light.shadow.mapSize.x;
-  _lv0.copy(ship.position);
-  _lv0.x = Math.round(_lv0.x / texel) * texel;
-  _lv0.y = Math.round(_lv0.y / texel) * texel;
-  _lv0.z = Math.round(_lv0.z / texel) * texel;
-  sun.light.target.position.copy(_lv0);
-  sun.light.target.updateMatrixWorld();
-  sun.light.position.copy(_lv0).addScaledVector(skyLook.dir, 450);
-}
-function releaseSkyLook() {
-  if (!skyLook.on) return;
-  skyLook.on = false;
-  sun.light.castShadow = false;
-  sun.light.position.copy(skyLook.dir);
-  sun.light.target.position.set(0, 0, 0);
-  sun.light.target.updateMatrixWorld();
-  renderer.shadowMap.enabled = skyLook.prevShadow;
-  renderer.shadowMap.type = skyLook.prevType;
-  renderer.shadowMap.needsUpdate = true;
-  aoPass.enabled = false;
 }
 
 // Capture check, once per physics tick in free flight.
@@ -1493,7 +1422,6 @@ function resetToStart() {
   // finale's game reset. A stranded pause would hand the flight sim an invisible
   // solar system. Both stages, and a no-op when neither is held.
   releaseIsolation(renderer, aoPass, camera, bloomPass);
-  releaseSkyLook(); // likewise the Sky City's shadow light and AO
   thawLandedPlanet(); // a reset from the pad must not strand a frozen day
   ship.position.set(0, 0, 0);
   ship.velocity.set(0, 0, 0);
@@ -1719,7 +1647,6 @@ function frame(now) {
         // The Sky City. No waving off the approach — there is nowhere else to
         // go — and stepping out needs the on-foot chunk to have arrived.
         if (landState === 'landed' && skyLiftT < 0 && enterSkyWalk(skyCity)) {
-          acquireSkyLook();
           landState = null;
           landedPlanet = null;
           skyLanding = false;
@@ -1767,7 +1694,6 @@ function frame(now) {
     if (input.toggleView) toggleWalkView();
     // Astronaut pose/animation + dressing sway ride the render rate.
     updateWalkVisuals(delta, now / 1000);
-    updateSkyLook();
     // The actuality hyper-holo-grid finale loops the whole game back to start
     // (0 = repeat program): board off, reset to the spawn, resume flight.
     if (walkPendingReset()) {

@@ -921,53 +921,6 @@ export function createSkyCity(planet) {
 
   planet.group.add(group);
 
-  // Shadows: every opaque lit mesh both casts and receives. They only cost
-  // anything while a shadow-casting light is pointed at the city, which
-  // game.js arranges on foot (the flight view is too far away to need them).
-  group.traverse((o) => {
-    const m = o.material;
-    if (!o.isMesh || !m || !m.isMeshStandardMaterial || m.transparent) return;
-    o.castShadow = true;
-    o.receiveShadow = true;
-  });
-
-  // Reflections. Brass, glazed tile and tower metal are mostly what they
-  // reflect; with nothing to reflect they render as flat paint. The map is a
-  // small synthetic sky as seen from the city (dark space above, a gold band
-  // at the horizon, the bright ocean below, a hot sun), prefiltered once. It is
-  // set on the city's own materials, never on the scene, so no other world is
-  // relit by it.
-  function setEnvironment(renderer) {
-    const env = new THREE.Scene();
-    const geo = new THREE.SphereGeometry(50, 32, 16);
-    const col = new Float32Array(geo.attributes.position.count * 3);
-    const zen = new THREE.Color(0x1a1420), hor = new THREE.Color(0xf2d9a6), sea = new THREE.Color(0xc9952e);
-    for (let i = 0; i < geo.attributes.position.count; i++) {
-      const h = geo.attributes.position.getY(i) / 50; // -1 nadir .. 1 zenith
-      if (h >= 0) _c.copy(hor).lerp(zen, Math.pow(h, 0.45));
-      else _c.copy(hor).lerp(sea, Math.min(-h * 3, 1));
-      col.set([_c.r, _c.g, _c.b], i * 3);
-    }
-    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    env.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
-    const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(3.2, 12, 8), new THREE.MeshBasicMaterial({ color: 0xfff0d0 }));
-    sunDisc.material.color.multiplyScalar(40);
-    // the sun, in the city's own frame
-    sunDisc.position.copy(planet.sunBase).applyQuaternion(group.quaternion.clone().invert()).multiplyScalar(44);
-    env.add(sunDisc);
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const tex = pmrem.fromScene(env, 0.03).texture;
-    pmrem.dispose();
-    geo.dispose();
-    group.traverse((o) => {
-      const m = o.material;
-      if (!m || !m.isMeshStandardMaterial || m.transparent) return;
-      m.envMap = tex;
-      m.envMapIntensity = 0.75;
-      m.needsUpdate = true;
-    });
-  }
-
   // ---- queries ----------------------------------------------------------------
   // Highest walkable surface at (x, z) that the feet could be standing on:
   // nothing more than `snap` above feetY counts. -Infinity means open air.
@@ -1057,7 +1010,6 @@ export function createSkyCity(planet) {
   return {
     group,
     planet,
-    setEnvironment,
     surfaces,
     colliders,
     floorYAt,
