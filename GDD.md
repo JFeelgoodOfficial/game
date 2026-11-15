@@ -347,8 +347,9 @@ edges are open. Walk or jump off the deck, an arm or the pad pier and you fall;
 after a moment the screen whites out and the run restarts in the ship at the
 start, with no death menu.
 
-Saturnia itself is no longer a gas giant: it is a `terra` world with `noLand`
-(gold savannah and rivers under a heavy cloud shell, `cloudCover`), wider rings,
+Saturnia itself is no longer a gas giant: it is a `terra` world with `noLand`,
+flooded pole to pole (sea level above every peak) so it reads as one golden ocean
+under a heavy cloud shell (`cloudCover`), with wider rings
 and a few stray clouds around and above the city.
 
 Things to do in the city:

@@ -177,11 +177,12 @@ const CONFIGS = [
     // total conversion that owns 100% of the surface content.
   },
   {
-    // Once a banded gas giant. Now there is ground down there — gold
-    // savannah, olive lowlands, dark rivers — under a heavy cloud deck, with
-    // the Sky City (world/skycity.js) riding above the weather. Nobody lands
-    // on the ground: `noLand` keeps it out of the landing search, and the
-    // city's approach control takes the helm long before the surface.
+    // Once a banded gas giant. Now it is one golden ocean, pole to pole, under
+    // a heavy cloud deck, with the Sky City (world/skycity.js) riding above the
+    // weather. Sea level sits over the top of the terrain range, so no land
+    // ever breaks the surface. Nobody lands on it: `noLand` keeps it out of
+    // the landing search, and the city's approach control takes the helm
+    // long before the water.
     name: 'saturnia',
     type: 'terra',
     noLand: true,
@@ -192,15 +193,14 @@ const CONFIGS = [
     skyColor: () => 0xd8b06a,
     spin: () => 0.012,
     atmoColor: 0xe8c07a,
-    seaLevel: () => 0.4,
-    terrainHeight: () => 130,
-    shape: { ridge: 0.3, ridgeFreq: 2.6, valley: 0.14 },
-    iceLat: 0.93,
+    seaLevel: () => 1.6, // above every peak: all ocean
+    terrainHeight: () => 60,
+    iceLat: 2, // no ice caps
     palette: {
-      deep: 0x0c2a3a, shallow: 0x2f7a86, sand: 0xdcc28a,
-      low: 0x8f9a4a, mid: 0x8a6a3e, high: 0xf2e6c8,
+      deep: 0x8a5a10, shallow: 0xe0a830, sand: 0xf0c860,
+      low: 0xe0a830, mid: 0xc88a20, high: 0xf6dc90,
     },
-    water: { color: 0x123a4a, gloss: 0.9 },
+    water: { color: 0xc08a1c, gloss: 1.0 },
     clouds: true,
     cloudCover: 0.78, // a lot of weather between the ground and the city
     rings: { inner: 1.7, outer: 3.5, tilt: 0.47, color: 0xd8c49a },
