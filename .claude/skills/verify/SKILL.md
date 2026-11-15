@@ -107,6 +107,13 @@ flow: place the walker within 4 u of `lance.room`, `e` seats you (`sWalk.gunning
 bore; `dragon.dying` is true for 6.5 s after a hit. `g` leaves the seat.
 A car off the track sets `cars[i].rescue` (`fall|hook|tow|lower|shop`) and ends
 in `skyCity.shop.bays[i]`; the player's race then ends on foot at the booth.
+Track v2: `skyCity.track` → `{n, pts[{x,y,z,tx,tz,sy,curv,gap,fast}], top,
+length}`; `skyCity.trackAt(x, z, y)` → `{i, lateral, y}` or null (gaps are
+air). Cars carry `y, vy, air, kx, kz` (jump + collision shove); `race.bumps`
+counts contacts, `race.rival/won/engineWon/level` describe the card. A bot
+needs to slow for the two 90-degree corners (see curvature) and hold 36+ into
+the jumps. Standing: `localStorage['nova7.skyrace']` = `{wins, races}`;
+`skyCity.refreshPoster()` repaints the poster.
 `walkSite().sky.audio` → `{built, running, plays, drone, level}` for
 world/skycity-audio.js (`plays` counts one-shots; `drone` is the rotor gain).
 `skyCity.booth` + `e` starts a race: `walkSite().sky.race` → `{active, phase:

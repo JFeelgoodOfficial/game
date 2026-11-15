@@ -367,13 +367,22 @@ Things to do in the city:
   fires down the bore. The shot has to pass within a few units of the body.
   A hit detonates the dragon head to tail: flash, a chain of fireballs, shock
   rings, embers, and the charred body coming apart and falling. G steps back.
-- **The Rim Circuit.** A bare ribbon of road on pylons outside the rim
-  (`src/skyRace.js`). E at the booth puts you on the grid with four rivals for
-  three laps. No barriers: rivals sometimes miss a bend and go over, and so
-  can you. A car that leaves the road is not lost: a recovery drone dives from
-  the mechanics' yard beside the booth, wires it, and tows it back to a bay.
-  That ends the driver's race; the player is handed back on foot at the booth.
-  G quits the race.
+- **The Rim Circuit.** A bare ribbon of road with no barriers
+  (`src/skyRace.js`; the route is built in `world/skycity.js`). From the start
+  line it runs round the outside of the rim, over a kicker and a gap, turns in
+  and climbs a bridge straight through the city (up an avenue, between the
+  spires, over the dome, off a second jump) and back out to the rim. E at the
+  booth puts you on the grid with four rivals for three laps. Cars collide
+  properly: closing speed becomes a sideways shove on both, so drivers can
+  knock each other off, and rivals will sometimes steer into the car
+  alongside. A car that leaves the road, or falls short at a jump, is caught
+  by a recovery drone from the mechanics' yard and towed round the rim to a
+  bay; that ends the driver's race. G quits.
+- **Rivals and engines** (`world/skyrace-roster.js`). Each race has a headline
+  rival, shown on a poster by the booth with a line of trash talk. Win and the
+  mechanics fit the next engine (more top speed and acceleration), the field
+  gets a little quicker, and the poster moves on to the next name. The
+  standing persists in localStorage (`nova7.skyrace`).
 - **The paving.** The deck, terrace and pad wear one procedural tile pattern
   (`makePavingMaterial` in `world/skycity.js`): a glazed rosette on the
   terrace, rings of setts with inlaid feature rings, chequered avenues edged
