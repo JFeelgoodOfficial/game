@@ -84,6 +84,125 @@ function cyl(rTop, rBot, h, x, y, z, seg = 16) {
   return g;
 }
 
+// The paving. One procedural pattern, evaluated per pixel from the city-local
+// (x, z) so it is sharp at arm's length and from orbit alike, and continuous
+// across every surface that wears it (deck, terrace, pad):
+//   - the terrace is a guilloche rosette, two counter-wound spirals of glazed
+//     lozenges around the dome;
+//   - the deck is rings of stone setts whose count grows with the radius, with
+//     every fifth ring a band of teal-and-gold diamond inlays;
+//   - eight avenues of chequered marble run out along the axes, edged in brass;
+//   - brass bands circle the terrace foot, the mid-deck and the rim.
+// It rides MeshStandardMaterial (so the sun, the storm flicker and the fill
+// light all still land on it) and only overrides albedo, roughness and metal.
+function makePavingMaterial() {
+  const mat = new THREE.MeshStandardMaterial({
+    roughness: 0.8, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+  });
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vPave;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPave = position.xz;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec2 vPave;
+float pvHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+// 0 in the joint, 1 on the tile, antialiased: d is distance to the joint in units
+float pvJoint(float d, float w) { float fw = fwidth(d) + 1e-4; return smoothstep(w - fw, w + fw, d); }
+// rgb = albedo, a = glaze (0 rough stone .. 1 polished), metal returned separately
+vec4 paving(vec2 p, out float metal) {
+  metal = 0.0;
+  float r = length(p);
+  float a = atan(p.y, p.x);
+  const vec3 CREAM = vec3(0.86, 0.80, 0.66), SAND = vec3(0.74, 0.63, 0.46), TERRA = vec3(0.66, 0.34, 0.22);
+  const vec3 TEAL = vec3(0.08, 0.46, 0.44), BRASS = vec3(0.83, 0.62, 0.22), INK = vec3(0.10, 0.09, 0.10);
+  const vec3 GROUT = vec3(0.22, 0.19, 0.16), LAPIS = vec3(0.10, 0.20, 0.48), WHITE = vec3(0.93, 0.91, 0.86);
+  vec3 col; float glaze = 0.0;
+
+  if (r < 47.2) {
+    // --- terrace rosette: lozenges between two opposed spirals ---
+    float q = r / 47.2;
+    float turns = 24.0;
+    float u = a / 6.2831853 * turns + q * 5.0;
+    float v = a / 6.2831853 * turns - q * 5.0;
+    vec2 f = fract(vec2(u, v)), id = floor(vec2(u, v));
+    float span = 6.2831853 * r / turns * 0.7;            // lozenge size here, in units
+    float d = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y)) * span;
+    float par = mod(id.x + id.y, 3.0);
+    col = par < 0.5 ? TEAL : par < 1.5 ? CREAM : LAPIS;
+    // a brass stud in the heart of every cream lozenge
+    float stud = length(f - 0.5);
+    if (par > 0.5 && par < 1.5 && stud < 0.16) { col = BRASS; metal = 0.9; }
+    glaze = 0.75;
+    col = mix(GROUT, col, pvJoint(d, 0.07));
+    // concentric brass hoops break the spirals into courses
+    float hoop = abs(fract(r / 11.8) - 0.5) * 11.8;
+    if (hoop < 0.28) { col = BRASS; metal = 0.9; glaze = 0.8; }
+    return vec4(col, glaze);
+  }
+
+  // --- avenues along the eight axes ---
+  float sector = floor(a / 0.7853982 + 0.5);
+  float da = a - sector * 0.7853982;
+  float across = r * sin(da), along = r * cos(da);
+  float halfW = 4.6;
+  if (abs(across) < halfW && r > 50.5) {
+    float edge = halfW - abs(across);
+    if (edge < 0.55) { metal = 0.9; return vec4(mix(INK, BRASS, pvJoint(abs(edge - 0.27), 0.05)), 0.8); }
+    // diagonal chequer of white and ink marble, a terracotta diamond every so often
+    vec2 g = vec2(along + across, along - across) / 1.9;
+    vec2 f = fract(g), id = floor(g);
+    float d = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y)) * 1.9;
+    col = mod(id.x + id.y, 2.0) < 0.5 ? WHITE : INK;
+    if (mod(id.x, 4.0) < 0.5 && mod(id.y, 4.0) < 0.5) col = TERRA;
+    return vec4(mix(GROUT, col, pvJoint(d, 0.05)), 0.85);
+  }
+
+  // --- brass bands ---
+  float band = min(min(abs(r - 49.6), abs(r - 108.0)), abs(r - 166.4));
+  if (band < 1.3) {
+    // a running key: dashes cut into the brass
+    float n = floor(6.2831853 * r / 2.4);
+    float t = fract(a / 6.2831853 * n);
+    float cut = step(0.5, t) * step(band, 0.55);
+    metal = 0.9;
+    return vec4(mix(BRASS, INK, cut * 0.85), 0.85);
+  }
+
+  // --- rings of setts ---
+  const float W = 3.2;
+  float ring = floor(r / W);
+  float fr = fract(r / W);
+  float n = 8.0 * ceil(6.2831853 * (ring + 0.5) * W / (W * 1.35 * 8.0));
+  float t = a / 6.2831853 * n + 0.5 * mod(ring, 2.0);
+  float ft = fract(t), id = floor(t);
+  float arc = 6.2831853 * r / n;
+  float d = min(min(fr, 1.0 - fr) * W, min(ft, 1.0 - ft) * arc);
+  float h = pvHash(vec2(ring, mod(id, n)));
+  col = h < 0.45 ? CREAM : h < 0.8 ? SAND : TERRA * 1.15;
+  col *= 0.9 + 0.2 * pvHash(vec2(id, ring) + 7.3);   // every stone its own shade
+  if (mod(ring, 5.0) > 3.5) {
+    // feature ring: glazed diamonds, teal and lapis by turns, on white
+    col = WHITE; glaze = 0.6;
+    float dia = abs(fr - 0.5) + abs(ft - 0.5);
+    if (dia < 0.36) { col = mod(id, 2.0) < 0.5 ? TEAL : LAPIS; glaze = 0.9; }
+    if (dia < 0.12) { col = BRASS; metal = 0.9; }
+  } else {
+    // a soft chamfer so each sett reads as raised
+    col *= 0.86 + 0.14 * smoothstep(0.0, 0.5, d);
+  }
+  return vec4(mix(GROUT, col, pvJoint(d, 0.06)), glaze);
+}`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+float pvMetal;
+vec4 pv = paving(vPave, pvMetal);
+diffuseColor.rgb = pv.rgb;`)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(0.85, 0.22, pv.a);')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = pvMetal;');
+  };
+  return mat;
+}
+
 export function createSkyCity(planet) {
   const rng = mulberry32(K.seed);
   const group = new THREE.Group();
@@ -453,6 +572,43 @@ export function createSkyCity(planet) {
   }
   const boothSpot = new THREE.Vector3(booth.x - Math.cos(0.2) * 5, 0, booth.z - Math.sin(0.2) * 5);
 
+  // The mechanics' yard, next to the booth: an open-topped pen on the rim with
+  // a hoist gantry over five bays. Cars that leave the raceway are fished out
+  // of the sky by recovery drones (src/skyRace.js) and lowered in here.
+  const shopA = 0.37, shopR = 161;
+  const shop = { bays: [], heading: 0, home: new THREE.Vector3() };
+  {
+    const cx = Math.cos(shopA) * shopR, cz = Math.sin(shopA) * shopR;
+    const rx = Math.cos(shopA), rz = Math.sin(shopA); // radial (outward)
+    const tx = -Math.sin(shopA), tz = Math.cos(shopA); // along the rim
+    const yaw = -shopA; // box() rotation that lays local X along the radial
+    const W = 21; // frontage along the rim
+    // floor slab, back wall on the rim side, low side walls
+    solid.push(tint(box(8.4, 0.16, W, cx, 0.1, cz, yaw), 0x2c3038));
+    solid.push(tint(box(0.5, 4.2, W, cx + rx * 4.1, 2.1, cz + rz * 4.1, yaw), 0x2f6f8f));
+    for (const side of [-1, 1]) {
+      solid.push(tint(box(8.4, 1.5, 0.4, cx + tx * side * (W / 2), 0.75, cz + tz * side * (W / 2), yaw), 0x2f6f8f));
+      solid.push(tint(cyl(0.35, 0.45, 9, cx + tx * side * (W / 2), 4.5, cz + tz * side * (W / 2), 8), METAL));
+    }
+    // hoist gantry and its hooks
+    solid.push(tint(box(0.9, 0.9, W + 1, cx, 9, cz, yaw), METAL_D));
+    glow.push(tint(box(0.3, 0.5, W - 2, cx - rx * 0.5, 8.6, cz - rz * 0.5, yaw), 0xffb030));
+    glow.push(tint(box(0.2, 1.1, 9, cx + rx * 3.8, 3.3, cz + rz * 3.8, yaw), 0xffb030)); // the shop sign
+    for (let i = 0; i < 5; i++) {
+      const o = (i - 2) * 4;
+      const bx = cx + tx * o, bz = cz + tz * o;
+      shop.bays.push(new THREE.Vector3(bx, 0.18, bz));
+      glow.push(tint(box(6.4, 0.05, 0.14, bx + tx * 2, 0.2, bz + tz * 2, yaw), 0xfff0c0)); // bay lines
+      solid.push(tint(cyl(0.08, 0.08, 2.2, bx, 7.5, bz, 5), METAL)); // hoist chain
+      if (i % 2 === 0) solid.push(tint(box(0.9, 1.1, 1.4, bx + rx * 3.2, 0.7, bz + rz * 3.2, yaw), 0xb03a2a)); // tool chests
+    }
+    shop.heading = Math.atan2(-rx, -rz); // parked nose-in toward the city
+    shop.home.set(cx, 11, cz); // where the drones wait, on the gantry
+    colliders.push({ x: cx + tx * 7, z: cz + tz * 7, r: 5.2, top: Infinity });
+    colliders.push({ x: cx - tx * 7, z: cz - tz * 7, r: 5.2, top: Infinity });
+    colliders.push({ x: cx, z: cz, r: 5.2, top: Infinity });
+  }
+
   // ---- merged meshes ----------------------------------------------------------
   const solidMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.25, roughness: 0.72 });
   const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true });
@@ -463,6 +619,23 @@ export function createSkyCity(planet) {
     return m;
   };
   group.add(merged(solid, solidMat));
+  // The paving wears the top of the deck, the terrace, the pad and the docks.
+  {
+    const paveMat = makePavingMaterial();
+    const lay = (r, x, y, z, seg) => {
+      const g = new THREE.CircleGeometry(r, seg);
+      g.rotateX(-Math.PI / 2);
+      g.translate(x, y, z);
+      return g;
+    };
+    const ringDeck = new THREE.RingGeometry(K.terraceR + 1.5, K.deckR - 1.3, 96, 1);
+    ringDeck.rotateX(-Math.PI / 2);
+    ringDeck.translate(0, 0.03, 0);
+    const parts = [ringDeck, lay(K.terraceR, 0, K.terraceY + 0.03, 0, 72), lay(K.padR - 3.4, padSpot.x, 0.03, padSpot.z, 40)];
+    const paving = new THREE.Mesh(mergeGeometries(parts, false), paveMat);
+    parts.forEach((g) => g.dispose());
+    group.add(paving);
+  }
   group.add(merged(glow, glowMat));
   const detailGroup = new THREE.Group(); // hidden from far away
   detailGroup.add(merged(detail, solidMat));
@@ -729,6 +902,7 @@ export function createSkyCity(planet) {
     trackAt,
     dragon,
     booth: boothSpot,
+    shop,
     // the Lance Tower: lift pads, the gallery the walker is held inside, the gun
     lance: {
       bottom: new THREE.Vector3(lance.x + Math.cos(lanceA) * 9.5, K.terraceY, lance.z + Math.sin(lanceA) * 9.5),

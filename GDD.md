@@ -361,12 +361,30 @@ Things to do in the city:
 - **Inhabitants.** A crowd from `world/aliens.js` wanders the main deck; E talks.
 - **The dragon and the Lance.** A red dragon (`world/skydragon.js`) flies in
   every so often and circles. A lift at the foot of the tallest tower goes up
-  to an open gallery; from there E or a click fires the Lance along your aim.
-  A hit bursts the dragon, which stays away for a minute.
+  to an open gallery; E at the console there seats you at the Lance. The view
+  moves to the gun sight, the mouse sets an aim point and the heavy turret
+  slews after it, and click, Space or E winds the coil for half a second and
+  fires down the bore. The shot has to pass within a few units of the body.
+  A hit detonates the dragon head to tail: flash, a chain of fireballs, shock
+  rings, embers, and the charred body coming apart and falling. G steps back.
 - **The Rim Circuit.** A bare ribbon of road on pylons outside the rim
   (`src/skyRace.js`). E at the booth puts you on the grid with four rivals for
   three laps. No barriers: rivals sometimes miss a bend and go over, and so
-  can you, which is the same fall and the same restart. G quits the race.
+  can you. A car that leaves the road is not lost: a recovery drone dives from
+  the mechanics' yard beside the booth, wires it, and tows it back to a bay.
+  That ends the driver's race; the player is handed back on foot at the booth.
+  G quits the race.
+- **The paving.** The deck, terrace and pad wear one procedural tile pattern
+  (`makePavingMaterial` in `world/skycity.js`): a glazed rosette on the
+  terrace, rings of setts with inlaid feature rings, chequered avenues edged
+  in brass.
+
+Sound for the city's set pieces is synthesised in `world/skycity-audio.js`
+(no audio files): the Lance's charge whine and shot, the dragon's explosion
+(crack, sub boom, rumble, one pop per body segment in step with the fireballs,
+crackle), and the recovery drones (a rotor voice that deepens under load, a
+ping when the wire bites, a thunk when a car is set down). Level follows the
+music slider and mute.
 
 ## 6. Build sequence
 

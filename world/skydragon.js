@@ -25,8 +25,9 @@ const D = {
   awayAdd: 45,
   firstDelay: 10, // the first one comes soon, so nobody waits to see it
   deadTime: 60, // seconds it stays away after being shot down
-  hitRadius: 24,
-  burstCount: 520,
+  hitRadius: 16,
+  burstCount: 1600,
+  dieTime: 6.5, // seconds the death plays out before the sky is empty again
 };
 
 function mulberry32(a) {
@@ -144,28 +145,70 @@ export function createDragon(parent, opts = {}) {
     wings.push({ pivot, elbow, side });
   }
 
-  // --- the burst ---------------------------------------------------------------
+  // --- the death -----------------------------------------------------------------
+  // Hit by the Lance, it does not vanish: it detonates down its length, head to
+  // tail, and comes apart. Five layers, all additive except the wreckage:
+  //   - a white flash and a light that throws the city into hard relief,
+  //   - a chain of fireballs, one per body segment, running tailward,
+  //   - two shock rings racing outward,
+  //   - a storm of embers (hot white -> gold -> red as they cool and fall),
+  //   - the body itself, each segment hurled out and tumbling down on fire.
   const burstGeo = new THREE.BufferGeometry();
   const bPos = new Float32Array(D.burstCount * 3);
   const bVel = new Float32Array(D.burstCount * 3);
+  const bCol = new Float32Array(D.burstCount * 3);
+  const bHeat = new Float32Array(D.burstCount); // each ember's own cooling rate
+  const bBorn = new Float32Array(D.burstCount); // when it leaves the body (chain delay)
   burstGeo.setAttribute('position', new THREE.BufferAttribute(bPos, 3));
+  burstGeo.setAttribute('color', new THREE.BufferAttribute(bCol, 3));
   const burstMat = new THREE.PointsMaterial({
-    color: 0xff7a2a, size: 9, transparent: true, opacity: 0,
+    size: 7, vertexColors: true, transparent: true, opacity: 1,
     blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
   });
-  burstMat.color.multiplyScalar(2.5);
   const burst = new THREE.Points(burstGeo, burstMat);
   burst.frustumCulled = false;
   burst.visible = false;
   parent.add(burst);
-  const fireball = new THREE.Mesh(
-    new THREE.IcosahedronGeometry(1, 2),
-    new THREE.MeshBasicMaterial({ color: 0xffd080, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false })
-  );
-  fireball.material.color.multiplyScalar(3);
-  fireball.visible = false;
-  parent.add(fireball);
-  let burstT = -1;
+
+  const fireGeo = new THREE.IcosahedronGeometry(1, 2);
+  const fireballs = [];
+  for (let i = 0; i < D.segments; i++) {
+    const m = new THREE.Mesh(fireGeo, new THREE.MeshBasicMaterial({
+      color: 0xffb060, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    m.visible = false;
+    parent.add(m);
+    fireballs.push({ m, at: 0, size: 1 });
+  }
+  const flashBall = new THREE.Mesh(fireGeo, new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  flashBall.material.color.multiplyScalar(2.5);
+  flashBall.visible = false;
+  parent.add(flashBall);
+  const rings = [];
+  for (let i = 0; i < 2; i++) {
+    const m = new THREE.Mesh(
+      new THREE.RingGeometry(0.86, 1, 64),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd9a0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
+        depthWrite: false, side: THREE.DoubleSide,
+      })
+    );
+    m.material.color.multiplyScalar(1.4);
+    m.visible = false;
+    parent.add(m);
+    rings.push(m);
+  }
+  const blast = new THREE.PointLight(0xffb070, 0, 0, 0.6);
+  parent.add(blast);
+  // wreckage state, one per body segment
+  const wreck = segs.map(() => ({ v: new THREE.Vector3(), w: new THREE.Vector3(), at: 0 }));
+  const charred = new THREE.MeshStandardMaterial({
+    color: 0x1a0a08, roughness: 1, emissive: 0xff5a10, emissiveIntensity: 2.5, flatShading: true,
+  });
+  let dieT = -1; // >= 0 while the death is playing
+  const dieAt = new THREE.Vector3();
 
   // --- flight ------------------------------------------------------------------
   // state: 'away' (hidden, counting down) | 'visit' (flying)
@@ -210,26 +253,9 @@ export function createDragon(parent, opts = {}) {
   }
 
   function update(dt, t, near) {
-    // the burst plays out whether or not the dragon is around
-    if (burstT >= 0) {
-      burstT += dt;
-      const k = burstT / 3.2;
-      for (let i = 0; i < D.burstCount * 3; i += 3) {
-        bVel[i + 1] -= 26 * dt;
-        bPos[i] += bVel[i] * dt;
-        bPos[i + 1] += bVel[i + 1] * dt;
-        bPos[i + 2] += bVel[i + 2] * dt;
-      }
-      burstGeo.attributes.position.needsUpdate = true;
-      burstMat.opacity = Math.max(1 - k, 0);
-      const f = Math.min(burstT / 0.9, 1);
-      fireball.scale.setScalar(20 + 130 * f);
-      fireball.material.opacity = Math.max(1 - f, 0);
-      fireball.visible = f < 1;
-      if (k >= 1) {
-        burstT = -1;
-        burst.visible = false;
-      }
+    if (dieT >= 0) {
+      stepDeath(dt);
+      return;
     }
 
     if (st.state === 'away') {
@@ -263,41 +289,144 @@ export function createDragon(parent, opts = {}) {
     }
   }
 
+  function stepDeath(dt) {
+    dieT += dt;
+    // flash + light: instant, then a long warm decay
+    const fl = Math.exp(-dieT * 9);
+    flashBall.scale.setScalar(30 + dieT * 160);
+    flashBall.material.opacity = fl;
+    flashBall.visible = fl > 0.01;
+    blast.intensity = (Math.exp(-dieT * 1.6) * 9 + fl * 30) * 4;
+    // shock rings
+    for (let i = 0; i < rings.length; i++) {
+      const t = dieT - i * 0.22;
+      const m = rings[i];
+      m.visible = t > 0 && t < 2.2;
+      if (!m.visible) continue;
+      const k = t / 2.2;
+      m.scale.setScalar(30 + 900 * (1 - (1 - k) * (1 - k)));
+      m.material.opacity = (1 - k) * (1 - k);
+    }
+    // the chain of fireballs
+    for (const f of fireballs) {
+      const t = dieT - f.at;
+      if (t < 0 || t > 1.5) { f.m.visible = false; continue; }
+      const k = t / 1.5;
+      f.m.visible = true;
+      f.m.scale.setScalar(f.size * (0.2 + 0.85 * Math.sqrt(k)));
+      f.m.material.opacity = 0.75 * (1 - k) * (1 - k);
+      // white-hot heart cooling through gold to a red husk
+      f.m.material.color.setRGB(2.2 * (1 - k * 0.3), 1.5 * (1 - k) * (1 - k) + 0.22, 1.0 * Math.pow(1 - k, 4));
+    }
+    // wreckage: thrown out, tumbling, burning down to black as it falls
+    for (let i = 0; i < segs.length; i++) {
+      const w = wreck[i];
+      if (dieT < w.at) continue;
+      const g = segs[i].g;
+      w.v.y -= 32 * dt;
+      w.v.multiplyScalar(1 - 0.25 * dt);
+      g.position.addScaledVector(w.v, dt);
+      g.rotation.x += w.w.x * dt;
+      g.rotation.y += w.w.y * dt;
+      g.rotation.z += w.w.z * dt;
+    }
+    charred.emissiveIntensity = 2.8 * Math.exp(-dieT * 0.5) * (0.75 + 0.25 * Math.sin(dieT * 31));
+    // embers
+    const drag = 1 - 0.55 * dt;
+    for (let i = 0; i < D.burstCount; i++) {
+      const j = i * 3;
+      const age = dieT - bBorn[i];
+      if (age < 0) continue;
+      bVel[j] *= drag; bVel[j + 2] *= drag;
+      bVel[j + 1] = bVel[j + 1] * drag - 22 * dt;
+      bPos[j] += bVel[j] * dt;
+      bPos[j + 1] += bVel[j + 1] * dt;
+      bPos[j + 2] += bVel[j + 2] * dt;
+      const heat = Math.max(1 - age * bHeat[i], 0);
+      bCol[j] = 2.2 * Math.sqrt(heat);
+      bCol[j + 1] = 1.5 * heat * heat;
+      bCol[j + 2] = 0.9 * Math.pow(heat, 5);
+    }
+    burstGeo.attributes.position.needsUpdate = true;
+    burstGeo.attributes.color.needsUpdate = true;
+
+    if (dieT >= D.dieTime) {
+      dieT = -1;
+      burst.visible = false;
+      group.visible = false;
+      blast.intensity = 0;
+      for (const f of fireballs) f.m.visible = false;
+      for (const m of rings) m.visible = false;
+      flashBall.visible = false;
+      // put the body back together for the next visit
+      for (const s of segs) {
+        s.g.rotation.set(0, 0, 0);
+        s.g.traverse((o) => { if (o.userData.alive) o.material = o.userData.alive; });
+      }
+    }
+  }
+
   // Does the ray (city-local origin + unit dir) pass close enough to the body?
+  // Every segment is tested against its own girth plus `slack`.
   const _v = new THREE.Vector3();
-  function hitTest(origin, dir) {
+  function hitTest(origin, dir, slack = D.hitRadius) {
     if (st.state !== 'visit') return false;
-    for (let i = 0; i < D.segments; i += 2) {
+    for (let i = 0; i < D.segments; i++) {
       _v.copy(segs[i].g.position).sub(origin);
       const along = _v.dot(dir);
       if (along < 0) continue;
       const off = Math.sqrt(Math.max(_v.lengthSq() - along * along, 0));
-      if (off < D.hitRadius) return true;
+      if (off < slack + segs[i].r) return true;
     }
     return false;
   }
 
   function explode() {
     if (st.state !== 'visit') return false;
-    const c = segs[3].g.position;
+    dieAt.copy(segs[3].g.position);
+    const back = new THREE.Vector3().subVectors(segs[D.segments - 1].g.position, segs[0].g.position).normalize();
+    // the chain runs head to tail over about a second
+    for (let i = 0; i < D.segments; i++) {
+      const at = 0.05 + i * 0.07;
+      const f = fireballs[i];
+      f.at = at;
+      f.size = 26 + segs[i].r * 5.5;
+      f.m.position.copy(segs[i].g.position);
+      const w = wreck[i];
+      w.at = at;
+      w.v.set(rng() - 0.5, rng() * 0.9 + 0.1, rng() - 0.5).normalize().multiplyScalar(40 + rng() * 85)
+        .addScaledVector(back, -45); // keeps some of its flight
+      w.w.set(rng() - 0.5, rng() - 0.5, rng() - 0.5).multiplyScalar(7);
+      segs[i].g.traverse((o) => {
+        if (!o.isMesh || o.material === eyeMat) return;
+        o.userData.alive = o.userData.alive || o.material;
+        o.material = charred;
+      });
+    }
     for (let i = 0; i < D.burstCount; i++) {
-      const src = segs[i % D.segments].g.position;
-      bPos[i * 3] = src.x;
-      bPos[i * 3 + 1] = src.y;
-      bPos[i * 3 + 2] = src.z;
-      const a = rng() * Math.PI * 2, e = Math.acos(rng() * 2 - 1), v = 30 + rng() * 120;
-      bVel[i * 3] = Math.sin(e) * Math.cos(a) * v;
-      bVel[i * 3 + 1] = Math.cos(e) * v + 20;
-      bVel[i * 3 + 2] = Math.sin(e) * Math.sin(a) * v;
+      const si = i % D.segments;
+      const src = segs[si].g.position;
+      const j = i * 3;
+      bPos[j] = src.x; bPos[j + 1] = src.y; bPos[j + 2] = src.z;
+      const a = rng() * Math.PI * 2, e = Math.acos(rng() * 2 - 1);
+      const v = (i % 5 === 0 ? 230 : 110) * Math.pow(rng(), 0.6) + 16; // a fifth are fast streamers
+      bVel[j] = Math.sin(e) * Math.cos(a) * v;
+      bVel[j + 1] = Math.cos(e) * v + 26;
+      bVel[j + 2] = Math.sin(e) * Math.sin(a) * v;
+      bHeat[i] = 0.16 + rng() * 0.3;
+      bBorn[i] = 0.05 + si * 0.07;
+      bCol[j] = bCol[j + 1] = bCol[j + 2] = 0;
     }
     burstGeo.attributes.position.needsUpdate = true;
     burst.visible = true;
-    burstMat.opacity = 1;
-    fireball.position.copy(c);
-    fireball.visible = true;
-    burstT = 0;
-    group.visible = false;
-    st.state = 'away';
+    flashBall.position.copy(dieAt);
+    blast.position.copy(dieAt);
+    rings[0].position.copy(dieAt);
+    rings[0].rotation.set(-Math.PI / 2, 0, 0);
+    rings[1].position.copy(dieAt);
+    rings[1].rotation.set(0, rng() * 3, 0.5);
+    dieT = 0;
+    st.state = 'away'; // no longer a target; the body stays visible as wreckage
     st.timer = D.deadTime;
     st.kills++;
     return true;
@@ -312,6 +441,10 @@ export function createDragon(parent, opts = {}) {
     get alive() {
       return st.state === 'visit';
     },
+    get dying() {
+      return dieT >= 0;
+    },
+    deathPos: dieAt,
     // chest position, city-local (for prompts, tests and the compass)
     position: segs[3].g.position,
     // bring it in now (debug / first-time showpiece)
