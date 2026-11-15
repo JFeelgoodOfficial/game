@@ -82,6 +82,36 @@ release. Spawn along `debug().aim` from `debug().player` to put a target under
 the crosshair. Weapons found from crates persist in `__debug.inventory()`
 (`weapons`, `trophies`, `record`); `giveWeapon` is session-only.
 
+## wyattmattoe resort (lifts, riders, storm + aurora)
+`walkSite().wyattmattoe` exposes `lifts`, `riders`, `storm` (world/wyattmattoe-*.js).
+Everything positional is in planet.surface's frame (see "Surface-child frames").
+The lift and the storm clock are stepped from `stepWalk`, so `walkStep(n)`
+drives a whole ride or a whole storm synchronously; riders and all visuals
+advance in the render update (`walkFrames`). Sky/fog values are only written
+in the pre-render hook: after changing the weather, yield real frames
+(`__debug.paused = true` + `waitForTimeout`) before reading `scene.fog` or pixels.
+- `lifts.info()` → `{state: none|wait|ride, rideUp, baseIsTop, length, rise,
+  maxGrade, towers, towerHeights, chairs, loopLen, bottom, top, loadUp,
+  loadDown, dropUp, dropDown, speed}`. The line is probed per landing; at the
+  Kite Saddle pad `baseIsTop` is true (the basecamp terminal is the top, the
+  lift drops 85 u to the lake). Put the walker within 5.5 u of `bottom` / `top`
+  and `promptText()` reads `E — RIDE THE LIFT UP` / `DOWN`; key `e` (or
+  `wyattmattoe.interact(lifts.bottomEntity | lifts.topEntity)`) starts it.
+  While riding `walk.mode === 'lift'`, `walk.grounded` is false and the prompt
+  is `E — HOP OFF`; the ride ends grounded at `dropUp` / `dropDown`.
+- `riders.info()` → per rider `{kind: board|ski, state: run|queue|lift, s, alt,
+  speed, chair, pos}` (`s` falls from `lifts.info().length` to 0 on a run;
+  `pos` is null on the chair).
+- `storm.trigger(seconds?)` starts a storm now, `storm.triggerAurora(seconds?)`
+  cuts to the aurora, `storm.clear()` clears the sky. `storm.debug()` →
+  `{phase: calm|storm|aurora, clock, span, storm, aurora, windSpeed,
+  nextStormIn, snowVisible, domeVisible, auroraVisible, weather}`.
+  `walkSite().planetSky.debugSky().weather` is null on every other world.
+- The town there is a warzone: monsters will kill a walker left standing for
+  a minute of `walkFrames`. Call `walkSite().warzone.clear()` now and then in
+  long scripted sequences. The day is ~700 s long, so long sequences also
+  drift into night; nudge `planet.spinPhase` to re-time the sun.
+
 ## Sky City (Saturnia)
 `__debug.skyCity` is the world/skycity.js instance (`group`, `pad`, `spawn`,
 `colliders`, `surfaces`, `floorYAt(x, z, feetY)` — all CITY-LOCAL: +Y up, deck

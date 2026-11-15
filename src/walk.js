@@ -110,6 +110,9 @@ const _bt1 = new THREE.Vector3(); // board forward tangent
 const _bt2 = new THREE.Vector3(); // board right tangent
 const _bProbe = new THREE.Vector3(); // slope probe direction
 const _bDown = new THREE.Vector3(); // downhill tangent, magnitude = slope
+// wyattmattoe's chairlift + storm wind answer the walker through this record
+// (surface-local position in/out, the chair's travel direction out).
+const _wyOut = { pos: new THREE.Vector3(), facing: new THREE.Vector3() };
 
 export const walk = {
   active: false,
@@ -489,6 +492,9 @@ export function enterWalk(planet) {
     // The mall is 106 m of facade over a 240 m plaza — the default box clips
     // its own shadow off halfway up the building.
     else if (planet.cfg.name === 'wavemall prime') planetSky.setShadowExtent(150, 420);
+    // wyattmattoe's weather (snowstorm, then aurora) is folded into the sky
+    // by planetsky itself, from a record the storm module animates.
+    if (wyattmattoe) planetSky.setWeather(wyattmattoe.storm.weather);
   }
 
   // Diamond rain (neptunia): a walker-local glitter volume, storm-scheduled.
@@ -844,6 +850,11 @@ function spawnWorldEntities(planet) {
       materials: surfaceMaterials,
       quality: settings.quality,
       avoidDir: avoid,
+      // The lift line must not be strung across the town or its pad.
+      avoidRadius: near
+        ? Math.max(near.def.radius + 12, Math.hypot(near.def.pad.x, near.def.pad.z) + 25)
+        : 0,
+      scene: worldScene, // the storm reads the live fog colour for its horizon
     });
     planet.surface.add(wyattmattoe.group);
   }
@@ -1296,6 +1307,38 @@ export function stepWalk(dt) {
     if (gap > step && gap > 1e-6) walk.vel.addScaledVector(_move, step / gap);
     else walk.vel.copy(_wish);
     ship.position.addScaledVector(walk.vel, dt);
+  }
+
+  // --- wyattmattoe: the chairlift carries the walker and the storm wind
+  // drifts them. The basecamp module answers both in planet.surface's frame;
+  // the drift lands here, BEFORE the collision passes, so walls still hold.
+  if (wyattmattoe) {
+    _wyOut.pos.subVectors(ship.position, planet.body.position)
+      .applyAxisAngle(_yAxisV, -planet.surface.rotation.y);
+    const held = wyattmattoe.stepWalker(dt, _wyOut, !walk.grounded);
+    if (held) {
+      ship.position.copy(_wyOut.pos)
+        .applyAxisAngle(_yAxisV, planet.surface.rotation.y)
+        .add(planet.body.position);
+    }
+    if (held >= 2) {
+      // Waiting at the gate, sat on the chair, or just set down at the far
+      // end: no momentum, no board, and the body faces the way the chair runs.
+      walk.vel.set(0, 0, 0);
+      walk.vUp = 0;
+      walk.boarding = false;
+      walk.vehicle = null;
+      walk.facing.copy(_wyOut.facing).applyAxisAngle(_yAxisV, planet.surface.rotation.y);
+      if (held === 2) {
+        const seated = wyattmattoe.lifts.riding;
+        walk.grounded = !seated;
+        walk.mode = seated ? 'lift' : 'idle';
+        walk.speed01 = 0;
+        walk.jumpHeld = input.brake;
+        ship.velocity.set(0, 0, 0);
+        return; // the chair owns the walker this tick; look-around already ran
+      }
+    }
   }
 
   // --- city: building push-out + unified ground, in the city's flat frame ---
@@ -2218,6 +2261,7 @@ export function walkPreRender(renderer) {
   if (actuality) actuality.preRender(renderer);
   if (shadowreach) shadowreach.preRender(renderer);
   if (planetSky) planetSky.preRender(renderer);
+  if (wyattmattoe) wyattmattoe.storm.setPixelScale(renderer.getPixelRatio());
 }
 
 // The actuality world's hyper-holo-grid finale asks the host to loop the whole
@@ -2460,7 +2504,10 @@ export function updateWalkCamera(camera, delta = 0) {
 // On foot (not riding, boarding or in the water) the rifle is out and the view
 // is first person: the combat layer is built around the FP camera.
 function combatOnFoot() {
-  return !walk.vehicle && !walk.boarding && !walk.swimming && !walk.diving;
+  // Sat on wyattmattoe's chairlift counts as riding: rifle away, and the
+  // third-person view (if that is the player's choice) to watch the ride.
+  return !walk.vehicle && !walk.boarding && !walk.swimming && !walk.diving
+    && walk.mode !== 'lift';
 }
 
 // The view actually rendered: the stored preference, overridden to first
