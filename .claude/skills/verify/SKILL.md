@@ -100,7 +100,13 @@ City features: `skyCity.dragon` (`summon()`, `alive`, `position` city-local,
 while the camera is within 5000 u). `skyCity.lance` → `{bottom, top, room,
 turret}`; place the walker on `lance.bottom` and press `e` to ride up
 (`sWalk.inRoom`), set `sWalk.yaw/pitch` at the dragon and call
-`walkSite().sky.fireLance()` (or press `e` away from the top lift pad).
+`walkSite().sky.fireLance()` (debug shot along the look, generous aim). The real
+flow: place the walker within 4 u of `lance.room`, `e` seats you (`sWalk.gunning`);
+`sWalk.yaw/pitch` are the aim, `gunYaw/gunPitch` the barrel (slews at 0.8 rad/s);
+`walkSite().sky.pullTrigger()` starts the 0.55 s charge, the beam fires down the
+bore; `dragon.dying` is true for 6.5 s after a hit. `g` leaves the seat.
+A car off the track sets `cars[i].rescue` (`fall|hook|tow|lower|shop`) and ends
+in `skyCity.shop.bays[i]`; the player's race then ends on foot at the booth.
 `skyCity.booth` + `e` starts a race: `walkSite().sky.race` → `{active, phase:
 grid|go|done|fell, cars[], place}`, `cars[0]` is the player (`x, z, heading,
 speed, lap, i, out`); drive with `input.forward/left/right` and `walkStep`.

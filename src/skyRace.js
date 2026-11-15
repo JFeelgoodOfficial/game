@@ -2,9 +2,11 @@
 //
 // Check in at the booth and you are put in a car on the grid with four others.
 // Three laps. The track is a bare ribbon on pylons outside the city's rim:
-// there are no barriers, so leaving it means leaving the city. That is true
-// for the player (the fall ends the run, like any other fall here) and for
-// the other drivers, some of whom will misjudge a corner and go over.
+// there are no barriers, so leaving it means going over the side. That is true
+// for the player and for the other drivers, some of whom will misjudge a
+// corner. Nobody dies of it: a recovery drone drops out of the mechanics' yard,
+// gets a wire on the falling car, and tows it back to the yard for repairs.
+// It does end that driver's race.
 //
 // Everything is in the city's local frame: +Y up, the road at track.y. A car
 // is a point with a heading and a speed; "on the road" is city.trackAt().
@@ -27,6 +29,13 @@ const R = {
   rivalCorner: 850, // how hard a corner slows them (speed lost per unit curvature)
   fallGravity: 30,
   finishHold: 4, // seconds parked on the line before you are handed back
+  fallMax: 42, // terminal velocity of a car in the air
+  droneChase: 170, // u/s, diving after a falling car
+  droneTow: 62, // u/s, with a car on the wire
+  wire: 9, // length of the tow wire
+  hookTime: 0.8, // seconds for the wire to take the weight and stop the fall
+  towHeight: 34, // how far above the road the tow cruises
+  shopHold: 2.2, // seconds in the bay before the player is handed back
 };
 
 const COLORS = [0xff3a4a, 0x3aa0ff, 0xffc83a, 0x5ae08a, 0xc86aff];
@@ -55,6 +64,39 @@ function buildCar(hex) {
     g.add(w);
   }
   return g;
+}
+
+// A recovery drone: a squat body, four ducted rotors, a winch lamp. One per
+// car, built with it, parked on the yard's gantry until it is needed.
+function buildDrone() {
+  const g = new THREE.Group();
+  const hull = new THREE.MeshStandardMaterial({ color: 0xe8b020, metalness: 0.4, roughness: 0.5 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1c1e24, roughness: 0.7 });
+  const lamp = new THREE.MeshBasicMaterial({ color: 0xffd060 });
+  lamp.color.multiplyScalar(2.2);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.9, 2.2), hull);
+  const winch = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.7, 10), dark);
+  winch.position.y = -0.7;
+  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6), lamp);
+  eye.position.set(0, -0.2, 1.15);
+  g.add(body, winch, eye);
+  const rotors = [];
+  for (const [x, z] of [[-1.9, -1.9], [1.9, -1.9], [-1.9, 1.9], [1.9, 1.9]]) {
+    const duct = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.14, 6, 14), dark);
+    duct.rotation.x = Math.PI / 2;
+    duct.position.set(x, 0.25, z);
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.05, 0.22), lamp);
+    blade.position.set(x, 0.25, z);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 1.9), dark);
+    arm.position.set(x * 0.55, 0.2, z * 0.55);
+    arm.rotation.y = Math.atan2(x, z);
+    g.add(duct, blade, arm);
+    rotors.push(blade);
+  }
+  // the wire: a unit cylinder stretched between winch and car each frame
+  const wire = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1, 5), dark);
+  wire.visible = false;
+  return { g, rotors, wire };
 }
 
 export const race = {
@@ -107,9 +149,17 @@ export function startRace(cityRef) {
       // race (in laps) past which the next real bend takes them off.
       crashAt: rnd() < 0.4 ? 0.25 + rnd() * (R.laps - 0.5) : Infinity,
       spin: 0,
+      drone: buildDrone(),
+      rescue: null, // 'fall' | 'hook' | 'tow' | 'lower' | 'shop'
+      rescueT: 0,
+      bay: k,
     };
     gridSlot(car, k === 0 ? R.rivals : k - 1); // the player starts at the back
     city.group.add(car.mesh);
+    car.drone.g.position.copy(city.shop.home);
+    car.drone.g.position.x += (k - 2) * 0.01; // (stacked: they only show once launched)
+    car.drone.g.visible = false;
+    city.group.add(car.drone.g, car.drone.wire);
     race.cars.push(car);
     place(car);
   }
@@ -118,11 +168,13 @@ export function startRace(cityRef) {
 
 export function endRace() {
   for (const c of race.cars) {
-    c.mesh.removeFromParent();
-    c.mesh.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
-      if (o.material) o.material.dispose();
-    });
+    for (const root of [c.mesh, c.drone.g, c.drone.wire]) {
+      root.removeFromParent();
+      root.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) o.material.dispose();
+      });
+    }
   }
   race.cars.length = 0;
   race.active = false;
@@ -163,13 +215,7 @@ export function stepRace(dt) {
 
   for (const c of race.cars) {
     if (c.out) {
-      // over the edge: ballistic, tumbling, gone
-      c.vy -= R.fallGravity * dt;
-      c.y += c.vy * dt;
-      c.x += Math.sin(c.heading) * c.speed * dt;
-      c.z += Math.cos(c.heading) * c.speed * dt;
-      c.spin += dt * 2.4;
-      c.mesh.visible = c.y > -900;
+      stepRescue(c, dt);
       place(c);
       continue;
     }
@@ -211,6 +257,10 @@ export function stepRace(dt) {
     else {
       c.out = true;
       c.vy = 0;
+      c.rescue = 'fall';
+      c.rescueT = 0;
+      c.drone.g.visible = true;
+      c.drone.g.position.copy(city.shop.home);
       if (c.player) race.phase = 'fell';
     }
     place(c);
@@ -237,6 +287,119 @@ export function stepRace(dt) {
   }
 }
 
+// Over the side, and what happens next. The car falls and tumbles; its drone
+// dives after it, puts the wire on, takes the weight, climbs clear of the road
+// and carries it round to the mechanics' yard, where it is lowered into a bay.
+const _to = new THREE.Vector3();
+const _mid = new THREE.Vector3();
+const _yUp = new THREE.Vector3(0, 1, 0);
+function flyDrone(d, x, y, z, speed, dt) {
+  _to.set(x, y, z).sub(d.g.position);
+  const dist = _to.length();
+  const step = speed * dt;
+  if (dist <= step) {
+    d.g.position.set(x, y, z);
+    return true;
+  }
+  d.g.position.addScaledVector(_to, step / dist);
+  if (Math.abs(_to.x) + Math.abs(_to.z) > 0.5) d.g.rotation.y = Math.atan2(_to.x, _to.z);
+  return false;
+}
+
+function stepRescue(c, dt) {
+  const d = c.drone;
+  const tr = city.track;
+  const bay = city.shop.bays[c.bay];
+  c.rescueT += dt;
+  for (const r of d.rotors) r.rotation.y += dt * 38;
+
+  if (c.rescue === 'fall') {
+    c.vy = Math.max(c.vy - R.fallGravity * dt, -R.fallMax);
+    c.speed *= Math.exp(-0.6 * dt);
+    c.y += c.vy * dt;
+    c.x += Math.sin(c.heading) * c.speed * dt;
+    c.z += Math.cos(c.heading) * c.speed * dt;
+    c.spin += dt * 2.4;
+    // dive to a point just above the car; lead it a little, since it is falling
+    if (flyDrone(d, c.x, c.y + R.wire + c.vy * 0.15, c.z, R.droneChase, dt)) {
+      c.rescue = 'hook';
+      c.rescueT = 0;
+    }
+  } else if (c.rescue === 'hook') {
+    // the wire comes taut: the fall and the tumble die away under the drone
+    const k = Math.exp(-5 * dt);
+    c.vy *= k;
+    c.speed *= k;
+    c.y += c.vy * dt;
+    c.spin *= Math.exp(-4 * dt);
+    d.g.position.set(c.x, c.y + R.wire, c.z);
+    if (c.rescueT >= R.hookTime) {
+      c.rescue = 'tow';
+      c.spin = 0;
+      c.vy = 0;
+      c.speed = 0;
+    }
+  } else if (c.rescue === 'tow' || c.rescue === 'lower') {
+    const cruise = tr.y + R.towHeight + R.wire;
+    let there = false;
+    if (c.rescue === 'tow') {
+      // straight up first if it is hanging below the road, then across
+      if (d.g.position.y < cruise - 0.5 && Math.hypot(d.g.position.x - bay.x, d.g.position.z - bay.z) > 3) {
+        const far = Math.hypot(d.g.position.x - bay.x, d.g.position.z - bay.z);
+        const climb = Math.min(1, (cruise - d.g.position.y) / 40);
+        // climb steeply while low, flattening out toward cruise height
+        flyDrone(d,
+          d.g.position.x + (bay.x - d.g.position.x) / far * 30 * (1 - climb * 0.8),
+          d.g.position.y + 30 * climb + 1, d.g.position.z + (bay.z - d.g.position.z) / far * 30 * (1 - climb * 0.8),
+          R.droneTow, dt);
+      } else if (flyDrone(d, bay.x, cruise, bay.z, R.droneTow, dt)) {
+        c.rescue = 'lower';
+      }
+    } else {
+      there = flyDrone(d, bay.x, bay.y + R.wire, bay.z, R.droneTow * 0.4, dt);
+    }
+    // the car hangs under the winch, swinging a little, nose easing round to the bay
+    const sway = Math.sin(c.rescueT * 2.1) * 0.5;
+    c.x = d.g.position.x + sway;
+    c.z = d.g.position.z + Math.cos(c.rescueT * 1.7) * 0.35;
+    c.y = d.g.position.y - R.wire;
+    let dh = city.shop.heading - c.heading;
+    while (dh > Math.PI) dh -= Math.PI * 2;
+    while (dh < -Math.PI) dh += Math.PI * 2;
+    c.heading += dh * Math.min(1, 1.5 * dt);
+    if (there) {
+      c.rescue = 'shop';
+      c.rescueT = 0;
+      c.x = bay.x; c.y = bay.y; c.z = bay.z;
+      c.heading = city.shop.heading;
+    }
+  } else {
+    // in the bay: the drone lets go and returns to the gantry
+    flyDrone(d, city.shop.home.x, city.shop.home.y, city.shop.home.z, 20, dt);
+  }
+
+  // draw the wire from the winch to the car's roof while it is attached
+  const wired = c.rescue === 'hook' || c.rescue === 'tow' || c.rescue === 'lower';
+  d.wire.visible = wired;
+  if (wired) {
+    _to.set(c.x, c.y + 1.3, c.z).sub(d.g.position);
+    _to.y += 0.7;
+    const len = _to.length();
+    _mid.copy(d.g.position).addScaledVector(_to, 0.5);
+    _mid.y -= 0.35;
+    d.wire.position.copy(_mid);
+    d.wire.scale.set(1, len, 1);
+    d.wire.quaternion.setFromUnitVectors(_yUp, _to.multiplyScalar(1 / len));
+  }
+}
+
+// How long the player's car has been sitting in the shop, or -1.
+export function raceTowedFor() {
+  const me = race.cars[0];
+  return race.active && me && me.rescue === 'shop' ? me.rescueT : -1;
+}
+export const RACE_SHOP_HOLD = R.shopHold;
+
 const ORD = ['', '1ST', '2ND', '3RD', '4TH', '5TH'];
 
 // One line of HUD, shown where the on-foot prompt goes.
@@ -247,7 +410,11 @@ export function raceHud() {
     const left = Math.ceil(R.countdown - race.t - 0.2);
     return left > 0 ? `GET READY — ${left}` : 'GO!';
   }
-  if (race.phase === 'fell') return null;
+  if (race.phase === 'fell') {
+    return me.rescue === 'fall' ? 'OFF THE TRACK — RECOVERY DRONE INBOUND'
+      : me.rescue === 'shop' ? 'IN THE SHOP — THE MECHANICS HAVE IT'
+        : 'ON THE WIRE — TOWING YOU TO THE SHOP';
+  }
   const running = race.cars.filter((c) => !c.out).length;
   if (race.phase === 'done') return `FINISHED ${ORD[race.place]} OF ${race.cars.length} · ${running} STILL ON THE TRACK`;
   const pos = 1 + race.cars.filter((c) => !c.player && !c.out && progress(c) > progress(me)).length;
@@ -258,4 +425,3 @@ export function raceFinishedFor() {
   return race.phase === 'done' ? race.t - race.doneT : -1;
 }
 export const RACE_FINISH_HOLD = R.finishHold;
-export const RACE_FALL_DEPTH = Math.abs(C.SKY_FALL_DEATH_Y);
