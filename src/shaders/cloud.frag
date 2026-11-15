@@ -9,6 +9,7 @@ varying vec3 vWorldNormal;
 uniform vec3 uSun;
 uniform float uTime;
 uniform float uCover; // 0 clear .. 1 overcast
+uniform float uStorm; // 0 fair weather .. 1 thunderheads: dark bases, fast churn, lightning
 
 float hash(vec3 p) {
   p = fract(p * 0.3183099 + 0.1);
@@ -34,8 +35,10 @@ float fbm(vec3 p) {
 void main() {
   vec3 p = normalize(vObjPos);
   // slow drift + a second slower layer for churn
-  float d = fbm(p * 2.4 + vec3(uTime * 0.006, 0.0, uTime * 0.004));
-  d = d * 0.7 + fbm(p * 5.0 - vec3(0.0, uTime * 0.008, 0.0)) * 0.3;
+  // storm systems move and boil several times faster than fair-weather cloud
+  float tt = uTime * (1.0 + 5.0 * uStorm);
+  float d = fbm(p * 2.4 + vec3(tt * 0.006, 0.0, tt * 0.004));
+  d = d * 0.7 + fbm(p * 5.0 - vec3(0.0, tt * 0.008, 0.0)) * 0.3;
 
   float lo = mix(0.62, 0.4, uCover);
   float cover = smoothstep(lo, lo + 0.16, d);
@@ -48,5 +51,30 @@ void main() {
   // cloud tops near the terminator catch the same reddened sunlight the ground does
   col *= mix(vec3(1.0, 0.55, 0.3), vec3(1.0), smoothstep(-0.05, 0.42, ndl));
 
-  gl_FragColor = vec4(col, cover * (0.15 + 0.85 * day));
+  float alpha = cover * (0.15 + 0.85 * day);
+  if (uStorm > 0.0) {
+    // Thunderheads: the thick middles of the cloud mass go slate-dark, with a
+    // finer turbulence breaking up their edges.
+    float thick = smoothstep(lo + 0.1, lo + 0.34, d);
+    float boil = fbm(p * 26.0 + vec3(tt * 0.03, -tt * 0.02, 0.0));
+    vec3 dark = vec3(0.2, 0.17, 0.2) * (0.25 + 0.75 * day);
+    col = mix(col, dark, uStorm * thick * (0.55 + 0.45 * boil));
+    // Lightning. The sky is cut into cells; each cell rolls a die several
+    // times a second and now and then lights up from inside, double-flashing
+    // as it dies. Visible on the night side too, which is the point.
+    vec3 cp = p * 16.0;
+    vec3 cell = floor(cp);
+    float slot = floor(uTime * 2.6 + hash(cell) * 9.0);
+    float roll = hash(cell + slot * 0.37);
+    if (roll > 0.955) {
+      float ph = fract(uTime * 2.6 + hash(cell) * 9.0);
+      float flick = exp(-ph * 5.0) * (0.6 + 0.4 * sin(ph * 60.0));
+      float core = 1.0 - smoothstep(0.0, 0.75, length(fract(cp) - 0.5));
+      float bolt = flick * core * thick * uStorm;
+      col += vec3(0.85, 0.9, 1.0) * bolt * 6.0;
+      alpha = max(alpha, cover * min(bolt * 2.0, 1.0));
+    }
+  }
+
+  gl_FragColor = vec4(col, alpha);
 }

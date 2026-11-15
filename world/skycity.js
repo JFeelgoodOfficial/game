@@ -690,6 +690,7 @@ export function createSkyCity(planet) {
   }
 
   const _cam = new THREE.Vector3();
+  let flashT = 3;
   function update(dt, t, camWorld) {
     plumeMat.uniforms.uTime.value = t;
     if (camWorld) {
@@ -697,6 +698,12 @@ export function createSkyCity(planet) {
       detailGroup.visible = _cam.distanceToSquared(camWorld) < 5000 * 5000;
     }
     cloudRing.rotation.y = t * 0.004;
+    // Lightning from the storm below throws a cold flicker up the city's flanks.
+    flashT -= dt;
+    if (flashT < -0.45) flashT = 2.5 + Math.random() * 7;
+    const fl = flashT < 0 ? Math.exp(flashT * 9) * (0.6 + 0.4 * Math.sin(flashT * 70)) : 0;
+    fill.intensity = 0.55 + fl * 2.2;
+    fill.groundColor.setRGB(0.54 + fl * 0.4, 0.35 + fl * 0.6, 0.16 + fl * 0.9);
     cloudRing.visible = detailGroup.visible; // far too small to matter from orbit
     dragon.update(dt, t, detailGroup.visible);
     if (!detailGroup.visible) return;

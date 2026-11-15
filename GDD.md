@@ -349,8 +349,12 @@ start, with no death menu.
 
 Saturnia itself is no longer a gas giant: it is a `terra` world with `noLand`,
 flooded pole to pole (sea level above every peak) so it reads as one golden ocean
-under a heavy cloud shell (`cloudCover`), with wider rings
-and a few stray clouds around and above the city.
+under a heavy cloud shell (`cloudCover`), with wider rings. The sea is in a
+permanent gale (`storm: 1`): `water.frag` draws a mountainous crossing swell
+with breaking whitecaps, `cloud.frag` darkens the cloud mass into fast-boiling
+thunderheads and fires lightning cell by cell, and the city's fill light
+flickers with it. Any planet can opt in with `storm`. There are
+a few stray clouds around and above the city.
 
 Things to do in the city:
 

@@ -177,8 +177,9 @@ const CONFIGS = [
     // total conversion that owns 100% of the surface content.
   },
   {
-    // Once a banded gas giant. Now it is one golden ocean, pole to pole, under
-    // a heavy cloud deck, with the Sky City (world/skycity.js) riding above the
+    // Once a banded gas giant. Now it is one golden ocean, pole to pole, in a
+    // permanent storm (`storm`: mountainous swell and whitecaps in water.frag,
+    // thunderheads and lightning in cloud.frag), under a heavy cloud deck, with the Sky City (world/skycity.js) riding above the
     // weather. Sea level sits over the top of the terrain range, so no land
     // ever breaks the surface. Nobody lands on it: `noLand` keeps it out of
     // the landing search, and the city's approach control takes the helm
@@ -202,7 +203,8 @@ const CONFIGS = [
     },
     water: { color: 0xc08a1c, gloss: 1.0 },
     clouds: true,
-    cloudCover: 0.78, // a lot of weather between the ground and the city
+    cloudCover: 0.74, // a lot of weather between the sea and the city
+    storm: 1, // a sea in a permanent gale: huge breaking swell, thunderheads, lightning
     rings: { inner: 1.7, outer: 3.5, tilt: 0.47, color: 0xd8c49a },
   },
   {
@@ -396,6 +398,7 @@ export function initPlanets(scene) {
               uSkyColor: { value: new THREE.Color(cfg.skyColor()) },
               uGlint: { value: C.SEA_GLINT },
               uDetail: { value: 0 },
+              uStorm: { value: cfg.storm ?? 0 },
               uFade: { value: 1 },
               uFogColor: { value: new THREE.Color(0) },
               uFogDensity: { value: 0 },
@@ -421,6 +424,7 @@ export function initPlanets(scene) {
             ...shapeZeroUniforms(),
             uTime: { value: 0 },
             uCover: { value: cfg.cloudCover ?? C.CLOUD_COVER },
+            uStorm: { value: cfg.storm ?? 0 },
           },
           transparent: true,
           depthWrite: false,
