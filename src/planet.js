@@ -177,20 +177,33 @@ const CONFIGS = [
     // total conversion that owns 100% of the surface content.
   },
   {
+    // Once a banded gas giant. Now there is ground down there — gold
+    // savannah, olive lowlands, dark rivers — under a heavy cloud deck, with
+    // the Sky City (world/skycity.js) riding above the weather. Nobody lands
+    // on the ground: `noLand` keeps it out of the landing search, and the
+    // city's approach control takes the helm long before the surface.
     name: 'saturnia',
-    type: 'gas',
+    type: 'terra',
+    noLand: true,
     dir: new THREE.Vector3(-0.72, 0.1, -0.68).normalize(),
     distance: () => 45000,
     radius: () => 2600,
     mass: () => 5.8e6, // surface g ~= 30, under boost thrust: always escapable
     skyColor: () => 0xd8b06a,
-    spin: () => 0.02,
+    spin: () => 0.012,
     atmoColor: 0xe8c07a,
-    gas: {
-      base: 0xc2a06a, bandA: 0xe8d4a8, bandB: 0x8a6a42,
-      limb: 0xffd9a0, bands: 22.0,
+    seaLevel: () => 0.4,
+    terrainHeight: () => 130,
+    shape: { ridge: 0.3, ridgeFreq: 2.6, valley: 0.14 },
+    iceLat: 0.93,
+    palette: {
+      deep: 0x0c2a3a, shallow: 0x2f7a86, sand: 0xdcc28a,
+      low: 0x8f9a4a, mid: 0x8a6a3e, high: 0xf2e6c8,
     },
-    rings: { inner: 1.35, outer: 2.35, tilt: 0.47, color: 0xd8c49a },
+    water: { color: 0x123a4a, gloss: 0.9 },
+    clouds: true,
+    cloudCover: 0.78, // a lot of weather between the ground and the city
+    rings: { inner: 1.7, outer: 3.5, tilt: 0.47, color: 0xd8c49a },
   },
   {
     // Once a flyby ice giant — now a landable deep-ocean world (GDD 5.7:
@@ -336,7 +349,7 @@ function makeSurfaceUniforms(cfg, radius) {
     // Cloud shadows (HIGH and up, clouded worlds only): updatePlanets drives it.
     uCloudShadow: { value: 0 },
     uTime: { value: 0 },
-    uCover: { value: C.CLOUD_COVER },
+    uCover: { value: cfg.cloudCover ?? C.CLOUD_COVER },
   };
 }
 
@@ -407,7 +420,7 @@ export function initPlanets(scene) {
             uAmp: { value: 0 },
             ...shapeZeroUniforms(),
             uTime: { value: 0 },
-            uCover: { value: C.CLOUD_COVER },
+            uCover: { value: cfg.cloudCover ?? C.CLOUD_COVER },
           },
           transparent: true,
           depthWrite: false,
@@ -444,36 +457,37 @@ export function initPlanets(scene) {
       surface = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 48), gasMat);
       spinning.push(surface);
       group.add(surface);
+    }
 
-      if (cfg.rings) {
-        const ringMat = new THREE.ShaderMaterial({
-          vertexShader: surfaceVert,
-          fragmentShader: ringsFrag,
-          uniforms: {
-            uSeaLevel: { value: 0 },
-            uAmp: { value: 0 },
-            ...shapeZeroUniforms(),
-            uSunObj: { value: new THREE.Vector3() },
-            uInner: { value: radius * cfg.rings.inner },
-            uOuter: { value: radius * cfg.rings.outer },
-            uPlanetR: { value: radius },
-            uColor: { value: new THREE.Color(cfg.rings.color) },
-          },
-          transparent: true,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        });
-        const rings = new THREE.Mesh(
-          new THREE.RingGeometry(radius * cfg.rings.inner, radius * cfg.rings.outer, 192, 1),
-          ringMat
-        );
-        rings.rotation.x = -Math.PI / 2 + cfg.rings.tilt;
-        rings.renderOrder = 1;
-        group.add(rings);
-        rings.updateMatrix();
-        const inv = new THREE.Matrix3().setFromMatrix4(rings.matrix).invert();
-        ringMat.uniforms.uSunObj.value.copy(sunBase).applyMatrix3(inv);
-      }
+    // Rings belong to any world that asks for them, rocky or gas.
+    if (cfg.rings) {
+      const ringMat = new THREE.ShaderMaterial({
+        vertexShader: surfaceVert,
+        fragmentShader: ringsFrag,
+        uniforms: {
+          uSeaLevel: { value: 0 },
+          uAmp: { value: 0 },
+          ...shapeZeroUniforms(),
+          uSunObj: { value: new THREE.Vector3() },
+          uInner: { value: radius * cfg.rings.inner },
+          uOuter: { value: radius * cfg.rings.outer },
+          uPlanetR: { value: radius },
+          uColor: { value: new THREE.Color(cfg.rings.color) },
+        },
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const rings = new THREE.Mesh(
+        new THREE.RingGeometry(radius * cfg.rings.inner, radius * cfg.rings.outer, 192, 1),
+        ringMat
+      );
+      rings.rotation.x = -Math.PI / 2 + cfg.rings.tilt;
+      rings.renderOrder = 1;
+      group.add(rings);
+      rings.updateMatrix();
+      const inv = new THREE.Matrix3().setFromMatrix4(rings.matrix).invert();
+      ringMat.uniforms.uSunObj.value.copy(sunBase).applyMatrix3(inv);
     }
 
     // The air shell. Two materials: the scattering march (MEDIUM and up) and
@@ -747,13 +761,13 @@ export function updatePlanets(t, camPos, only = null) {
       su.uOct.value = oct;
       if (p.clouds) {
         p.clouds.material.uniforms.uTime.value = t;
-        p.clouds.material.uniforms.uCover.value = C.CLOUD_COVER;
+        p.clouds.material.uniforms.uCover.value = p.cfg.cloudCover ?? C.CLOUD_COVER;
         // The surface repeats the cloud field's low octaves to shade the
         // ground under it: only where that is affordable, and only close
         // enough for a cloud shadow to be more than a pixel.
         su.uCloudShadow.value = distR < 8 && (Q.tier === 'high' || Q.tier === 'ultra') ? 1 : 0;
         su.uTime.value = t;
-        su.uCover.value = C.CLOUD_COVER;
+        su.uCover.value = p.cfg.cloudCover ?? C.CLOUD_COVER;
       }
       if (p.waterMesh) {
         // From far out the sea mesh fades away and the surface shader draws

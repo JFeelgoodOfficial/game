@@ -19,6 +19,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { createDragon } from './skydragon.js';
 
 const K = {
   seed: 7341,
@@ -36,6 +37,12 @@ const K = {
   padR: 24,
   pierWidth: 22, // wider than the hatch-side spawn offset: straight ahead is safe
   snap: 1.2, // step-up reach of the floor query
+  lanceH: 176, // the Lance Tower: taller than anything else in the city
+  lanceR: 6.5,
+  roomR: 9.5,
+  trackY: 12, // the raceway rides above the rim on pylons
+  trackHalf: 7,
+  trackN: 360, // centre-line samples, one per degree
 };
 
 function mulberry32(a) {
@@ -191,8 +198,75 @@ export function createSkyCity(planet) {
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 + 0.26;
     const r = 35;
+    if (i === 0) continue; // this plot is the Lance Tower's (below)
     tower(Math.cos(a) * r, Math.sin(a) * r, 8 + rng() * 3, 62 + rng() * 62, K.terraceY, rng() < 0.5, -a);
   }
+
+  // ---- the Lance Tower -------------------------------------------------------
+  // The tallest thing in the city: a plain shaft with a gallery on top, and on
+  // the gallery's roof the Lance, the gun the city keeps for the dragon. A lift
+  // at the foot carries you up (src/skyWalk.js); the gallery is open-sided so
+  // you can aim, and the walker is held inside its rail.
+  const lanceA = 0.26;
+  const lance = { x: Math.cos(lanceA) * 35, z: Math.sin(lanceA) * 35 };
+  const roomY = K.terraceY + K.lanceH;
+  {
+    const { x, z } = lance;
+    solid.push(tint(cyl(K.lanceR, K.lanceR + 1.5, K.lanceH - 1, x, K.terraceY + (K.lanceH - 1) / 2, z, 20), 0xd9cdb4));
+    for (let b = 0; b < 30; b++) {
+      if (b % 5 === 4) continue;
+      glow.push(tint(cyl(K.lanceR + 0.25, K.lanceR + 0.3, 0.6, x, K.terraceY + 6 + b * 5.6, z, 20), b % 3 ? 0xff8a5a : WARM));
+    }
+    // gallery floor, flared out from the shaft
+    solid.push(tint(cyl(K.roomR + 0.6, K.lanceR + 0.5, 4, x, roomY - 2, z, 24), METAL));
+    // posts and a low rail: the view stays open
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      solid.push(tint(cyl(0.3, 0.3, 5.2, x + Math.cos(a) * K.roomR, roomY + 2.6, z + Math.sin(a) * K.roomR, 6), METAL_D));
+    }
+    const rail = new THREE.TorusGeometry(K.roomR, 0.14, 5, 40);
+    rail.rotateX(Math.PI / 2);
+    rail.translate(x, roomY + 1.05, z);
+    solid.push(tint(rail, METAL_D));
+    // roof
+    solid.push(tint(cyl(K.roomR * 0.4, K.roomR + 1.2, 2.2, x, roomY + 6.3, z, 24), 0x7a2f2a));
+    {
+      const eave = new THREE.TorusGeometry(K.roomR + 1.1, 0.16, 5, 40);
+      eave.rotateX(Math.PI / 2);
+      eave.translate(x, roomY + 5.25, z);
+      glow.push(tint(eave, 0xff5a4a));
+    }
+    // the firing console in the middle of the floor
+    solid.push(tint(cyl(1.0, 1.3, 1.2, x, roomY + 0.6, z, 10), METAL_D));
+    glow.push(tint(cyl(0.8, 0.8, 0.12, x, roomY + 1.26, z, 10), 0xff5a4a));
+    // lift pads, top and bottom
+    glow.push(tint(cyl(1.6, 1.6, 0.1, x + Math.cos(lanceA) * 9.5, K.terraceY + 0.06, z + Math.sin(lanceA) * 9.5, 16), TEAL));
+    glow.push(tint(cyl(1.3, 1.3, 0.1, x - Math.cos(lanceA) * 6.2, roomY + 0.06, z - Math.sin(lanceA) * 6.2, 16), TEAL));
+    surfaces.push({ kind: 'disc', cx: x, cz: z, r: K.roomR, y: roomY });
+    colliders.push({ x, z, r: K.lanceR + 1.3, top: roomY }); // the shaft, from below
+    colliders.push({ x, z, r: 1.3, top: Infinity, bottom: roomY - 1 }); // the console
+  }
+  // The Lance itself: a turret on the roof that swings to follow your aim.
+  const turret = new THREE.Group();
+  turret.position.set(lance.x, roomY + 8.4, lance.z);
+  const barrelPivot = new THREE.Group();
+  {
+    const gunMat = new THREE.MeshStandardMaterial({ color: 0x3a3d46, metalness: 0.8, roughness: 0.35 });
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 3.2, 2, 14), gunMat);
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.3, 13, 12), gunMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.z = 6;
+    const coil = new THREE.Mesh(
+      new THREE.TorusGeometry(1.5, 0.3, 6, 16),
+      new THREE.MeshBasicMaterial({ color: 0xff4030 })
+    );
+    coil.position.z = 11.5;
+    barrelPivot.add(barrel, coil);
+    barrelPivot.position.y = 1.4;
+    turret.add(base, barrelPivot);
+  }
+  group.add(turret);
+
   // Avenues stay clear along the four axes (pad pier at 90 deg, arms at 0, 180
   // and 270) and along the four ramp diagonals.
   const clearOf = (a, half) => {
@@ -286,6 +360,98 @@ export function createSkyCity(planet) {
     glow.push(tint(box(1, 0.8, 5.2, x - Math.cos(a - 0.4) * 5.6, 2.3, z - Math.sin(a - 0.4) * 5.6, -a + 0.4), TEAL));
     colliders.push({ x, z, r: 5.2, top: Infinity });
   }
+
+  // ---- the raceway -------------------------------------------------------------
+  // A closed ribbon on pylons, looping outside and above the rim with no
+  // barriers at all. The centre line is star-shaped about the city's axis
+  // (radius as a function of bearing), which makes "am I on the track" a
+  // lookup by angle rather than a search. Sample i sits at bearing i degrees.
+  const track = { y: K.trackY, half: K.trackHalf, n: K.trackN, pts: [], length: 0 };
+  {
+    const rAt = (a) => 197 + 20 * Math.sin(3 * a + 0.4) + 7 * Math.sin(5 * a);
+    for (let i = 0; i < K.trackN; i++) {
+      const a = (i / K.trackN) * Math.PI * 2;
+      track.pts.push({ x: Math.cos(a) * rAt(a), z: Math.sin(a) * rAt(a), tx: 0, tz: 0, s: 0, curv: 0 });
+    }
+    for (let i = 0; i < K.trackN; i++) {
+      const p0 = track.pts[(i + K.trackN - 1) % K.trackN], p1 = track.pts[(i + 1) % K.trackN];
+      const dx = p1.x - p0.x, dz = p1.z - p0.z, d = Math.hypot(dx, dz);
+      track.pts[i].tx = dx / d;
+      track.pts[i].tz = dz / d;
+    }
+    for (let i = 0; i < K.trackN; i++) {
+      const p = track.pts[i], q = track.pts[(i + 1) % K.trackN];
+      p.s = track.length;
+      track.length += Math.hypot(q.x - p.x, q.z - p.z);
+      // signed turn per unit length, for the drivers' corner speed
+      p.curv = (p.tx * q.tz - p.tz * q.tx) / Math.hypot(q.x - p.x, q.z - p.z);
+    }
+    // ribbon
+    const pos = [], col = [], idx = [];
+    _c.set(0x3b3f48);
+    const edge = new THREE.Color(0xd8dde4);
+    for (let i = 0; i <= K.trackN; i++) {
+      const p = track.pts[i % K.trackN];
+      const nx = -p.tz, nz = p.tx; // left of travel
+      for (const [off, c] of [[-K.trackHalf, edge], [-K.trackHalf + 0.6, _c], [K.trackHalf - 0.6, _c], [K.trackHalf, edge]]) {
+        pos.push(p.x + nx * off, K.trackY, p.z + nz * off);
+        col.push(c.r, c.g, c.b);
+      }
+      if (i < K.trackN) {
+        const b = i * 4;
+        for (let k = 0; k < 3; k++) idx.push(b + k, b + k + 4, b + k + 1, b + k + 1, b + k + 4, b + k + 5);
+      }
+    }
+    const top = new THREE.BufferGeometry();
+    top.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    top.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    top.setIndex(idx);
+    top.computeVertexNormals();
+    const road = new THREE.Mesh(top, new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.8, metalness: 0.1, side: THREE.DoubleSide,
+    }));
+    group.add(road);
+    // slab segments + pylons + centre dashes
+    for (let i = 0; i < K.trackN; i += 3) {
+      const p = track.pts[i];
+      const ang = Math.atan2(p.tz, p.tx);
+      solid.push(tint(box(11, 1.2, K.trackHalf * 2 - 1, p.x, K.trackY - 0.7, p.z, -ang), METAL_D));
+      if (i % 6 === 0) glow.push(tint(box(2.4, 0.08, 0.35, p.x, K.trackY + 0.05, p.z, -ang), 0xfff0c0));
+      if (i % 15 === 0) {
+        const r = Math.hypot(p.x, p.z);
+        const inx = (p.x / r) * (K.deckR - 2), inz = (p.z / r) * (K.deckR - 2);
+        // a strut from under the road back to the rim band
+        const mx = (p.x + inx) / 2, mz = (p.z + inz) / 2;
+        const len = Math.hypot(r - (K.deckR - 2), K.trackY + 8);
+        const g = new THREE.BoxGeometry(len, 1.1, 1.6);
+        g.rotateZ(Math.atan2(K.trackY + 8, r - (K.deckR - 2)));
+        g.rotateY(-Math.atan2(p.z, p.x));
+        g.translate(mx, (K.trackY - 1.5 - 9) / 2, mz);
+        solid.push(tint(g, METAL));
+      }
+    }
+    // start/finish gantry at sample 0
+    {
+      const p = track.pts[0], ang = Math.atan2(p.tz, p.tx);
+      const nx = -p.tz, nz = p.tx;
+      for (const side of [-1, 1]) {
+        solid.push(tint(cyl(0.4, 0.5, 8, p.x + nx * side * (K.trackHalf + 0.3), K.trackY + 4, p.z + nz * side * (K.trackHalf + 0.3), 8), METAL));
+      }
+      solid.push(tint(box(1, 1.4, K.trackHalf * 2 + 1.4, p.x, K.trackY + 8, p.z, -ang), METAL_D));
+      glow.push(tint(box(1.1, 0.5, K.trackHalf * 2, p.x, K.trackY + 8, p.z, -ang), 0xff4a6a));
+      glow.push(tint(box(1.4, 0.06, K.trackHalf * 2 - 1.2, p.x, K.trackY + 0.04, p.z, -ang), 0xffffff));
+    }
+  }
+  // The check-in booth, on the rim under the start line.
+  const booth = new THREE.Vector3(Math.cos(0.2) * 158, 0, Math.sin(0.2) * 158);
+  {
+    solid.push(tint(box(5, 3.4, 4, booth.x, 1.7, booth.z, -0.2), 0x2f6f8f));
+    solid.push(tint(box(6.4, 0.4, 5.4, booth.x, 3.6, booth.z, -0.2), METAL_D));
+    glow.push(tint(box(4.2, 0.9, 0.2, booth.x - Math.cos(0.2) * 2.1, 2.5, booth.z - Math.sin(0.2) * 2.1, Math.PI / 2 - 0.2), 0xff4a6a));
+    glow.push(tint(cyl(1.7, 1.7, 0.1, booth.x - Math.cos(0.2) * 5, 0.06, booth.z - Math.sin(0.2) * 5, 16), 0xff4a6a));
+    colliders.push({ x: booth.x, z: booth.z, r: 3.1, top: Infinity });
+  }
+  const boothSpot = new THREE.Vector3(booth.x - Math.cos(0.2) * 5, 0, booth.z - Math.sin(0.2) * 5);
 
   // ---- merged meshes ----------------------------------------------------------
   const solidMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.25, roughness: 0.72 });
@@ -423,6 +589,49 @@ export function createSkyCity(planet) {
     }
   }
 
+  // ---- weather: a few clouds around and above the city --------------------------
+  // The heavy deck is the planet's own cloud shell, below. These are the
+  // stragglers that rise through it: soft clumps drifting slowly round the city.
+  const cloudRing = new THREE.Group();
+  {
+    const puffs = [];
+    for (let i = 0; i < 26; i++) {
+      const a = rng() * Math.PI * 2;
+      const r = 360 + rng() * 1000;
+      const y = i < 7 ? 190 + rng() * 240 : -150 + rng() * 300; // a handful overhead
+      const size = 20 + rng() * 32;
+      const n = 5 + Math.floor(rng() * 4);
+      for (let k = 0; k < n; k++) {
+        puffs.push([
+          Math.cos(a) * r + (rng() - 0.5) * size * 2.6,
+          y + (rng() - 0.5) * size * 0.45,
+          Math.sin(a) * r + (rng() - 0.5) * size * 2.6,
+          size * (0.55 + rng() * 0.6),
+        ]);
+      }
+    }
+    const mesh = new THREE.InstancedMesh(
+      new THREE.IcosahedronGeometry(1, 2),
+      new THREE.MeshStandardMaterial({
+        color: 0xfff6e6, roughness: 1, emissive: 0xd8b890, emissiveIntensity: 0.38,
+        transparent: true, opacity: 0.9, depthWrite: false,
+      }),
+      puffs.length
+    );
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pp = new THREE.Vector3();
+    puffs.forEach(([x, y, z, k], i) => {
+      m.compose(pp.set(x, y, z), q, sc.set(k, k * 0.55, k));
+      mesh.setMatrixAt(i, m);
+    });
+    mesh.renderOrder = 2;
+    mesh.frustumCulled = false;
+    cloudRing.add(mesh);
+  }
+  group.add(cloudRing);
+
+  // ---- the dragon ----------------------------------------------------------------
+  const dragon = createDragon(group, { seed: K.seed });
+
   // gold bounce off the clouds below, so the undersides are not black
   const fill = new THREE.HemisphereLight(0xffe2b0, 0x8a5a2a, 0.55);
   group.add(fill);
@@ -441,7 +650,7 @@ export function createSkyCity(planet) {
         const dx = x - s.cx, dz = z - s.cz;
         if (dx * dx + dz * dz > s.r * s.r) continue;
         y = s.y;
-      } else {
+      } else if (s.kind === 'rect') {
         const dx = x - s.cx, dz = z - s.cz;
         const along = dx * s.ux + dz * s.uz;
         const across = -dx * s.uz + dz * s.ux;
@@ -450,7 +659,34 @@ export function createSkyCity(planet) {
       }
       if (y <= feetY + K.snap && y > best) best = y;
     }
+    if (track.y <= feetY + K.snap && track.y > best && trackAt(x, z)) best = track.y;
     return best;
+  }
+
+  // Is (x, z) over the raceway? Returns { i, lateral } (nearest centre-line
+  // sample and the signed distance left of it), or null. Sample i is at
+  // bearing i degrees, so only the few samples around the point's own bearing
+  // can be nearest.
+  const _trackHit = { i: 0, lateral: 0 };
+  function trackAt(x, z) {
+    const r = Math.hypot(x, z);
+    if (r < 150 || r > 245) return null;
+    let a = Math.atan2(z, x);
+    if (a < 0) a += Math.PI * 2;
+    const i0 = Math.round((a / (Math.PI * 2)) * track.n);
+    let bestD = Infinity, bi = 0;
+    for (let k = -4; k <= 4; k++) {
+      const i = (i0 + k + track.n) % track.n;
+      const p = track.pts[i];
+      const d = (x - p.x) * (x - p.x) + (z - p.z) * (z - p.z);
+      if (d < bestD) { bestD = d; bi = i; }
+    }
+    const p = track.pts[bi];
+    const lateral = -(x - p.x) * p.tz + (z - p.z) * p.tx;
+    if (Math.abs(lateral) > track.half) return null;
+    _trackHit.i = bi;
+    _trackHit.lateral = lateral;
+    return _trackHit;
   }
 
   const _cam = new THREE.Vector3();
@@ -460,6 +696,9 @@ export function createSkyCity(planet) {
       group.getWorldPosition(_cam);
       detailGroup.visible = _cam.distanceToSquared(camWorld) < 5000 * 5000;
     }
+    cloudRing.rotation.y = t * 0.004;
+    cloudRing.visible = detailGroup.visible; // far too small to matter from orbit
+    dragon.update(dt, t, detailGroup.visible);
     if (!detailGroup.visible) return;
     for (const s of shuttles) {
       const a = s.ph + t * s.w;
@@ -477,6 +716,20 @@ export function createSkyCity(planet) {
     update,
     snap: K.snap,
     deckR: K.deckR,
+    terraceR: K.terraceR,
+    terraceY: K.terraceY,
+    track,
+    trackAt,
+    dragon,
+    booth: boothSpot,
+    // the Lance Tower: lift pads, the gallery the walker is held inside, the gun
+    lance: {
+      bottom: new THREE.Vector3(lance.x + Math.cos(lanceA) * 9.5, K.terraceY, lance.z + Math.sin(lanceA) * 9.5),
+      top: new THREE.Vector3(lance.x - Math.cos(lanceA) * 6.2, roomY, lance.z - Math.sin(lanceA) * 6.2),
+      room: { x: lance.x, z: lance.z, r: K.roomR - 0.9, y: roomY },
+      turret,
+      barrelPivot,
+    },
     pad: new THREE.Vector3(padSpot.x, 0, padSpot.z),
     padR: K.padR,
     // where someone stepping out of the hatch stands: on the pad, city side

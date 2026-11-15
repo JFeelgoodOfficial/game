@@ -316,7 +316,7 @@ export function nearestTerraFloor(pos) {
   let best = null;
   let bestRaw = Infinity;
   for (const p of planets) {
-    if (p.cfg.type !== 'terra') continue;
+    if (p.cfg.type !== 'terra' || p.cfg.noLand) continue;
     const raw = pos.distanceTo(p.body.position) - p.radius;
     if (raw < bestRaw) {
       bestRaw = raw;
@@ -1851,7 +1851,7 @@ function scanModule(module, maxDist) {
 // payload and starts its own talk pose; endInteract() releases it on close.
 export function walkInteract() {
   if (cottageWalk.cottageActive()) return cottageWalk.cottageInteract();
-  if (skyWalk.skyActive()) return undefined; // nobody to talk to yet
+  if (skyWalk.skyActive()) return skyWalk.skyInteract();
   if (isDialogueOpen()) {
     advanceDialogue();
     return;

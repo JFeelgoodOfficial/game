@@ -20,6 +20,12 @@ import { C } from './constants.js';
 import { input, moveAxes } from './input.js';
 import { ship } from './ship.js';
 import { createShip as createParkedShip } from '../world/ship.js';
+import { createCrowd } from '../world/aliens.js';
+import { openDialogue, advanceDialogue, isDialogueOpen, closeDialogue } from './dialogue.js';
+import {
+  race, startRace, endRace, stepRace, raceHud, raceFinishedFor,
+  RACE_FINISH_HOLD, RACE_FALL_DEPTH,
+} from './skyRace.js';
 import {
   getViewPref,
   showViewChooser,
@@ -52,12 +58,21 @@ export const sWalk = {
   facingYaw: 0,
   falling: false, // past the point of no return
   fallT: 0,
+  inRoom: false, // up in the Lance Tower's gallery (held inside its rail)
+  lanceCool: 0, // seconds until the Lance can fire again
 };
 
 let astronaut = null; // shared with walk.js
 let city = null; // world/skycity.js instance (owned by game.js, never disposed here)
 let parked = null;
 let camSnap = true;
+let crowd = null; // the inhabitants (world/aliens.js), built on arrival
+let beam = null; // the Lance's shot, a short-lived mesh in the city group
+let beamT = -1;
+const TALK_DIST = 2.8;
+const LANCE_COOLDOWN = 2.0;
+const BEAM_TIME = 0.75;
+const BEAM_LENGTH = 3200;
 
 const _yAxis = new THREE.Vector3(0, 1, 0);
 const _look = new THREE.Vector3();
@@ -71,6 +86,8 @@ const _origin = new THREE.Vector3(); // city origin, world
 const _q = new THREE.Quaternion();
 const _up = new THREE.Vector3();
 const _bearingOut = { angle: 0, dist: 0, label: 'SHIP' };
+const _muzzle = new THREE.Vector3();
+const _zAxis = new THREE.Vector3(0, 0, 1);
 
 export function initSkyWalk(astronautRef) {
   astronaut = astronautRef;
@@ -116,7 +133,29 @@ export function enterSkyWalk(cityRef) {
   sWalk.camDist = 7;
   sWalk.falling = false;
   sWalk.fallT = 0;
+  sWalk.inRoom = false;
+  sWalk.lanceCool = 0;
   camSnap = true;
+
+  // The people who live here. They keep to the main deck: gardens, the inner
+  // ring road, the rim and the pad pier are their haunts.
+  const haunts = [{ x: 0, z: 186 }];
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+    haunts.push({ x: Math.cos(a) * 114, z: Math.sin(a) * 114 });
+    haunts.push({ x: Math.cos(a) * 161, z: Math.sin(a) * 161 });
+    haunts.push({ x: Math.cos(a - Math.PI / 8) * 66, z: Math.sin(a - Math.PI / 8) * 66 });
+  }
+  crowd = createCrowd(
+    {
+      groundHeightAt: () => 0,
+      plazaCenters: haunts,
+      colliders: city.colliders.filter((c) => c.bottom === undefined).map((c) => ({ x: c.x, z: c.z, radius: c.r })),
+      cityId: 'skycity',
+    },
+    { population: 44, maxRigs: 18, questChance: 0, seed: 7341 }
+  );
+  city.group.add(crowd.group);
 
   ship.velocity.set(0, 0, 0);
   ship.angularVelocity.set(0, 0, 0);
@@ -145,6 +184,20 @@ export function enterSkyWalk(cityRef) {
 }
 
 function teardown() {
+  closeDialogue();
+  endRace();
+  if (crowd) {
+    crowd.group.removeFromParent();
+    crowd.dispose();
+    crowd = null;
+  }
+  if (beam) {
+    beam.removeFromParent();
+    beam.geometry.dispose();
+    beam.material.dispose();
+    beam = null;
+    beamT = -1;
+  }
   if (parked) {
     parked.dispose();
     parked = null;
@@ -164,6 +217,10 @@ export function exitSkyWalk() {
 // ---------------------------------------------------------------------------
 
 export function stepSkyWalk(dt) {
+  if (race.active) return stepDriving(dt);
+  sWalk.lanceCool = Math.max(sWalk.lanceCool - dt, 0);
+  // Left mouse (or the touch FIRE button) fires the Lance from the gallery.
+  if (sWalk.inRoom && ((input.fire && input.locked) || input.fireTouch)) fireLance();
   sWalk.yaw -= input.mouseX * LOOK_SENS;
   sWalk.pitch -= input.mouseY * LOOK_SENS;
   sWalk.pitch = Math.min(Math.max(sWalk.pitch, -MAX_PITCH), MAX_PITCH);
@@ -188,6 +245,16 @@ export function stepSkyWalk(dt) {
   sWalk.pos.x += sWalk.vel.x * dt;
   sWalk.pos.z += sWalk.vel.z * dt;
   pushOut();
+  if (sWalk.inRoom) {
+    // the gallery's rail: open to the view, closed to the feet
+    const room = city.lance.room;
+    const dx = sWalk.pos.x - room.x, dz = sWalk.pos.z - room.z;
+    const d = Math.hypot(dx, dz);
+    if (d > room.r) {
+      sWalk.pos.x = room.x + (dx / d) * room.r;
+      sWalk.pos.z = room.z + (dz / d) * room.r;
+    }
+  }
 
   // vertical: the surface under the feet, or nothing at all
   const gy = city.floorYAt(sWalk.pos.x, sWalk.pos.z, sWalk.pos.y);
@@ -240,6 +307,7 @@ function pushOut() {
   for (let i = 0; i < cs.length; i++) {
     const c = cs[i];
     if (sWalk.pos.y >= c.top - city.snap) continue;
+    if (c.bottom !== undefined && sWalk.pos.y < c.bottom) continue;
     const dx = sWalk.pos.x - c.x;
     const dz = sWalk.pos.z - c.z;
     const r = c.r + PLAYER_RADIUS;
@@ -256,6 +324,101 @@ function pushOut() {
 }
 
 // ---------------------------------------------------------------------------
+// Driving (src/skyRace.js): the walker rides the player's car
+// ---------------------------------------------------------------------------
+
+function stepDriving(dt) {
+  input.mouseX = 0;
+  input.mouseY = 0;
+  stepRace(dt);
+  const me = race.cars[0];
+  sWalk.pos.set(me.x, me.y, me.z);
+  sWalk.yaw = me.heading;
+  sWalk.facingYaw = me.heading;
+  sWalk.grounded = !me.out;
+  sWalk.mode = 'idle';
+  // Off the ribbon is off the city: the same fall, the same ending.
+  if (me.out && !sWalk.falling && me.y < city.track.y - RACE_FALL_DEPTH) {
+    sWalk.falling = true;
+    sWalk.fallT = 0;
+  }
+  if (sWalk.falling) sWalk.fallT += dt;
+  if (raceFinishedFor() >= RACE_FINISH_HOLD) leaveRace();
+  toWorld(sWalk.pos, ship.position);
+  ship.velocity.set(0, 0, 0);
+}
+
+// Out of the car and back on your feet at the booth.
+function leaveRace() {
+  const done = race.phase === 'done';
+  const place = race.place;
+  const field = race.cars.length;
+  endRace();
+  sWalk.pos.copy(city.booth);
+  sWalk.vel.set(0, 0, 0);
+  sWalk.vUp = 0;
+  sWalk.grounded = true;
+  sWalk.yaw = Math.atan2(-city.booth.x, -city.booth.z); // face the city
+  sWalk.facingYaw = sWalk.yaw;
+  sWalk.pitch = 0;
+  camSnap = true;
+  if (done) {
+    showViewToast(place === 1 ? 'YOU WON THE RIM CIRCUIT' : `YOU FINISHED ${['', '1ST', '2ND', '3RD', '4TH', '5TH'][place]} OF ${field}`, 6);
+  } else {
+    showViewToast('RACE ABANDONED');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The Lance
+// ---------------------------------------------------------------------------
+
+function lookDir(out) {
+  const cosP = Math.cos(sWalk.pitch);
+  return out.set(Math.sin(sWalk.yaw) * cosP, Math.sin(sWalk.pitch), Math.cos(sWalk.yaw) * cosP);
+}
+
+function fireLance() {
+  if (sWalk.lanceCool > 0 || !city) return false;
+  sWalk.lanceCool = LANCE_COOLDOWN;
+  lookDir(_look);
+  _muzzle.copy(city.lance.turret.position);
+  _muzzle.y += 1.4;
+  _muzzle.addScaledVector(_look, 13);
+  if (!beam) {
+    const g = new THREE.CylinderGeometry(1, 1, 1, 12, 1, true);
+    g.rotateX(Math.PI / 2); // along +Z
+    g.translate(0, 0, 0.5); // from the muzzle forward
+    const m = new THREE.MeshBasicMaterial({
+      color: 0xff3a20, transparent: true, opacity: 1,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    });
+    m.color.multiplyScalar(4);
+    beam = new THREE.Mesh(g, m);
+    beam.frustumCulled = false;
+    const core = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    core.material.color.multiplyScalar(4);
+    core.scale.set(0.35, 0.35, 1);
+    core.frustumCulled = false;
+    beam.add(core);
+    city.group.add(beam);
+  }
+  beam.position.copy(_muzzle);
+  beam.quaternion.setFromUnitVectors(_zAxis, _look);
+  beam.visible = true;
+  beamT = 0;
+  if (city.dragon.hitTest(_muzzle, _look)) {
+    city.dragon.explode();
+    showViewToast('DIRECT HIT — THE DRAGON IS DOWN', 6);
+  } else if (!city.dragon.alive) {
+    showViewToast('NO DRAGON IN THE SKY — YET');
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Visuals (render rate)
 // ---------------------------------------------------------------------------
 
@@ -265,7 +428,25 @@ export function updateSkyVisuals(dt, t) {
   _q.setFromAxisAngle(_yAxis, sWalk.facingYaw);
   astronaut.group.quaternion.copy(city.group.quaternion).multiply(_q);
   astronaut.update(dt, sWalk.mode, sWalk.speed01);
-  astronaut.group.visible = sWalk.view === 'tp';
+  astronaut.group.visible = sWalk.view === 'tp' && !race.active;
+  if (crowd) crowd.update(dt, sWalk.pos, 0.8);
+  // the Lance swings to wherever you are looking, while you are up there
+  if (sWalk.inRoom) {
+    city.lance.turret.rotation.y = sWalk.yaw;
+    city.lance.barrelPivot.rotation.x = -sWalk.pitch;
+  }
+  if (beamT >= 0) {
+    beamT += dt;
+    const k = Math.min(beamT / BEAM_TIME, 1);
+    const w = (1 - k) * (5 + 2 * Math.sin(beamT * 90));
+    beam.scale.set(w, w, BEAM_LENGTH);
+    beam.material.opacity = 1 - k * k;
+    beam.children[0].material.opacity = 1 - k;
+    if (k >= 1) {
+      beam.visible = false;
+      beamT = -1;
+    }
+  }
   if (parked) {
     _up.set(0, 1, 0).applyQuaternion(city.group.quaternion);
     parked.update(dt, t, Math.max(_up.dot(city.planet.sunDir), 0.2));
@@ -276,19 +457,86 @@ export function updateSkyVisuals(dt, t) {
 // Interaction
 // ---------------------------------------------------------------------------
 
+const near = (spot, r) => {
+  const dx = sWalk.pos.x - spot.x, dz = sWalk.pos.z - spot.z;
+  return Math.abs(sWalk.pos.y - spot.y) < 2 && dx * dx + dz * dz < r * r;
+};
+
+// What E would do right now, or null.
+function focus() {
+  if (!city || sWalk.falling || race.active) return null;
+  if (sWalk.inRoom) return near(city.lance.top, 2.2) ? 'down' : 'fire';
+  if (near(city.lance.bottom, 3)) return 'up';
+  if (near(city.booth, 3.4)) return 'race';
+  if (crowd && sWalk.pos.y < 2 && crowd.nearestInteractable(sWalk.pos, TALK_DIST)) return 'talk';
+  return null;
+}
+
+export function skyInteract() {
+  if (isDialogueOpen()) return advanceDialogue();
+  const f = focus();
+  if (f === 'fire') return fireLance();
+  if (f === 'up' || f === 'down') {
+    const to = f === 'up' ? city.lance.top : city.lance.bottom;
+    sWalk.inRoom = f === 'up';
+    sWalk.pos.copy(to);
+    sWalk.vel.set(0, 0, 0);
+    sWalk.vUp = 0;
+    camSnap = true;
+    if (f === 'up') {
+      showViewToast('THE LANCE GALLERY — AIM AND PRESS E OR CLICK TO FIRE', 6);
+    } else {
+      city.lance.barrelPivot.rotation.x = 0;
+    }
+    return undefined;
+  }
+  if (f === 'race') {
+    startRace(city);
+    camSnap = true;
+    showViewToast('RIM CIRCUIT — 3 LAPS · W/S THROTTLE · A/D STEER · NO BARRIERS', 7);
+    return undefined;
+  }
+  if (f === 'talk') {
+    const who = crowd.nearestInteractable(sWalk.pos, TALK_DIST);
+    const payload = crowd.interact(who);
+    if (!payload || !payload.lines || !payload.lines.length) {
+      crowd.endInteract(who);
+      return undefined;
+    }
+    const mine = crowd;
+    openDialogue({ ...payload, offer: undefined }, {
+      onClose: () => mine.endInteract(who),
+    });
+  }
+  return undefined;
+}
+
 export function skyPromptText() {
-  if (sWalk.falling) return null;
-  return nearPad() ? 'G — BOARD' : null;
+  if (race.active) return raceHud();
+  if (sWalk.falling || isDialogueOpen()) return null;
+  switch (focus()) {
+    case 'fire': return sWalk.lanceCool > 0 ? 'THE LANCE IS RECHARGING' : 'E — FIRE THE LANCE';
+    case 'down': return 'E — RIDE THE LIFT DOWN';
+    case 'up': return 'E — RIDE THE LIFT TO THE LANCE';
+    case 'race': return 'E — CHECK IN TO THE RACE';
+    case 'talk': return 'E — TALK';
+    default: return nearPad() ? 'G — BOARD' : null;
+  }
 }
 
 export function nearPad() {
-  if (!city || sWalk.falling || !sWalk.grounded) return false;
+  if (!city || sWalk.falling || !sWalk.grounded || race.active) return false;
   const dx = sWalk.pos.x - city.pad.x;
   const dz = sWalk.pos.z - city.pad.z;
   return dx * dx + dz * dz < C.SKY_BOARD_RADIUS * C.SKY_BOARD_RADIUS;
 }
 
+// G pressed away from the pad. In a car, that is how you quit the race.
 export function promptReturnToPad() {
+  if (race.active) {
+    if (race.phase !== 'fell') leaveRace();
+    return;
+  }
   if (!sWalk.falling) showViewToast('RETURN TO THE LANDING PAD TO LEAVE');
 }
 
@@ -326,7 +574,25 @@ export function updateSkyCamera(camera, delta = 0) {
   _look.set(Math.sin(sWalk.yaw) * cosP, Math.sin(sWalk.pitch), Math.cos(sWalk.yaw) * cosP);
   _up.set(0, 1, 0).applyQuaternion(city.group.quaternion);
 
-  if (sWalk.view === 'fp') {
+  if (race.active) {
+    // chase camera: low behind the car, looking down the road
+    const sy = Math.sin(sWalk.yaw), cy = Math.cos(sWalk.yaw);
+    _target.set(sWalk.pos.x + sy * 7, sWalk.pos.y + 1.4, sWalk.pos.z + cy * 7);
+    if (sWalk.falling || race.phase === 'fell') {
+      _desired.copy(_camFrozen);
+      _target.copy(sWalk.pos);
+    } else {
+      _desired.set(sWalk.pos.x - sy * 11, sWalk.pos.y + 4.4, sWalk.pos.z - cy * 11).sub(sWalk.pos);
+      if (camSnap) {
+        _camOffset.copy(_desired);
+        camSnap = false;
+      } else {
+        _camOffset.lerp(_desired, 1 - Math.exp(-5 * delta));
+      }
+      _desired.copy(sWalk.pos).add(_camOffset);
+      _camFrozen.copy(_desired);
+    }
+  } else if (sWalk.view === 'fp') {
     _desired.copy(sWalk.pos);
     _desired.y += C.WALK_EYE_HEIGHT;
     _target.copy(_desired).add(_look);
@@ -372,6 +638,10 @@ export function skySite() {
   return {
     sWalk,
     parked,
+    crowd,
+    race,
+    focus: focus(),
+    fireLance,
     nearPad: nearPad(),
     floor: city.floorYAt(sWalk.pos.x, sWalk.pos.z, sWalk.pos.y),
     // teleport the walker (city-local) for headless runs

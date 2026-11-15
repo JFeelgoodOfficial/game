@@ -347,6 +347,22 @@ edges are open. Walk or jump off the deck, an arm or the pad pier and you fall;
 after a moment the screen whites out and the run restarts in the ship at the
 start, with no death menu.
 
+Saturnia itself is no longer a gas giant: it is a `terra` world with `noLand`
+(gold savannah and rivers under a heavy cloud shell, `cloudCover`), wider rings,
+and a few stray clouds around and above the city.
+
+Things to do in the city:
+
+- **Inhabitants.** A crowd from `world/aliens.js` wanders the main deck; E talks.
+- **The dragon and the Lance.** A red dragon (`world/skydragon.js`) flies in
+  every so often and circles. A lift at the foot of the tallest tower goes up
+  to an open gallery; from there E or a click fires the Lance along your aim.
+  A hit bursts the dragon, which stays away for a minute.
+- **The Rim Circuit.** A bare ribbon of road on pylons outside the rim
+  (`src/skyRace.js`). E at the booth puts you on the grid with four rivals for
+  three laps. No barriers: rivals sometimes miss a bend and go over, and so
+  can you, which is the same fall and the same restart. G quits the race.
+
 ## 6. Build sequence
 
 | Phase | Deliverable | Ship-able alone? |

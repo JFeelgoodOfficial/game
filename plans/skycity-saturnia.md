@@ -81,3 +81,9 @@ Edit: `src/game.js`, `src/walk.js`, `src/walkLazy.js`, `src/constants.js`, `src/
 ## Open decisions
 - Auto-land cannot be aborted (the city is the only landing). Cost: an accidental dive into Saturnia locks you into a landing of up to ~14 s.
 - A fall is a reset, not a game over: no death menu, straight back to the start in the ship (same path as the black-hole respawn).
+
+## Second pass (IMPLEMENTED)
+- Saturnia is ground under a heavy cloud deck (`type: 'terra'`, `noLand`, `cloudCover`), rings widened to 1.7–3.5 R, stray clouds around/above the city.
+- Inhabitants: `world/aliens.js` crowd on the main deck, E to talk.
+- Dragon (`world/skydragon.js`) + the Lance on the tallest tower (lift, open gallery, E/click to fire).
+- Rim Circuit raceway (`src/skyRace.js`): booth check-in, four rivals, three laps, no barriers.
