@@ -68,6 +68,57 @@ check a planet is lit from its bearing to the sun (zero angle unless
 hall runs z 5.5..35.5, lounge to 41.5), `nearPainting()` → title or null.
 Paintings fetch on the first stand; wait on `info().hung`.
 
+## Emberdeep mine + aft patio (Rustia quest line)
+Rustia's town (Redline Claim) has a mine head beside the pad walkway:
+`walkSite().minehead` → `{spot, cage, door (city-local), rot, module, structure}`.
+Teleport the surface walker into the cage (`minehead.spot`), run a few
+`walkFrames`, and `promptText()` reads `E — RIDE THE CAGE DOWN`; key `e` (or
+`minehead.module.interact()`) starts the descent. Underground, `walkSite().mine`
+(null on the surface) → `{mWalk, mine, info, places, lights, fog, place(x, z),
+canStand(x, z), finishRide(), promptText(), interact()}`. `mWalk.pos` is
+MINE-LOCAL (+Y up, cage landing at the origin, the workings along +Z):
+`mWalk.ride` is `'down' | 'up' | null`, `cageY` 120 → 0, `gate` 0..1; the ride
+is stepped in the physics tick, so `walkStep` drives it (about 11.5 s each way —
+`finishRide()` skips to the last centimetre). `place()` returns false for a spot
+that is not standable (rock, a column, a pew), which is the cheap way to probe
+collision; `places` names the rooms (`station, tunnel, stope, ore, narthex,
+naveWest, naveMid, aisle, chapel, chancel, column`). Set `mWalk.yaw` (0 = +Z,
+down the nave) / `mWalk.pitch` / `mWalk.view` for screenshots. The surface is
+NOT stepped while underground: `walkSite().warzone.debug()` is frozen, the
+planet's `group.visible` is false, and `G` only toasts.
+`__debug.renderState()` now also returns `exposure`, `bloom {threshold,
+strength}` and `fog {density, color}`: underground they read 0.9 / 0.95 / 0.7 /
+0.0095; after the ride up they must equal the surface's values again, and after
+a `walkExit()` from underground they must equal flight's (1 / 0.85 / 0.9 / null).
+A floating-origin rebase underfoot can be simulated with
+`ship.position.set(0, 0, 0); walkStep(1)` — the mine group must move by the
+same amount and `mWalk.pos` must not change.
+
+Quest state: ore pickup is `E` within 2.3 m of `mine.orePos` (the crate in the
+stope) → `__debug.inventory().cargo` gains `emberOre` and
+`journal().quests['rustia-emberdeep']` goes `found` → `ore`. Leaving: stand in
+the cage (`place(0, 0)`), `e`, then `walkStep` until `walkSite().mine` is null —
+the walker is back at `minehead.spot` on the planet. The governor
+(`citizens.citizens.find(c => c.dialogue === 'governor')`, standing at the
+penthouse `city.homes[].anchor`) takes the ore on `E`: `inventory().upgrades`
+gains `patio`, `cargo` empties, the journal stage becomes `done`. Both persist
+in `localStorage['fgsf.inventory']` (`cargo`, `upgrades` arrays — seed that key
+before load to test the patio without playing the quest).
+
+Patio: `__debug.interior.info().patio` → `{owned, door, deck: [z0, z1],
+aftLimit, onDeck}`. Without the upgrade `place(0, 44)` is pushed back to
+z = 41.2 (the stern window); with it the doorway at |x| < 1.36, z = 41.5 is
+open and the deck runs to z = 49.1 (walker limit 48.8, |x| ≤ 4.7). Furniture on
+the deck is solid (table on the centre line at z ≈ 46.5, loungers at x = ±2.3):
+walk aft along x ≈ 1.2 to reach the rail. For a view, `pose(name)` then turn the
+ship 180° about its own Y (the patio faces AFT) before `stand()`; yaw `Math.PI`
+looks aft. The interior only walks on real frames (`updateInteriorCamera`), so
+hold `input.forward` across a `waitForTimeout`, not `walkStep`.
+
+Screenshots at `quality.set('high')` take 30-60 s each under SwiftShader at
+1280x720 — use a 960x540 viewport and a long `page.setDefaultTimeout`. Do not
+edit source while a headless run is in flight: Vite's reload drops `__debug`.
+
 ## Warzone (towns on terra / rustia / neptunia / wyattmattoe)
 The combat loop runs at render rate, not in `stepWalk`: drive it with
 `__debug.walkFrames(n, dt = 1/30)` (each frame also runs two physics ticks).
@@ -81,6 +132,36 @@ plasma|arc`). To fire: `input.locked = true; input.fire = true`, step frames,
 release. Spawn along `debug().aim` from `debug().player` to put a target under
 the crosshair. Weapons found from crates persist in `__debug.inventory()`
 (`weapons`, `trophies`, `record`); `giveWeapon` is session-only.
+
+## wyattmattoe resort (lifts, riders, storm + aurora)
+`walkSite().wyattmattoe` exposes `lifts`, `riders`, `storm` (world/wyattmattoe-*.js).
+Everything positional is in planet.surface's frame (see "Surface-child frames").
+The lift and the storm clock are stepped from `stepWalk`, so `walkStep(n)`
+drives a whole ride or a whole storm synchronously; riders and all visuals
+advance in the render update (`walkFrames`). Sky/fog values are only written
+in the pre-render hook: after changing the weather, yield real frames
+(`__debug.paused = true` + `waitForTimeout`) before reading `scene.fog` or pixels.
+- `lifts.info()` → `{state: none|wait|ride, rideUp, baseIsTop, length, rise,
+  maxGrade, towers, towerHeights, chairs, loopLen, bottom, top, loadUp,
+  loadDown, dropUp, dropDown, speed}`. The line is probed per landing; at the
+  Kite Saddle pad `baseIsTop` is true (the basecamp terminal is the top, the
+  lift drops 85 u to the lake). Put the walker within 5.5 u of `bottom` / `top`
+  and `promptText()` reads `E — RIDE THE LIFT UP` / `DOWN`; key `e` (or
+  `wyattmattoe.interact(lifts.bottomEntity | lifts.topEntity)`) starts it.
+  While riding `walk.mode === 'lift'`, `walk.grounded` is false and the prompt
+  is `E — HOP OFF`; the ride ends grounded at `dropUp` / `dropDown`.
+- `riders.info()` → per rider `{kind: board|ski, state: run|queue|lift, s, alt,
+  speed, chair, pos}` (`s` falls from `lifts.info().length` to 0 on a run;
+  `pos` is null on the chair).
+- `storm.trigger(seconds?)` starts a storm now, `storm.triggerAurora(seconds?)`
+  cuts to the aurora, `storm.clear()` clears the sky. `storm.debug()` →
+  `{phase: calm|storm|aurora, clock, span, storm, aurora, windSpeed,
+  nextStormIn, snowVisible, domeVisible, auroraVisible, weather}`.
+  `walkSite().planetSky.debugSky().weather` is null on every other world.
+- The town there is a warzone: monsters will kill a walker left standing for
+  a minute of `walkFrames`. Call `walkSite().warzone.clear()` now and then in
+  long scripted sequences. The day is ~700 s long, so long sequences also
+  drift into night; nudge `planet.spinPhase` to re-time the sun.
 
 ## Sky City (Saturnia)
 `__debug.skyCity` is the world/skycity.js instance (`group`, `pad`, `spawn`,
@@ -107,6 +188,13 @@ flow: place the walker within 4 u of `lance.room`, `e` seats you (`sWalk.gunning
 bore; `dragon.dying` is true for 6.5 s after a hit. `g` leaves the seat.
 A car off the track sets `cars[i].rescue` (`fall|hook|tow|lower|shop`) and ends
 in `skyCity.shop.bays[i]`; the player's race then ends on foot at the booth.
+Track v2: `skyCity.track` → `{n, pts[{x,y,z,tx,tz,sy,curv,gap,fast}], top,
+length}`; `skyCity.trackAt(x, z, y)` → `{i, lateral, y}` or null (gaps are
+air). Cars carry `y, vy, air, kx, kz` (jump + collision shove); `race.bumps`
+counts contacts, `race.rival/won/engineWon/level` describe the card. A bot
+needs to slow for the two 90-degree corners (see curvature) and hold 36+ into
+the jumps. Standing: `localStorage['nova7.skyrace']` = `{wins, races}`;
+`skyCity.refreshPoster()` repaints the poster.
 `walkSite().sky.audio` → `{built, running, plays, drone, level}` for
 world/skycity-audio.js (`plays` counts one-shots; `drone` is the rotor gain).
 `skyCity.booth` + `e` starts a race: `walkSite().sky.race` → `{active, phase:

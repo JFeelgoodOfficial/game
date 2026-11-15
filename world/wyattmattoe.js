@@ -3,9 +3,12 @@
  *
  * A dedicated, registry-textured alpine scene for the snowboarder's planet:
  * a timber-and-granite lodge with a warm glass front, a fire ring on the
- * deck, board racks, and a gondola lift climbing the fall line on steel
- * lattice towers — staffed and visited by real people (world/people.js) in
- * linechaser parkas. ADDITIVE, not a total conversion: the permanent cities
+ * deck, board racks, and the Highline chairlift climbing the fall line —
+ * staffed and visited by real people (world/people.js) in linechaser parkas.
+ * Three sub-modules hang off it: the rideable lift (wyattmattoe-lifts.js),
+ * the riders lapping it (wyattmattoe-riders.js) and the mountain's weather
+ * (wyattmattoe-storm.js: periodic snowstorms, then an aurora).
+ * ADDITIVE, not a total conversion: the permanent cities
  * (world/cityRegistry.js), the snowboard, the Ridge Kites and the dressing
  * all still spawn; this module adds the place they'd all hang out.
  *
@@ -25,8 +28,10 @@
  */
 
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createCrowd } from './people.js';
+import { createWyattLifts } from './wyattmattoe-lifts.js';
+import { createWyattRiders } from './wyattmattoe-riders.js';
+import { createWyattStorm } from './wyattmattoe-storm.js';
 
 const _yAxis = new THREE.Vector3(0, 1, 0);
 const _v = new THREE.Vector3();
@@ -219,58 +224,24 @@ export function createWyattmattoe(planet, worldUp, opts = {}) {
     anchor.add(dm);
   }
 
-  /* --- The lift: lattice towers up the fall line, cable, gondolas ------- */
-  // Towers march away from the pad on the uphill bearing (local -X side),
-  // each footed on the real terrain.
-  const towerBase = [];
+  /* --- The lift, the riders on the hill, and the weather ----------------- */
   const invAnchorQ = anchor.quaternion.clone().invert();
-  const anchorPos = anchor.position.clone();
-  const towerGeoParts = [];
-  const cablePts = [];
-  for (let i = 0; i < 4; i++) {
-    const dist = 14 + i * 22;
-    // uphill = local -X in anchor frame -> surface-local dir
-    _v.set(-dist, 0, -4 - i * 2).applyQuaternion(anchor.quaternion).add(anchorPos);
-    const dir = _v.clone().normalize();
-    const r = groundAt(dir);
-    // back into anchor-local
-    _v.copy(dir).multiplyScalar(r).sub(anchorPos).applyQuaternion(invAnchorQ);
-    towerBase.push(_v.clone());
-    const h = 7 + i * 1.2;
-    const leg = new THREE.CylinderGeometry(0.16, 0.24, h, 6);
-    leg.translate(_v.x, _v.y + h / 2, _v.z);
-    towerGeoParts.push(leg);
-    const arm = new THREE.BoxGeometry(2.6, 0.18, 0.18);
-    arm.translate(_v.x, _v.y + h, _v.z);
-    towerGeoParts.push(arm);
-    cablePts.push(new THREE.Vector3(_v.x, _v.y + h + 0.15, _v.z));
+  // Keep-outs for the lift line (surface-local): the permanent city's whole
+  // disc when one is in reach, and the landing point, where the ship is parked.
+  const avoid = [{ dir: landUp, radius: 30 }];
+  if (opts.avoidDir && opts.avoidRadius) {
+    avoid.push({
+      dir: opts.avoidDir.clone().applyAxisAngle(_yAxis, -rotY).normalize(),
+      radius: opts.avoidRadius,
+    });
   }
-  // Cable starts at the lodge-side terminal.
-  cablePts.unshift(new THREE.Vector3(6.5, PAD_Y + 4.2, -3));
-  const terminal = new THREE.BoxGeometry(2.6, 4.4, 2.2);
-  addMesh(terminal, steel, 6.5, PAD_Y + 2.2, -3);
-  const towerFlat = towerGeoParts.map((g) => (g.index ? g.toNonIndexed() : g));
-  const towersGeo = mergeGeometries(towerFlat, false);
-  towerFlat.forEach((g) => g.dispose());
-  owned.push(towersGeo);
-  const towers = new THREE.Mesh(towersGeo, steel);
-  towers.castShadow = true;
-  anchor.add(towers);
-  const cableCurve = new THREE.CatmullRomCurve3(cablePts);
-  const cableGeo = new THREE.TubeGeometry(cableCurve, 40, 0.05, 5, false);
-  owned.push(cableGeo);
-  const cable = new THREE.Mesh(cableGeo, steel);
-  anchor.add(cable);
-  // Gondola cabins ping-pong along the cable.
-  const cabins = [];
-  const cabinGeo = new THREE.BoxGeometry(1.1, 1.2, 1.1);
-  owned.push(cabinGeo);
-  for (let i = 0; i < 4; i++) {
-    const cab = new THREE.Mesh(cabinGeo, i % 2 ? accentMat : steel);
-    cab.castShadow = true;
-    anchor.add(cab);
-    cabins.push({ mesh: cab, u: i / 4, dirSign: i % 2 ? 1 : -1, speed: 0.014 + rng() * 0.006 });
-  }
+  const lifts = createWyattLifts(planet, { anchor, avoid });
+  const riders = createWyattRiders(lifts, {
+    rng: mulberry32(0x51d3a7),
+    count: opts.quality === 'low' ? 14 : 22,
+  });
+  const storm = createWyattStorm({ quality: opts.quality, seed: 0x5709a1 });
+  group.add(storm.group);
 
   /* --- People: riders and staff around the fire, deck and lift queue ---- */
   const spots = [];
@@ -283,13 +254,19 @@ export function createWyattmattoe(planet, worldUp, opts = {}) {
   for (let i = 0; i < 4; i++) {
     spots.push({ x: -3.5 + i * 2.2, z: 1.2 + (rng() - 0.5), face: Math.PI + (rng() - 0.5) * 0.8 });
   }
-  // lift queue
-  for (let i = 0; i < 3; i++) {
-    spots.push({ x: 4.6 - i * 1.1, z: -2.6 - i * 0.6, face: 0.6 });
-  }
+  // The lift queue and its operator stand at the pad's edge on the side the
+  // bottom terminal was strung from (the line is probed, so that side moves).
+  const liftSin = Math.sin(lifts.padBearing);
+  const liftCos = Math.cos(lifts.padBearing);
+  const towardLift = (out, side) => ({
+    x: liftSin * out + liftCos * side,
+    z: liftCos * out - liftSin * side,
+    face: lifts.padBearing,
+  });
+  for (let i = 0; i < 3; i++) spots.push(towardLift(11.2 + i * 0.9, -1.6 + i * 0.5));
   // the two named hosts stand at fixed spots
   const KEEPER_SPOT = { x: -1.2, z: 2.9, face: Math.PI };
-  const OPERATOR_SPOT = { x: 6.0, z: -1.4, face: 0.4 };
+  const OPERATOR_SPOT = { ...towardLift(13.2, 2.2), face: lifts.padBearing + Math.PI };
   spots.push(KEEPER_SPOT, OPERATOR_SPOT);
 
   let crowd = null;
@@ -333,6 +310,10 @@ export function createWyattmattoe(planet, worldUp, opts = {}) {
   }
 
   function nearestInteractable(playerPos, maxDist = 5) {
+    // The lift first: while it holds the walker it IS the interaction, and at
+    // a terminal its E must not lose to the operator standing next to it.
+    const ride = lifts.nearestInteractable(playerPos, maxDist);
+    if (ride) return ride;
     let best = null;
     let bestD2 = maxDist * maxDist;
     for (const e of [keeper, operator]) {
@@ -343,6 +324,7 @@ export function createWyattmattoe(planet, worldUp, opts = {}) {
   }
 
   function interact(entity) {
+    if (entity !== keeper && entity !== operator) return lifts.interact(entity); // null: no dialogue
     entity._talking = true;
     if (entity === keeper) {
       return {
@@ -359,10 +341,17 @@ export function createWyattmattoe(planet, worldUp, opts = {}) {
       speaker: { name: operator.name, species: 'human', cityId: 'wyattmattoe' },
       lines: [
         'Cable\'s singing today — wind\'s out of the canyon, so she hums a third higher.',
-        'Top station opens onto the long fall line. Straight run, no cliffs, if you hold the crest.',
-        'B drops the board. Everything else the mountain teaches you on the way down.',
+        // The line is probed per landing: from a town pad the hill usually
+        // falls away, and this terminal is the TOP of the lift.
+        lifts.baseIsTop
+          ? 'Walk to the gate at the terminal and press E. Next empty chair is yours — it runs you down to the valley station, and E there brings you back up.'
+          : 'Walk to the gate at the terminal and press E. Next empty chair is yours — it sets you down at the top station.',
+        lifts.baseIsTop
+          ? 'Or skip the chair: B drops the board right here, and the headwall under the cable is the run. Ride the lift home.'
+          : 'B drops the board up there. Everything else the mountain teaches you on the way down.',
+        'If the sky goes purple, lean into it. Storms blow through in under a minute, and the lights after are worth the cold.',
       ],
-      offer: { kind: 'codex', subject: 'The Highline Gondola' },
+      offer: { kind: 'codex', subject: 'The Highline Chairlift' },
     };
   }
 
@@ -370,21 +359,31 @@ export function createWyattmattoe(planet, worldUp, opts = {}) {
     if (entity) entity._talking = false;
   }
 
+  /* --- Physics tick (walk.js stepWalk) ----------------------------------- */
+  // `out.pos` arrives holding the walker in planet.surface's frame. Returns
+  //   0  untouched
+  //   1  out.pos was drifted by the storm wind
+  //   2  the lift holds the walker: out.pos / out.facing are the chair's
+  //   3  the lift just set the walker down at out.pos (on the ground)
+  function stepWalker(dt, out, airborne) {
+    const ride = lifts.step(dt, out);
+    // The weather clock always runs; the wind only gets a free walker.
+    if (storm.step(dt, out.pos, airborne, ride ? null : _v) && !ride) {
+      out.pos.add(_v);
+      return 1;
+    }
+    return ride;
+  }
+
   /* --- Per-frame --------------------------------------------------------- */
-  const _cabPos = new THREE.Vector3();
   function update(t, dt, playerLocal, sunDot) {
     const night = 1 - Math.max(sunDot, 0);
     // Fire flickers; windows come up as the light goes down.
     ember.material.emissiveIntensity = 1.1 + Math.sin(t * 7.3) * 0.25 + Math.sin(t * 13.7) * 0.15;
     windowMat.emissiveIntensity = 0.5 + night * 1.1;
-    // Gondolas ping-pong along the cable, hanging under it.
-    for (const c of cabins) {
-      c.u += c.dirSign * c.speed * dt * 60 * 0.016;
-      if (c.u > 0.98) { c.u = 0.98; c.dirSign = -1; }
-      if (c.u < 0.02) { c.u = 0.02; c.dirSign = 1; }
-      cableCurve.getPointAt(c.u, _cabPos);
-      c.mesh.position.set(_cabPos.x, _cabPos.y - 0.85, _cabPos.z);
-    }
+    lifts.update(t, dt);
+    riders.update(t, dt);
+    storm.update(t, dt, playerLocal, opts.scene?.fog ?? null, sunDot);
     if (crowd) {
       // The crowd lives in anchor-local space; bring the player across.
       _v2.copy(playerLocal).sub(anchor.position).applyQuaternion(invAnchorQ);
@@ -393,6 +392,9 @@ export function createWyattmattoe(planet, worldUp, opts = {}) {
   }
 
   function dispose() {
+    storm.dispose();
+    riders.dispose();
+    lifts.dispose();
     if (crowd) crowd.dispose();
     for (const o of owned) { try { o.dispose(); } catch (e) { /* shared */ } }
     owned.length = 0;
@@ -406,6 +408,10 @@ export function createWyattmattoe(planet, worldUp, opts = {}) {
     interact,
     endInteract,
     dispose,
+    stepWalker,
+    lifts,
+    riders,
+    storm,
     // Verification handles.
     get crowd() { return crowd; },
     site: { dir: siteDir, slope: bestSlope },

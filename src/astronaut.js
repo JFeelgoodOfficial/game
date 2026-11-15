@@ -276,6 +276,19 @@ export class Astronaut {
       tg.bodyY = mode === 'moto' ? -0.34 : -0.3;
       tg.bodyRoll = lean * 0.4;
       tg.headPitch = -0.2 - tuck * 0.4;
+    } else if (mode === 'lift') {
+      // Sat on a chairlift (wyattmattoe): thighs along the cushion, shins
+      // hanging, hands resting on the safety bar, a slow look-around.
+      tg.hipL = -1.35; tg.hipR = -1.35;
+      tg.kneeL = 1.3 + Math.sin(t * 0.9) * 0.08;
+      tg.kneeR = 1.3 + Math.sin(t * 0.9 + 1.7) * 0.08;
+      tg.shL.x = -0.75; tg.shR.x = -0.75;
+      tg.shL.z = 0.2; tg.shR.z = -0.2;
+      tg.elL = -0.7; tg.elR = -0.7;
+      tg.bodyPitch = 0.06;
+      tg.bodyY = -0.32;
+      tg.headPitch = -0.05;
+      tg.headYaw = Math.sin(t * 0.35) * 0.3;
     } else if (mode === 'jet') {
       // Upright thrust: slight forward lean, legs together and trailing,
       // arms held low and out for balance.

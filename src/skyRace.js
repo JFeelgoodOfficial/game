@@ -15,12 +15,22 @@ import * as THREE from 'three';
 import { C } from './constants.js';
 import { input, moveAxes } from './input.js';
 import { setDrone, playHook, playSetDown } from '../world/skycity-audio.js';
+import { nextRival, engineLevel, engineName, recordRace, standing } from '../world/skyrace-roster.js';
 
 const R = {
   laps: 3,
   rivals: 4,
-  maxSpeed: 46,
+  maxSpeed: 46, // stock engine; each win fits a faster one (engineStep)
   accel: 20,
+  engineStep: 4, // top speed gained per engine level
+  engineAccel: 2, // and acceleration
+  rivalStep: 2.6, // the field gets quicker each time you win, a little slower than you do
+  airGravity: 30,
+  jumpSpeed: 36, // rivals hold at least this on the run-up to a jump
+  carRadius: 1.45,
+  knock: 1.6, // how much of a collision's closing speed becomes sideways shove
+  knockDecay: 2.2, // 1/s
+
   brake: 44,
   drag: 0.35, // coast-down, 1/s
   reverse: 10,
@@ -32,7 +42,7 @@ const R = {
   finishHold: 4, // seconds parked on the line before you are handed back
   fallMax: 42, // terminal velocity of a car in the air
   droneChase: 170, // u/s, diving after a falling car
-  droneTow: 62, // u/s, with a car on the wire
+  droneTow: 78, // u/s, with a car on the wire
   wire: 9, // length of the tow wire
   hookTime: 0.8, // seconds for the wire to take the weight and stop the fall
   towHeight: 34, // how far above the road the tow cruises
@@ -124,7 +134,7 @@ function gridSlot(car, slot) {
   const lane = slot % 2 ? 3.2 : -3.2;
   car.x = p.x - p.tz * lane;
   car.z = p.z + p.tx * lane;
-  car.y = tr.y;
+  car.y = p.y;
   car.heading = Math.atan2(p.tx, p.tz);
   car.i = i;
   car.lane = lane;
@@ -144,6 +154,8 @@ export function startRace(cityRef) {
       mesh: buildCar(COLORS[k % COLORS.length]),
       player: k === 0,
       x: 0, z: 0, y: 0, heading: 0, speed: 0, vy: 0,
+      air: false, pitch: 0, kx: 0, kz: 0, // airborne off a jump; shove from a collision
+      lat: 0, ramT: 0, ramLane: 0, name: '',
       i: 0, lane: 0, lap: 0, half: false, done: false, out: false, finishT: 0,
       pace: 0.9 + rnd() * 0.22,
       // Some rivals are going to get a corner wrong. Each picks a point of the
@@ -164,6 +176,20 @@ export function startRace(cityRef) {
     race.cars.push(car);
     place(car);
   }
+  // The headline rival from the poster drives car 1: their colours, a quicker
+  // pace than the rest, no scripted mistakes, and a taste for contact.
+  const star = race.cars[1];
+  const rival = nextRival();
+  star.name = rival.name;
+  star.pace = 1.1;
+  star.crashAt = Infinity;
+  star.mesh.traverse((o) => { if (o.material && o.material.metalness === 0.5) o.material.color.set(rival.color); });
+  race.rival = rival.name;
+  race.won = false;
+  race.bumps = 0;
+  race.engineWon = '';
+  race.level = engineLevel();
+  race.fieldPace = Math.min(standing().wins, 7) * R.rivalStep;
   return true;
 }
 
@@ -185,7 +211,7 @@ export function endRace() {
 
 function place(c) {
   c.mesh.position.set(c.x, c.y, c.z);
-  c.mesh.rotation.set(c.spin, c.heading, c.spin * 0.6, 'YXZ');
+  c.mesh.rotation.set(c.spin - c.pitch, c.heading, c.spin * 0.6, 'YXZ');
 }
 
 // Lap bookkeeping off the centre-line sample: a lap counts when the car comes
@@ -227,38 +253,88 @@ export function stepRace(dt) {
       if (race.phase === 'go') {
         const axes = moveAxes();
         const throttle = axes.fwd * axes.mag;
-        if (throttle > 0) c.speed += R.accel * throttle * dt;
-        else if (throttle < 0) c.speed -= (c.speed > 0 ? R.brake : R.accel * 0.5) * -throttle * dt;
+        const top = R.maxSpeed + R.engineStep * race.level;
+        const accel = R.accel + R.engineAccel * race.level;
+        if (throttle > 0) c.speed += accel * throttle * dt;
+        else if (throttle < 0) c.speed -= (c.speed > 0 ? R.brake : accel * 0.5) * -throttle * dt;
         if (input.brake) c.speed -= Math.sign(c.speed) * R.brake * dt;
         c.speed -= c.speed * R.drag * dt;
-        c.speed = Math.min(Math.max(c.speed, -R.reverse), R.maxSpeed);
-        const grip = Math.min(Math.abs(c.speed) / 10, 1) * Math.sign(c.speed || 1);
+        c.speed = Math.min(Math.max(c.speed, -R.reverse), top);
+        // no steering in the air: the wheels have nothing to bite
+        const grip = c.air ? 0 : Math.min(Math.abs(c.speed) / 10, 1) * Math.sign(c.speed || 1);
         c.heading -= axes.strafe * axes.mag * R.steer * grip * dt;
       } else {
         c.speed *= Math.exp(-2.2 * dt); // finished: roll to a stop
       }
     } else {
       // Rivals steer for a point ahead on their lane and slow for the bends.
+      // Now and then one of them decides the car alongside is in the way.
+      c.ramT -= dt;
+      let lane = c.lane;
+      if (c.ramT > 0) lane = c.ramLane;
+      else if (!c.done && rnd() < (c.name ? 0.5 : 0.22) * dt) {
+        for (const o of race.cars) {
+          if (o === c || o.out || o.air) continue;
+          if (Math.hypot(o.x - c.x, o.z - c.z) < 8 && Math.abs(o.lat - c.lat) > 1.5) {
+            c.ramT = 0.9;
+            c.ramLane = Math.max(Math.min(o.lat, 5.2), -5.2); // go where they are
+            break;
+          }
+        }
+      }
       const ahead = tr.pts[(c.i + 4) % tr.n];
-      const tx = ahead.x - ahead.tz * c.lane, tz = ahead.z + ahead.tx * c.lane;
+      const tx = ahead.x - ahead.tz * lane, tz = ahead.z + ahead.tx * lane;
       const want = Math.atan2(tx - c.x, tz - c.z);
       const crashing = !c.done && progress(c) >= c.crashAt && Math.abs(tr.pts[c.i].curv) > 0.006;
       let d = want - c.heading;
       while (d > Math.PI) d -= Math.PI * 2;
       while (d < -Math.PI) d += Math.PI * 2;
-      if (!crashing) c.heading += Math.max(Math.min(d, 2.2 * dt), -2.2 * dt);
+      if (!crashing && !c.air) c.heading += Math.max(Math.min(d, 2.2 * dt), -2.2 * dt);
       const curve = Math.abs(tr.pts[(c.i + 6) % tr.n].curv);
-      const target = c.done ? 0 : Math.max(R.rivalBase * c.pace - curve * R.rivalCorner, 24) * (crashing ? 1.25 : 1);
+      let target = Math.max((R.rivalBase + race.fieldPace) * c.pace - curve * R.rivalCorner, 24) * (crashing ? 1.25 : 1);
+      if (tr.pts[c.i].fast) target = Math.max(target, R.jumpSpeed); // commit to the jump
+      if (c.done) target = 0;
       c.speed += Math.max(Math.min(target - c.speed, R.accel * dt), -R.brake * dt);
     }
 
-    c.x += Math.sin(c.heading) * c.speed * dt;
-    c.z += Math.cos(c.heading) * c.speed * dt;
-    const hit = city.trackAt(c.x, c.z);
-    if (hit) advance(c, hit.i);
-    else {
+    // move: the car's own drive plus whatever a collision has given it
+    const kd = Math.exp(-R.knockDecay * dt);
+    c.kx *= kd;
+    c.kz *= kd;
+    c.x += (Math.sin(c.heading) * c.speed + c.kx) * dt;
+    c.z += (Math.cos(c.heading) * c.speed + c.kz) * dt;
+    const hit = city.trackAt(c.x, c.z, c.y);
+    let lost = false;
+    if (!c.air) {
+      if (hit) {
+        // on the road: follow it, and remember how fast it is carrying us up
+        // or down, because that is the launch speed if it ends
+        c.vy = (hit.y - c.y) / dt;
+        c.y = hit.y;
+        c.pitch = Math.atan(tr.pts[hit.i].sy) * (c.speed >= 0 ? 1 : -1);
+        c.lat = hit.lateral;
+        advance(c, hit.i);
+      } else {
+        c.air = true; // off a lip, or off the side
+        c.vy = Math.max(Math.min(c.vy, 16), -12);
+      }
+    } else {
+      c.vy -= R.airGravity * dt;
+      c.y += c.vy * dt;
+      c.pitch += (Math.atan2(c.vy, Math.max(Math.abs(c.speed), 8)) - c.pitch) * Math.min(1, 6 * dt);
+      if (hit && c.vy <= 0 && c.y <= hit.y) {
+        if (c.y > hit.y - 2.5) {
+          c.y = hit.y; // wheels down
+          c.air = false;
+          c.lat = hit.lateral;
+          advance(c, hit.i);
+        } else lost = true; // came in under the road: missed it
+      } else if (c.y < tr.y - 4) lost = true; // below everything
+    }
+    if (lost) {
       c.out = true;
-      c.vy = 0;
+      c.air = false;
+      c.pitch = 0;
       c.rescue = 'fall';
       c.rescueT = 0;
       c.drone.g.visible = true;
@@ -268,16 +344,31 @@ export function stepRace(dt) {
     place(c);
   }
 
-  // car-to-car: shove apart, nothing more
+  // Car against car. Bodies cannot overlap, and the speed they were closing at
+  // turns into a sideways shove on both: tap someone and they wobble, hit them
+  // hard on a bend and they are over the edge. It cuts both ways.
   for (let a = 0; a < race.cars.length; a++) {
     for (let b = a + 1; b < race.cars.length; b++) {
       const A = race.cars[a], B = race.cars[b];
-      if (A.out || B.out) continue;
+      if (A.out || B.out || Math.abs(A.y - B.y) > 2) continue;
       const dx = B.x - A.x, dz = B.z - A.z, d = Math.hypot(dx, dz);
-      if (d > 2.6 || d < 1e-4) continue;
-      const push = (2.6 - d) / 2;
-      A.x -= (dx / d) * push; A.z -= (dz / d) * push;
-      B.x += (dx / d) * push; B.z += (dz / d) * push;
+      const reach = R.carRadius * 2;
+      if (d > reach || d < 1e-4) continue;
+      const nx = dx / d, nz = dz / d;
+      const push = (reach - d) / 2;
+      A.x -= nx * push; A.z -= nz * push;
+      B.x += nx * push; B.z += nz * push;
+      const closing =
+        (Math.sin(A.heading) * A.speed + A.kx - Math.sin(B.heading) * B.speed - B.kx) * nx +
+        (Math.cos(A.heading) * A.speed + A.kz - Math.cos(B.heading) * B.speed - B.kz) * nz;
+      if (closing <= 0) continue;
+      const J = closing * R.knock + 2.5;
+      A.kx -= nx * J * 0.5; A.kz -= nz * J * 0.5;
+      B.kx += nx * J * 0.5; B.kz += nz * J * 0.5;
+      // and both lose a little pace to the contact
+      A.speed *= 0.985;
+      B.speed *= 0.985;
+      race.bumps++;
     }
   }
 
@@ -300,6 +391,11 @@ export function stepRace(dt) {
   if (race.phase === 'go' && me.done) {
     race.phase = 'done';
     race.place = 1 + race.cars.filter((c) => !c.player && c.done && c.finishT < me.finishT).length;
+    // A win moves the card on: a faster engine for you, a new name on the poster.
+    race.won = race.place === 1;
+    recordRace(race.won);
+    race.engineWon = race.won ? engineName() : '';
+    city.refreshPoster();
     race.doneT = race.t;
   }
 }
@@ -365,20 +461,27 @@ function stepRescue(c, dt) {
       c.speed = 0;
     }
   } else if (c.rescue === 'tow' || c.rescue === 'lower') {
-    const cruise = tr.y + R.towHeight + R.wire;
+    // Cruise above the highest road, and go round the outside of the city
+    // rather than through its towers: out to a ring beyond the rim, along it
+    // to the yard's bearing, then in.
+    const cruise = tr.top + 12 + R.wire;
+    const RING = 236;
     let there = false;
     if (c.rescue === 'tow') {
-      // straight up first if it is hanging below the road, then across
-      if (d.g.position.y < cruise - 0.5 && Math.hypot(d.g.position.x - bay.x, d.g.position.z - bay.z) > 3) {
-        const far = Math.hypot(d.g.position.x - bay.x, d.g.position.z - bay.z);
-        const climb = Math.min(1, (cruise - d.g.position.y) / 40);
-        // climb steeply while low, flattening out toward cruise height
-        flyDrone(d,
-          d.g.position.x + (bay.x - d.g.position.x) / far * 30 * (1 - climb * 0.8),
-          d.g.position.y + 30 * climb + 1, d.g.position.z + (bay.z - d.g.position.z) / far * 30 * (1 - climb * 0.8),
-          R.droneTow, dt);
-      } else if (flyDrone(d, bay.x, cruise, bay.z, R.droneTow, dt)) {
-        c.rescue = 'lower';
+      const p = d.g.position;
+      const r = Math.hypot(p.x, p.z) || 1;
+      const a = Math.atan2(p.z, p.x);
+      let da = Math.atan2(bay.z, bay.x) - a;
+      while (da > Math.PI) da -= Math.PI * 2;
+      while (da < -Math.PI) da += Math.PI * 2;
+      const y = Math.min(cruise, p.y + 40);
+      if (Math.abs(da) < 0.2) {
+        if (flyDrone(d, bay.x, cruise, bay.z, R.droneTow, dt)) c.rescue = 'lower';
+      } else if (r < RING - 6) {
+        flyDrone(d, (p.x / r) * RING, y, (p.z / r) * RING, R.droneTow, dt); // out to the ring
+      } else {
+        const na = a + Math.sign(da) * Math.min(Math.abs(da), 0.25); // along it
+        flyDrone(d, Math.cos(na) * RING, y, Math.sin(na) * RING, R.droneTow, dt);
       }
     } else {
       there = flyDrone(d, bay.x, bay.y + R.wire, bay.z, R.droneTow * 0.4, dt);
@@ -444,7 +547,7 @@ export function raceHud() {
   const running = race.cars.filter((c) => !c.out).length;
   if (race.phase === 'done') return `FINISHED ${ORD[race.place]} OF ${race.cars.length} · ${running} STILL ON THE TRACK`;
   const pos = 1 + race.cars.filter((c) => !c.player && !c.out && progress(c) > progress(me)).length;
-  return `LAP ${Math.min(me.lap + 1, R.laps)}/${R.laps} · ${ORD[pos]} OF ${running} · ${Math.round(Math.abs(me.speed) * 3.6)} KM/H · G — QUIT`;
+  return `LAP ${Math.min(me.lap + 1, R.laps)}/${R.laps} · ${ORD[pos]} OF ${running} · ${Math.round(Math.abs(me.speed) * 3.6)} KM/H · VS ${race.rival.split(' ')[0]} · G — QUIT`;
 }
 
 export function raceFinishedFor() {

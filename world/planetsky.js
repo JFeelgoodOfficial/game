@@ -120,6 +120,12 @@ export function createPlanetSky(planet, scene, opts = {}) {
   let lastT = 0;
   let lastDt = 0;
   let dryEnv = null; // last dry-frame environmentIntensity (a bake output)
+  // Optional weather record (world/wyattmattoe-storm.js): { k, fogColor,
+  // fogDensity, sunScale, envScale }, owned and animated by the caller and
+  // folded in below, after the blend has rewritten everything it touches.
+  let weather = null;
+  let envBase = 1; // the bake's environmentIntensity, before any weather dimming
+  let envWritten = NaN; // what the weather block last wrote there
 
   // Per-frame, from updateWalkVisuals. `playerLocal` is the player position in
   // planet.surface's unrotated local frame.
@@ -194,10 +200,45 @@ export function createPlanetSky(planet, scene, opts = {}) {
       }
     } else {
       for (const m of skyMeshes) m.visible = true;
-      dryEnv = scene.environmentIntensity;
-      if (surfU && surfU.uFogDensity.value !== 0) surfU.uFogDensity.value = 0;
-      if (waterU && waterU.uFogDensity.value !== 0) waterU.uFogDensity.value = 0;
+      let terrainFog = 0;
+      if (weather) {
+        // Fog and sun were rewritten by applyBlend this frame, so scaling them
+        // cannot compound. environmentIntensity is only written by a PMREM
+        // bake, so it needs a remembered base: any value we did not write
+        // ourselves is a fresh bake, and becomes the new base.
+        if (scene.environmentIntensity !== envWritten) envBase = scene.environmentIntensity;
+        const k = weather.k;
+        if (k > 0 && scene.fog) {
+          scene.fog.color.lerp(weather.fogColor, k);
+          scene.fog.density += weather.fogDensity;
+          sky.sunLight.intensity *= weather.sunScale;
+          // The terrain and ice are raw ShaderMaterials: only the storm's
+          // ADDED density goes to them, so it eases in from exactly zero
+          // (they carry no fog at all in clear weather).
+          terrainFog = weather.fogDensity;
+          if (surfU) surfU.uFogColor.value.copy(scene.fog.color);
+          if (waterU) waterU.uFogColor.value.copy(scene.fog.color);
+        }
+        envWritten = envBase * (k > 0 ? weather.envScale : 1);
+        scene.environmentIntensity = envWritten;
+        dryEnv = envBase;
+      } else {
+        dryEnv = scene.environmentIntensity;
+      }
+      if (surfU && surfU.uFogDensity.value !== terrainFog) surfU.uFogDensity.value = terrainFog;
+      if (waterU && waterU.uFogDensity.value !== terrainFog) waterU.uFogDensity.value = terrainFog;
     }
+  }
+
+  // Hand the sky a weather record to fold in every frame, or null to stop.
+  // Clearing it puts the environment intensity back at once; fog and sun
+  // need nothing — the next applyBlend rewrites them clean.
+  function setWeather(w) {
+    if (weather && !w && scene.environmentIntensity === envWritten) {
+      scene.environmentIntensity = envBase;
+    }
+    weather = w || null;
+    envWritten = NaN;
   }
 
   function dispose() {
@@ -211,6 +252,7 @@ export function createPlanetSky(planet, scene, opts = {}) {
     update,
     preRender,
     setUnderwater,
+    setWeather,
     setShadowExtent: sky.setShadowExtent,
     dispose,
     sky,
@@ -223,6 +265,7 @@ export function createPlanetSky(planet, scene, opts = {}) {
         azimuth: presets.day.azimuth,
         preset: sky.preset,
         starAmount: (1 - blendK) * 0 + blendK * 0.9,
+        weather: weather ? weather.k : null,
       };
     },
   };

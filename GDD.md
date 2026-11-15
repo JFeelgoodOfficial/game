@@ -328,9 +328,31 @@ Acceptance: three planets that read as different places using one shader.
 
 **Recorded exception — wyattmattoe.** The extreme-alpine world is still one config object (palette + thresholds + the shared shader; the tallest `terrainHeight` and heaviest ridge weight in the system), but it carries one opt-in system on top of the archetype contract: the snowboard, gated by `boardable: true` and implemented as a branch of the on-foot walker (`walk.boarding` in walk.js, `BOARD_*` block in constants.js — the diving precedent, not a separate loop). No new shaders, no new render passes, no per-frame allocation. Any future planet can opt in with the flag alone.
 
+**Recorded addition — wyattmattoe's resort (lifts, riders, weather).** The basecamp scene (`world/wyattmattoe.js`) grew three sub-modules, each its own file, all additive and all torn down with the walk session. *The Highline chairlift* (`world/wyattmattoe-lifts.js`): two terminals, towers footed on the real terrain, one closed haul cable and a loop of chairs. The line is PROBED per landing, not authored — 24 bearings x 5 lengths scored for height difference, penalising wrong-way slope, long lake crossings and cliffs, and rejecting anything across the town or the parked ship — so the far terminal may be above the basecamp or below it. From the Kite Saddle pad the town sits on levelled high ground, so the basecamp terminal is the TOP station and the lift drops ~85 u to a valley terminal on the lake ice. E at a terminal's gate takes the next empty chair (~30 s at 7 u/s, look around freely, E again hops off early); it sets you down on the ground at the far end, and works in both directions. The ride is a walker override stepped from `stepWalk` (the elevator precedent), with a seated `'lift'` astronaut pose. A groomed piste is cut from the terrain mesh's own triangles under the line so it cannot float or z-fight. *Riders* (`world/wyattmattoe-riders.js`): 22 snowboarders and skiers (14 on low quality) as four InstancedMeshes — rigid figures that yaw onto their line and lean into each carve, descend, queue, ride the chairs back up and drop in again. Ambience only: no collision, one terrain sample each per frame. *Weather* (`world/wyattmattoe-storm.js`): every 2.5–4 minutes on foot (first one 75–120 s after stepping out) a snowstorm blows through for 30–45 s — a purple storm dome over the sky, driven snow, fog closing to a couple of hundred units, and a gusting wind that drifts the walker 1.2–4.2 u/s (a displacement added before the collision pass, so walls still hold; standing still through a storm carries you ~80 u, walking into it still makes headway). When it clears, the sky stays dusk-dark and an aurora — additive folded curtains, green to violet — hangs for 60–75 s before the day returns. The storm never writes the scene's fog, sun or environment itself: it animates a small weather record that `world/planetsky.js` folds in after its own per-frame blend (`planetSky.setWeather`), which is what makes leaving mid-storm leave nothing behind. No new render passes, no per-frame allocation, no dependencies; other worlds never construct any of it.
+
 **Recorded addition — permanent towns (cities v2).** Cities stopped being pop-up (seeded from the landing direction, rebuilt differently every landing) and became registry entries; v2 then consolidated each landable world down to ONE flagship town (`world/cityRegistry.js`: fixed site, fixed seed, fixed landing pad) that inherited its deleted sibling cities' wonders into a `wonders[]` tour. A town is ~8 named citizens — REAL humans via `world/people.js` — each with their own fully enterable building (real floors, glass windows, open doorways, high ceilings, role-keyed furnishing, all from the shared PBR material registry), plus an elevator tower whose enclosed cab rides to a glass penthouse where the town's GOVERNOR lives. The governor gives the town's quest — a beacon-chain tour of all its wonders — and completing it awards one of four persistent vehicles (plane, motorcycle, jetpack, hang glider; `src/inventory.js`, deployed on foot via the I selector, ridden as walker branches like the snowboard). The landing pad sits just OUTSIDE the town edge with a lit walkway in; the G auto-land arcs to it, manual touchdown anywhere still works, and far-from-town landings are wilderness. The story worlds (actuality, shadowreach, wavemall prime) have no registry entries and keep their total conversions. glacia and oceana were retired from the roster; Frostwatch Relay re-parked at wyattmattoe.
 
 ---
+
+### 5.7.1 The Emberdeep and the aft patio (Rustia)
+
+*(Owner addition, like the walkable interior and the towns. A quest line with a place at the end of it and a reward you can stand on.)*
+
+Redline Claim is a mining town, and until now nothing in it was a mine. The Emberdeep is: a steel headframe beside the walkway in from the landing pad, a cage, and a hundred and twenty metres of shaft.
+
+**The loop.** Walk to the headframe, step into the cage, **E**. The cage drops — eleven and a half seconds of rough rock, steel sets and caged bulbs going past, with more and more ore showing in the walls the deeper it gets and the daylight at the collar shrinking to a point. At pit bottom a haulage tunnel runs to a working stope, where the live seam crosses the far wall and one loose piece sits on a crate, ringed in light (**E** takes it), and on into the reason to come down at all:
+
+**The cathedral.** Four generations of miners carved it out of the ore-bearing rock between shifts, in the manner of the salt cathedrals (Wieliczka, Zipaquirá). A narthex with a font of raw ore; a nave eighty metres long under a ribbed pointed vault twenty-eight metres up; ten bays of clustered columns and moulded arcade arches with a glowing clerestory above them; side aisles with blind niches; three chapels a side (the Lamp, the Pick, the Cage); stone pews; five ore chandeliers; and at the east end a raised chancel, an altar, the Heart-ember — the first crystal the claim ever struck, left standing — and a great window of thin-pared ore behind carved tracery, five lancets under a rose. Five miners are down there and will talk. The light is the ore: veins in the rock, crystal on the capitals and the bosses, backlit panes, and bloom to carry it. Dark rock, warm light, nothing else.
+
+**The reward.** Carry the ore back up and show it to Baron Rynva in the penthouse. He keeps it, and has his fitters cut a door in the stern of your ship: an **aft patio**. Stand up from the pilot seat (C), walk the length of the gallery and through the lounge, and step outside onto an open deck with a rail, two lamps and somewhere to sit — and the whole live sky around you, planets, rings, sun and nebulae, with no glass in the way. It persists with the rest of the inventory.
+
+**How it is built.**
+- `world/minehead.js` — the surface works, built in the town's flat frame after the city and the warzone exist so it can find clear ground by itself; it joins `city.structures` the way warzone cover does. `world/embermine.js` — the whole underground as one self-contained flat world: half of it authored, half mirrored, merged to one mesh per material; three canvas textures (rock normal, vein network, translucent ore); twelve unshadowed point lights; collision as a union of room rectangles plus obstacle boxes and circles. Ore is drawn unlit with a colour per facet, so crystals read as crystals without a light on each.
+- `src/mineWalk.js` — a flat walker *nested* in the planet walk. The town stays built and is merely hidden; nothing on the surface is stepped while you are below, so combat does not follow you down and resumes where it stopped. `walk.js` reaches it through one generic `sub` hook (not a guard per function), stores the walker's position in the planet's unrotated frame on the way down, and restores it on the way up — you come out of the cage where you went in, however far the planet turned meanwhile.
+- `src/patio.js` — geometry and obstacles only; `interior.js` owns the walker. The interior is already an overlay drawn over the finished space scene, so a deck with no roof needs no rendering trick: where there is no ship, there is the sky.
+- State: `inventory.js` gained `cargo` (carried, can be handed over) and `upgrades` (permanent), kept apart from the vehicle catalog; the journal tracks `rustia-emberdeep` as `found → ore → done`. Old saves load unchanged.
+
+**Feel constants worth knowing:** cage speed and shaft depth (`RIDE_SPEED` 13 m/s over `SHAFT_H` 120 m — the ride is the first act; shorter and it is a loading screen, longer and it is a wait); the mine's exposure, bloom threshold and fog (`MINE_*` in `mineWalk.js` — the difference between a cathedral and an orange room is almost entirely these three and the light intensities in `embermine.js`); `PATIO_LEN`.
 
 ### 5.8 The Sky City (Saturnia)
 
@@ -367,13 +389,22 @@ Things to do in the city:
   fires down the bore. The shot has to pass within a few units of the body.
   A hit detonates the dragon head to tail: flash, a chain of fireballs, shock
   rings, embers, and the charred body coming apart and falling. G steps back.
-- **The Rim Circuit.** A bare ribbon of road on pylons outside the rim
-  (`src/skyRace.js`). E at the booth puts you on the grid with four rivals for
-  three laps. No barriers: rivals sometimes miss a bend and go over, and so
-  can you. A car that leaves the road is not lost: a recovery drone dives from
-  the mechanics' yard beside the booth, wires it, and tows it back to a bay.
-  That ends the driver's race; the player is handed back on foot at the booth.
-  G quits the race.
+- **The Rim Circuit.** A bare ribbon of road with no barriers
+  (`src/skyRace.js`; the route is built in `world/skycity.js`). From the start
+  line it runs round the outside of the rim, over a kicker and a gap, turns in
+  and climbs a bridge straight through the city (up an avenue, between the
+  spires, over the dome, off a second jump) and back out to the rim. E at the
+  booth puts you on the grid with four rivals for three laps. Cars collide
+  properly: closing speed becomes a sideways shove on both, so drivers can
+  knock each other off, and rivals will sometimes steer into the car
+  alongside. A car that leaves the road, or falls short at a jump, is caught
+  by a recovery drone from the mechanics' yard and towed round the rim to a
+  bay; that ends the driver's race. G quits.
+- **Rivals and engines** (`world/skyrace-roster.js`). Each race has a headline
+  rival, shown on a poster by the booth with a line of trash talk. Win and the
+  mechanics fit the next engine (more top speed and acceleration), the field
+  gets a little quicker, and the poster moves on to the next name. The
+  standing persists in localStorage (`nova7.skyrace`).
 - **The paving.** The deck, terrace and pad wear one procedural tile pattern
   (`makePavingMaterial` in `world/skycity.js`): a glazed rosette on the
   terrace, rings of setts with inlaid feature rings, chequered avenues edged

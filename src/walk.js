@@ -78,6 +78,10 @@ export { enterCottageWalk, cottageActive, exitCottageWalk } from './cottageWalk.
 // flat walker, dispatched to from every public function below.
 import * as skyWalk from './skyWalk.js';
 export { enterSkyWalk, skyActive, skyFell } from './skyWalk.js';
+// The Emberdeep under rustia's town (src/mineWalk.js): a flat walker NESTED in
+// the planet walk — you ride a cage down and come back up to the same spot.
+import * as mineWalk from './mineWalk.js';
+import { createMineHead } from '../world/minehead.js';
 
 const LOOK_SENS = 0.0022; // radians of look per pixel of mouse travel
 const MAX_PITCH = 1.483; // ~85°, so you never flip past straight up/down
@@ -110,6 +114,9 @@ const _bt1 = new THREE.Vector3(); // board forward tangent
 const _bt2 = new THREE.Vector3(); // board right tangent
 const _bProbe = new THREE.Vector3(); // slope probe direction
 const _bDown = new THREE.Vector3(); // downhill tangent, magnitude = slope
+// wyattmattoe's chairlift + storm wind answer the walker through this record
+// (surface-local position in/out, the chair's travel direction out).
+const _wyOut = { pos: new THREE.Vector3(), facing: new THREE.Vector3() };
 
 export const walk = {
   active: false,
@@ -143,6 +150,22 @@ let boardPrevGroundR = 0; // surface radius under the board last tick
 let boardGroundVel = 0; // radial rate the terrain imposed while grounded
 let boardCamEase = 0; // eased 0..1 board-speed fraction for the TP camera
 let lastSpinAngle = 0; // surface.rotation.y at the previous walk tick (co-rotation)
+
+// A NESTED sub-walker: an interior entered from the planet walk and returned
+// from (the Emberdeep mine). Unlike the cottage and the Sky City, which replace
+// the planet walk outright, the town stays built and `walk.active` stays true;
+// while `sub` is set every public function below forwards to it and the
+// surface simply stops being stepped. One generic object, so the next nested
+// place needs no new guard at each site — it sets `sub` and that is all.
+// Interface: step, visuals, preRender, camera, interact, promptText,
+// toggleView, promptReturn, bearing, abort (see src/mineWalk.js SUB).
+let sub = null;
+let mineHead = null; // rustia's surface works (world/minehead.js), or null
+// Where the walker stood when it went under, in planet.surface's UNROTATED
+// frame — the planet keeps spinning (and the origin may rebase) while we are
+// below, so a world-space position would not be the same spot on the way out.
+const _subReturnPos = new THREE.Vector3();
+const _subReturnHeading = new THREE.Vector3();
 
 // Landing-site world entities, spawned per disembark like dressing. The city
 // is PERMANENT (world/cityRegistry.js): fixed site, fixed seed, identical on
@@ -235,7 +258,7 @@ function setObjective(target) {
 export function walkObjective() {
   // Nothing is asked of you in the cottage — a quest line left over from the
   // last town would be exactly the wrong thing to read there.
-  if (cottageWalk.cottageActive() || skyWalk.skyActive()) return null;
+  if (cottageWalk.cottageActive() || skyWalk.skyActive() || sub) return null;
   return objectiveText;
 }
 const TALK_DIST_CROWD = 2.6; // ~ aliens talkTriggerDist
@@ -303,6 +326,7 @@ export function initWalk(scene) {
   scene.add(astronaut.group);
   cottageWalk.initCottageWalk(astronaut, scene); // and so does the cottage one
   skyWalk.initSkyWalk(astronaut); // and the Sky City's
+  mineWalk.initMineWalk(astronaut, scene); // and the mine's
 }
 
 // The nearest rocky (terra) planet you could stand on, and your altitude above
@@ -489,6 +513,9 @@ export function enterWalk(planet) {
     // The mall is 106 m of facade over a 240 m plaza — the default box clips
     // its own shadow off halfway up the building.
     else if (planet.cfg.name === 'wavemall prime') planetSky.setShadowExtent(150, 420);
+    // wyattmattoe's weather (snowstorm, then aurora) is folded into the sky
+    // by planetsky itself, from a record the storm module animates.
+    if (wyattmattoe) planetSky.setWeather(wyattmattoe.storm.weather);
   }
 
   // Diamond rain (neptunia): a walker-local glitter volume, storm-scheduled.
@@ -830,6 +857,16 @@ function spawnWorldEntities(planet) {
       warzone = createWarzone(city, cityDef, { scene: worldScene });
       showViewToast('COMBAT ZONE — LMB FIRE · RMB AIM · R RELOAD', 6);
     }
+
+    // Towns with a mine (registry `mine` block — rustia's Redline Claim): the
+    // headframe and cage. Built AFTER the warzone so it can pick a spot clear
+    // of the cover as well as the houses; it joins city.structures the same
+    // way the cover does, so walls, deck and ballistics all just work.
+    if (cityDef.mine) {
+      mineHead = createMineHead(city, { onDescend: descendMine, seed: cityDef.seed ^ 0x3b3a11 });
+      city.group.add(mineHead.group);
+      city.structures.push(mineHead.structure);
+    }
   }
 
   // --- wyattmattoe only: the Highline Basecamp — an ADDITIVE textured scene
@@ -844,6 +881,11 @@ function spawnWorldEntities(planet) {
       materials: surfaceMaterials,
       quality: settings.quality,
       avoidDir: avoid,
+      // The lift line must not be strung across the town or its pad.
+      avoidRadius: near
+        ? Math.max(near.def.radius + 12, Math.hypot(near.def.pad.x, near.def.pad.z) + 25)
+        : 0,
+      scene: worldScene, // the storm reads the live fog colour for its horizon
     });
     planet.surface.add(wyattmattoe.group);
   }
@@ -871,6 +913,9 @@ export function exitWalk(camera) {
   // game.js owns it. Here we only tear the world down.
   if (cottageWalk.cottageActive()) return cottageWalk.exitCottageWalk();
   if (skyWalk.skyActive()) return skyWalk.exitSkyWalk();
+  // Torn down while underground (reset, menu, debug exit): surface first —
+  // abort() restores the scene and puts ship.position back on the planet.
+  if (sub) sub.abort();
   const planet = walk.planet;
   _up.subVectors(ship.position, planet.body.position).normalize();
   const ground = planet.body.groundAt(_up);
@@ -926,6 +971,10 @@ export function exitWalk(camera) {
   if (warzone) {
     warzone.dispose(); // pulls its cover colliders off city.structures first
     warzone = null;
+  }
+  if (mineHead) {
+    mineHead.dispose(); // detaches its own group; the city (and its structures list) goes below
+    mineHead = null;
   }
   if (citizens) {
     city.group.remove(citizens.group);
@@ -1008,6 +1057,7 @@ export function exitWalk(camera) {
 export function toggleWalkView() {
   if (cottageWalk.cottageActive()) return cottageWalk.toggleCottageView();
   if (skyWalk.skyActive()) return skyWalk.toggleSkyView();
+  if (sub) return sub.toggleView();
   if (warzone && combatOnFoot()) {
     showViewToast('THIRD PERSON IS OFF IN COMBAT ZONES');
     return walk.view;
@@ -1020,6 +1070,7 @@ export function toggleWalkView() {
 export function stepWalk(dt) {
   if (cottageWalk.cottageActive()) return cottageWalk.stepCottageWalk(dt);
   if (skyWalk.skyActive()) return skyWalk.stepSkyWalk(dt);
+  if (sub) return sub.step(dt);
   const planet = walk.planet;
 
   // The elevator cab is a MOVING walkable surface — advance it here, in the
@@ -1296,6 +1347,38 @@ export function stepWalk(dt) {
     if (gap > step && gap > 1e-6) walk.vel.addScaledVector(_move, step / gap);
     else walk.vel.copy(_wish);
     ship.position.addScaledVector(walk.vel, dt);
+  }
+
+  // --- wyattmattoe: the chairlift carries the walker and the storm wind
+  // drifts them. The basecamp module answers both in planet.surface's frame;
+  // the drift lands here, BEFORE the collision passes, so walls still hold.
+  if (wyattmattoe) {
+    _wyOut.pos.subVectors(ship.position, planet.body.position)
+      .applyAxisAngle(_yAxisV, -planet.surface.rotation.y);
+    const held = wyattmattoe.stepWalker(dt, _wyOut, !walk.grounded);
+    if (held) {
+      ship.position.copy(_wyOut.pos)
+        .applyAxisAngle(_yAxisV, planet.surface.rotation.y)
+        .add(planet.body.position);
+    }
+    if (held >= 2) {
+      // Waiting at the gate, sat on the chair, or just set down at the far
+      // end: no momentum, no board, and the body faces the way the chair runs.
+      walk.vel.set(0, 0, 0);
+      walk.vUp = 0;
+      walk.boarding = false;
+      walk.vehicle = null;
+      walk.facing.copy(_wyOut.facing).applyAxisAngle(_yAxisV, planet.surface.rotation.y);
+      if (held === 2) {
+        const seated = wyattmattoe.lifts.riding;
+        walk.grounded = !seated;
+        walk.mode = seated ? 'lift' : 'idle';
+        walk.speed01 = 0;
+        walk.jumpHeld = input.brake;
+        ship.velocity.set(0, 0, 0);
+        return; // the chair owns the walker this tick; look-around already ran
+      }
+    }
   }
 
   // --- city: building push-out + unified ground, in the city's flat frame ---
@@ -1672,6 +1755,7 @@ export function stepWalk(dt) {
 export function updateWalkVisuals(dt, t) {
   if (cottageWalk.cottageActive()) return cottageWalk.updateCottageVisuals(dt, t);
   if (skyWalk.skyActive()) return skyWalk.updateSkyVisuals(dt, t);
+  if (sub) return sub.visuals(dt, t);
   if (!walk.active || !astronaut) return;
   const planet = walk.planet;
   _up.subVectors(ship.position, planet.body.position).normalize();
@@ -1733,6 +1817,10 @@ export function updateWalkVisuals(dt, t) {
     // Citizens and the elevator buttons share the city's flat local frame.
     playerLocalInto(city.group, _cityInvQuat, _playerLocal);
     if (city.elevator) scanModule(city.elevator, 2.6);
+    if (mineHead) {
+      mineHead.update(t);
+      scanModule(mineHead.module, 1.9); // inside the cage
+    }
     if (citizens) {
       citizens.update(dt, _playerLocal, sunDot);
       scanModule(citizens, TALK_DIST_VENDOR);
@@ -1852,6 +1940,7 @@ function scanModule(module, maxDist) {
 export function walkInteract() {
   if (cottageWalk.cottageActive()) return cottageWalk.cottageInteract();
   if (skyWalk.skyActive()) return skyWalk.skyInteract();
+  if (sub) return sub.interact();
   if (isDialogueOpen()) {
     advanceDialogue();
     return;
@@ -1883,6 +1972,7 @@ export function walkInteract() {
 export function walkPromptText() {
   if (cottageWalk.cottageActive()) return cottageWalk.cottagePromptText();
   if (skyWalk.skyActive()) return skyWalk.skyPromptText();
+  if (sub) return sub.promptText();
   if (isDialogueOpen() || !focusEntity) return null;
   // Entities may carry their own prompt (elevator buttons: 'E — PENTHOUSE').
   return focusEntity.prompt ?? 'E — TALK';
@@ -1984,9 +2074,16 @@ function governorInteract(c, { fill, speakerFor }) {
   const def = city.def;
   const q = def.quest;
   const speaker = speakerFor(c);
-  if (!q) return { speaker, lines: [fill('Welcome to {{cityName}}.', c)] };
+  // The Emberdeep (registry `mine` block): arriving with a piece of ember ore
+  // outranks whatever the tour was about to say — he takes it and fits the
+  // patio. Otherwise the mine only adds one aside to his usual lines.
+  const fillLine = (l) => fill(l, c);
+  const ember = mineWalk.emberDelivery(def, speaker, fillLine);
+  if (ember) return ember;
+  const aside = mineWalk.emberAside(def, fillLine);
+  if (!q) return { speaker, lines: [fill('Welcome to {{cityName}}.', c), ...aside] };
   const st = questStage(def.id);
-  if (st === 'done') return { speaker, lines: [fill(q.thanks, c)] };
+  if (st === 'done') return { speaker, lines: [fill(q.thanks, c), ...aside] };
   if (st === undefined) {
     return {
       speaker,
@@ -2013,7 +2110,47 @@ function governorInteract(c, { fill, speakerFor }) {
   const nextLine = q.wonderLines?.[st]
     ? fill(q.wonderLines[st], c)
     : `Next: ${def.wonders[st].title}.`;
-  return { speaker, lines: [fill(q.remind, c), nextLine] };
+  return { speaker, lines: [fill(q.remind, c), nextLine, ...aside] };
+}
+
+// ---------------------------------------------------------------------------
+// Going under: hand the floor to a nested sub-walker and take it back.
+// ---------------------------------------------------------------------------
+function descendMine() {
+  if (sub || !walk.active || !walk.planet) return;
+  const planet = walk.planet;
+  const rotY = planet.surface.rotation.y;
+  _subReturnPos.subVectors(ship.position, planet.body.position).applyAxisAngle(_yAxisV, -rotY);
+  _subReturnHeading.copy(walk.heading).applyAxisAngle(_yAxisV, -rotY);
+  walk.vehicle = null; // you do not ride the Runner into a cage
+  walk.vel.set(0, 0, 0);
+  closeDialogue();
+  focusEntity = null;
+  focusModule = null;
+  // The warzone is not updated while `sub` holds the floor (its update lives
+  // in updateWalkVisuals), so waves and monsters freeze where they stand;
+  // only its DOM HUD needs telling.
+  if (warzone) warzone.setHudVisible(false);
+  sub = mineWalk.enterMine({ hide: [planet.group], onExit: surfaceFromSub });
+  if (!sub && warzone) warzone.setHudVisible(true);
+}
+
+// The sub-walker has torn itself down (cage at the top, or an abort): put the
+// walker back on the spot it left, on the planet as it is turned NOW.
+function surfaceFromSub() {
+  sub = null;
+  const planet = walk.planet;
+  if (!planet) return;
+  const rotY = planet.surface.rotation.y;
+  ship.position.copy(_subReturnPos).applyAxisAngle(_yAxisV, rotY).add(planet.body.position);
+  ship.velocity.set(0, 0, 0);
+  walk.heading.copy(_subReturnHeading).applyAxisAngle(_yAxisV, rotY);
+  walk.facing.copy(walk.heading);
+  walk.vel.set(0, 0, 0);
+  walk.pitch = 0;
+  lastSpinAngle = rotY; // no co-rotation catch-up for the time spent below
+  camSnap = true;
+  if (warzone) warzone.setHudVisible(true);
 }
 governorInteract.onOutcome = (tag) => {
   const m = /^menu:([^:]+):gov:(\w+)$/.exec(tag ?? '');
@@ -2132,6 +2269,7 @@ function removeBeacon() {
 export function nearParkedShip() {
   if (cottageWalk.cottageActive()) return cottageWalk.nearPad();
   if (skyWalk.skyActive()) return skyWalk.nearPad();
+  if (sub) return false; // the ship is up on the surface, and you are not
   // Shadowreach gates boarding to the story's endpoints: you may leave at the
   // very start (in the field, before the flower) or once the dream completes in
   // the garden — never mid-journey. Completed lets you "wake" from anywhere.
@@ -2150,6 +2288,7 @@ export function nearParkedShip() {
 export function promptReturnToShip() {
   if (cottageWalk.cottageActive()) return cottageWalk.promptReturnToPad();
   if (skyWalk.skyActive()) return skyWalk.promptReturnToPad();
+  if (sub) return sub.promptReturn();
   if (shadowreach && !shadowreach.canBoard()) {
     showViewToast('THE DREAM IS NOT FINISHED');
     return;
@@ -2165,6 +2304,7 @@ export function promptReturnToShip() {
 export function deployVehicle(id) {
   if (cottageWalk.cottageActive()) return false; // you walk this one
   if (skyWalk.skyActive()) return false; // and this one
+  if (sub) return false; // nor underground
   if (!walk.active || !walk.planet || !hasItem(id)) return false;
   if (wavemall || actuality || shadowreach) return false;
   if (walk.swimming || walk.diving) return false;
@@ -2194,6 +2334,8 @@ export function walkSite() {
     creatures, diamondRain, marineSnow, planetSky, wyattmattoe,
     cottage: cottageWalk.cottageSite(),
     sky: skyWalk.skySite(),
+    minehead: mineHead,
+    mine: mineWalk.mineSite(),
     // Governor-tour beacon internals, for headless verification. The up vector
     // is here because the tilt bug it fixes is invisible to a position-only
     // payload — assert it against the true surface normal at the base.
@@ -2210,14 +2352,18 @@ export function walkSite() {
 // module reach the renderer — the actuality mirror room draws to its own render
 // targets, and both story worlds drive their sky from here (the PMREM
 // environment bake needs a renderer, and this is the only hook that has one).
-export function walkPreRender(renderer) {
+export function walkPreRender(renderer, bloomPass) {
   // The cottage runs without walk.active — it is its own walker, and its sky
   // needs a PMREM bake on the first frame, so it is checked before the gate.
   cottageWalk.cottagePreRender(renderer);
   if (!walk.active) return;
+  // Underground the surface sky must NOT run: it rewrites fog and exposure
+  // every frame, and the mine owns both while it holds the floor.
+  if (sub) return sub.preRender(renderer, bloomPass);
   if (actuality) actuality.preRender(renderer);
   if (shadowreach) shadowreach.preRender(renderer);
   if (planetSky) planetSky.preRender(renderer);
+  if (wyattmattoe) wyattmattoe.storm.setPixelScale(renderer.getPixelRatio());
 }
 
 // The actuality world's hyper-holo-grid finale asks the host to loop the whole
@@ -2231,6 +2377,7 @@ export function walkPendingReset() {
 export function currentGravityScale() {
   if (cottageWalk.cottageActive()) return 1;
   if (skyWalk.skyActive()) return 1;
+  if (sub) return 1;
   return walk.active ? (walk.planet?.cfg?.walkGravityScale ?? 1) : 1;
 }
 
@@ -2267,6 +2414,7 @@ function bearingToWorld(worldPt, label) {
 export function shipBearing() {
   if (cottageWalk.cottageActive()) return cottageWalk.padBearing();
   if (skyWalk.skyActive()) return skyWalk.padBearing();
+  if (sub) return sub.bearing();
   if (!walk.active || !parked || !walk.planet) return null;
   _parkPos
     .copy(parked.group.position)
@@ -2282,6 +2430,7 @@ export function shipBearing() {
 export function walkBearing() {
   if (cottageWalk.cottageActive()) return cottageWalk.padBearing();
   if (skyWalk.skyActive()) return skyWalk.padBearing();
+  if (sub) return sub.bearing();
   if (beacon && beaconParent && walk.active && walk.planet) {
     // Local -> surface -> world, the same chain the pad walkway uses. Built by
     // hand rather than read off matrixWorld, which is a frame stale here.
@@ -2304,6 +2453,7 @@ export function walkBearing() {
 export function updateWalkCamera(camera, delta = 0) {
   if (cottageWalk.cottageActive()) return cottageWalk.updateCottageCamera(camera, delta);
   if (skyWalk.skyActive()) return skyWalk.updateSkyCamera(camera, delta);
+  if (sub) return sub.camera(camera, delta);
   const planet = walk.planet;
   _up.subVectors(ship.position, planet.body.position).normalize();
   _right.crossVectors(walk.heading, _up).normalize();
@@ -2460,7 +2610,10 @@ export function updateWalkCamera(camera, delta = 0) {
 // On foot (not riding, boarding or in the water) the rifle is out and the view
 // is first person: the combat layer is built around the FP camera.
 function combatOnFoot() {
-  return !walk.vehicle && !walk.boarding && !walk.swimming && !walk.diving;
+  // Sat on wyattmattoe's chairlift counts as riding: rifle away, and the
+  // third-person view (if that is the player's choice) to watch the ride.
+  return !walk.vehicle && !walk.boarding && !walk.swimming && !walk.diving
+    && walk.mode !== 'lift';
 }
 
 // The view actually rendered: the stored preference, overridden to first
@@ -2471,7 +2624,7 @@ function viewMode() {
 
 // Viewmodel overlay (game.js, right after composer.render()).
 export function walkPostRender(renderer) {
-  if (warzone && walk.active) warzone.renderViewmodel(renderer);
+  if (warzone && walk.active && !sub) warzone.renderViewmodel(renderer); // no rifle underground
 }
 
 // A coarse pointer means thumbs on a look stick — the warzone gives those
@@ -2487,7 +2640,7 @@ function touchPlayer() {
 }
 
 export function walkCombatActive() {
-  return !!warzone && walk.active;
+  return !!warzone && walk.active && !sub; // the fight does not follow you down the shaft
 }
 
 function updateWarzone(dt, t) {

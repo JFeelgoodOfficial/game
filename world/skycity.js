@@ -20,6 +20,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createDragon } from './skydragon.js';
+import { drawPoster } from './skyrace-roster.js';
 
 const K = {
   seed: 7341,
@@ -40,9 +41,9 @@ const K = {
   lanceH: 176, // the Lance Tower: taller than anything else in the city
   lanceR: 6.5,
   roomR: 9.5,
-  trackY: 12, // the raceway rides above the rim on pylons
+  trackY: 12, // the raceway's height where it rides outside the rim on pylons
   trackHalf: 7,
-  trackN: 360, // centre-line samples, one per degree
+  trackStep: 2.6, // spacing of centre-line samples, units
 };
 
 function mulberry32(a) {
@@ -481,42 +482,98 @@ export function createSkyCity(planet) {
   }
 
   // ---- the raceway -------------------------------------------------------------
-  // A closed ribbon on pylons, looping outside and above the rim with no
-  // barriers at all. The centre line is star-shaped about the city's axis
-  // (radius as a function of bearing), which makes "am I on the track" a
-  // lookup by angle rather than a search. Sample i sits at bearing i degrees.
-  const track = { y: K.trackY, half: K.trackHalf, n: K.trackN, pts: [], length: 0 };
+  // A closed ribbon with no barriers. From the start line it runs clockwise
+  // round the outside of the rim on pylons, takes a kicker and a gap on the
+  // way, turns in at the south-west diagonal, and climbs a long bridge straight
+  // through the middle of the city: up the avenue, between the spires, over the
+  // dome, off a second jump on the far side, and down the opposite avenue to
+  // the rim again, where it turns for home. The quarter of the rim around the
+  // landing pad is left clear.
+  //
+  // The centre line is a spline through control points (bearing in degrees,
+  // radius, height), resampled evenly. Each sample knows its tangent, its
+  // slope, its curvature (for the drivers' corner speed) and whether it is a
+  // gap (air: a jump). "Am I on the road" is trackAt(): a grid lookup of the
+  // samples near a point, since the route now crosses the city and is no
+  // longer a simple ring.
+  const track = { y: K.trackY, half: K.trackHalf, n: 0, pts: [], length: 0, top: K.trackY };
   {
-    const rAt = (a) => 197 + 20 * Math.sin(3 * a + 0.4) + 7 * Math.sin(5 * a);
-    for (let i = 0; i < K.trackN; i++) {
-      const a = (i / K.trackN) * Math.PI * 2;
-      track.pts.push({ x: Math.cos(a) * rAt(a), z: Math.sin(a) * rAt(a), tx: 0, tz: 0, s: 0, curv: 0 });
+    const Y = K.trackY;
+    const ctl = [
+      [0, 205, Y], [-16, 211, Y], [-28, 207, Y],
+      [-36, 203, Y], [-44, 201, Y], [-52, 203, Y], [-58, 205, Y], // the outer jump is shaped below
+      [-74, 214, Y], [-90, 208, Y], [-108, 198, Y], [-124, 205, Y],
+      [-130.5, 204, Y], [-135, 190, Y + 0.6],   // the turn in (225 deg = -135)
+      [-135, 168, Y + 2.5], [-135, 120, Y + 10], [-135, 62, Y + 22], [-135, 24, Y + 27.5],
+      [45, 10, Y + 28.6], [45, 34, Y + 29.4], [45, 50, Y + 29.8], // level run to the lip
+      [45, 65, Y + 23.2], [45, 84, Y + 17.5], [45, 120, Y + 9], [45, 168, Y + 1.6],
+      [45, 190, Y + 0.4], [40, 205, Y], [30, 211, Y], [15, 208, Y],
+    ];
+    const curve = new THREE.CatmullRomCurve3(
+      ctl.map(([deg, r, y]) => new THREE.Vector3(Math.cos((deg * Math.PI) / 180) * r, y, Math.sin((deg * Math.PI) / 180) * r)),
+      true, 'centripetal'
+    );
+    const n = Math.round(curve.getLength() / K.trackStep);
+    const sp = curve.getSpacedPoints(n); // n + 1 points, last == first
+    for (let i = 0; i < n; i++) {
+      const p = sp[i];
+      const r = Math.hypot(p.x, p.z);
+      let deg = (Math.atan2(p.z, p.x) * 180) / Math.PI;
+      // the two jumps: a stretch of air after each lip
+      const gapOuter = deg < -42.6 && deg > -45.4 && r > 190;
+      const gapCity = Math.abs(deg - 45) < 6 && r > 52.5 && r < 62.5;
+      track.pts.push({ x: p.x, y: p.y, z: p.z, tx: 0, tz: 0, sy: 0, s: 0, curv: 0, gap: gapOuter || gapCity, fast: false });
+      if (p.y > track.top) track.top = p.y;
     }
-    for (let i = 0; i < K.trackN; i++) {
-      const p0 = track.pts[(i + K.trackN - 1) % K.trackN], p1 = track.pts[(i + 1) % K.trackN];
+    track.n = n;
+    // The outer jump's profile, laid over the flat spline: a straight kicker up
+    // to the lip (so a car leaves it climbing), air, then a landing ramp that
+    // starts lower than the lip and falls away. Roughly 21 u/s clears it.
+    {
+      let g0 = -1, g1 = -1;
+      for (let i = 0; i < n; i++) {
+        const p = track.pts[i];
+        if (p.gap && Math.hypot(p.x, p.z) > 150) { if (g0 < 0) g0 = i; g1 = i; }
+      }
+      const RUN = 16, LIP = 3.0, LAND = 1.2;
+      for (let k = 1; k * K.trackStep <= RUN; k++) {
+        const up = track.pts[(g0 - k + n) % n], dn = track.pts[(g1 + k) % n];
+        up.y = Y + LIP * (1 - ((k - 1) * K.trackStep) / RUN);
+        dn.y = Y + LAND * (1 - ((k - 1) * K.trackStep) / RUN);
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      const p0 = track.pts[(i + n - 1) % n], p1 = track.pts[(i + 1) % n];
       const dx = p1.x - p0.x, dz = p1.z - p0.z, d = Math.hypot(dx, dz);
       track.pts[i].tx = dx / d;
       track.pts[i].tz = dz / d;
+      track.pts[i].sy = (p1.y - p0.y) / d; // rise per unit of ground covered
     }
-    for (let i = 0; i < K.trackN; i++) {
-      const p = track.pts[i], q = track.pts[(i + 1) % K.trackN];
+    for (let i = 0; i < n; i++) {
+      const p = track.pts[i], q = track.pts[(i + 1) % n];
+      const d = Math.hypot(q.x - p.x, q.z - p.z);
       p.s = track.length;
-      track.length += Math.hypot(q.x - p.x, q.z - p.z);
-      // signed turn per unit length, for the drivers' corner speed
-      p.curv = (p.tx * q.tz - p.tz * q.tx) / Math.hypot(q.x - p.x, q.z - p.z);
+      track.length += d;
+      p.curv = (p.tx * q.tz - p.tz * q.tx) / d;
     }
-    // ribbon
+    // the run-up to a jump: drivers must not lift here, or they fall short
+    for (let i = 0; i < n; i++) {
+      if (!track.pts[i].gap) continue;
+      for (let k = 1; k <= 22; k++) track.pts[(i - k + n) % n].fast = true;
+    }
+
+    // the road surface, split wherever there is air
     const pos = [], col = [], idx = [];
     _c.set(0x3b3f48);
     const edge = new THREE.Color(0xd8dde4);
-    for (let i = 0; i <= K.trackN; i++) {
-      const p = track.pts[i % K.trackN];
+    for (let i = 0; i <= n; i++) {
+      const p = track.pts[i % n];
       const nx = -p.tz, nz = p.tx; // left of travel
       for (const [off, c] of [[-K.trackHalf, edge], [-K.trackHalf + 0.6, _c], [K.trackHalf - 0.6, _c], [K.trackHalf, edge]]) {
-        pos.push(p.x + nx * off, K.trackY, p.z + nz * off);
+        pos.push(p.x + nx * off, p.y, p.z + nz * off);
         col.push(c.r, c.g, c.b);
       }
-      if (i < K.trackN) {
+      if (i < n && !p.gap && !track.pts[(i + 1) % n].gap) {
         const b = i * 4;
         for (let k = 0; k < 3; k++) idx.push(b + k, b + k + 4, b + k + 1, b + k + 1, b + k + 4, b + k + 5);
       }
@@ -530,23 +587,39 @@ export function createSkyCity(planet) {
       vertexColors: true, roughness: 0.8, metalness: 0.1, side: THREE.DoubleSide,
     }));
     group.add(road);
-    // slab segments + pylons + centre dashes
-    for (let i = 0; i < K.trackN; i += 3) {
+
+    // structure under the road: a slab per sample, supports, lane dashes, lips
+    let sinceSupport = 99;
+    for (let i = 0; i < n; i++) {
       const p = track.pts[i];
+      if (p.gap) continue;
       const ang = Math.atan2(p.tz, p.tx);
-      solid.push(tint(box(11, 1.2, K.trackHalf * 2 - 1, p.x, K.trackY - 0.7, p.z, -ang), METAL_D));
-      if (i % 6 === 0) glow.push(tint(box(2.4, 0.08, 0.35, p.x, K.trackY + 0.05, p.z, -ang), 0xfff0c0));
-      if (i % 15 === 0) {
-        const r = Math.hypot(p.x, p.z);
+      const r = Math.hypot(p.x, p.z);
+      solid.push(tint(box(K.trackStep + 0.5, 1.1, K.trackHalf * 2 - 1, p.x, p.y - 0.95, p.z, -ang), METAL_D));
+      if (i % 5 === 0) glow.push(tint(box(2.2, 0.08, 0.35, p.x, p.y + 0.06, p.z, -ang), 0xfff0c0));
+      // the lip before a gap and the edge after it: a bright warning bar
+      const before = track.pts[(i + 1) % n].gap, after = track.pts[(i + n - 1) % n].gap;
+      if (before || after) glow.push(tint(box(0.5, 0.1, K.trackHalf * 2 - 1.4, p.x, p.y + 0.07, p.z, -ang), before ? 0xff4a6a : 0x5ae08a));
+      sinceSupport += K.trackStep;
+      if (sinceSupport < 34) continue;
+      if (r > K.deckR + 6) {
+        // outside the rim: a strut back to the rim band
         const inx = (p.x / r) * (K.deckR - 2), inz = (p.z / r) * (K.deckR - 2);
-        // a strut from under the road back to the rim band
-        const mx = (p.x + inx) / 2, mz = (p.z + inz) / 2;
-        const len = Math.hypot(r - (K.deckR - 2), K.trackY + 8);
+        const len = Math.hypot(r - (K.deckR - 2), p.y + 8);
         const g = new THREE.BoxGeometry(len, 1.1, 1.6);
-        g.rotateZ(Math.atan2(K.trackY + 8, r - (K.deckR - 2)));
+        g.rotateZ(Math.atan2(p.y + 8, r - (K.deckR - 2)));
         g.rotateY(-Math.atan2(p.z, p.x));
-        g.translate(mx, (K.trackY - 1.5 - 9) / 2, mz);
+        g.translate((p.x + inx) / 2, (p.y - 1.5 - 9) / 2, (p.z + inz) / 2);
         solid.push(tint(g, METAL));
+        sinceSupport = 0;
+      } else if (r > 78 || (r > 27 && r < 44)) {
+        // over the deck or the terrace: a pier straight down (clear of the ramps and the dome)
+        const foot = r < K.terraceR ? K.terraceY : 0;
+        const h = p.y - 1.4 - foot;
+        solid.push(tint(cyl(1.0, 1.5, h, p.x, foot + h / 2, p.z, 10), METAL));
+        solid.push(tint(box(K.trackHalf * 2 - 2, 0.9, 1.6, p.x, p.y - 1.9, p.z, -ang + Math.PI / 2), METAL));
+        colliders.push({ x: p.x, z: p.z, r: 1.5, top: Infinity });
+        sinceSupport = 0;
       }
     }
     // start/finish gantry at sample 0
@@ -554,11 +627,20 @@ export function createSkyCity(planet) {
       const p = track.pts[0], ang = Math.atan2(p.tz, p.tx);
       const nx = -p.tz, nz = p.tx;
       for (const side of [-1, 1]) {
-        solid.push(tint(cyl(0.4, 0.5, 8, p.x + nx * side * (K.trackHalf + 0.3), K.trackY + 4, p.z + nz * side * (K.trackHalf + 0.3), 8), METAL));
+        solid.push(tint(cyl(0.4, 0.5, 8, p.x + nx * side * (K.trackHalf + 0.3), p.y + 4, p.z + nz * side * (K.trackHalf + 0.3), 8), METAL));
       }
-      solid.push(tint(box(1, 1.4, K.trackHalf * 2 + 1.4, p.x, K.trackY + 8, p.z, -ang), METAL_D));
-      glow.push(tint(box(1.1, 0.5, K.trackHalf * 2, p.x, K.trackY + 8, p.z, -ang), 0xff4a6a));
-      glow.push(tint(box(1.4, 0.06, K.trackHalf * 2 - 1.2, p.x, K.trackY + 0.04, p.z, -ang), 0xffffff));
+      solid.push(tint(box(1, 1.4, K.trackHalf * 2 + 1.4, p.x, p.y + 8, p.z, -ang), METAL_D));
+      glow.push(tint(box(1.1, 0.5, K.trackHalf * 2, p.x, p.y + 8, p.z, -ang), 0xff4a6a));
+      glow.push(tint(box(1.4, 0.06, K.trackHalf * 2 - 1.2, p.x, p.y + 0.04, p.z, -ang), 0xffffff));
+    }
+    // spatial index: which samples are near a point
+    track.cell = 14;
+    track.grid = new Map();
+    for (let i = 0; i < n; i++) {
+      const p = track.pts[i];
+      const key = Math.floor(p.x / track.cell) * 4096 + Math.floor(p.z / track.cell);
+      if (!track.grid.has(key)) track.grid.set(key, []);
+      track.grid.get(key).push(i);
     }
   }
   // The check-in booth, on the rim under the start line.
@@ -571,6 +653,34 @@ export function createSkyCity(planet) {
     colliders.push({ x: booth.x, z: booth.z, r: 3.1, top: Infinity });
   }
   const boothSpot = new THREE.Vector3(booth.x - Math.cos(0.2) * 5, 0, booth.z - Math.sin(0.2) * 5);
+
+  // The hype poster beside the booth: next race's headline rival, saying
+  // something unkind. Painted to a canvas (world/skyrace-roster.js) and
+  // repainted after every race.
+  const posterCanvas = document.createElement('canvas');
+  posterCanvas.width = 512;
+  posterCanvas.height = 768;
+  drawPoster(posterCanvas);
+  const posterTex = new THREE.CanvasTexture(posterCanvas);
+  posterTex.colorSpace = THREE.SRGBColorSpace;
+  posterTex.anisotropy = 4;
+  {
+    const pa = 0.06, pr = 156; // the other side of the booth from the yard
+    const px = Math.cos(pa) * pr, pz = Math.sin(pa) * pr;
+    const face = new THREE.Mesh(
+      new THREE.PlaneGeometry(8, 12),
+      new THREE.MeshBasicMaterial({ map: posterTex, toneMapped: false })
+    );
+    face.position.set(px - Math.cos(pa) * 0.36, 8.2, pz - Math.sin(pa) * 0.36);
+    face.rotation.y = Math.atan2(-Math.cos(pa), -Math.sin(pa)); // faces the city centre
+    group.add(face);
+    solid.push(tint(box(0.6, 12.8, 8.8, px, 8.2, pz, -pa), METAL_D));
+    for (const side of [-1, 1]) {
+      solid.push(tint(cyl(0.3, 0.4, 2.2, px - Math.sin(pa) * side * 3.4, 1.1, pz + Math.cos(pa) * side * 3.4, 8), METAL));
+    }
+    glow.push(tint(box(0.2, 0.3, 9.2, px - Math.cos(pa) * 0.4, 14.9, pz - Math.sin(pa) * 0.4, -pa), 0xff4a6a));
+    colliders.push({ x: px, z: pz, r: 2.6, top: Infinity });
+  }
 
   // The mechanics' yard, next to the booth: an open-topped pen on the rim with
   // a hoist gantry over five bays. Cars that leave the raceway are fished out
@@ -832,33 +942,43 @@ export function createSkyCity(planet) {
       }
       if (y <= feetY + K.snap && y > best) best = y;
     }
-    if (track.y <= feetY + K.snap && track.y > best && trackAt(x, z)) best = track.y;
+    if (feetY > 6) {
+      const hit = trackAt(x, z, feetY);
+      if (hit && hit.y <= feetY + K.snap && hit.y > best) best = hit.y;
+    }
     return best;
   }
 
-  // Is (x, z) over the raceway? Returns { i, lateral } (nearest centre-line
-  // sample and the signed distance left of it), or null. Sample i is at
-  // bearing i degrees, so only the few samples around the point's own bearing
-  // can be nearest.
-  const _trackHit = { i: 0, lateral: 0 };
-  function trackAt(x, z) {
-    const r = Math.hypot(x, z);
-    if (r < 150 || r > 245) return null;
-    let a = Math.atan2(z, x);
-    if (a < 0) a += Math.PI * 2;
-    const i0 = Math.round((a / (Math.PI * 2)) * track.n);
-    let bestD = Infinity, bi = 0;
-    for (let k = -4; k <= 4; k++) {
-      const i = (i0 + k + track.n) % track.n;
-      const p = track.pts[i];
-      const d = (x - p.x) * (x - p.x) + (z - p.z) * (z - p.z);
-      if (d < bestD) { bestD = d; bi = i; }
+  // Is (x, z) over the raceway? Returns { i, lateral, y } — the nearest
+  // centre-line sample, the signed distance left of it, and the road height
+  // there — or null over open air, which includes the gaps at the jumps. `y`
+  // (optional) rejects road more than a few units above or below, so a point
+  // under the bridge is not "on" it.
+  const _trackHit = { i: 0, lateral: 0, y: 0 };
+  function trackAt(x, z, y) {
+    const cx = Math.floor(x / track.cell), cz = Math.floor(z / track.cell);
+    let bestD = Infinity, bi = -1;
+    for (let gx = cx - 1; gx <= cx + 1; gx++) {
+      for (let gz = cz - 1; gz <= cz + 1; gz++) {
+        const list = track.grid.get(gx * 4096 + gz);
+        if (!list) continue;
+        for (let k = 0; k < list.length; k++) {
+          const p = track.pts[list[k]];
+          if (y !== undefined && Math.abs(p.y - y) > 9) continue;
+          const d = (x - p.x) * (x - p.x) + (z - p.z) * (z - p.z);
+          if (d < bestD) { bestD = d; bi = list[k]; }
+        }
+      }
     }
+    if (bi < 0) return null;
     const p = track.pts[bi];
+    if (p.gap) return null;
+    const along = (x - p.x) * p.tx + (z - p.z) * p.tz;
     const lateral = -(x - p.x) * p.tz + (z - p.z) * p.tx;
-    if (Math.abs(lateral) > track.half) return null;
+    if (Math.abs(lateral) > track.half || Math.abs(along) > K.trackStep) return null;
     _trackHit.i = bi;
     _trackHit.lateral = lateral;
+    _trackHit.y = p.y + p.sy * along;
     return _trackHit;
   }
 
@@ -902,6 +1022,11 @@ export function createSkyCity(planet) {
     trackAt,
     dragon,
     booth: boothSpot,
+    // repaint the poster from the current standing (after a race)
+    refreshPoster() {
+      drawPoster(posterCanvas);
+      posterTex.needsUpdate = true;
+    },
     shop,
     // the Lance Tower: lift pads, the gallery the walker is held inside, the gun
     lance: {

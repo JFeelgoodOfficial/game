@@ -372,6 +372,8 @@ function leaveRace() {
   const towed = race.phase === 'fell';
   const place = race.place;
   const field = race.cars.length;
+  const rival = race.rival;
+  const engine = race.engineWon;
   endRace();
   sWalk.pos.copy(city.booth);
   sWalk.vel.set(0, 0, 0);
@@ -382,7 +384,9 @@ function leaveRace() {
   sWalk.pitch = 0;
   camSnap = true;
   if (done) {
-    showViewToast(place === 1 ? 'YOU WON THE RIM CIRCUIT' : `YOU FINISHED ${['', '1ST', '2ND', '3RD', '4TH', '5TH'][place]} OF ${field}`, 6);
+    showViewToast(place === 1
+      ? `YOU BEAT ${rival} — THE MECHANICS FIT A ${engine} ENGINE. CHECK THE POSTER`
+      : `${['', '1ST', '2ND', '3RD', '4TH', '5TH'][place]} OF ${field} — ${rival} IS STILL ON THE POSTER`, 8);
   } else if (towed) {
     showViewToast('TOWED IN — YOUR CAR IS IN THE SHOP. CHECK IN AGAIN WHEN YOU ARE READY', 7);
   } else {
@@ -672,7 +676,7 @@ export function skyInteract() {
   if (f === 'race') {
     startRace(city);
     camSnap = true;
-    showViewToast('RIM CIRCUIT — 3 LAPS · W/S THROTTLE · A/D STEER · NO BARRIERS', 7);
+    showViewToast(`RIM CIRCUIT VS ${race.rival} — 3 LAPS · TWO JUMPS: KEEP YOUR SPEED UP · NO BARRIERS`, 8);
     return undefined;
   }
   if (f === 'talk') {
