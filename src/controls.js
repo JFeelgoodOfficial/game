@@ -84,6 +84,7 @@ const COTTAGE_LINES = [
 let walkHint, gravLine, boardLine, objLine;
 let lineEls = [];
 let lastWalkOn = null;
+let lastLowG = null; // gravity line cache (null = unknown)
 let lastObjective = null;
 let lastLines = null;
 
@@ -154,8 +155,17 @@ export function updateControls(phase) {
     setEquipButtonVisible(walkOn && !cottage);
     lastWalkOn = walkOn;
     if (walkOn) {
-      gravLine.style.display = currentGravityScale() < 0.7 ? '' : 'none';
       boardLine.style.display = currentBoardable() ? '' : 'none';
+    }
+    lastLowG = null;
+  }
+  // The gravity line can change WITHIN a walk now: the Emberdeep under
+  // rustia's town is normal gravity under a low-gravity planet.
+  if (walkOn) {
+    const lowG = currentGravityScale() < 0.7;
+    if (lowG !== lastLowG) {
+      gravLine.style.display = lowG ? '' : 'none';
+      lastLowG = lowG;
     }
   }
   if (walkOn) setLines(cottage ? COTTAGE_LINES : walkCombatActive() ? COMBAT_LINES : WALK_LINES);

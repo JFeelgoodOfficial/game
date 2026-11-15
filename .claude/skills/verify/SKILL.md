@@ -68,6 +68,57 @@ check a planet is lit from its bearing to the sun (zero angle unless
 hall runs z 5.5..35.5, lounge to 41.5), `nearPainting()` → title or null.
 Paintings fetch on the first stand; wait on `info().hung`.
 
+## Emberdeep mine + aft patio (Rustia quest line)
+Rustia's town (Redline Claim) has a mine head beside the pad walkway:
+`walkSite().minehead` → `{spot, cage, door (city-local), rot, module, structure}`.
+Teleport the surface walker into the cage (`minehead.spot`), run a few
+`walkFrames`, and `promptText()` reads `E — RIDE THE CAGE DOWN`; key `e` (or
+`minehead.module.interact()`) starts the descent. Underground, `walkSite().mine`
+(null on the surface) → `{mWalk, mine, info, places, lights, fog, place(x, z),
+canStand(x, z), finishRide(), promptText(), interact()}`. `mWalk.pos` is
+MINE-LOCAL (+Y up, cage landing at the origin, the workings along +Z):
+`mWalk.ride` is `'down' | 'up' | null`, `cageY` 120 → 0, `gate` 0..1; the ride
+is stepped in the physics tick, so `walkStep` drives it (about 11.5 s each way —
+`finishRide()` skips to the last centimetre). `place()` returns false for a spot
+that is not standable (rock, a column, a pew), which is the cheap way to probe
+collision; `places` names the rooms (`station, tunnel, stope, ore, narthex,
+naveWest, naveMid, aisle, chapel, chancel, column`). Set `mWalk.yaw` (0 = +Z,
+down the nave) / `mWalk.pitch` / `mWalk.view` for screenshots. The surface is
+NOT stepped while underground: `walkSite().warzone.debug()` is frozen, the
+planet's `group.visible` is false, and `G` only toasts.
+`__debug.renderState()` now also returns `exposure`, `bloom {threshold,
+strength}` and `fog {density, color}`: underground they read 0.9 / 0.95 / 0.7 /
+0.0095; after the ride up they must equal the surface's values again, and after
+a `walkExit()` from underground they must equal flight's (1 / 0.85 / 0.9 / null).
+A floating-origin rebase underfoot can be simulated with
+`ship.position.set(0, 0, 0); walkStep(1)` — the mine group must move by the
+same amount and `mWalk.pos` must not change.
+
+Quest state: ore pickup is `E` within 2.3 m of `mine.orePos` (the crate in the
+stope) → `__debug.inventory().cargo` gains `emberOre` and
+`journal().quests['rustia-emberdeep']` goes `found` → `ore`. Leaving: stand in
+the cage (`place(0, 0)`), `e`, then `walkStep` until `walkSite().mine` is null —
+the walker is back at `minehead.spot` on the planet. The governor
+(`citizens.citizens.find(c => c.dialogue === 'governor')`, standing at the
+penthouse `city.homes[].anchor`) takes the ore on `E`: `inventory().upgrades`
+gains `patio`, `cargo` empties, the journal stage becomes `done`. Both persist
+in `localStorage['fgsf.inventory']` (`cargo`, `upgrades` arrays — seed that key
+before load to test the patio without playing the quest).
+
+Patio: `__debug.interior.info().patio` → `{owned, door, deck: [z0, z1],
+aftLimit, onDeck}`. Without the upgrade `place(0, 44)` is pushed back to
+z = 41.2 (the stern window); with it the doorway at |x| < 1.36, z = 41.5 is
+open and the deck runs to z = 49.1 (walker limit 48.8, |x| ≤ 4.7). Furniture on
+the deck is solid (table on the centre line at z ≈ 46.5, loungers at x = ±2.3):
+walk aft along x ≈ 1.2 to reach the rail. For a view, `pose(name)` then turn the
+ship 180° about its own Y (the patio faces AFT) before `stand()`; yaw `Math.PI`
+looks aft. The interior only walks on real frames (`updateInteriorCamera`), so
+hold `input.forward` across a `waitForTimeout`, not `walkStep`.
+
+Screenshots at `quality.set('high')` take 30-60 s each under SwiftShader at
+1280x720 — use a 960x540 viewport and a long `page.setDefaultTimeout`. Do not
+edit source while a headless run is in flight: Vite's reload drops `__debug`.
+
 ## Warzone (towns on terra / rustia / neptunia / wyattmattoe)
 The combat loop runs at render rate, not in `stepWalk`: drive it with
 `__debug.walkFrames(n, dt = 1/30)` (each frame also runs two physics ticks).

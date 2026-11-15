@@ -332,6 +332,26 @@ Acceptance: three planets that read as different places using one shader.
 
 ---
 
+### 5.7.1 The Emberdeep and the aft patio (Rustia)
+
+*(Owner addition, like the walkable interior and the towns. A quest line with a place at the end of it and a reward you can stand on.)*
+
+Redline Claim is a mining town, and until now nothing in it was a mine. The Emberdeep is: a steel headframe beside the walkway in from the landing pad, a cage, and a hundred and twenty metres of shaft.
+
+**The loop.** Walk to the headframe, step into the cage, **E**. The cage drops — eleven and a half seconds of rough rock, steel sets and caged bulbs going past, with more and more ore showing in the walls the deeper it gets and the daylight at the collar shrinking to a point. At pit bottom a haulage tunnel runs to a working stope, where the live seam crosses the far wall and one loose piece sits on a crate, ringed in light (**E** takes it), and on into the reason to come down at all:
+
+**The cathedral.** Four generations of miners carved it out of the ore-bearing rock between shifts, in the manner of the salt cathedrals (Wieliczka, Zipaquirá). A narthex with a font of raw ore; a nave eighty metres long under a ribbed pointed vault twenty-eight metres up; ten bays of clustered columns and moulded arcade arches with a glowing clerestory above them; side aisles with blind niches; three chapels a side (the Lamp, the Pick, the Cage); stone pews; five ore chandeliers; and at the east end a raised chancel, an altar, the Heart-ember — the first crystal the claim ever struck, left standing — and a great window of thin-pared ore behind carved tracery, five lancets under a rose. Five miners are down there and will talk. The light is the ore: veins in the rock, crystal on the capitals and the bosses, backlit panes, and bloom to carry it. Dark rock, warm light, nothing else.
+
+**The reward.** Carry the ore back up and show it to Baron Rynva in the penthouse. He keeps it, and has his fitters cut a door in the stern of your ship: an **aft patio**. Stand up from the pilot seat (C), walk the length of the gallery and through the lounge, and step outside onto an open deck with a rail, two lamps and somewhere to sit — and the whole live sky around you, planets, rings, sun and nebulae, with no glass in the way. It persists with the rest of the inventory.
+
+**How it is built.**
+- `world/minehead.js` — the surface works, built in the town's flat frame after the city and the warzone exist so it can find clear ground by itself; it joins `city.structures` the way warzone cover does. `world/embermine.js` — the whole underground as one self-contained flat world: half of it authored, half mirrored, merged to one mesh per material; three canvas textures (rock normal, vein network, translucent ore); twelve unshadowed point lights; collision as a union of room rectangles plus obstacle boxes and circles. Ore is drawn unlit with a colour per facet, so crystals read as crystals without a light on each.
+- `src/mineWalk.js` — a flat walker *nested* in the planet walk. The town stays built and is merely hidden; nothing on the surface is stepped while you are below, so combat does not follow you down and resumes where it stopped. `walk.js` reaches it through one generic `sub` hook (not a guard per function), stores the walker's position in the planet's unrotated frame on the way down, and restores it on the way up — you come out of the cage where you went in, however far the planet turned meanwhile.
+- `src/patio.js` — geometry and obstacles only; `interior.js` owns the walker. The interior is already an overlay drawn over the finished space scene, so a deck with no roof needs no rendering trick: where there is no ship, there is the sky.
+- State: `inventory.js` gained `cargo` (carried, can be handed over) and `upgrades` (permanent), kept apart from the vehicle catalog; the journal tracks `rustia-emberdeep` as `found → ore → done`. Old saves load unchanged.
+
+**Feel constants worth knowing:** cage speed and shaft depth (`RIDE_SPEED` 13 m/s over `SHAFT_H` 120 m — the ride is the first act; shorter and it is a loading screen, longer and it is a wait); the mine's exposure, bloom threshold and fog (`MINE_*` in `mineWalk.js` — the difference between a cathedral and an orange room is almost entirely these three and the light intensities in `embermine.js`); `PATIO_LEN`.
+
 ### 5.8 The Sky City (Saturnia)
 
 Saturnia has no surface, so it gets a place instead: a floating city 320 units

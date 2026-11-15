@@ -11,7 +11,10 @@
 // The story total-conversions and the station refuse deployment inside
 // walk.js — the footer explains instead of failing silently.
 
-import { ITEMS, SNOWBOARD, hasItem, selectedItem, setSelectedItem } from './inventory.js';
+import {
+  ITEMS, SNOWBOARD, hasItem, selectedItem, setSelectedItem,
+  CARGO, UPGRADES, hasCargo, hasUpgrade,
+} from './inventory.js';
 import { deployVehicle, stowVehicle, vehicleState } from './walkLazy.js';
 
 const CSS = `
@@ -154,10 +157,18 @@ function refresh(note) {
     }
     listEl.appendChild(row);
   }
-  footEl.textContent = note
+  // Carried cargo and fitted ship upgrades are not deployable, so they are
+  // not rows — but this panel is the only inventory the game has, and a lump
+  // of ore you cannot see is a quest you forget you are on.
+  const carried = [
+    ...Object.keys(CARGO).filter(hasCargo).map((id) => `CARRYING ${CARGO[id].name.toUpperCase()}`),
+    ...Object.keys(UPGRADES).filter(hasUpgrade).map((id) => `SHIP: ${UPGRADES[id].name.toUpperCase()}`),
+  ];
+  const base = note
     ?? (owned === 0
       ? 'NO QUEST ITEMS YET — THE GOVERNORS REWARD THEIR TOURS'
       : 'I / X — CLOSE · B — ACTIVATE SELECTED');
+  footEl.textContent = carried.length ? `${carried.join(' · ')} — ${base}` : base;
 }
 
 function onPanelKey(e) {
