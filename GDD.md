@@ -476,7 +476,18 @@ at the ship's lance: aim, half-second charge, beam; a hit on any other fleet
 ship destroys it for good (`lost[]`, saved) and helps nobody but the
 worldship. A ship the pilot is docked on or walking cannot be lost.
 
-Not built yet: the ending.
+**The ending** (`src/endgame.js`). With a channel open to all three fleets, at
+least one warship left in each, and the pilot's ship within 9,000 units of the
+worldship, a CALL THE FLEETS control appears (H, or a tap). One 74 s script:
+every surviving warship jumps to a ring round the worldship (`fleets.muster`),
+charges, and fires together; white; the worldship is removed and a new star
+burns in its place; each remaining world (the coin included) falls into the
+old sun and bursts; the black hole crosses to the sun and swallows it. Saved
+as `end: 'star'` with the star's absolute position, and re-laid on every load
+and world reset: no planets, no sun (`sun.gone`), the black hole where the sun
+was, THE NEW STAR on the chart, the warships on a ring round it, freighters
+adrift, the wormhole. The other ending is `end: 'gone'` (the clock ran out).
+Neither can be undone.
 
 ### 5.8 The Sky City (Saturnia)
 

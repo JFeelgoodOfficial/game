@@ -185,6 +185,10 @@ export function createFleets(ctx) {
   }
 
   let held = null; // id of the ship the pilot is docked on or walking: it cannot be lost
+  // The ending (src/endgame.js) calls the warships to a ring round a point:
+  // `k` 0 on their orbits .. 1 on the ring; `adrift` once their worlds are
+  // gone and the ring is all the home they have.
+  const muster = { on: false, center: null, r: 0, k: 0, adrift: false };
 
   // one of the crew: an alien rig (world/aliens.js) standing at its post
   const people = (seed) => {
@@ -225,9 +229,21 @@ export function createFleets(ctx) {
     update(dt, t, siege) {
       // Wavemall's lights turn through the colours
       mats['wavemall prime'].glow.color.setHSL((t * 0.08) % 1, 0.45, 0.62).multiplyScalar(1.9);
+      let slot = 0;
       for (const s of ships) {
         if (!s.alive) continue;
         if (s.site && s.id === held) s.site.update(dt, t);
+        if (muster.adrift) {
+          // no worlds left: warships keep the ring, freighters lie where they were
+          if (s.kind === 'warship') {
+            const a = (slot++ / 9) * 6.283 + t * 0.004;
+            s.group.position.set(Math.cos(a) * muster.r, Math.sin(a * 3) * muster.r * 0.2, Math.sin(a) * muster.r).add(muster.center);
+            _d.subVectors(muster.center, s.group.position).normalize();
+            s.group.quaternion.setFromRotationMatrix(_m.lookAt(s.group.position, _b.copy(s.group.position).sub(_d), UP));
+          }
+          s.group.visible = true;
+          continue;
+        }
         if (s.kind === 'warship') {
           const p = ctx.find(s.faction);
           if (!p || p.removed) {
@@ -242,6 +258,16 @@ export function createFleets(ctx) {
           _d.set(-Math.sin(a), Math.cos(a) * si, Math.cos(a) * ci); // along the orbit
           s.group.position.copy(p.group.position).add(_a);
           s.group.quaternion.setFromRotationMatrix(_m.lookAt(s.group.position, _b.copy(s.group.position).sub(_d), UP));
+          if (muster.on) {
+            // called in: from the orbit to a place on the ring, bow to the centre
+            const ra = (slot++ / 9) * 6.283;
+            _b.set(Math.cos(ra) * muster.r, Math.sin(ra * 3) * muster.r * 0.2, Math.sin(ra) * muster.r).add(muster.center);
+            s.group.position.lerp(_b, muster.k);
+            if (muster.k > 0.5) {
+              _d.subVectors(muster.center, s.group.position).normalize();
+              s.group.quaternion.setFromRotationMatrix(_m.lookAt(s.group.position, _b.copy(s.group.position).sub(_d), UP));
+            }
+          }
           s.group.visible = true;
           // the siege takes them one at a time
           const mine = !!siege && siege.name === s.faction;
@@ -294,6 +320,13 @@ export function createFleets(ctx) {
     },
     hold(id) {
       held = id;
+    },
+    muster(center, r, k, adrift) {
+      muster.on = true;
+      muster.center = center;
+      muster.r = r;
+      muster.k = k;
+      muster.adrift = adrift;
     },
     // Destroy one by id (the guns). Returns true if it was alive.
     destroy(id) {

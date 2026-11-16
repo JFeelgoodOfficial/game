@@ -124,6 +124,8 @@ export const tenretniDebug = () => ({
   clock: (sec) => mod && mod.debugClock(sec),
   fleets: () => mod && mod.debugFleets(),
   comms: () => (mod ? mod.commState() : {}),
+  setComms: (on) => mod && mod.debugComms(on),
+  end: () => mod && mod.debugEnd(),
   story: () => mod && mod.debugStory(),
   state: () => (mod ? mod.state() : { loaded: false, stage: questStage(SECRET) }),
 });

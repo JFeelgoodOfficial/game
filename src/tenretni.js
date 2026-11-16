@@ -54,6 +54,7 @@ import { setPlanetDrain, setPlanetShip, setPlanetScale, setPlanetMelt, removePla
 import { createAssimilator } from './assimilate.js';
 import { createFleets } from './fleets.js';
 import { createExplosions } from './explosion.js';
+import { createEndgame } from './endgame.js';
 import { grantUpgrade, hasUpgrade } from './inventory.js';
 import { sun } from './sun.js';
 import { addShiftable } from './origin.js';
@@ -140,7 +141,9 @@ let shieldU = null;
 let coin = null; // stevenlacey (world/coinworld.js): a world, but not a planet
 let clockT = 0; // seconds idle since the last meal
 let exit = null; // { t, rel: Vector3 } while leaving through the wormhole
-let ended = null; // 'gone' once it has left
+let ended = null; // 'gone' once it has left; 'star' once the fleets have killed it
+let endgame = null; // src/endgame.js, built with the fleets
+let starSaved = null; // the new star's absolute position (saved)
 // The war (src/fleets.js): begins with the worldship's first meal.
 let fleets = null;
 let explosions = null;
@@ -447,7 +450,9 @@ function loadSaved() {
     if (Number.isFinite(raw?.rotY)) rotLock = raw.rotY;
     if (raw?.at && LABELS[raw.at]) at = raw.at;
     if (Array.isArray(raw?.eaten)) eaten = raw.eaten.filter((n) => !!LABELS[n]);
-    if (raw?.end === 'gone') ended = 'gone';
+    if (raw?.end === 'gone' || raw?.end === 'star') ended = raw.end;
+    if (Array.isArray(raw?.star) && raw.star.length === 3 && raw.star.every(Number.isFinite)) starSaved = raw.star;
+    if (raw?.calling) ended = 'star'; // the call was made: it finished
     if (Array.isArray(raw?.lost)) for (const id of raw.lost) if (typeof id === 'string') lost.add(id);
     if (raw?.comms && typeof raw.comms === 'object') for (const k of Object.keys(raw.comms)) if (raw.comms[k]) comms[k] = true;
     if (Number.isFinite(raw?.size) && raw.size >= 1) size = raw.size;
@@ -468,6 +473,8 @@ function save() {
       size,
       eating: eating ?? undefined,
       end: ended ?? undefined,
+      star: (endgame && endgame.starAbs()) || starSaved || undefined,
+      calling: endgame && endgame.active() ? true : undefined,
       lost: lost.size ? [...lost] : undefined,
       comms: Object.keys(comms).length ? comms : undefined,
     }));
@@ -912,7 +919,7 @@ function thank() {
 // --- the war: the fleets of the worlds it has not reached yet ---
 
 function startWar() {
-  if (fleets || ended || !eaten.length) return;
+  if (fleets || ended === 'gone' || !eaten.length) return;
   explosions = createExplosions(scene);
   fleets = createFleets({
     scene,
@@ -930,7 +937,30 @@ function startWar() {
     story: FLEET_STORY,
     sunDir: sunWorld,
   });
+  endgame = createEndgame({
+    scene, camera, terra, fx, setRumble,
+    extra: coin ? [coin] : [],
+    fleets: () => fleets,
+    explode: (pos, scale) => explosions.fire(pos, scale),
+    comms,
+    worldshipAlive: () => !ended && !exit && state === 'rest',
+    killWorldship: () => {
+      if (assim.active()) assim.finishNow();
+      sail = null;
+      sailVel.set(0, 0, 0);
+      ended = 'star';
+      removePlanet(terra, true);
+      setNavHidden(terra.group.position, true);
+      addCodex('The New Star');
+    },
+    save,
+  });
+  if (ended === 'star') endgame.restore(starSaved || fallbackStar());
 }
+
+// A save that says the call was made but not where the star is (it was written
+// before the volley): where the worldship is now will do.
+const fallbackStar = () => [terra.group.position.x, terra.group.position.y, terra.group.position.z];
 
 // What the fleets' people say. A captain will open a comm channel if asked;
 // with all three open the pilot can call them together (the ending).
@@ -1156,7 +1186,13 @@ function restoreEaten() {
   }
   thank(); // a save from before the room existed
   if (ended === 'gone') gone();
-  else startWar();
+  else {
+    if (ended === 'star') {
+      removePlanet(terra, true);
+      setNavHidden(terra.group.position, true);
+    }
+    startWar();
+  }
 }
 
 // Put terra straight at its parking spot beside `name` (load, world reset).
@@ -1475,11 +1511,12 @@ export function update(delta, t, onDeck, flying, aboard) {
     if (exit) stepExit(delta);
     if (!ended) {
       trackSun();
-      stepClock(delta, aboard, flying);
+      if (!endgame || !endgame.active()) stepClock(delta, aboard, flying);
     }
+    if (endgame) endgame.update(delta, t, flying);
     if (assim.active()) assim.update(delta, t, flying);
     if (fleets) {
-      fleets.update(delta, t, ended ? null : siege());
+      fleets.update(delta, t, ended || (endgame && endgame.active()) ? null : siege());
       explosions.update(delta, camera);
     }
     if (shieldU) shieldU.uTime.value = t;
@@ -1529,6 +1566,13 @@ export function abort() {
       save();
     }
     if (at !== 'terra' && !ended) parkAt(at);
+    // the ending, re-laid on the freshly restored system
+    if (endgame && (endgame.active() || endgame.done())) {
+      if (endgame.active() && !endgame.starAbs()) starSaved = fallbackStar();
+      ended = 'star';
+      removePlanet(terra, true);
+      endgame.restore(endgame.starAbs() || starSaved);
+    }
     return;
   }
   if (questStage(SECRET) !== 'armed') return; // act two in progress
@@ -1557,6 +1601,8 @@ export const debugSail = (name) => startSail(name);
 export const debugEat = (u) => assim.seek(u);
 export const debugClock = (sec) => { clockT = sec; };
 export const debugFleets = () => fleets;
+export const debugEnd = () => endgame;
+export const debugComms = (on) => { for (const f of Object.keys(VOICE)) { if (on) comms[f] = true; else delete comms[f]; } };
 export const debugStory = () => STORY;
 
 export function debugSeek(u) {

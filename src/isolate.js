@@ -175,7 +175,7 @@ function setSkyVisible(v, keep) {
     if (keep.atmosphere) keep.atmosphere.visible = v;
     if (keep.clouds) keep.clouds.visible = v;
   }
-  if (sun.group) sun.group.visible = v;
+  if (sun.group) sun.group.visible = v && !sun.gone; // (the ending leaves no sun to bring back)
   if (blackhole.group) blackhole.group.visible = v;
   setStarfieldVisible(v);
 }

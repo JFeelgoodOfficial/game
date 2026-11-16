@@ -361,3 +361,12 @@ seats you (`capital.gun.active`), set `gun.yaw/aimYaw/pitch/aimPitch` to the
 target's bearing in the ship's own frame, `e` fires; the target's `alive`
 goes false and its id is in `fgsf.tenretni.lost`. `g` stands down.
 
+The ending: `tenretni.setComms(true)` opens all three channels; put the ship
+within 9000 of terra's surface and `tenretni.end().state()` → `{v, done, ready,
+missing, star}` reads `ready: true` and the CALL THE FLEETS button shows; key
+`h` calls. `tenretni.end().seek(u)` jumps the script (ring by 20, volley
+30–34, star at 34, falls from 38, black hole 62, done 74). Afterwards
+`planets.every(p => p.removed)`, `sun.group.visible === false`, the black hole
+is at the sun's position, and a reload or `launch()` must come back the same.
+The run is destructive to the save: use a fresh browser context.
+
