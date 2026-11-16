@@ -7,6 +7,8 @@
 // The chooser is keyboard-driven (1 / 3) so it works under pointer lock;
 // the buttons also work with a free cursor. The game keeps running behind it.
 
+import { touchify, isTouch } from './touchText.js';
+
 const PREF_KEY = 'sf-walk-view';
 
 const CSS = `
@@ -104,10 +106,12 @@ export function showViewChooser(onPick) {
     chooser.innerHTML = `
       <div class="vc-title">CHOOSE YOUR VIEW</div>
       <div class="vc-row">
-        <button data-view="fp">[1] FIRST PERSON</button>
-        <button data-view="tp">[3] THIRD PERSON</button>
+        <button data-view="fp">${isTouch ? "" : "[1] "}FIRST PERSON</button>
+        <button data-view="tp">${isTouch ? "" : "[3] "}THIRD PERSON</button>
       </div>
-      <div class="vc-sub">T TOGGLES ANYTIME &middot; SHIFT RUN &middot; SPACE JUMP &middot; G BOARD SHIP</div>
+      <div class="vc-sub">${isTouch
+        ? 'CHANGE IT ANYTIME FROM THE &equiv; MENU &middot; PUSH THE STICK FAR TO RUN'
+        : 'T TOGGLES ANYTIME &middot; SHIFT RUN &middot; SPACE JUMP &middot; G BOARD SHIP'}</div>
     `;
     document.body.appendChild(chooser);
   }
@@ -141,7 +145,7 @@ export function showViewToast(text, seconds = 4) {
     toast.id = 'viewToast';
     document.body.appendChild(toast);
   }
-  toast.textContent = text;
+  toast.textContent = touchify(text);
   toast.style.opacity = '1';
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {

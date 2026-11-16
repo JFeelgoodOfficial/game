@@ -26,6 +26,7 @@ import { toggleRadioPopup } from './radioPopup.js';
 import { toggleGallery } from './capture.js';
 import { toggleHolo, isHoloOpen, holoPick } from './holonav.js';
 import { initNavMenu, setNavMenuOpen, isNavMenuOpen, navMenuPick } from './navmenu.js';
+import { isTouch } from './touchText.js';
 
 const CYAN = 0x82f7ff,
   CYAN2 = 0xa9f7ff,
@@ -248,7 +249,7 @@ function keyGlyph(key) {
 // into a single camera-facing sprite (like label()) so it stays crisp and
 // readable at the dash's steep viewing angle — a 3D torus would foreshorten
 // into an unreadable arc. Returns the sprite; caller positions it.
-function keycap(keyText, color) {
+function keycap(keyText, color, icon) {
   const c = document.createElement('canvas');
   c.width = 128;
   c.height = 128;
@@ -265,16 +266,117 @@ function keycap(keyText, color) {
   g.beginPath();
   g.arc(64, 64, 50, 0, Math.PI * 2);
   g.stroke();
-  // the key, bright and centered
+  // the key, bright and centered — or, on touch, a picture of what it does
   g.fillStyle = '#dff4f8';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.font = '700 ' + (keyText.length > 1 ? 46 : 66) + 'px "Courier New", ui-monospace, monospace';
-  g.fillText(keyText, 64, 68);
+  if (icon) {
+    drawIcon(g, icon);
+  } else {
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = '700 ' + (keyText.length > 1 ? 46 : 66) + 'px "Courier New", ui-monospace, monospace';
+    g.fillText(keyText, 64, 68);
+  }
   const tex = new THREE.CanvasTexture(c);
   tex.anisotropy = 4;
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
   return s;
+}
+
+// Touch keycap icons (user call: a phone has no W key, so the circle shows
+// what the button does instead). Drawn as paths into the 128px keycap canvas,
+// centred on (64, 64) inside the r=50 ring, so no font has to carry the glyph.
+function drawIcon(g, name) {
+  g.save();
+  g.translate(64, 64);
+  g.strokeStyle = '#dff4f8';
+  g.lineWidth = 8;
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  const tri = (pts) => {
+    g.beginPath();
+    g.moveTo(pts[0], pts[1]);
+    for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i], pts[i + 1]);
+    g.closePath();
+    g.fill();
+  };
+  // an arc over the top with an arrowhead at its end; dir +1 clockwise
+  // (rolls right), -1 counter-clockwise (rolls left)
+  const curl = (dir) => {
+    const R = 22, cy = 8;
+    const a0 = dir > 0 ? Math.PI * 1.0 : 0;
+    const a1 = dir > 0 ? Math.PI * 1.78 : Math.PI * 1.22;
+    g.beginPath();
+    g.arc(0, cy, R, a0, a1, dir < 0);
+    g.stroke();
+    const ex = Math.cos(a1) * R, ey = cy + Math.sin(a1) * R;
+    // travel direction at the end of the arc
+    const tx = -Math.sin(a1) * dir, ty = Math.cos(a1) * dir;
+    const nx = -ty, ny = tx;
+    tri([ex + tx * 24, ey + ty * 24, ex + nx * 17, ey + ny * 17, ex - nx * 17, ey - ny * 17]);
+  };
+  switch (name) {
+    case 'thrust': // solid arrow up
+      tri([0, -30, 24, -2, -24, -2]);
+      g.fillRect(-9, -4, 18, 30);
+      break;
+    case 'reverse': // solid arrow down
+      tri([0, 30, 24, 2, -24, 2]);
+      g.fillRect(-9, -26, 18, 30);
+      break;
+    case 'rollL':
+      curl(-1);
+      break;
+    case 'rollR':
+      curl(1);
+      break;
+    case 'warp': // double chevron, forward
+      g.beginPath();
+      g.moveTo(-22, 2); g.lineTo(0, -20); g.lineTo(22, 2);
+      g.moveTo(-22, 24); g.lineTo(0, 2); g.lineTo(22, 24);
+      g.stroke();
+      break;
+    case 'radio': // a quaver
+      g.beginPath();
+      g.ellipse(-8, 20, 13, 10, -0.4, 0, Math.PI * 2);
+      g.fill();
+      g.beginPath();
+      g.moveTo(4, 18); g.lineTo(4, -28); g.lineTo(22, -14);
+      g.stroke();
+      break;
+    case 'stand': // a person
+      g.beginPath();
+      g.arc(0, -22, 9, 0, Math.PI * 2);
+      g.fill();
+      g.beginPath();
+      g.moveTo(0, -10); g.lineTo(0, 10);
+      g.moveTo(-16, -2); g.lineTo(16, -2);
+      g.moveTo(0, 10); g.lineTo(-12, 28);
+      g.moveTo(0, 10); g.lineTo(12, 28);
+      g.stroke();
+      break;
+    case 'camera':
+      g.lineWidth = 7;
+      g.strokeRect(-26, -14, 52, 36);
+      g.fillRect(-10, -22, 20, 9);
+      g.beginPath();
+      g.arc(0, 4, 10, 0, Math.PI * 2);
+      g.stroke();
+      break;
+    case 'land': // arrow down onto the ground
+      tri([0, 16, 20, -6, -20, -6]);
+      g.fillRect(-7, -28, 14, 24);
+      g.fillRect(-26, 22, 52, 7);
+      break;
+    case 'nav': // compass star
+      tri([0, -32, 9, -9, 0, 0, -9, -9]);
+      g.globalAlpha = 0.55;
+      tri([0, 32, 9, 9, 0, 0, -9, 9]);
+      tri([32, 0, 9, 9, 0, 0, 9, -9]);
+      tri([-32, 0, -9, 9, 0, 0, -9, -9]);
+      g.globalAlpha = 1;
+      break;
+  }
+  g.restore();
 }
 
 // The action-name label for a button. Unlike the shared label() (tuned for the
@@ -360,11 +462,12 @@ function makeButton(def) {
   // and letter stay legible at the dash's steep angle. Keyless buttons (e.g.
   // CAMERA, which opens a pop-up rather than mapping to one key) skip the
   // circle entirely and centre their label instead.
-  if (def.key) {
+  const icon = isTouch ? def.icon : null;
+  if (def.key || icon) {
     const disc = new THREE.Mesh(new THREE.CircleGeometry(cR + 0.02, 32), screenMat);
     disc.position.set(0, cy, 0.041);
     g.add(disc);
-    const cap = keycap(keyGlyph(def.key), def.color);
+    const cap = keycap(keyGlyph(def.key), def.color, icon);
     cap.scale.set(cR * 2.4, cR * 2.4, 1);
     cap.position.set(0, cy, 0.06);
     g.add(cap);
@@ -372,7 +475,7 @@ function makeButton(def) {
 
   // rectangle: a recessed plate with a thin colored border, holding the action
   // name — so it reads as a distinct labelled rectangle, not floating text.
-  const labelY = def.key ? ry : 0;
+  const labelY = def.key || icon ? ry : 0;
   // Flat colored border, and the NAV-open indicator: the update loop brightens
   // rectMat while the hologram is up, which used to be read off the additive
   // halo.
@@ -398,7 +501,9 @@ function makeButton(def) {
   // consistent, fat-finger-friendly tap area regardless of the dash angle.
   // onPointerDown raycasts the whole group, so this is picked up automatically.
   const hit = new THREE.Sprite(new THREE.SpriteMaterial({ visible: false, depthTest: false }));
-  hit.scale.set(W + 0.12, H + 0.12, 1);
+  // THRUST is held for most of a flight: give it a much fatter target.
+  const grow = def.big ? 1.6 : 1;
+  hit.scale.set((W + 0.12) * grow, (H + 0.12) * grow, 1);
   hit.userData.hit = true;
   g.add(hit);
 
@@ -407,36 +512,34 @@ function makeButton(def) {
 }
 
 function buildButtons() {
-  // Top row: WARP on the left, STAND/CAMERA on the right, centre kept clear for
-  // the wheel. CAMERA is keyless (it opens the camera pop-up, where P
-  // photographs and R records) so it shows no key circle. BRAKE/LAND/NAV have
-  // moved down to the right console cluster (where SHIELDS used to be).
-  // BOOST is gone (W is the boost now, and thrust needs no button), so WARP
-  // slides into its inner slot at -0.87 and mirrors STAND at +0.87 — the empty
-  // space falls at the outer edge where the dash curves away, not beside the
-  // wheel where a hole would read as a missing button.
+  // Owner's layout (sketch, Nov 2026): two low strips framing the wheel and
+  // nothing on top, so the upper dash is window. Left strip, outside in:
+  // ROLL L, ROLL R, WARP, RADIO; right strip, inside out: STAND, REVERSE,
+  // CAMERA, LAND. THRUST and NAV, the two most-pressed, sit raised on the
+  // outer corners, right under the thumbs of a phone held sideways.
+  // REVERSE replaced BRAKE on the dash (Space still brakes on a keyboard).
+  // `icon` is the keycap picture on touch, where key letters mean nothing.
+  const L = 0.5, Z = 0.16; // strip row
+  const UP = 0.82, UZ = 0.05; // raised tier
+  const X = [0.74, 1.07, 1.4, 1.73]; // inner -> outer slots
   const main = [
-    { name: 'WARP', key: 'F', color: 0x82f7ff, mode: 'hold', flag: 'warp', x: -0.87 },
-    { name: 'STAND', key: 'C', color: 0xcfe6ff, mode: 'edge', flag: 'toggleInterior', code: 'KeyC', x: 0.87 },
-    { name: 'CAMERA', key: '', color: 0xffc9ec, mode: 'fn', fn: toggleGallery, x: 1.3 },
+    { name: 'THRUST', key: 'W', icon: 'thrust', color: 0xff9ad5, mode: 'hold', flag: 'forward', code: 'KeyW', x: -X[3], y: UP, z: UZ, big: true },
+    { name: 'NAV', key: 'N', icon: 'nav', color: 0x7dffc8, mode: 'nav', x: X[3], y: UP, z: UZ },
   ];
-  main.forEach(function (d) {
-    d.y = 0.82; // lifted to seat the taller redesigned buttons on the dash
-    d.z = 0.05;
-  });
-
-  // Lower tiers mirror each other across the wheel: roll thrusters + radio on
-  // the bottom-left, and brake/land/nav on the bottom-right. ROLL L/R are held
-  // buttons wired to the same input flags Q/E drive (ship.js reads them each
-  // tick); code: makes the key press flash the matching button.
   const aux = [
-    { name: 'ROLL L', key: 'Q', color: 0xb98cff, mode: 'hold', flag: 'rollLeft', code: 'KeyQ', x: -1.54, y: 0.5, z: 0.16 },
-    { name: 'ROLL R', key: 'E', color: 0x8cffd1, mode: 'hold', flag: 'rollRight', code: 'KeyE', x: -1.16, y: 0.5, z: 0.16 },
-    { name: 'RADIO', key: ', .', color: 0x9fd8e8, mode: 'fn', fn: toggleRadioPopup, x: -0.78, y: 0.5, z: 0.16 },
-    { name: 'BRAKE', key: 'SPACE', color: 0xa9f7ff, mode: 'hold', flag: 'brake', x: 0.78, y: 0.5, z: 0.16 },
-    { name: 'LAND', key: 'G', color: 0xffd75a, mode: 'edge', flag: 'toggleWalk', code: 'KeyG', x: 1.16, y: 0.5, z: 0.16 },
-    { name: 'NAV', key: 'N', color: 0x7dffc8, mode: 'nav', x: 1.54, y: 0.5, z: 0.16 },
+    { name: 'ROLL L', key: 'Q', icon: 'rollL', color: 0xb98cff, mode: 'hold', flag: 'rollLeft', code: 'KeyQ', x: -X[3] },
+    { name: 'ROLL R', key: 'E', icon: 'rollR', color: 0x8cffd1, mode: 'hold', flag: 'rollRight', code: 'KeyE', x: -X[2] },
+    { name: 'WARP', key: 'F', icon: 'warp', color: 0x82f7ff, mode: 'hold', flag: 'warp', code: 'KeyF', x: -X[1] },
+    { name: 'RADIO', key: ', .', icon: 'radio', color: 0x9fd8e8, mode: 'fn', fn: toggleRadioPopup, x: -X[0] },
+    { name: 'STAND', key: 'C', icon: 'stand', color: 0xcfe6ff, mode: 'edge', flag: 'toggleInterior', code: 'KeyC', x: X[0] },
+    { name: 'REVERSE', key: 'S', icon: 'reverse', color: 0xa9f7ff, mode: 'hold', flag: 'reverse', code: 'KeyS', x: X[1] },
+    { name: 'CAMERA', key: '', icon: 'camera', color: 0xffc9ec, mode: 'fn', fn: toggleGallery, x: X[2] },
+    { name: 'LAND', key: 'G', icon: 'land', color: 0xffd75a, mode: 'edge', flag: 'toggleWalk', code: 'KeyG', x: X[3] },
   ];
+  aux.forEach(function (d) {
+    d.y = L;
+    d.z = Z;
+  });
 
   buttons = [];
   main.concat(aux).forEach(function (d) {

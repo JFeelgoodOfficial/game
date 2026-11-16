@@ -8,6 +8,11 @@
 // The host (walk.js) owns everything beyond presentation: it opens the panel
 // with the payload from module.interact(entity), receives accepted offers via
 // onOffer, and signals module.endInteract(entity) from onClose.
+//
+// Touch (no E, no digits, no X): tap the panel to continue, tap an option to
+// pick it, tap LEAVE to go.
+
+import { isTouch } from './touchText.js';
 
 const CSS = `
 #dlgPanel {
@@ -35,6 +40,17 @@ const CSS = `
 #dlgPanel .dlg-options { margin-top: 8px; font-size: 13px; line-height: 1.7; }
 #dlgPanel .dlg-options .dlg-opt {
   color: #ffc9ec; text-shadow: 0 0 8px rgba(212,64,143,0.7); letter-spacing: 0.1em;
+}
+/* Touch: the panel takes taps, and keeps clear of the two sticks. */
+body.touch-ui #dlgPanel { max-width: min(620px, calc(100vw - 300px)); bottom: 8%; }
+body.touch-ui #dlgPanel.open { pointer-events: auto; z-index: 20; }
+body.touch-ui #dlgPanel .dlg-opt {
+  padding: 8px 10px; margin-top: 6px; border-radius: 3px;
+  border: 1px solid rgba(212,64,143,0.55); background: rgba(212,64,143,0.12);
+}
+#dlgPanel .dlg-leave {
+  float: right; margin-left: 14px; padding: 2px 10px; color: #ffc9ec;
+  border: 1px solid rgba(212,64,143,0.6); border-radius: 3px; letter-spacing: 0.24em;
 }
 #dlgPanel .dlg-hint {
   margin-top: 10px; font-size: 10px; letter-spacing: 0.3em; color: #7ad7e0;
@@ -78,6 +94,17 @@ function ensureDom() {
     lineEl = panel.querySelector('.dlg-line');
     optionsEl = panel.querySelector('.dlg-options');
     hintEl = panel.querySelector('.dlg-hint');
+    if (isTouch) {
+      panel.addEventListener('touchstart', (e) => {
+        if (!payload) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const t = e.target;
+        if (t.closest('.dlg-leave')) closeDialogue();
+        else if (t.closest('.dlg-opt')) pickOption(Number(t.closest('.dlg-opt').dataset.i));
+        else advanceDialogue();
+      }, { passive: false });
+    }
   }
 }
 
@@ -98,15 +125,28 @@ function render() {
     payload.offer.options.forEach((opt, i) => {
       const row = document.createElement('div');
       row.className = 'dlg-opt';
-      row.textContent = `[${i + 1}] ${opt.label}`;
+      row.textContent = isTouch ? opt.label : `[${i + 1}] ${opt.label}`;
+      row.dataset.i = String(i);
       optionsEl.appendChild(row);
     });
-    hintEl.textContent = `1–${payload.offer.options.length} — CHOOSE · X — LEAVE`;
+    setHint(isTouch ? 'TAP A CHOICE' : `1–${payload.offer.options.length} — CHOOSE · X — LEAVE`);
   } else {
     lineEl.textContent = payload.lines[lineIndex] ?? '';
     optionsEl.innerHTML = '';
     const last = lineIndex >= payload.lines.length - 1;
-    hintEl.textContent = last ? 'E — CLOSE · X — LEAVE' : 'E — CONTINUE · X — LEAVE';
+    setHint(isTouch
+      ? (last ? 'TAP TO CLOSE' : 'TAP TO CONTINUE')
+      : (last ? 'E — CLOSE · X — LEAVE' : 'E — CONTINUE · X — LEAVE'));
+  }
+}
+
+function setHint(text) {
+  hintEl.textContent = text;
+  if (isTouch) {
+    const leave = document.createElement('span');
+    leave.className = 'dlg-leave';
+    leave.textContent = 'LEAVE';
+    hintEl.appendChild(leave);
   }
 }
 
