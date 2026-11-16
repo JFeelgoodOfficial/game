@@ -475,3 +475,14 @@ Build only the current phase. Do not add HUD, sound, menus, or save state. There
 The altitude floor (5.1) is enforced by drag, never by a collision test or a hard clamp. If you find yourself writing an intersection test against terrain, you have misread the document.
 
 All code complete. No placeholders, no TODOs, no stub functions.
+
+
+### 5.9 stevenlacey, the coin world (owner exception to 5.7)
+
+A gift world. Not a planet: a coin 1,200 units across, tumbling in open space (`world/coinworld.js`), with its own capture and landing in `src/game.js` on the Sky City pattern. It breaks the "palette + threshold" rule of 5.7 on purpose and brings three systems of its own:
+
+- **A 2D walk mode** (`src/coinWalk.js`). Stepping out presses the ship flat and backs the camera onto a 14 degree lens; the visit is a side-scroller drawn on one canvas-textured quad. Heads is the Sanctuary (wild creatures, turn-based team battles in `src/coinBattle.js`, a champion). Tails is the Claws (a claw, a dash, enemies, a warden). A rim door flips between them. The dash from tails opens the grove on heads; a Lanternmoth from heads clears the dark on tails.
+- **Specimens** (`world/coin-bestiary.js`, `specimens` in `fgsf.inventory`): ten creatures. Visit progress is in `fgsf.stevenlacey`.
+- **The terrarium** (`src/terrarium.js`): a tank in the stern lounge showing every specimen brought home. E at the glass opens a close-up.
+
+The full plan and the as-built notes are in `plans/planet-stevenlacey.md`.

@@ -53,6 +53,7 @@ import {
   loadInteriorPictures,
   openGallery,
   nearPainting,
+  nearTank,
   interiorInfo,
   placePlayer,
   updateInterior,
@@ -109,6 +110,10 @@ import {
   enterSkyWalk,
   skyActive,
   skyFell,
+  enterCoinWalk,
+  coinActive,
+  coinBeginLeave,
+  coinLeft,
   cottageActive,
 } from './walkLazy.js';
 import { initJournal, journalState } from './journal.js';
@@ -151,6 +156,9 @@ import { initSfx, updateSfx, sfxState } from './sfx.js';
 import { initCoach, updateCoach, coachState } from './coach.js';
 import { initCredits, openCredits, closeCredits, isCreditsOpen } from './credits.js';
 import { initArtView, openArtView, closeArtView, isArtViewOpen } from './artView.js';
+import {
+  initTerrariumView, openTerrariumView, closeTerrariumView, isTerrariumViewOpen,
+} from './terrariumView.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import lensingFrag from './shaders/lensing.frag?raw';
 import aberrationFrag from './shaders/aberration.frag?raw';
@@ -230,6 +238,7 @@ initTouchControls();
 initCapture(renderer);
 initCredits();
 initArtView();
+initTerrariumView();
 initSfx();
 initJournal();
 initInventory();
@@ -558,6 +567,16 @@ if (import.meta.env.DEV) {
       dock(face = HEADS) {
         setOnCoinPad(face);
       },
+      // straight into the 2D world on that face, skipping the flight
+      enter(face = HEADS) {
+        setOnCoinPad(face);
+        if (!enterCoinWalk(coin, face, camera)) return false;
+        landState = null;
+        coinLanding = false;
+        phase = 'walk';
+        accumulator = 0;
+        return true;
+      },
     },
     deepNebulae,
     paintingNebulae,
@@ -610,6 +629,8 @@ if (import.meta.env.DEV) {
       info: () => interiorInfo(),
       place: (x, z, yaw) => placePlayer(x, z, yaw),
       nearPainting: () => nearPainting()?.title ?? null,
+      nearTank: () => nearTank(),
+      tankView: () => isTerrariumViewOpen(),
       passes: () => ({ interior: interiorPass.enabled, cockpit: cockpitPass.enabled, clearDepth: cockpitPass.clearDepth }),
     },
     radio: {
@@ -981,6 +1002,7 @@ function enterHeaven() {
   cancelAutopilot();
   closeCredits();
   closeArtView();
+  closeTerrariumView();
   setCockpitStanding(false);
   closeRadioPopup();
   closeVehicleMenu();
@@ -1221,7 +1243,9 @@ const _coinAway = new THREE.Quaternion();
 // looking at the face. Recomputed live — the coin is still turning during the
 // first of the approach, and its group rides origin rebases.
 function coinPadPose() {
-  coin.faceOffset(coinFace, C.COIN_PAD_X, C.COIN_PAD_Y, C.COIN_PAD_OFF, _coinPad);
+  // COIN_PAD_X is a point on the coin, not on a face: the two faces' rights are
+  // opposed, so the sign flips with the face and the two pads sit back to back.
+  coin.faceOffset(coinFace, C.COIN_PAD_X * coinFace, C.COIN_PAD_Y, C.COIN_PAD_OFF, _coinPad);
   coin.faceFrame(coinFace, _coinR, _coinU, _coinN);
   _coinHover.copy(_coinPad).addScaledVector(_coinN, C.COIN_HOVER);
   // ship axes: X = right, Y = up, Z = back. Nose (-Z) along the face's right.
@@ -1622,6 +1646,7 @@ function resetToStart() {
   standBlend = 0;
   closeCredits();
   closeArtView();
+  closeTerrariumView();
   setCockpitStanding(false);
   closeRadioPopup();
   closeVehicleMenu();
@@ -1740,6 +1765,7 @@ function frame(now) {
         standing = false;
         closeCredits(); // never leave a popup up in the pilot seat
         closeArtView();
+        closeTerrariumView();
       }
     }
     // E while standing: read the plaque, look closer at a canvas, or close
@@ -1749,10 +1775,12 @@ function frame(now) {
     if (standing && input.interact) {
       if (isCreditsOpen()) closeCredits();
       else if (isArtViewOpen()) closeArtView();
+      else if (isTerrariumViewOpen()) closeTerrariumView();
       else if (standBlend > 0.5 && nearPlaque()) openCredits();
       else if (standBlend > 0.5) {
         const art = nearPainting();
         if (art) openArtView(art.file, art.title);
+        else if (nearTank()) openTerrariumView();
       }
     }
     setCockpitStanding(standing);
@@ -1833,7 +1861,15 @@ function frame(now) {
           accumulator = 0;
         }
       } else if (coinLanding) {
-        // stevenlacey. No waving off, as at the Sky City.
+        // stevenlacey. No waving off, as at the Sky City; stepping out is the
+        // fold into 2D (src/coinWalk.js), which needs the on-foot chunk.
+        if (landState === 'landed' && coinLiftT < 0 && enterCoinWalk(coin, coinFace, camera)) {
+          landState = null;
+          coinLanding = false;
+          heat = 0;
+          phase = 'walk';
+          accumulator = 0;
+        }
       } else if (landState === 'landed') {
         const floor = nearestTerraFloor(ship.position);
         if (floor) {
@@ -1882,6 +1918,15 @@ function frame(now) {
       snapCamera(ship);
       phase = 'fly';
       accumulator = 0;
+    } else if (coinLeft()) {
+      // stevenlacey has folded itself back up: into the seat, still against the
+      // face, W to lift off.
+      const f = coinLeft();
+      endWalk();
+      setOnCoinPad(f);
+      snapCamera(ship);
+      phase = 'fly';
+      accumulator = 0;
     } else if (skyFallT >= 0 || skyFell()) {
       // Off the edge of the Sky City. The walker is still falling under the
       // rising white; at full white the run ends and starts over, in the ship,
@@ -1907,6 +1952,9 @@ function frame(now) {
             // first, and do the teardown + reset under it ('depart' below).
             phase = 'depart';
             warpT = 0;
+          } else if (coinActive()) {
+            // The world folds up first; coinLeft() above finishes the boarding.
+            coinBeginLeave();
           } else if (skyActive()) {
             // Back into the seat, still parked on the pad: W lifts off.
             endWalk();
@@ -2024,7 +2072,7 @@ function frame(now) {
   // I opens the vehicle selector, on foot only (flight ignores the press).
   if (input.toggleVehicles) {
     input.toggleVehicles = false;
-    if (phase === 'walk') toggleVehicleMenu();
+    if (phase === 'walk' && !coinActive()) toggleVehicleMenu(); // no vehicles in 2D
   }
   // Consume the edge-triggered toggles exactly once per frame, in any phase.
   // (stepWalk consumes toggleBoard earlier in the frame when it applies —
@@ -2106,12 +2154,13 @@ function frame(now) {
     if (phase === 'fly') {
       if (standing) {
         let prompt = null;
-        if (standBlend > 0.5 && !isCreditsOpen() && !isArtViewOpen()) {
+        if (standBlend > 0.5 && !isCreditsOpen() && !isArtViewOpen() && !isTerrariumViewOpen()) {
           if (nearSeat()) prompt = 'C — SIT';
           else if (nearPlaque()) prompt = 'E — READ';
           else {
             const art = nearPainting();
             if (art) prompt = art.prompt || (art.prompt = `${art.title.toUpperCase()} · E — VIEW`);
+            else if (nearTank()) prompt = 'THE TERRARIUM · E — LOOK CLOSER';
           }
         }
         setPrompt(prompt);
@@ -2119,7 +2168,7 @@ function frame(now) {
         // seated: landing prompts
         let prompt = null;
         if (landState === 'landed') {
-          if (coinLanding) prompt = coinLiftT >= 0 ? null : 'W — LIFT OFF';
+          if (coinLanding) prompt = coinLiftT >= 0 ? null : 'G — STEP OUT · W — LIFT OFF';
           else prompt = skyLanding && skyLiftT >= 0 ? null : 'G — STEP OUT · W — LIFT OFF';
         } else if (landState === 'auto') {
           prompt = coinLanding ? 'AUTO-LANDING · STEVENLACEY'
@@ -2252,6 +2301,14 @@ function frame(now) {
   aberrationPass.uniforms.uStrength.value =
     (C.CA_STRENGTH * 8.0 * (1 + C.WARP_CA_BOOST * warpFx * MOTION_SCALE)) / window.innerHeight;
   aberrationPass.uniforms.uWarp.value = C.WARP_SMEAR * warpFx * MOTION_SCALE;
+  // stevenlacey's 2D picture is flat colour, much of it at full white, filling
+  // the frame: the space bloom would put a halo on every pale pixel and the
+  // colour split would fringe its lettering. Both are re-derived above every
+  // frame, so there is nothing to restore afterwards.
+  if (phase === 'walk' && coinActive()) {
+    bloomPass.strength = C.BLOOM_STRENGTH * 0.12;
+    aberrationPass.uniforms.uStrength.value *= 0.25;
+  }
 
   if (phase === 'walk') walkPreRender(renderer, bloomPass); // world modules draw to their RTs
   composer.render();

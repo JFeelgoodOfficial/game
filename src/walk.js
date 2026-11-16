@@ -78,6 +78,9 @@ export { enterCottageWalk, cottageActive, exitCottageWalk } from './cottageWalk.
 // flat walker, dispatched to from every public function below.
 import * as skyWalk from './skyWalk.js';
 export { enterSkyWalk, skyActive, skyFell } from './skyWalk.js';
+// stevenlacey, the coin world: the 2D walker (src/coinWalk.js).
+import * as coinWalk from './coinWalk.js';
+export { enterCoinWalk, coinActive, coinBeginLeave, coinLeft } from './coinWalk.js';
 // The Emberdeep under rustia's town (src/mineWalk.js): a flat walker NESTED in
 // the planet walk — you ride a cage down and come back up to the same spot.
 import * as mineWalk from './mineWalk.js';
@@ -258,7 +261,7 @@ function setObjective(target) {
 export function walkObjective() {
   // Nothing is asked of you in the cottage — a quest line left over from the
   // last town would be exactly the wrong thing to read there.
-  if (cottageWalk.cottageActive() || skyWalk.skyActive() || sub) return null;
+  if (cottageWalk.cottageActive() || skyWalk.skyActive() || coinWalk.coinActive() || sub) return null;
   return objectiveText;
 }
 const TALK_DIST_CROWD = 2.6; // ~ aliens talkTriggerDist
@@ -913,6 +916,7 @@ export function exitWalk(camera) {
   // game.js owns it. Here we only tear the world down.
   if (cottageWalk.cottageActive()) return cottageWalk.exitCottageWalk();
   if (skyWalk.skyActive()) return skyWalk.exitSkyWalk();
+  if (coinWalk.coinActive()) return coinWalk.exitCoinWalk(camera);
   // Torn down while underground (reset, menu, debug exit): surface first —
   // abort() restores the scene and puts ship.position back on the planet.
   if (sub) sub.abort();
@@ -1057,6 +1061,7 @@ export function exitWalk(camera) {
 export function toggleWalkView() {
   if (cottageWalk.cottageActive()) return cottageWalk.toggleCottageView();
   if (skyWalk.skyActive()) return skyWalk.toggleSkyView();
+  if (coinWalk.coinActive()) return null; // one view: side-on
   if (sub) return sub.toggleView();
   if (warzone && combatOnFoot()) {
     showViewToast('THIRD PERSON IS OFF IN COMBAT ZONES');
@@ -1070,6 +1075,7 @@ export function toggleWalkView() {
 export function stepWalk(dt) {
   if (cottageWalk.cottageActive()) return cottageWalk.stepCottageWalk(dt);
   if (skyWalk.skyActive()) return skyWalk.stepSkyWalk(dt);
+  if (coinWalk.coinActive()) return coinWalk.stepCoinWalk(dt);
   if (sub) return sub.step(dt);
   const planet = walk.planet;
 
@@ -1755,6 +1761,7 @@ export function stepWalk(dt) {
 export function updateWalkVisuals(dt, t) {
   if (cottageWalk.cottageActive()) return cottageWalk.updateCottageVisuals(dt, t);
   if (skyWalk.skyActive()) return skyWalk.updateSkyVisuals(dt, t);
+  if (coinWalk.coinActive()) return coinWalk.updateCoinVisuals();
   if (sub) return sub.visuals(dt, t);
   if (!walk.active || !astronaut) return;
   const planet = walk.planet;
@@ -1940,6 +1947,7 @@ function scanModule(module, maxDist) {
 export function walkInteract() {
   if (cottageWalk.cottageActive()) return cottageWalk.cottageInteract();
   if (skyWalk.skyActive()) return skyWalk.skyInteract();
+  if (coinWalk.coinActive()) return coinWalk.coinInteract();
   if (sub) return sub.interact();
   if (isDialogueOpen()) {
     advanceDialogue();
@@ -1972,6 +1980,7 @@ export function walkInteract() {
 export function walkPromptText() {
   if (cottageWalk.cottageActive()) return cottageWalk.cottagePromptText();
   if (skyWalk.skyActive()) return skyWalk.skyPromptText();
+  if (coinWalk.coinActive()) return coinWalk.coinPromptText();
   if (sub) return sub.promptText();
   if (isDialogueOpen() || !focusEntity) return null;
   // Entities may carry their own prompt (elevator buttons: 'E — PENTHOUSE').
@@ -2269,6 +2278,7 @@ function removeBeacon() {
 export function nearParkedShip() {
   if (cottageWalk.cottageActive()) return cottageWalk.nearPad();
   if (skyWalk.skyActive()) return skyWalk.nearPad();
+  if (coinWalk.coinActive()) return coinWalk.nearPad();
   if (sub) return false; // the ship is up on the surface, and you are not
   // Shadowreach gates boarding to the story's endpoints: you may leave at the
   // very start (in the field, before the flower) or once the dream completes in
@@ -2288,6 +2298,7 @@ export function nearParkedShip() {
 export function promptReturnToShip() {
   if (cottageWalk.cottageActive()) return cottageWalk.promptReturnToPad();
   if (skyWalk.skyActive()) return skyWalk.promptReturnToPad();
+  if (coinWalk.coinActive()) return coinWalk.promptReturnToPad();
   if (sub) return sub.promptReturn();
   if (shadowreach && !shadowreach.canBoard()) {
     showViewToast('THE DREAM IS NOT FINISHED');
@@ -2304,6 +2315,7 @@ export function promptReturnToShip() {
 export function deployVehicle(id) {
   if (cottageWalk.cottageActive()) return false; // you walk this one
   if (skyWalk.skyActive()) return false; // and this one
+  if (coinWalk.coinActive()) return false; // nor this
   if (sub) return false; // nor underground
   if (!walk.active || !walk.planet || !hasItem(id)) return false;
   if (wavemall || actuality || shadowreach) return false;
@@ -2334,6 +2346,7 @@ export function walkSite() {
     creatures, diamondRain, marineSnow, planetSky, wyattmattoe,
     cottage: cottageWalk.cottageSite(),
     sky: skyWalk.skySite(),
+    coin: coinWalk.coinSite(),
     minehead: mineHead,
     mine: mineWalk.mineSite(),
     // Governor-tour beacon internals, for headless verification. The up vector
@@ -2377,13 +2390,14 @@ export function walkPendingReset() {
 export function currentGravityScale() {
   if (cottageWalk.cottageActive()) return 1;
   if (skyWalk.skyActive()) return 1;
+  if (coinWalk.coinActive()) return 1;
   if (sub) return 1;
   return walk.active ? (walk.planet?.cfg?.walkGravityScale ?? 1) : 1;
 }
 
 // Whether the world underfoot carries the snowboard. For the walk-hint UI.
 export function currentBoardable() {
-  return walk.active && !cottageWalk.cottageActive() && !skyWalk.skyActive()
+  return walk.active && !cottageWalk.cottageActive() && !skyWalk.skyActive() && !coinWalk.coinActive()
     && !!walk.planet?.cfg?.boardable;
 }
 
@@ -2414,6 +2428,7 @@ function bearingToWorld(worldPt, label) {
 export function shipBearing() {
   if (cottageWalk.cottageActive()) return cottageWalk.padBearing();
   if (skyWalk.skyActive()) return skyWalk.padBearing();
+  if (coinWalk.coinActive()) return coinWalk.padBearing();
   if (sub) return sub.bearing();
   if (!walk.active || !parked || !walk.planet) return null;
   _parkPos
@@ -2430,6 +2445,7 @@ export function shipBearing() {
 export function walkBearing() {
   if (cottageWalk.cottageActive()) return cottageWalk.padBearing();
   if (skyWalk.skyActive()) return skyWalk.padBearing();
+  if (coinWalk.coinActive()) return coinWalk.padBearing();
   if (sub) return sub.bearing();
   if (beacon && beaconParent && walk.active && walk.planet) {
     // Local -> surface -> world, the same chain the pad walkway uses. Built by
@@ -2453,6 +2469,7 @@ export function walkBearing() {
 export function updateWalkCamera(camera, delta = 0) {
   if (cottageWalk.cottageActive()) return cottageWalk.updateCottageCamera(camera, delta);
   if (skyWalk.skyActive()) return skyWalk.updateSkyCamera(camera, delta);
+  if (coinWalk.coinActive()) return coinWalk.updateCoinCamera(camera);
   if (sub) return sub.camera(camera, delta);
   const planet = walk.planet;
   _up.subVectors(ship.position, planet.body.position).normalize();

@@ -113,3 +113,39 @@ Per `.claude/skills/verify/SKILL.md` (dev server, headless Chromium with SwiftSh
 - Reload the page: `__debug.inventory().specimens` and `fgsf.stevenlacey` survive. Load a save with no `specimens` field and with an unknown id; both load clean.
 - `__debug.interior.stand()` → tank shows the right count; E opens the view; sitting closes it. Screenshot at 960×540.
 - Touch: emulate a phone in landscape and confirm the `coin` layout appears only in the 2D mode.
+
+## As built
+
+All six phases are implemented. Where the build departs from the plan above:
+
+- **One canvas, not planes and an atlas.** The 2D world is drawn each frame onto a single small canvas (272 px tall, width following the window) that textures one quad standing off the coin's face. Tiles, creatures, HUD and battles are all canvas drawing. Nothing in the render pipeline is reconfigured.
+- **No render isolation.** The quad fills the long-lens view, so the universe is simply hidden behind it. `src/isolate.js` is untouched. `game.js` lowers bloom and the colour split while the 2D mode is up, since both are re-derived every frame.
+- **Battles draw in the same canvas** rather than in a DOM overlay.
+- **Rim crossing is a flip of the picture** (the quad turns edge-on and comes back showing the other face), not a camera orbit. There is one rim door per face, at the ship's end.
+- **The two pads are back to back** through the coin, so the ship is at the left end of heads and the right end of tails.
+- **Levels are 140 x 36 tiles**, built from rectangle fills in `world/coin-levels.js`.
+- **Sound is effects only** (`world/coin-audio.js`); the ship's radio keeps playing.
+- **Dash passes through hits**, and the walker has five hit points on tails, after the warden proved too hard in testing.
+- The on-foot controls panel is hidden in 2D; the keys are shown inside the picture for the first seconds instead.
+
+### What was touched
+
+| File | Change |
+|---|---|
+| `world/coinworld.js` | new: the coin, its tumble, face frames |
+| `world/coin-bestiary.js` | new: ten creatures, element triangle, pixel drawing |
+| `world/coin-levels.js` | new: both levels |
+| `world/coin-audio.js` | new: sound effects |
+| `src/coinWalk.js` | new: the 2D walker, both faces, enemies, warden, transitions |
+| `src/coinBattle.js` | new: turn-based battles |
+| `src/terrarium.js`, `src/terrariumView.js` | new: lounge tank and close-up |
+| `src/game.js` | capture, landing, lift-off, step out, boarding, terrarium E-key, bloom in 2D, `__debug.coin` |
+| `src/walk.js`, `src/walkLazy.js` | `coinActive()` guards and re-exports |
+| `src/inventory.js` | `specimens`, `grantSpecimen` |
+| `src/interior.js` | builds, refreshes and updates the tank; `nearTank()` |
+| `src/controls.js`, `src/touchControls.js`, `src/input.js` | hint panel off in 2D; `coin` touch layout; `coinDash` |
+| `src/nav.js`, `src/constants.js` | chart entry; `COIN_*` |
+
+### Not verified by a person
+
+Jump feel, battle pacing and the warden fight were only exercised by scripts under software rendering. They need a play session.

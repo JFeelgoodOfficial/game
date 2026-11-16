@@ -11,6 +11,7 @@
 
 import { showViewToast } from './walkview.js';
 import { WEAPONS, WEAPON_ORDER, STARTER_WEAPON } from './arsenal.js';
+import { SPECIMENS } from '../world/coin-bestiary.js';
 
 const STORE_KEY = 'fgsf.inventory';
 
@@ -46,6 +47,9 @@ export const UPGRADES = {
 };
 let cargo = new Set(); // carried quest cargo ids (persisted)
 let upgrades = new Set(); // owned ship upgrade ids (persisted)
+// Creatures brought home from stevenlacey (world/coin-bestiary.js). The ship's
+// terrarium (src/terrarium.js) shows whatever is in here.
+let specimens = new Set();
 
 function load() {
   try {
@@ -66,6 +70,8 @@ function load() {
     // Absent in saves from before the Emberdeep existed — both stay empty.
     if (Array.isArray(data.cargo)) cargo = new Set(data.cargo.filter((i) => CARGO[i]));
     if (Array.isArray(data.upgrades)) upgrades = new Set(data.upgrades.filter((i) => UPGRADES[i]));
+    // Absent in saves from before stevenlacey existed — stays empty.
+    if (Array.isArray(data.specimens)) specimens = new Set(data.specimens.filter((i) => SPECIMENS[i]));
     if (data.record && typeof data.record === 'object') {
       record.bestWave = Math.max(0, Math.floor(Number(data.record.bestWave) || 0));
       record.kills = Math.max(0, Math.floor(Number(data.record.kills) || 0));
@@ -79,7 +85,7 @@ function save() {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify({
       items: [...items], selected, weapons: [...weapons], trophies, record,
-      cargo: [...cargo], upgrades: [...upgrades],
+      cargo: [...cargo], upgrades: [...upgrades], specimens: [...specimens],
     }));
   } catch {
     /* session-only */
@@ -136,6 +142,25 @@ export function grantUpgrade(id) {
   save();
   showViewToast('SHIP UPGRADE — ' + UPGRADES[id].name.toUpperCase(), 6);
   return true;
+}
+
+// ---- stevenlacey specimens --------------------------------------------------
+
+// Returns false when the creature is already home, so a rematch never re-toasts.
+export function grantSpecimen(id) {
+  if (!SPECIMENS[id] || specimens.has(id)) return false;
+  specimens.add(id);
+  save();
+  showViewToast('NEW SPECIMEN — ' + SPECIMENS[id].name.toUpperCase() + ' · SEE THE SHIP\'S TERRARIUM', 5);
+  return true;
+}
+
+export function hasSpecimen(id) {
+  return specimens.has(id);
+}
+
+export function ownedSpecimens() {
+  return [...specimens];
 }
 
 export function hasUpgrade(id) {
@@ -203,6 +228,6 @@ export function inventoryState() {
   return {
     items: [...items], selected,
     weapons: ownedWeapons(), trophies: { ...trophies }, record: { ...record },
-    cargo: [...cargo], upgrades: [...upgrades],
+    cargo: [...cargo], upgrades: [...upgrades], specimens: [...specimens],
   };
 }

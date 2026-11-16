@@ -4,7 +4,7 @@
 // in-flight CTRL popup is gone. Driven per frame from game.js via
 // updateControls().
 
-import { currentGravityScale, currentBoardable, cottageActive, walkCombatActive } from './walkLazy.js';
+import { currentGravityScale, currentBoardable, cottageActive, coinActive, walkCombatActive } from './walkLazy.js';
 import { setEquipButtonVisible } from './vehicleMenu.js';
 
 const CSS = `
@@ -149,10 +149,13 @@ export function updateControls(phase) {
   // walk hint: on-foot only
   const walkOn = phase === 'walk';
   const cottage = walkOn && cottageActive();
+  const coin = walkOn && coinActive();
   if (walkOn !== lastWalkOn) {
-    walkHint.classList.toggle('on', walkOn);
+    // stevenlacey (src/coinWalk.js) fills the frame with its own picture and
+    // says its own controls inside it; this panel would sit on top of both.
+    walkHint.classList.toggle('on', walkOn && !coin);
     // No equipment in the cottage — the quest vehicles don't come here.
-    setEquipButtonVisible(walkOn && !cottage);
+    setEquipButtonVisible(walkOn && !cottage && !coin);
     lastWalkOn = walkOn;
     if (walkOn) {
       boardLine.style.display = currentBoardable() ? '' : 'none';
