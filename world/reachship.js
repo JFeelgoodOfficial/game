@@ -32,6 +32,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { C } from '../src/constants.js';
 import { createSeaPatch } from './seapatch.js';
 import { createReachTube } from './reachtube.js';
+import { ownedWeapons, grantWeapon } from '../src/inventory.js';
 
 export const HULL = {
   L: 130, // half length
@@ -1004,6 +1005,156 @@ export function createReachShip(planet, def) {
   // ======================= RAILS on the main deck break =====================
   // (the bulwark is the rail everywhere else)
 
+  // ======================= FIT-OUT: the four rooms ==========================
+  // Furniture goes into the same merged buckets as the ship: it costs no draw
+  // calls, and the big pieces carry colliders.
+  const hangLamp = (x, yCeil, z, drop = 1.2, color = PAINT.amber) => {
+    S(detail, boxG(0.05, drop, 0.05, x, yCeil - drop / 2, z), PAINT.trim);
+    S(detail, cylG(0.1, 0.5, 0.3, x, yCeil - drop - 0.1, z, 8), PAINT.trim);
+    S(glow, boxG(0.34, 0.14, 0.34, x, yCeil - drop - 0.3, z), color);
+  };
+  const crateStack = (x, y, z, n, color) => {
+    for (let i = 0; i < n; i++) S(detail, boxG(1.0, 0.7, 0.8, x + (rng() - 0.5) * 0.15, y + 0.35 + i * 0.72, z + (rng() - 0.5) * 0.15, (rng() - 0.5) * 0.3), color);
+    wall(x - 0.55, x + 0.55, z - 0.45, z + 0.45, y, y + n * 0.72);
+  };
+  // --- market (tier 1) ---
+  {
+    const y = H.MAIN, AWN = [0x8a3a2c, 0x2f6a72, 0x8a7a30, 0x5a3f7a, 0x3f6a3a];
+    let k = 0;
+    for (const s of [1, -1]) {
+      for (let z = -52; z <= -20; z += 8) {
+        if (Math.abs(z + 36) < 3.5) continue; // the side doors
+        const x = s * 14.6;
+        S(solid, boxG(1.3, 1.05, 4.4, x, y + 0.52, z), PAINT.houseDark); // counter
+        wall(x - 0.65, x + 0.65, z - 2.2, z + 2.2, y, y + 1.05);
+        S(solid, boxG(0.5, 2.6, 4.6, s * 16.9, y + 1.3, z), PAINT.pipe); // shelves behind
+        for (let i = 0; i < 9; i++) S(detail, boxG(0.42, 0.36, 0.36, s * 16.6, y + 0.6 + (i % 3) * 0.8, z - 1.7 + Math.floor(i / 3) * 1.7 + rng() * 0.3), AWN[(k + i) % AWN.length]);
+        // awning: a canted slab on two poles
+        const aw = boxG(2.6, 0.08, 4.8, 0, 0, 0); aw.rotateZ(s * 0.28); aw.translate(x - s * 0.5, y + 3.0, z);
+        S(solid, aw, AWN[k++ % AWN.length]);
+        for (const dz of [-2.2, 2.2]) S(detail, boxG(0.08, 3.0, 0.08, x - s * 1.6, y + 1.5, z + dz), PAINT.trim);
+        // wares on the counter
+        for (let i = 0; i < 5; i++) S(detail, boxG(0.3 + rng() * 0.3, 0.16 + rng() * 0.2, 0.3 + rng() * 0.3, x + (rng() - 0.5) * 0.5, y + 1.15, z - 1.6 + i * 0.8), [0x9ab8c8, 0xc87a5a, 0xd8d0a0, 0x6a9a8a][i % 4]);
+        hangLamp(x - s * 1.2, H.T2 - 0.5, z, 1.3);
+      }
+    }
+    // fish tables down the middle: crushed ice, the catch laid out on it
+    for (const z of [-46, -38, -30]) {
+      S(solid, boxG(5, 0.9, 2.2, 0, y + 0.45, z), PAINT.houseDark);
+      S(solid, boxG(4.8, 0.14, 2.0, 0, y + 0.97, z), 0xcfe0ea);
+      wall(-2.5, 2.5, z - 1.1, z + 1.1, y, y + 1.0);
+      for (let i = 0; i < 9; i++) {
+        const f = new THREE.CapsuleGeometry(0.1, 0.5 + rng() * 0.4, 2, 6); f.rotateZ(Math.PI / 2); f.rotateY((rng() - 0.5) * 0.8);
+        f.translate(-2 + (i % 5) * 1.0 + rng() * 0.2, y + 1.12, z - 0.5 + Math.floor(i / 5) * 1.0);
+        S(detail, f, [0x7fb4d8, 0xd87fa0, 0xc8c8d8, 0x8ad8b8][i % 4]);
+      }
+      hangLamp(0, H.T2 - 0.5, z, 1.5, PAINT.flood);
+    }
+    // nets hung from the deckhead, barrels by the forward door
+    for (const z of [-50, -26]) {
+      const net = boxG(9, 0.06, 5, 0, H.T2 - 1.1, z); S(detail, net, PAINT.net);
+    }
+    for (const [bx, bz] of [[-4.5, -17], [-5.8, -16.4], [5, -17.2], [6.2, -16.6], [-15, -56], [15, -56]]) {
+      S(solid, cylG(0.55, 0.5, 1.2, bx, y + 0.6, bz, 10), PAINT.rust);
+      wall(bx - 0.5, bx + 0.5, bz - 0.5, bz + 0.5, y, y + 1.2);
+    }
+    crateStack(-10, y, -55.5, 3, PAINT.pot); crateStack(10, y, -55.5, 2, PAINT.rust); crateStack(11.4, y, -55.5, 3, PAINT.pot);
+    // the arms locker: the plasma launcher's crate (see `extras` below)
+    S(solid, boxG(2.6, 1.0, 1.2, 0, y + 0.5, -55.6), 0x3a2f5a);
+    S(glow, boxG(2.0, 0.08, 0.08, 0, y + 1.04, -55.1), 0xff5ad0);
+    wall(-1.3, 1.3, -56.2, -55.0, y, y + 1.0);
+  }
+  // --- mess hall (tier 2) ---
+  {
+    const y = H.T2;
+    for (const x of [-7.5, 0, 7.5]) {
+      for (const z of [-46, -34]) {
+        S(solid, boxG(5.2, 0.12, 1.5, x, y + 0.95, z), 0x7a5a3a);
+        for (const dx of [-2.2, 2.2]) S(detail, boxG(0.14, 0.9, 1.2, x + dx, y + 0.45, z), PAINT.trim);
+        wall(x - 2.6, x + 2.6, z - 0.75, z + 0.75, y, y + 1.0);
+        for (const dz of [-1.35, 1.35]) S(detail, boxG(5.0, 0.1, 0.5, x, y + 0.55, z + dz), 0x6a4c30); // benches
+        for (let i = 0; i < 4; i++) S(detail, cylG(0.14, 0.1, 0.2, x - 1.8 + i * 1.2, y + 1.1, z + (rng() - 0.5) * 0.6, 6), 0xb8b0a0); // mugs
+        hangLamp(x, H.T3 - 0.5, z, 1.4);
+      }
+    }
+    // the galley counter across the aft end, urns on it, a hatch light behind
+    S(solid, boxG(18, 1.1, 1.2, 0, y + 0.55, -51), PAINT.houseDark);
+    wall(-9, 9, -51.6, -50.4, y, y + 1.1);
+    S(glow, boxG(14, 1.2, 0.06, 0, y + 2.4, -53.2), PAINT.amber);
+    for (const x of [-6, -2, 2, 6]) S(detail, cylG(0.35, 0.35, 0.8, x, y + 1.5, -51, 8), 0x9aa0a8);
+    // a corner stage for the singer
+    S(solid, boxG(5, 0.4, 4, -10.5, y + 0.2, -42.5), 0x4a3050);
+    surfaces.push({ x0: -13, x1: -8, z0: -44.5, z1: -40.5, y: y + 0.4 });
+    S(detail, boxG(0.9, 1.3, 0.7, -12.6, y + 1.05, -41), PAINT.trim);
+    S(glow, boxG(0.5, 0.5, 0.06, -12.6, y + 1.15, -40.62), PAINT.cyan);
+    S(detail, cylG(0.04, 0.04, 1.5, -9.4, y + 1.15, -42.5, 5), PAINT.white);
+  }
+  // --- bridge (tier 3) ---
+  {
+    const y = H.T3;
+    // the forward console under the windows: one long desk of screens
+    S(solid, boxG(20, 1.0, 1.3, 0, y + 0.5, -23.6), PAINT.houseDark);
+    wall(-10, 10, -24.3, -22.9, y, y + 1.0);
+    for (let x = -9; x <= 9; x += 2.25) {
+      const sc = boxG(1.7, 0.7, 0.06, x, y + 1.25, -23.9); 
+      S(glow, sc, [PAINT.cyan, PAINT.amber, PAINT.green, PAINT.cyan][Math.abs(Math.round(x)) % 4]);
+      S(detail, boxG(1.9, 0.9, 0.12, x, y + 1.25, -23.82), PAINT.trim);
+    }
+    // helm: wheel pedestal and the captain's chair
+    S(solid, cylG(0.3, 0.45, 1.1, 0, y + 0.55, -25.6, 8), PAINT.trim);
+    const wheel = new THREE.TorusGeometry(0.6, 0.06, 6, 20); wheel.translate(0, y + 1.25, -25.4);
+    S(detail, wheel, PAINT.crane);
+    S(solid, boxG(1.1, 0.5, 1.0, 0, y + 0.55, -28.6), 0x3a2f2a);
+    S(solid, boxG(1.1, 1.3, 0.2, 0, y + 1.2, -29.1), 0x3a2f2a);
+    wall(-0.55, 0.55, -29.2, -28.1, y, y + 1.0);
+    // chart table, port side aft, the survey lit on it
+    S(solid, boxG(4, 0.95, 2.4, -8.6, y + 0.47, -31.6), PAINT.houseDark);
+    S(glow, boxG(3.4, 0.05, 1.9, -8.6, y + 0.98, -31.6), 0x3a9ad8);
+    wall(-10.6, -6.6, -32.8, -30.4, y, y + 0.95);
+    // radar repeaters and a signal locker to starboard
+    for (const z of [-27, -30]) {
+      S(solid, cylG(0.5, 0.6, 1.1, 9.4, y + 0.55, z, 10), PAINT.houseDark);
+      S(glow, cylG(0.42, 0.42, 0.05, 9.4, y + 1.12, z, 14), PAINT.green);
+      wall(8.9, 9.9, z - 0.5, z + 0.5, y, y + 1.1);
+    }
+    S(glow, boxG(18, 0.1, 0.3, 0, H.ROOF - 0.2, -28), 0xff7a50); // red night lighting
+  }
+  // --- processing hold (lower deck) ---
+  {
+    const y = H.LOWER, top = H.MAIN - 0.4;
+    // the line: a conveyor the length of the hold, bins either side
+    S(solid, boxG(2.2, 0.9, 30, 0, y + 0.45, 66), PAINT.houseDark);
+    S(solid, boxG(1.9, 0.08, 30, 0, y + 0.95, 66), 0x20262a);
+    wall(-1.1, 1.1, 51, 81, y, y + 0.95);
+    for (let z = 52; z <= 80; z += 1.4) S(detail, boxG(2.0, 0.1, 0.16, 0, y + 0.86, z), 0x8a9098);
+    for (let i = 0; i < 12; i++) {
+      const f = new THREE.CapsuleGeometry(0.12, 0.6, 2, 6); f.rotateX(Math.PI / 2); f.rotateY((rng() - 0.5) * 0.6);
+      f.translate((rng() - 0.5) * 1.2, y + 1.08, 52 + i * 2.4);
+      S(detail, f, [0x7fb4d8, 0xd87fa0, 0xc8c8d8][i % 3]);
+    }
+    for (const s of [1, -1]) {
+      for (let z = 50; z <= 80; z += 6) {
+        S(solid, boxG(3, 1.2, 4, s * 11.5, y + 0.6, z), PAINT.pot); // bins
+        S(solid, boxG(2.7, 0.1, 3.7, s * 11.5, y + 1.22, z), 0xcfe0ea); // iced over
+        wall(s * 11.5 - 1.5, s * 11.5 + 1.5, z - 2, z + 2, y, y + 1.25);
+      }
+      for (let z = 53; z <= 79; z += 6.5) {
+        S(solid, boxG(2.4, 0.95, 1.4, s * 5.2, y + 0.47, z), 0x8a9098); // gutting tables
+        wall(s * 5.2 - 1.2, s * 5.2 + 1.2, z - 0.7, z + 0.7, y, y + 0.95);
+      }
+      // deckhead pipes and a hook rail
+      const pp = new THREE.CylinderGeometry(0.2, 0.2, 38, 6); pp.rotateX(Math.PI / 2); pp.translate(s * 14.6, top - 0.5, 64);
+      S(detail, pp, PAINT.pipe);
+      S(detail, boxG(0.12, 0.12, 34, s * 8.2, top - 0.2, 64), PAINT.trim);
+      for (let z = 49; z <= 80; z += 2.2) S(detail, boxG(0.05, 0.7, 0.05, s * 8.2, top - 0.6, z), PAINT.trim);
+    }
+    for (let z = 49; z <= 80; z += 6.2) S(glow, boxG(0.5, 0.1, 2.4, 0, top - 0.12, z), PAINT.flood);
+    for (const [bx, bz] of [[-13.5, 82], [13.5, 82]]) {
+      S(solid, cylG(1.3, 1.3, 3.4, bx, y + 1.7, bz, 12), 0x3f5a6a); // brine tanks
+      wall(bx - 1.2, bx + 1.2, bz - 1.2, bz + 1.2, y, y + 3.4);
+    }
+  }
+
   // ======================= MERGE ============================================
   const bulkMat = makeBulkheadMaterial();
   const deckMat = makeDeckMaterial();
@@ -1074,6 +1225,17 @@ export function createReachShip(planet, def) {
   padLight.position.set(0, H.FLIGHT + 16, -100);
   hull.add(workLight, padLight);
 
+  // One light for whichever room you are standing in.
+  const ROOMS = [
+    { x0: -18, x1: 18, z0: -58, z1: -14, y0: H.MAIN - 0.5, y1: H.T2 - 0.6, lx: 0, ly: H.T2 - 1.2, lz: -36, c: 0xffc890, i: 420 },
+    { x0: -14, x1: 14, z0: -54, z1: -22, y0: H.T2 - 0.5, y1: H.T3 - 0.6, lx: 0, ly: H.T3 - 1.2, lz: -38, c: 0xffd0a0, i: 360 },
+    { x0: -12, x1: 12, z0: -34, z1: -22, y0: H.T3 - 0.5, y1: H.ROOF, lx: 0, ly: H.ROOF - 1, lz: -28, c: 0xff9a78, i: 200 },
+    { x0: -16, x1: 16, z0: 30, z1: 84, y0: H.LOWER - 0.5, y1: H.MAIN - 0.3, lx: 0, ly: H.MAIN - 1.2, lz: 62, c: 0xe8f0ff, i: 380 },
+  ];
+  const roomLight = new THREE.PointLight(0xffc890, 0, 70, 1.4);
+  roomLight.visible = false;
+  hull.add(roomLight);
+
   // radar scanner
   const radar = new THREE.Mesh(tint(boxG(5.2, 0.5, 0.5, 0, 0, 0), PAINT.white), bulkMat);
   radar.position.set(0, H.ROOF + 0.5 + 10.3, -29);
@@ -1115,6 +1277,7 @@ export function createReachShip(planet, def) {
     glowMesh.visible = false;
     workLight.visible = false;
     padLight.visible = false;
+    roomLight.visible = false;
     tube.group.visible = false;
     detailGroup.visible = true;
   }
@@ -1140,6 +1303,19 @@ export function createReachShip(planet, def) {
     const lit = d < 900;
     workLight.visible = lit;
     padLight.visible = lit;
+    // the room light follows the camera indoors
+    _camL.applyMatrix4(hullInv);
+    let room = null;
+    for (let i = 0; i < ROOMS.length; i++) {
+      const r = ROOMS[i];
+      if (_camL.x > r.x0 && _camL.x < r.x1 && _camL.z > r.z0 && _camL.z < r.z1 && _camL.y > r.y0 && _camL.y < r.y1 + 2.5) { room = r; break; }
+    }
+    roomLight.visible = !!room;
+    if (room) {
+      roomLight.position.set(room.lx, room.ly, room.lz);
+      roomLight.color.setHex(room.c);
+      roomLight.intensity = room.i;
+    }
   }
 
   // The pad, as offsets from the PLANET CENTRE in world axes (the contract the
@@ -1272,6 +1448,20 @@ export function createReachShip(planet, def) {
     deckMat, bulkMat, glowMat, seabedYAt: walkFloorYAt,
   });
   const _top = new THREE.Vector3();
+  // The arms locker in the market: Neptunia's plasma launcher, which used to
+  // sit in a warzone crate here (world/warzone.js) before the town went to sea.
+  tube.addEntity({
+    kind: 'locker', pos: new THREE.Vector2(0, -53.8), y: H.MAIN, reach: 3,
+    get prompt() { return ownedWeapons().includes('plasma') ? '' : 'E — TAKE THE PLASMA LAUNCHER'; },
+    use() {
+      if (ownedWeapons().includes('plasma')) return null;
+      grantWeapon('plasma');
+      return {
+        speaker: { name: 'ARMS LOCKER', species: 'Indigo Reach', cityId: 'Indigo Reach' },
+        lines: ['SUNSPOT PLASMA LAUNCHER — signed out to you.', 'It lobs a shell that leaves the ground burning. Not for use aboard.'],
+      };
+    },
+  });
 
   const ship = {
     tube, wreck,

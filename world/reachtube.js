@@ -335,6 +335,7 @@ export function createReachTube(kit) {
     lines: ['LIFT SEALED — BY ORDER OF THE GOVERNOR.', 'Descent requires her authority. Ask on the bridge.'],
   };
   let detonated = false;
+  const extras = [];
   const unlocked = () => questStage(CHARGE_QUEST) === 'go';
 
   const module = {
@@ -345,6 +346,16 @@ export function createReachTube(kit) {
       ents.cab.y = state.cabY;
       ents.callTop.y = state.topY;
       let best = null, bestD2 = Infinity;
+      // other fixtures the ship hangs on this module (addEntity): hull-frame,
+      // close enough to anchor-frame for a three-unit reach
+      for (let i = 0; i < extras.length; i++) {
+        const e = extras[i];
+        if (Math.abs(e.y - p.y) > 2.5 || !e.prompt) continue;
+        const dx = e.pos.x - p.x, dz = e.pos.y - p.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < e.reach * e.reach && d2 < bestD2) { best = e; bestD2 = d2; }
+      }
+      if (best) return best;
       for (const k in ents) {
         const e = ents[k];
         if (Math.abs(e.y - p.y) > 2.5) continue;
@@ -367,6 +378,7 @@ export function createReachTube(kit) {
       return best;
     },
     interact(e) {
+      if (e.use) return e.use();
       if (e.kind === 'cab') {
         if (state.mode === 'top') {
           if (!unlocked()) return LOCKED;
@@ -635,6 +647,7 @@ export function createReachTube(kit) {
     group, structure, module, state, isDry, update, setTopY, habY, ceilY,
     axis: { x: AX, z: AZ },
     spots: { cab: { x: AX, z: AZ }, hall: { x: AX + 6, z: AZ + 6 }, console: { x: CONSOLE.x, z: CONSOLE.z - 1.6 }, charge: CHARGE },
+    addEntity(e) { extras.push(e); },
     consumeDetonation() {
       if (!detonated) return false;
       detonated = false;

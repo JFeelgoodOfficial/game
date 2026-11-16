@@ -882,6 +882,7 @@ if (import.meta.env.DEV) {
       debug.paused = true;
       snapCamera(ship);
     },
+    reachQuest(id, stage) { setQuestStage(id, stage); return questStage(id); },
     reachCharge(stage) { setQuestStage(CHARGE_QUEST, stage); return questStage(CHARGE_QUEST); },
     reachPlace(x, y, z) {
       const a = reachShip.anchor;
