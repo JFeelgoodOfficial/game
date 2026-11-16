@@ -398,9 +398,9 @@ already at `done` plays this the next time it is in space, unheld.
 **The capital** (`world/capital.js`) comes up on the strike point at 160: a deck
 on a pylon 280 units over the datum, clear of the towers. Landing pad, plaza,
 a command station on a raised dais, a navigation deck with a chart of the
-system. `game.js` docks on it with the Sky City's code, now written against a
-dock target (`skyDock` / `capDock`): enter Terra's shell at stage `ship` and
-the capital takes the helm. `src/capitalWalk.js` is the Sky City walker reduced
+system. `game.js` docks on it as a third entry in `DOCKS`, beside the Sky City
+and the Indigo Reach: enter Terra's shell at stage `ship` and the capital takes
+the helm. `src/capitalWalk.js` is the Sky City walker reduced
 to walking; it cannot leave the deck. Nine robots stand there (tall, green, one
 eye bar; every head follows the player). The Warden says the ship's navigation
 log has been copied and the world needs a planet with water; the navigation
@@ -551,3 +551,17 @@ A gift world. Not a planet: a coin 1,200 units across, tumbling in open space (`
 - **The terrarium** (`src/terrarium.js`): a tank in the stern lounge showing every specimen brought home. E at the glass opens a close-up.
 
 The full plan and the as-built notes are in `plans/planet-stevenlacey.md`.
+
+### 5.10 The Indigo Reach and the charge (Neptunia — owner exception to 5.6, 5.7 and 2.1)
+
+Neptunia is no longer a palette-and-threshold terra world. At the owner's request it is an all-ocean storm world whose only settlement is a ship, and it can be destroyed. Four exceptions are recorded here so nobody "fixes" them back.
+
+- **A bespoke structure.** `world/reachship.js` builds the Indigo Reach, a 260 u steel factory ship, at boot (like the Sky City, it is seen long before it is walked). It is not a `createCity` layout: it answers the same contract (`asCity`), so the stock on-foot path runs on it — isolation, the real sky, diamond rain, swimming, citizens, the governor's quest. Registry entries with `host: 'reachShip'` and `noFlatten: true` take this route.
+- **Displaced water.** Everywhere else the sea is a smooth sphere with shaded waves (5.6). Around the ship, `world/seapatch.js` swaps a 600 u disc of it for Gerstner geometry, with a CPU mirror the hull, swimmers and the camera ride. This is the one place the game displaces water; `seaStorm` roughens the rest of Neptunia's sea in the shader only. The wave table lives in one JS array and is generated into both shaders.
+- **Landing.** Neptunia is `noLand`. The ship captures and auto-lands you exactly as the Sky City does (5.8): `src/game.js` drives a list of docks through one capture/arc/descent/liftoff routine. The Reach's dock freezes the planet's spin for the approach and follows the heaving pad for the last of the descent.
+- **A world that can break.** After the wonder tour the governor offers a second errand (registry `charge`): ride the riser lift (`world/reachtube.js`) to the seabed and arm a charge. Arming it detonates it. The run ends as a death, and Neptunia is left as half a planet with its other half a debris field (`world/shatter.js`), the ship adrift and dark in it. This is permanent for the save (journal quest `neptunia-charge` = `blown`, re-applied at boot). The cut is one function of direction shared by `shatter.js` and the `shattered()` helper in `surface.frag`, `water.frag` and `cloud.frag`; change one and you must change all four.
+
+Neptunia left `WARZONE_WORLDS`: the arena assumes a flat town disc. Its plasma launcher sits in an arms locker in the ship's market.
+
+Not yet measured: frame rate on the Iris Xe reference machine (2.1). Everything was checked under headless software GL only.
+

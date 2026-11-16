@@ -119,7 +119,7 @@ Screenshots at `quality.set('high')` take 30-60 s each under SwiftShader at
 1280x720 — use a 960x540 viewport and a long `page.setDefaultTimeout`. Do not
 edit source while a headless run is in flight: Vite's reload drops `__debug`.
 
-## Warzone (towns on terra / rustia / neptunia / wyattmattoe)
+## Warzone (towns on terra / rustia / wyattmattoe)
 The combat loop runs at render rate, not in `stepWalk`: drive it with
 `__debug.walkFrames(n, dt = 1/30)` (each frame also runs two physics ticks).
 `walkSite().warzone` exposes `debug()` → `{wave, phase, queue, enemies[{type,
@@ -261,6 +261,37 @@ The terrarium: `__debug.interior.stand()`, then
 `interior.place(-2.4, 1.5 + C.FREIGHTER_VEST_L + C.FREIGHTER_HALL_L + 2.0, Math.PI / 2)`;
 `interior.nearTank()` and `interior.tankView()` report the prompt and the close-up. Seed
 `localStorage['fgsf.inventory'] = '{"specimens":["sprout","puddle"]}'` before load to fill it.
+
+## Indigo Reach (Neptunia)
+Neptunia is all ocean and `noLand`; `walkHere()` does nothing there. The ship
+(`__debug.reachShip`, world/reachship.js) is built at boot. Its ANCHOR frame is
+static (+Z the bow, y = 0 the still sea, origin amidships); the hull rides the
+swell inside it (`reachShip.pose` → `{heave, pitch, roll}`).
+
+- `reachView(dist, height, bearing, sunny = true)` parks the camera looking at
+  the ship and pauses. It freezes the planet's spin; `paused = false` to resume.
+- `reachApproach(side = 0 | 1, speed)` → capture next tick → wait on
+  `reachState().landState === 'auto'` then `'landed'`. `reachDock()` skips the
+  flight. Key `g` steps out (an ordinary town walk: `walkSite().city` is the
+  ship), `g` near the freighter boards back onto the pad, `w` lifts off.
+  `reachState()` → `{landState, skyLanding, armed, dock, phase, frozen}`.
+- `reachStepOut()` goes straight onto the flight deck. `reachPlace(x, y, z)`
+  teleports the walker to an anchor-frame point. Decks: flight 13 (pad at
+  0, -100), main 10, mess 15, bridge 20, hold 5. Governor: (0, 20, -26) —
+  stand within 3.2 to get `E — TALK`.
+- `reachSea` is the wave patch: `scale` (0 off .. 1), `waveAt(x, z, time)` is
+  the sea height the walker swims on. Swimmers must read `swimming: true` about
+  0.55 under that height.
+- The charge: `reachQuest('neptunia-indigo', 'done')` finishes the tour,
+  `reachCharge('go')` unseals the lift, `reachCharge()` clears it.
+  `reachShip.tube` → `{state: {mode, cabY}, habY, spots, module}`; mode is
+  `top | down | bottom | up`, stepped from stepWalk, about 24 s each way.
+  `reachBlow()` presses the arm button: wait on `shatter.active`, the phase
+  goes `explode` then the death menu. `shatterView(distR, az, lift)` frames
+  both halves. The state persists in `localStorage` (journal quests): always
+  finish a run with `reachCharge()` so the next boot is not already broken.
+- After touching src/shaders/{surface,water,cloud}.frag re-run the Sky City
+  steps and walk a Terra town: all planets share those shaders.
 
 ## Tenretni (the governor's secret)
 `__debug.tenretni` → `{loaded, load(), arrive(), start(), seek(u), state()}`.

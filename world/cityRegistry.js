@@ -14,6 +14,13 @@
 // completing the tour awards one of the four vehicles (plane, motorcycle,
 // jetpack, hang glider) into the player's persistent inventory.
 //
+// Hosted towns: an entry with `host` is not a createCity layout at all. Its
+// town lives on a permanent structure built at boot that answers the same
+// contract (neptunia: `host: 'reachShip'`, the factory ship in
+// world/reachship.js — its `pad` is the ship's flight deck). Such entries set
+// `noFlatten` (src/cityflatten.js must not bake an island under them) and may
+// carry `charge`, a second governor errand offered once the tour is done.
+//
 // Conventions (the same frame contract as world/wonders.js):
 //   - `site` is a unit direction in planet.surface's UNROTATED local frame.
 //     Sites were chosen offline against src/terrain.js (deterministic, exact
@@ -169,18 +176,24 @@ export const CITIES = [
     world: 'neptunia',
     id: 'neptunia-indigo',
     name: 'Indigo Reach',
-    site: V(-0.366274, -0.874225, -0.318707),
+    // Over an even abyssal plain 205 u down (scripts/probe-pads.mjs): the
+    // ship's tube runs the whole way to the seabed here.
+    site: V(-0.933589, -0.142217, 0.328917),
+    noFlatten: true, // all-ocean world: nothing to level, and levelling would bake an island
+    host: 'reachShip', // the town IS the factory ship (world/reachship.js), not a createCity layout
     style: 'abyssGlow',
     radius: 150,
     seed: 0xea404c7a,
-    pad: { x: -179, z: -14 }, // probed dry (scripts/probe-pads.mjs)
+    pad: { x: 0, z: -100 }, // the flight deck over the stern (reachship.js HULL.PAD)
     voice: 'tide',
     wonders: [
-      { type: 'leviathan', title: 'Ribs of the Sound-Leviathan', bearing: 0.39, dist: 360, seed: 0x1111a00a },
+      // Both stand in the open sea off the ship now: a swim (or, later, a
+      // jetpack hop) from the boarding ladders.
+      { type: 'leviathan', title: 'Ribs of the Sound-Leviathan', bearing: 0.39, dist: 210, seed: 0x1111a00a },
       // Inherited from Diamondwake when the resort folded into the Reach.
-      { type: 'diamondveil', title: 'The Diamond Veil', bearing: 1.36, dist: 500, seed: 0x1111a00b },
+      { type: 'diamondveil', title: 'The Diamond Veil', bearing: 3.6, dist: 250, seed: 0x1111a00b },
     ],
-    flavor: 'A trench-research port pressed against the abyss — sonar chimes roll through the streets like bells.',
+    flavor: 'A factory ship under way on the abyss, a derrick amidships and a riser to the floor — sonar chimes roll down her decks like bells.',
     quest: {
       reward: 'jetpack',
       offer: [
@@ -194,6 +207,26 @@ export const CITIES = [
       remind: 'The survey’s half-filed. The beacon carries the next station’s ping.',
       complete: 'Readings received. The expedition pack is yours — trench thermals will hold you like water.',
       thanks: 'The Reach logs your altitude with some envy, surveyor.',
+    },
+    // The governor's second errand, offered once the survey is filed
+    // (src/walk.js governorInteract; world/reachtube.js holds the lift and the
+    // console). Quest id 'neptunia-charge': undefined -> 'go' -> 'blown'.
+    charge: {
+      offer: [
+        'You filed the survey, so I will tell you what the survey was for.',
+        'The Reach does not fish. The riser amidships runs two hundred fathoms to the floor, and at its foot we have seated a charge in the bedrock.',
+        'It will open the crust and let the deep out. That is this ship’s whole errand, and it wants one thing more: a hand to arm it.',
+        'Ride the lift down. Find the charge. Arm it for detonation, then come back up and tell me it is ready. We fire from the bridge, once you are clear.',
+      ],
+      prompt: 'Go down the riser?',
+      accept: 'I’ll arm it.',
+      decline: 'Not yet.',
+      go: [
+        'The lift is unsealed for you. Midships, under the derrick.',
+        'You will have company on the way down. The glass is thick. Look as long as you like.',
+      ],
+      remind: 'The charge is not armed until you arm it. The lift waits under the derrick. Come and tell me when it is ready.',
+      objective: 'RIDE THE RISER DOWN — ARM THE CHARGE — REPORT TO THE GOVERNOR',
     },
     citizens: [
       { name: 'Madame Ossva', role: 'governor', dialogue: 'governor', home: 'penthouse' },

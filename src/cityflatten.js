@@ -63,7 +63,7 @@ function makeLeveller(discs, radius) {
 export function initCityFlatten(planets) {
   for (const p of planets) {
     if (p.cfg.type !== 'terra' || !p.body) continue;
-    const defs = CITIES.filter((c) => c.world === p.cfg.name);
+    const defs = CITIES.filter((c) => c.world === p.cfg.name && !c.noFlatten);
     if (defs.length === 0) continue;
 
     const cfg = p.cfg;

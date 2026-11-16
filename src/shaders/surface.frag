@@ -92,7 +92,20 @@ float elevation(vec3 p, int oct) {
   return e;
 }
 
+// A shattered world (world/shatter.js): directions past the cut are gone.
+// Mirrors shatter.js `gone()` exactly — the rock face is built to this rim.
+uniform vec4 uShatterN;  // xyz blast axis (object space), w cos of the cut; w > 1.5 = whole
+uniform vec3 uShatterT1; // tangent pair about the axis, for the azimuth
+uniform vec3 uShatterT2;
+bool shattered(vec3 dir) {
+  if (uShatterN.w > 1.5) return false;
+  float phi = atan(dot(dir, uShatterT2), dot(dir, uShatterT1));
+  float jag = 0.07 * sin(3.0 * phi + 1.1) + 0.05 * sin(7.0 * phi + 4.0) + 0.035 * sin(13.0 * phi + 2.2) + 0.02 * sin(23.0 * phi + 0.7);
+  return dot(dir, uShatterN.xyz) > uShatterN.w + jag;
+}
+
 void main() {
+  if (shattered(normalize(vObjPos))) discard;
   vec3 p = normalize(vObjPos);
   float boreD = dot(p, uBore.xyz);
   if (boreD > uBore.w) discard; // the hollow: the shell and core behind show through
