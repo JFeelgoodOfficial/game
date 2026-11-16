@@ -155,7 +155,10 @@ export const CITIES = [
     world: 'neptunia',
     id: 'neptunia-indigo',
     name: 'Indigo Reach',
-    site: V(-0.366274, -0.874225, -0.318707),
+    // Over an even abyssal plain 205 u down (scripts/probe-pads.mjs): the
+    // ship's tube runs the whole way to the seabed here.
+    site: V(-0.933589, -0.142217, 0.328917),
+    noFlatten: true, // all-ocean world: nothing to level, and levelling would bake an island
     style: 'abyssGlow',
     radius: 150,
     seed: 0xea404c7a,

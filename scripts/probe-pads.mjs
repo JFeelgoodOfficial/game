@@ -26,7 +26,7 @@ import { CITIES } from '../world/cityRegistry.js';
 const PLANETS = {
   terra: { radius: 1000, seaLevel: 0.48, amp: 220, shape: { ridge: 0.45, ridgeFreq: 3.1, valley: 0.1 }, deepAmp: 0, water: true, frozen: false },
   rustia: { radius: 800, seaLevel: 0.02, amp: 60, shape: DEFAULT_SHAPE, deepAmp: 0, water: false, frozen: false },
-  neptunia: { radius: 1400, seaLevel: 0.68, amp: 95, shape: { ridge: 0.34, ridgeFreq: 3.5, valley: 0.05 }, deepAmp: 70, water: true, frozen: false },
+  neptunia: { radius: 1400, seaLevel: 1.0, amp: 95, shape: { ridge: 0.34, ridgeFreq: 3.5, valley: 0.05 }, deepAmp: 260, water: true, frozen: false },
   wyattmattoe: { radius: 1050, seaLevel: 0.42, amp: 280, shape: { ridge: 0.58, ridgeFreq: 2.7, valley: 0.18 }, deepAmp: 0, water: true, frozen: true },
   'wavemall prime': { radius: 950, seaLevel: 0.02, amp: 14, shape: DEFAULT_SHAPE, deepAmp: 0, water: false, frozen: false },
 };

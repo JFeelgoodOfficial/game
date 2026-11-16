@@ -51,7 +51,10 @@ import * as sfx from './warzone-audio.js';
 
 // The worlds whose registry city is a warzone. Kept explicit (not "any world
 // with a city") so a future peaceful town is opt-out by default.
-export const WARZONE_WORLDS = new Set(['terra', 'rustia', 'neptunia', 'wyattmattoe']);
+// Neptunia left the list when it became an all-ocean world: its town is a
+// multi-level ship (world/reachship.js), and the arena here assumes a flat
+// town disc. Its plasma launcher crate sits in the ship's market instead.
+export const WARZONE_WORLDS = new Set(['terra', 'rustia', 'wyattmattoe']);
 
 const Z = {
   GRACE: 7, // seconds after landfall before the first wave moves
