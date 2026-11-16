@@ -447,6 +447,21 @@ export const C = {
   AUTOLAND_ALTITUDE: 300.0, // max altitude above the floor to start auto-land
   AUTOLAND_SPEED: 200.0, // max ship speed to start auto-land
   TAKEOFF_KICK: 8.0, // upward velocity handed back on liftoff from a landing
+  // Tenretni: the governor's secret (src/tenretni.js). The patio viewpoint
+  // off terra, the sizes of what arrives there, and the length of the event.
+  TENRETNI_DURATION: 90.0, // seconds, wormhole opening to the sphere leaving
+  TENRETNI_VIEW_DIST: 2600.0, // viewpoint distance from terra's centre
+  TENRETNI_HALF_ANGLE: 0.7, // rad: sun this far left, terra this far right of the aft view
+  TENRETNI_GLIDE_TIME: 5.0, // seconds the ship takes to settle at the viewpoint
+  TENRETNI_WORM_DIST: 6500.0, // wormhole distance out along the aft view
+  TENRETNI_WORM_RADIUS: 3400.0,
+  TENRETNI_WORM_REST: 0.55, // wormhole scale once the sphere has gone
+  TENRETNI_SPHERE_DIST: 4600.0, // where the sphere parks
+  TENRETNI_SPHERE_RADIUS: 900.0,
+  TENRETNI_TUNNEL_RADIUS: 190.0,
+  TENRETNI_CITY_SPAN: 0.3, // rad: angular radius of the city on terra
+  TENRETNI_STRIKE_BIAS: 0.55, // 0 strikes terra facing the sphere, 1 facing the patio
+  TENRETNI_HDR: 1.5, // emissive scale of the lights, beams and swarm
 };
 
 // --- quality tiers (src/quality.js) ---

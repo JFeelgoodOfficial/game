@@ -370,6 +370,10 @@ function makeSurfaceUniforms(cfg, radius) {
     uCloudShadow: { value: 0 },
     uTime: { value: 0 },
     uCover: { value: cfg.cloudCover ?? C.CLOUD_COVER },
+    // Tenretni: strike direction (object space) + how far the sea has drained.
+    uDrain: { value: new THREE.Vector4(0, 1, 0, 0) },
+    uTech: { value: new THREE.Vector2(0, 0.95) },
+    uBore: { value: new THREE.Vector4(0, 1, 0, 1) },
   };
 }
 
@@ -448,6 +452,7 @@ export function initPlanets(scene) {
             uTime: { value: 0 },
             uCover: { value: cfg.cloudCover ?? C.CLOUD_COVER },
             uStorm: { value: cfg.storm ?? 0 },
+            uFade: { value: 1 },
           },
           transparent: true,
           depthWrite: false,
@@ -760,7 +765,8 @@ export function updatePlanets(t, camPos, only = null) {
         p.spinPhase = (p.spinning[0]?.rotation.y ?? 0) - t * spin;
         p.spinNeedsResync = false;
       }
-      const ang = t * spin + (p.spinPhase || 0);
+      // spinLock: a world that has stopped turning for good (the worldship)
+      const ang = p.spinLock ?? t * spin + (p.spinPhase || 0);
       for (const m of p.spinning) m.rotation.y = ang;
       p.spinVirtualY = ang;
       // Once the planet is turning again the swing has to go: seen from space
@@ -801,7 +807,9 @@ export function updatePlanets(t, camPos, only = null) {
         // From far out the sea mesh fades away and the surface shader draws
         // the ocean itself, shelf gradient and all; the two surfaces sit 1.5
         // units apart, which the depth buffer cannot separate at that range.
-        const fade = 1 - Math.min(Math.max((distR - C.WATER_FADE_NEAR) / (C.WATER_FADE_FAR - C.WATER_FADE_NEAR), 0), 1);
+        const fade =
+          (1 - Math.min(Math.max((distR - C.WATER_FADE_NEAR) / (C.WATER_FADE_FAR - C.WATER_FADE_NEAR), 0), 1)) *
+          (1 - (p.drain || 0));
         const wm = p.waterMesh.material;
         wm.uniforms.uTime.value = t;
         wm.uniforms.uFade.value = fade;
@@ -812,6 +820,70 @@ export function updatePlanets(t, camPos, only = null) {
       p.surface.material.uniforms.uTime.value = t;
     }
   }
+}
+
+// Tenretni (src/tenretni.js) drains a world: k 0..1, `dir` the strike point in
+// the surface mesh's own (unrotated) frame. The surface shader bakes the sea
+// floor dry outward from there; the sea mesh and the weather thin to nothing;
+// the air goes from blue to dust. At k = 1 the world also stops taking
+// landings (`noLand`, read by walk.js nearestTerraFloor). Reversible: k = 0
+// puts everything back, which a mid-event reset relies on.
+const DUST_AIR = new THREE.Color(0xb08a5e);
+const _airCol = new THREE.Color();
+// `tech` 0..1 is how much of the city at the strike point is built, `span` its
+// angular radius (rad).
+export function setPlanetDrain(name, k, dir, tech = 0, span = 0.3) {
+  const p = planets.find((q) => q.cfg.name === name);
+  if (!p || p.cfg.type !== 'terra') return;
+  p.drain = k;
+  p.surface.material.uniforms.uTech.value.set(tech, Math.cos(span));
+  const d = p.surface.material.uniforms.uDrain.value;
+  if (dir) d.set(dir.x, dir.y, dir.z, k);
+  else d.w = k;
+  if (p.clouds) {
+    p.clouds.material.uniforms.uFade.value = 1 - k;
+    p.clouds.visible = k < 0.995;
+  }
+  // air: both shells, whichever the tier has in use
+  if (p.airBase === undefined) p.airBase = new THREE.Color(p.cfg.atmoColor);
+  _airCol.copy(p.airBase).lerp(DUST_AIR, k);
+  const a = p.atmosphere.userData;
+  a.limbMat.uniforms.uColor.value.copy(_airCol);
+  const m = Math.max(_airCol.r, _airCol.g, _airCol.b, 1e-3);
+  const s = C.ATMO_TAU / C.ATMO_SCALE_HEIGHT / m;
+  a.scatterMat.uniforms.uBeta.value.set(_airCol.r * s, _airCol.g * s, _airCol.b * s);
+  if (p.noLandBase === undefined) p.noLandBase = !!p.cfg.noLand;
+  p.cfg.noLand = p.noLandBase || k >= 1;
+}
+
+// The last of it (src/tenretni.js): the drained world becomes a vessel. `air`
+// 1..0 thins the air shell to nothing (call AFTER setPlanetDrain, which sets
+// the shell's colour); `bore` is the axis of the opening cut to the core in
+// the surface mesh's frame and `boreCos` the cosine of its half-angle (1 =
+// closed). With the air gone the approach fog goes dark instead of sky-blue.
+export function setPlanetShip(name, air, bore, boreCos) {
+  const p = planets.find((q) => q.cfg.name === name);
+  if (!p || p.cfg.type !== 'terra') return;
+  const u = p.surface.material.uniforms.uBore.value;
+  if (bore) u.set(bore.x, bore.y, bore.z, boreCos);
+  else u.w = 1;
+  const a = p.atmosphere.userData;
+  a.limbMat.uniforms.uColor.value.multiplyScalar(air);
+  a.scatterMat.uniforms.uBeta.value.multiplyScalar(air);
+  p.atmosphere.visible = air > 0.02;
+  if (p.skyBase === undefined) p.skyBase = p.cfg.skyColor;
+  p.cfg.skyColor = air < 0.5 ? DARK_SKY : p.skyBase;
+}
+const DARK_SKY = () => 0x040806;
+
+// A fully drained world within `maxAlt` of `pos`, or null (the G key's reason
+// for doing nothing over it).
+export function drainedWorldBelow(pos, maxAlt) {
+  for (const p of planets) {
+    if ((p.drain || 0) < 1) continue;
+    if (pos.distanceTo(p.group.position) - p.radius < maxAlt) return p;
+  }
+  return null;
 }
 
 // The planet whose atmosphere the given position is deepest inside (or the

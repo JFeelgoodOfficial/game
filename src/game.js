@@ -48,6 +48,10 @@ import { initHolonav, updateHolonav, isHoloOpen, holonavDebug } from './holonav.
 import { navMenuDebug } from './navmenu.js';
 import { startAutoWarp, stepAutopilot, autopilotActive, cancelAutopilot } from './autopilot.js';
 import {
+  initTenretni, updateTenretni, tenretniHolding, stepTenretniHold, resetTenretni,
+  tenretniFx, tenretniDebug, capitalDock, tenretniSailVelocity,
+} from './tenretniLazy.js';
+import {
   interiorScene,
   initInterior,
   loadInteriorPictures,
@@ -63,6 +67,7 @@ import {
   resetPlayer,
   playerState,
   setPrompt,
+  onPatioDeck,
 } from './interior.js';
 import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
 import {
@@ -82,6 +87,7 @@ import {
   planets,
   setPlanetSpinFrozen,
   SUN,
+  drainedWorldBelow,
 } from './planet.js';
 import { initCityFlatten } from './cityflatten.js';
 import {
@@ -110,6 +116,8 @@ import {
   enterSkyWalk,
   skyActive,
   skyFell,
+  enterCapitalWalk,
+  capitalActive,
   enterCoinWalk,
   coinActive,
   coinBeginLeave,
@@ -253,6 +261,7 @@ initArtView();
 initTerrariumView();
 initSfx();
 initJournal();
+initTenretni({ scene, planets, camera }); // the governor's secret; reads the journal
 // A save in which the charge already went off: Neptunia stays broken.
 if (questStage(CHARGE_QUEST) === 'blown') shatter.apply();
 initInventory();
@@ -547,14 +556,28 @@ if (import.meta.env.DEV) {
       skyPadPose();
       const d = _skyPad.clone().normalize().multiplyScalar(side ? -1 : 1);
       if (!side) d.applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.5);
-      ship.position.copy(saturnia.body.position).addScaledVector(d, skyShellRadius() + 150);
+      ship.position.copy(saturnia.body.position).addScaledVector(d, skyShellRadius(DOCKS[0]) + 150);
       ship.velocity.copy(d).multiplyScalar(-speed);
       DOCKS[0].armed = true;
       landState = null;
       skyLanding = false;
     },
     skyDock() {
-      setOnSkyPad();
+      setOnSkyPad(DOCKS[0]);
+    },
+    // The worldship's capital (src/tenretni.js): park on its pad / step out.
+    capitalDock() {
+      if (!capitalDock()) return false;
+      setOnSkyPad(CAPITAL_DOCK);
+      return true;
+    },
+    capitalStepOut() {
+      if (!capitalDock() || !enterCapitalWalk(capitalDock())) return false;
+      landState = null;
+      landedPlanet = null;
+      skyLanding = false;
+      phase = 'walk';
+      return true;
     },
     skyStepOut() {
       if (!enterSkyWalk(skyCity)) return false;
@@ -660,6 +683,7 @@ if (import.meta.env.DEV) {
       trackTitles,
     },
     navState,
+    tenretni: tenretniDebug(),
     cockpit: cockpitDebug(),
     holo: holonavDebug(),
     navMenu: navMenuDebug(),
@@ -1242,7 +1266,30 @@ const DOCKS = [
       return true;
     },
   },
+  {
+    // The capital of the worldship terra becomes (src/tenretni.js,
+    // world/capital.js). It does not exist until that story has run —
+    // capitalDock() is null until then, and checkSkyCapture skips it. The
+    // world has stopped turning by then, so nothing needs freezing; and the
+    // platform rides terra's group, so the pose follows it on a voyage.
+    id: 'capital', planet: planets.find((p) => p.cfg.name === 'terra'), armed: false, freeze: false,
+    approach: 'TENRETNI CAPITAL — YOUR HELM IS OURS',
+    welcome: 'TENRETNI CAPITAL — YOU ARE EXPECTED',
+    label: 'AUTO-LANDING · TENRETNI CAPITAL',
+    pose() {
+      const g = capitalDock().group;
+      _skyUp.set(0, 1, 0).applyQuaternion(g.quaternion);
+      _skyPad.copy(capitalDock().pad).applyQuaternion(g.quaternion).add(g.position)
+        .addScaledVector(_skyUp, C.PARK_LIFT);
+      _skyHover.copy(_skyPad).addScaledVector(_skyUp, C.SKY_HOVER);
+      _landUprightQuat.copy(g.quaternion);
+      _skyPadLive.copy(_skyPad);
+      _skyQuatLive.copy(_landUprightQuat);
+    },
+    stepOut: () => enterCapitalWalk(capitalDock()),
+  },
 ];
+const CAPITAL_DOCK = DOCKS[2];
 let dock = DOCKS[0]; // the dock in play while skyLanding is set
 let walkDock = null; // the dock the current walk stepped out of, if it will be boarded back onto its pad
 function skyPadPose() {
@@ -1389,6 +1436,7 @@ function setOnSkyPad(d = DOCKS[0]) {
 function checkSkyCapture() {
   for (const d of DOCKS) {
     if (d.id === 'reach' && shatter.active) continue; // there is no flight deck any more
+    if (d === CAPITAL_DOCK && !capitalDock()) continue; // not built (yet)
     const r = ship.position.distanceTo(d.planet.body.position);
     if (!d.armed) {
       if (r > skyShellRadius(d) + C.SKY_REARM_MARGIN) d.armed = true;
@@ -1810,6 +1858,7 @@ function resetToStart() {
   ship.properAccel.set(0, 0, 0);
   restoreShiftables(); // planets, sun, stations, black hole + origin offset
   cancelAutopilot();
+  resetTenretni(); // an event in progress is dropped; the secret stays armed
   heat = 0;
   burnedBySun = false;
   flash = 0;
@@ -1817,7 +1866,7 @@ function resetToStart() {
   landState = null;
   landedPlanet = null;
   skyLanding = false;
-  for (const d of DOCKS) d.armed = true;
+  for (const d of DOCKS) d.armed = d !== CAPITAL_DOCK;
   walkDock = null;
   chargeT = -1;
   reachShip.tube.reset();
@@ -1984,6 +2033,9 @@ function frame(now) {
     while (accumulator >= DT) {
       if (landState === 'auto') stepAutoLand(DT);
       else if (landState === 'landed') stepLanded(DT, piloted);
+      // Tenretni (src/tenretniLazy.js): the event parks the ship off terra
+      // and holds it there — no thrust, no gravity — until it is over.
+      else if (tenretniHolding()) stepTenretniHold(DT);
       else {
         // nav auto-warp drives the ship (turn + warp) before the normal step;
         // it suppresses player input, so stepShip flies the plotted course
@@ -2086,6 +2138,11 @@ function frame(now) {
           ship.velocity.length() < C.AUTOLAND_SPEED
         ) {
           beginAutoLand(floor);
+        } else {
+          // a drained world (Tenretni) takes no landings; say so rather than
+          // leaving G dead over it
+          const dry = drainedWorldBelow(ship.position, C.AUTOLAND_ALTITUDE * 2);
+          if (dry) showNavToast(`${dry.cfg.name.toUpperCase()} — NO SAFE LANDING`, 4);
         }
       }
     }
@@ -2162,10 +2219,11 @@ function frame(now) {
           } else if (coinActive()) {
             // The world folds up first; coinLeft() above finishes the boarding.
             coinBeginLeave();
-          } else if (skyActive()) {
+          } else if (skyActive() || capitalActive()) {
             // Back into the seat, still parked on the pad: W lifts off.
+            const d = capitalActive() ? CAPITAL_DOCK : DOCKS[0];
             endWalk();
-            setOnSkyPad();
+            setOnSkyPad(d);
             snapCamera(ship);
             phase = 'fly';
             accumulator = 0;
@@ -2274,6 +2332,14 @@ function frame(now) {
       accumulator = 0;
     }
   }
+  // Tenretni's tunnel striking terra: a white flash that fades on its own.
+  if (tenretniFx.flash > 0) {
+    if (phase === 'fly') {
+      flash = Math.max(flash, tenretniFx.flash);
+      flashFade = 1.6;
+    }
+    tenretniFx.flash = 0;
+  }
   // Every other phase: let whatever the last transition left on screen fade.
   if (phase !== 'explode' && phase !== 'ascend' && phase !== 'depart' && skyFallT < 0 && flash > 0) {
     flash = flashFade > 0 ? Math.max(0, flash - delta / flashFade) : 0;
@@ -2335,9 +2401,15 @@ function frame(now) {
     wasWarping = input.warp;
     if (phase === 'fly') trauma = Math.min(trauma + C.WARP_KICK, 1);
   }
+  // Tenretni's jolts land on the same trauma; its rumble is a steady term.
+  if (tenretniFx.kick > 0) {
+    trauma = Math.min(trauma + tenretniFx.kick, 1);
+    tenretniFx.kick = 0;
+  }
   trauma = Math.max(trauma - C.TRAUMA_DECAY * delta, 0);
   const shake =
-    Math.max(heat - 0.5, 0) * 2 + (phase === 'explode' || phase === 'ascend' ? 1.5 : 0) + trauma * trauma * 3;
+    Math.max(heat - 0.5, 0) * 2 + (phase === 'explode' || phase === 'ascend' ? 1.5 : 0) + trauma * trauma * 3 +
+    (phase === 'fly' ? tenretniFx.rumble : 0);
   if (shake > 0 && !paused) {
     const s = shake * 0.02 * MOTION_SCALE;
     camera.position.x += Math.sin(now * 0.093) * s;
@@ -2419,7 +2491,7 @@ function frame(now) {
     // even one left to spin. Skip the pass entirely.
     if (isolated.keep) updatePlanets(now / 1000, camera.position, isolated.keep);
   } else {
-    updateStarfield(camera, Q.pixelRatio, ship.velocity);
+    updateStarfield(camera, Q.pixelRatio, tenretniSailVelocity() || ship.velocity);
     updateSun(now / 1000);
     updateNebula(camera);
     updateDeepNebula(renderer, camera);
@@ -2427,6 +2499,11 @@ function frame(now) {
     updateStations(now / 1000, ship.position);
     skyCity.update(delta, now / 1000, camera.position);
     coin.update(delta);
+    updateTenretni(
+      delta, now / 1000,
+      phase === 'fly' && standing && onPatioDeck(),
+      phase === 'fly' && !paused
+    );
   }
   // On foot (isolated) as much as in flight: the sea keeps running either way.
   reachShip.update(delta, now / 1000, camera.position);
@@ -2438,7 +2515,8 @@ function frame(now) {
   // hologram AFTER updateStations so orbiting stations plot at their live spot;
   // usable only when the pilot is seated, flying, and not already auto-warping
   const holoActive =
-    phase === 'fly' && !paused && !standing && landState === null && !autopilotActive();
+    phase === 'fly' && !paused && !standing && landState === null && !autopilotActive() &&
+    !tenretniHolding();
   updateHolonav(ship, delta, holoActive);
   // First-flight coaching. "Turning" is read off the ship, not the mouse, so
   // it counts touch drags and does not care when input deltas are consumed.

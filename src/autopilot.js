@@ -22,9 +22,10 @@ const _up = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const _target = new THREE.Quaternion();
 
-export function startAutoWarp(body) {
+// `onArrive` (optional) is called once, at the stop — not on a heat abort.
+export function startAutoWarp(body, onArrive = null) {
   if (!body) return;
-  ap = { body, phase: 'align' };
+  ap = { body, phase: 'align', onArrive };
   ship.velocity.set(0, 0, 0); // halt and pivot in place, then warp
 }
 
@@ -85,5 +86,7 @@ export function stepAutopilot(dt, heat) {
 function finish() {
   ship.velocity.set(0, 0, 0);
   input.warp = false;
+  const done = ap?.onArrive;
   ap = null;
+  if (done) done();
 }

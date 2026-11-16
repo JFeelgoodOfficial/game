@@ -354,6 +354,71 @@ Redline Claim is a mining town, and until now nothing in it was a mine. The Embe
 
 **Feel constants worth knowing:** cage speed and shaft depth (`RIDE_SPEED` 13 m/s over `SHAFT_H` 120 m — the ride is the first act; shorter and it is a loading screen, longer and it is a wait); the mine's exposure, bloom threshold and fog (`MINE_*` in `mineWalk.js` — the difference between a cathedral and an orange room is almost entirely these three and the light intensities in `embermine.js`); `PATIO_LEN`.
 
+### 5.7.2 Tenretni: the governor's secret (Rustia → Terra)
+
+Owner addition. Once the patio is fitted, Baron Rynva ends the hand-over with
+"Do you want to know a secret?" (registry `mine.secret`, `src/mineWalk.js`
+`secretOffer`/`secretOutcome`). No closes the panel and he asks again on later
+visits; yes sets the journal stage `tenretni` to `armed`. Only one choice fits
+a dialogue, so while his wonder-tour offer is pending the secret waits behind it.
+
+With the secret armed, choosing Terra in NAV (`engageWarp`, `src/tenretniLazy.js`)
+ends with the ship glided to a fixed viewpoint 2,600 units off Terra and held
+there (`stepTenretniHold` replaces `stepShip`): stern to open space, sun
+`TENRETNI_HALF_ANGLE` to the left, Terra the same to the right. The pilot can
+stand, walk and look, but not fly. Stepping onto the patio deck starts a
+90-second script (`src/tenretni.js`, its own lazy chunk):
+
+| Script time | Beat |
+|---|---|
+| 0–10 | wormhole opens |
+| 12–26 | the machine-world Tenretni comes through |
+| 26–42 | beams; the swarm (one `Points`, 4k/12k/30k by tier) leaves for Terra |
+| 40–56 | the tunnel reaches out and strikes |
+| 57–76 | the sea drains up the tunnel; Terra dries outward from the strike; the city grows there |
+| 74–90 | tunnel breaks (two ring frames stay adrift), Tenretni withdraws, wormhole settles |
+
+Every object is placed by `pose(u)` from the script clock alone, so the debug
+handle can seek and a reload into the finished world is `pose(90)`. Afterwards
+the stage is `done`: Terra is dry (`setPlanetDrain` in `src/planet.js`,
+`uDrain`/`uTech` in `surface.frag`), carries the city at the saved strike point
+(`localStorage['fgsf.tenretni']`), takes no landings (`cfg.noLand`), and the
+wormhole remains. A world reset mid-event drops it and leaves the secret armed.
+Tunables: `C.TENRETNI_*`. Tenretni is an original design, not a copy of any
+existing franchise's ships.
+
+**Act two: the worldship** (script time 90–165, stage `done` → `ship`). The
+script runs straight on. Terra stops turning (`p.spinLock`); the city takes the
+whole surface behind a bright front, with 700 instanced spires (`uTech` span to
+π); a bore opens over the magma core (`uBore` discards the surface inside a
+cone; behind it an inward shell and the core, `tenretniShell.frag` /
+`tenretniCore.frag`); three engines grow opposite the bore and light. A save
+already at `done` plays this the next time it is in space, unheld.
+
+**The capital** (`world/capital.js`) comes up on the strike point at 160: a deck
+on a pylon 280 units over the datum, clear of the towers. Landing pad, plaza,
+a command station on a raised dais, a navigation deck with a chart of the
+system. `game.js` docks on it as a third entry in `DOCKS`, beside the Sky City
+and the Indigo Reach: enter Terra's shell at stage `ship` and the capital takes
+the helm. `src/capitalWalk.js` is the Sky City walker reduced
+to walking; it cannot leave the deck. Nine robots stand there (tall, green, one
+eye bar; every head follows the player). The Warden says the ship's navigation
+log has been copied and the world needs a planet with water; the navigation
+console offers Wyattmattoe or Neptunia.
+
+**The voyage.** Picking one moves Terra's whole group to a standoff beside that
+planet in about 42 s (`startSail`/`stepSail` in `src/tenretni.js`), written
+between live vectors so origin rebases cannot fight it. The walker, parked
+ship, capital and Terra's two stations ride along; the wormhole and the loose
+ring frames stay behind on their own anchor. `terra.sunBase` is refreshed every
+frame. On arrival it holds there; nothing happens to the water planet yet. The
+console then offers the other one. Saved in `fgsf.tenretni` as
+`{city, bore, rotY, at}`; a reload mid-voyage has already arrived, and a world
+reset re-parks it.
+
+Not built: draining the destination, steering the world by hand, building
+interiors, flying into the bore or the wormhole.
+
 ### 5.8 The Sky City (Saturnia)
 
 Saturnia has no surface, so it gets a place instead: a floating city 320 units

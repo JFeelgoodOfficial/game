@@ -80,6 +80,10 @@ export { enterCottageWalk, cottageActive, exitCottageWalk } from './cottageWalk.
 // flat walker, dispatched to from every public function below.
 import * as skyWalk from './skyWalk.js';
 export { enterSkyWalk, skyActive, skyFell } from './skyWalk.js';
+// The worldship's capital (src/capitalWalk.js, world/capital.js): one more
+// flat walker on a platform hung off a planet, dispatched the same way.
+import * as capitalWalk from './capitalWalk.js';
+export { enterCapitalWalk, capitalActive } from './capitalWalk.js';
 // stevenlacey, the coin world: the 2D walker (src/coinWalk.js).
 import * as coinWalk from './coinWalk.js';
 export { enterCoinWalk, coinActive, coinBeginLeave, coinLeft } from './coinWalk.js';
@@ -263,7 +267,7 @@ function setObjective(target) {
 export function walkObjective() {
   // Nothing is asked of you in the cottage — a quest line left over from the
   // last town would be exactly the wrong thing to read there.
-  if (cottageWalk.cottageActive() || skyWalk.skyActive() || coinWalk.coinActive() || sub) return null;
+  if (cottageWalk.cottageActive() || skyWalk.skyActive() || capitalWalk.capitalActive() || coinWalk.coinActive() || sub) return null;
   return objectiveText;
 }
 const TALK_DIST_CROWD = 2.6; // ~ aliens talkTriggerDist
@@ -331,6 +335,7 @@ export function initWalk(scene) {
   scene.add(astronaut.group);
   cottageWalk.initCottageWalk(astronaut, scene); // and so does the cottage one
   skyWalk.initSkyWalk(astronaut); // and the Sky City's
+  capitalWalk.initCapitalWalk(astronaut); // and the worldship capital's
   mineWalk.initMineWalk(astronaut, scene); // and the mine's
 }
 
@@ -940,6 +945,7 @@ export function exitWalk(camera) {
   // The cottage's exit is a phase transition (white flash -> resetToStart), so
   // game.js owns it. Here we only tear the world down.
   if (cottageWalk.cottageActive()) return cottageWalk.exitCottageWalk();
+  if (capitalWalk.capitalActive()) return capitalWalk.exitCapitalWalk();
   if (skyWalk.skyActive()) return skyWalk.exitSkyWalk();
   if (coinWalk.coinActive()) return coinWalk.exitCoinWalk(camera);
   // Torn down while underground (reset, menu, debug exit): surface first —
@@ -1085,6 +1091,7 @@ export function exitWalk(camera) {
 // T — switch first/third person on foot. Persists as the new preference.
 export function toggleWalkView() {
   if (cottageWalk.cottageActive()) return cottageWalk.toggleCottageView();
+  if (capitalWalk.capitalActive()) return capitalWalk.toggleCapitalView();
   if (skyWalk.skyActive()) return skyWalk.toggleSkyView();
   if (coinWalk.coinActive()) return null; // one view: side-on
   if (sub) return sub.toggleView();
@@ -1099,6 +1106,7 @@ export function toggleWalkView() {
 
 export function stepWalk(dt) {
   if (cottageWalk.cottageActive()) return cottageWalk.stepCottageWalk(dt);
+  if (capitalWalk.capitalActive()) return capitalWalk.stepCapitalWalk(dt);
   if (skyWalk.skyActive()) return skyWalk.stepSkyWalk(dt);
   if (coinWalk.coinActive()) return coinWalk.stepCoinWalk(dt);
   if (sub) return sub.step(dt);
@@ -1796,6 +1804,7 @@ export function stepWalk(dt) {
 // `t` is wall-clock seconds.
 export function updateWalkVisuals(dt, t) {
   if (cottageWalk.cottageActive()) return cottageWalk.updateCottageVisuals(dt, t);
+  if (capitalWalk.capitalActive()) return capitalWalk.updateCapitalVisuals(dt, t);
   if (skyWalk.skyActive()) return skyWalk.updateSkyVisuals(dt, t);
   if (coinWalk.coinActive()) return coinWalk.updateCoinVisuals();
   if (sub) return sub.visuals(dt, t);
@@ -1983,6 +1992,7 @@ function scanModule(module, maxDist) {
 // payload and starts its own talk pose; endInteract() releases it on close.
 export function walkInteract() {
   if (cottageWalk.cottageActive()) return cottageWalk.cottageInteract();
+  if (capitalWalk.capitalActive()) return capitalWalk.capitalInteract();
   if (skyWalk.skyActive()) return skyWalk.skyInteract();
   if (coinWalk.coinActive()) return coinWalk.coinInteract();
   if (sub) return sub.interact();
@@ -2016,6 +2026,7 @@ export function walkInteract() {
 // panel owns its own hints while open.
 export function walkPromptText() {
   if (cottageWalk.cottageActive()) return cottageWalk.cottagePromptText();
+  if (capitalWalk.capitalActive()) return capitalWalk.capitalPromptText();
   if (skyWalk.skyActive()) return skyWalk.skyPromptText();
   if (coinWalk.coinActive()) return coinWalk.coinPromptText();
   if (sub) return sub.promptText();
@@ -2127,7 +2138,10 @@ function governorInteract(c, { fill, speakerFor }) {
   const ember = mineWalk.emberDelivery(def, speaker, fillLine);
   if (ember) return ember;
   const aside = mineWalk.emberAside(def, fillLine);
-  if (!q) return { speaker, lines: [fill('Welcome to {{cityName}}.', c), ...aside] };
+  // The secret rides on any of his lines that do not already end in a choice
+  // (undefined until the patio is fitted, and again once he has told it).
+  const secret = mineWalk.secretOffer(def) ?? undefined;
+  if (!q) return { speaker, lines: [fill('Welcome to {{cityName}}.', c), ...aside], offer: secret };
   const st = questStage(def.id);
   if (st === 'done') {
     // Towns with a second errand (registry `charge` — Neptunia's Reach).
@@ -2150,7 +2164,7 @@ function governorInteract(c, { fill, speakerFor }) {
       }
       if (cs === 'go') return { speaker, lines: [fill(ch.remind, c)] };
     }
-    return { speaker, lines: [fill(q.thanks, c), ...aside] };
+    return { speaker, lines: [fill(q.thanks, c), ...aside], offer: secret };
   }
   if (st === undefined) {
     return {
@@ -2172,13 +2186,13 @@ function governorInteract(c, { fill, speakerFor }) {
     setQuestStage(def.id, 'done');
     removeBeacon();
     clearWaypoint();
-    return { speaker, lines: [fill(q.complete, c)] };
+    return { speaker, lines: [fill(q.complete, c)], offer: secret };
   }
   // Mid-tour reminder, with the next stop's flavor line.
   const nextLine = q.wonderLines?.[st]
     ? fill(q.wonderLines[st], c)
     : `Next: ${def.wonders[st].title}.`;
-  return { speaker, lines: [fill(q.remind, c), nextLine, ...aside] };
+  return { speaker, lines: [fill(q.remind, c), nextLine, ...aside], offer: secret };
 }
 
 // ---------------------------------------------------------------------------
@@ -2225,6 +2239,9 @@ governorInteract.onOutcome = (tag) => {
   if (!m || m[1] !== city?.def?.id) return null;
   const def = city.def;
   const gov = citizens.citizens.find((x) => x.dialogue === 'governor');
+  if (m[2] === 'secretYes' || m[2] === 'secretNo') {
+    return mineWalk.secretOutcome(def, citizens.speakerFor(gov), m[2] === 'secretYes');
+  }
   if (m[2] === 'charge' && def.charge) {
     setQuestStage(CHARGE_QUEST, 'go'); // unseals the riser lift (world/reachtube.js)
     setObjective(def.charge.objective);
@@ -2341,6 +2358,7 @@ function removeBeacon() {
 // Fails open when there's no parked ship, so the player is never trapped.
 export function nearParkedShip() {
   if (cottageWalk.cottageActive()) return cottageWalk.nearPad();
+  if (capitalWalk.capitalActive()) return capitalWalk.nearPad();
   if (skyWalk.skyActive()) return skyWalk.nearPad();
   if (coinWalk.coinActive()) return coinWalk.nearPad();
   if (sub) return false; // the ship is up on the surface, and you are not
@@ -2361,6 +2379,7 @@ export function nearParkedShip() {
 
 export function promptReturnToShip() {
   if (cottageWalk.cottageActive()) return cottageWalk.promptReturnToPad();
+  if (capitalWalk.capitalActive()) return capitalWalk.promptReturnToPad();
   if (skyWalk.skyActive()) return skyWalk.promptReturnToPad();
   if (coinWalk.coinActive()) return coinWalk.promptReturnToPad();
   if (sub) return sub.promptReturn();
@@ -2378,6 +2397,7 @@ export function promptReturnToShip() {
 // ---------------------------------------------------------------------------
 export function deployVehicle(id) {
   if (cottageWalk.cottageActive()) return false; // you walk this one
+  if (capitalWalk.capitalActive()) return false;
   if (skyWalk.skyActive()) return false; // and this one
   if (coinWalk.coinActive()) return false; // nor this
   if (sub) return false; // nor underground
@@ -2410,6 +2430,7 @@ export function walkSite() {
     creatures, diamondRain, marineSnow, planetSky, wyattmattoe,
     cottage: cottageWalk.cottageSite(),
     sky: skyWalk.skySite(),
+    capital: capitalWalk.capitalSite(),
     coin: coinWalk.coinSite(),
     minehead: mineHead,
     mine: mineWalk.mineSite(),
@@ -2453,6 +2474,7 @@ export function walkPendingReset() {
 // Gravity scale of the world underfoot (1 = normal). For the walk-hint UI.
 export function currentGravityScale() {
   if (cottageWalk.cottageActive()) return 1;
+  if (capitalWalk.capitalActive()) return 1;
   if (skyWalk.skyActive()) return 1;
   if (coinWalk.coinActive()) return 1;
   if (sub) return 1;
@@ -2461,7 +2483,7 @@ export function currentGravityScale() {
 
 // Whether the world underfoot carries the snowboard. For the walk-hint UI.
 export function currentBoardable() {
-  return walk.active && !cottageWalk.cottageActive() && !skyWalk.skyActive() && !coinWalk.coinActive()
+  return walk.active && !cottageWalk.cottageActive() && !skyWalk.skyActive() && !capitalWalk.capitalActive() && !coinWalk.coinActive()
     && !!walk.planet?.cfg?.boardable;
 }
 
@@ -2491,6 +2513,7 @@ function bearingToWorld(worldPt, label) {
 
 export function shipBearing() {
   if (cottageWalk.cottageActive()) return cottageWalk.padBearing();
+  if (capitalWalk.capitalActive()) return capitalWalk.padBearing();
   if (skyWalk.skyActive()) return skyWalk.padBearing();
   if (coinWalk.coinActive()) return coinWalk.padBearing();
   if (sub) return sub.bearing();
@@ -2508,6 +2531,7 @@ export function shipBearing() {
 // walking a circle around the town.
 export function walkBearing() {
   if (cottageWalk.cottageActive()) return cottageWalk.padBearing();
+  if (capitalWalk.capitalActive()) return capitalWalk.padBearing();
   if (skyWalk.skyActive()) return skyWalk.padBearing();
   if (coinWalk.coinActive()) return coinWalk.padBearing();
   if (sub) return sub.bearing();
@@ -2532,6 +2556,7 @@ export function walkBearing() {
 // rebase, which does fire on foot).
 export function updateWalkCamera(camera, delta = 0) {
   if (cottageWalk.cottageActive()) return cottageWalk.updateCottageCamera(camera, delta);
+  if (capitalWalk.capitalActive()) return capitalWalk.updateCapitalCamera(camera, delta);
   if (skyWalk.skyActive()) return skyWalk.updateSkyCamera(camera, delta);
   if (coinWalk.coinActive()) return coinWalk.updateCoinCamera(camera);
   if (sub) return sub.camera(camera, delta);
