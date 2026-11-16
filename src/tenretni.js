@@ -145,6 +145,7 @@ let ended = null; // 'gone' once it has left
 let fleets = null;
 let explosions = null;
 const lost = new Set(); // ships destroyed by gunfire (saved); siege losses follow from `eaten`
+const comms = {}; // faction -> true once its captain has opened a channel (saved)
 const _siege = { name: null, k: 0 };
 const waterDone = () => Object.keys(WATER_WORLDS).every((k) => eaten.includes(k));
 // A world by name: a planet record, or the coin dressed as one.
@@ -448,6 +449,7 @@ function loadSaved() {
     if (Array.isArray(raw?.eaten)) eaten = raw.eaten.filter((n) => !!LABELS[n]);
     if (raw?.end === 'gone') ended = 'gone';
     if (Array.isArray(raw?.lost)) for (const id of raw.lost) if (typeof id === 'string') lost.add(id);
+    if (raw?.comms && typeof raw.comms === 'object') for (const k of Object.keys(raw.comms)) if (raw.comms[k]) comms[k] = true;
     if (Number.isFinite(raw?.size) && raw.size >= 1) size = raw.size;
     if (typeof raw?.eating === 'string') eating = raw.eating;
   } catch {
@@ -467,6 +469,7 @@ function save() {
       eating: eating ?? undefined,
       end: ended ?? undefined,
       lost: lost.size ? [...lost] : undefined,
+      comms: Object.keys(comms).length ? comms : undefined,
     }));
   } catch {
     // storage full or blocked: the world still changes for this session
@@ -924,8 +927,112 @@ function startWar() {
       lost.add(id);
       save();
     },
+    story: FLEET_STORY,
+    sunDir: sunWorld,
   });
 }
+
+// What the fleets' people say. A captain will open a comm channel if asked;
+// with all three open the pilot can call them together (the ending).
+const CAPTAINS = {
+  rustia: { title: 'Shift-Captain', names: ['Orrin Vask', 'Dela Roon', 'Haim Kett'] },
+  saturnia: { title: 'Cantor', names: ['Ilse Marrow', 'Teo Vandry', 'Suvi Aln'] },
+  'wavemall prime': { title: 'Floor Manager', names: ['Brandi Lux', 'Chad Meridian', 'Tawny Voss'] },
+};
+const VOICE = {
+  rustia: {
+    hello: [
+      'You are the pilot off that freighter. Wipe your boots. This deck was a smelter floor before it was a warship.',
+      'We watched that thing drink two oceans. Rustia has no ocean, and it is coming anyway.',
+      'Three fleets, three peoples who do not like each other much. Nobody has got us all in one place.',
+    ],
+    ask: 'Open a channel to this ship?',
+    yes: ['Done. One word from you and every furnace I have is pointed where you say.', 'Get the other two. Then get close to it, and call.'],
+    open: ['Channel is open. We are listening for you. Do not waste it.'],
+    crew: ['Seam pressure is holding. Mostly.', 'My brother went down the Emberdeep and came up a gunner. Strange days.'],
+  },
+  saturnia: {
+    hello: [
+      'Be welcome. You have come a long way through a great deal of noise.',
+      'We have sung over every world it has taken. We are tired of that song.',
+      'Our lances are true but they are few. It would take all of us, at once, at its heart.',
+    ],
+    ask: 'Ask for a channel to this ship?',
+    yes: ['It is given. When you call, the halos will answer.', 'Go to the iron people, and to the bright ones. Then stand before it and call.'],
+    open: ['We hold the channel open and we hold you in mind.'],
+    crew: ['The rings ring true today.', 'I have never fired in anger. I am practising the anger.'],
+  },
+  'wavemall prime': {
+    hello: [
+      'Hi! Welcome aboard the fleet, are you finding everything okay?',
+      'So that planet thing is technically a competitor now. Corporate has approved a response.',
+      'We cannot coordinate with the other fleets without a customer-side point of contact. That could be you!',
+    ],
+    ask: 'Sign up for a direct channel?',
+    yes: ['Amazing. You are all signed up. Call us any time and the whole fleet attends, no purchase necessary.', 'Get the other two on board and we will see you at the event.'],
+    open: ['Your channel is active! Is there anything else I can help you with today?'],
+    crew: ['Clean up on deck nine. It is always deck nine.', 'These lights were for the sales floor. Now they are targeting. Same lights.'],
+  },
+};
+const captainOf = (ship) => {
+  const c = CAPTAINS[ship.faction];
+  const i = Number(ship.id.slice(-1)) % c.names.length;
+  return { name: `${c.title} ${c.names[i]}`, species: LABELS[ship.faction], cityId: ship.name };
+};
+const FLEET_STORY = {
+  captain(ship) {
+    const v = VOICE[ship.faction];
+    const speaker = captainOf(ship);
+    if (ended) return { speaker, lines: ['It is over.'] };
+    if (comms[ship.faction]) {
+      const n = Object.keys(VOICE).filter((f) => comms[f]).length;
+      return { speaker, lines: [...v.open, n >= 3 ? 'All three fleets are on your word. Go and stand in front of it.' : `${n} of three fleets are with you.`] };
+    }
+    return {
+      speaker,
+      lines: v.hello.slice(),
+      offer: {
+        kind: 'choice',
+        prompt: v.ask,
+        options: [
+          { label: 'Yes. Open it.', outcomeTag: `fleet:comm:${ship.faction}` },
+          { label: 'Not now.', outcomeTag: 'fleet:comm:none' },
+        ],
+      },
+    };
+  },
+  crew(ship, i) {
+    return { speaker: { name: 'Crew', species: LABELS[ship.faction], cityId: ship.name }, lines: [VOICE[ship.faction].crew[i % 2]] };
+  },
+  choice(tag, ship) {
+    const m = /^fleet:comm:(.+)$/.exec(tag ?? '');
+    if (!m || !VOICE[m[1]] || m[1] !== ship.faction) return null;
+    comms[m[1]] = true;
+    save();
+    showViewToast(`COMM CHANNEL OPEN — ${ship.label}`, 6);
+    return { speaker: captainOf(ship), lines: VOICE[m[1]].yes.slice() };
+  },
+  // everything else out there, for the lance: the hull you stand on is not a target
+  targets(ship) {
+    _targets.length = 0;
+    for (const s of fleets.ships) {
+      if (!s.alive || s === ship || !s.group.visible) continue;
+      _targets.push({ id: s.id, pos: s.group.position, r: s.cls.radius, label: s.label });
+    }
+    return _targets;
+  },
+  onHit(id) {
+    if (fleets.destroy(id)) showViewToast('TARGET DESTROYED. THAT WAS ONE OF OURS.', 6);
+  },
+};
+const _targets = [];
+
+// Docking and boarding (src/game.js): the nearest ship, its deck, and holding
+// a ship in existence while the pilot is on it.
+export const nearestVessel = (pos) => (fleets && !ended ? fleets.nearest(pos) : null);
+export const vesselSite = (ship) => (fleets ? fleets.site(ship) : null);
+export const holdVessel = (id) => fleets && fleets.hold(id);
+export const commState = () => ({ ...comms });
 
 // Which planet the swarm is fighting over, and how far gone it is: the one
 // being eaten, else the next of the last three once the quick ones are done.

@@ -351,3 +351,13 @@ Fleets: exist once `eaten` has any entry. `tenretni.state().fleets` →
 `navMenu.tap(id)` flies there (stops ~2.4 hull radii out). Freighters move
 ~200 u/s: frame them quickly or pause.
 
+Boarding: put the ship ~900 above a fleet ship (along its own +Y) moving in;
+wait for `skyState().landState === 'landed'` with `dock: 'vessel'`
+(`__debug.vesselDock(id)` skips the flight, `vesselStepOut()` skips G). On foot
+it is `walkSite().capital` again; `fleets().ships[i].site.places` →
+`{pad, bridge, gun}`. Captain: stand at `bridge` +7 in x, key `e` through the
+lines, `1` opens the channel (`tenretni.comms()`). Gun: stand at `gun`, `e`
+seats you (`capital.gun.active`), set `gun.yaw/aimYaw/pitch/aimPitch` to the
+target's bearing in the ship's own frame, `e` fires; the target's `alive`
+goes false and its id is in `fgsf.tenretni.lost`. `g` stands down.
+

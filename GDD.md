@@ -464,7 +464,19 @@ the next planet's warships are wrapped in a dogfight (one swarm `Points` and
 flickering tracer lines each); as the planet is assimilated they explode one
 by one, and freighters die with either end of their route.
 
-Not built yet: boarding the ships and the ending.
+**Boarding** (`world/warships.js` `buildDeck`, `src/turretGun.js`). Fly close
+to any fleet ship and it takes the helm: one `DOCKS` entry (`vessel`) serves
+them all, with a stand-in planet centred on the nearest ship so the Sky City's
+arc-and-descend flies round a moving hull. G steps out onto a deck kit built
+on first boarding: the pad, a gangway to starboard and an open bridge wing
+with the captain, two crew (alien rigs) and, on warships, a gunnery console.
+`src/capitalWalk.js` walks it unchanged, and gained a gun mode. The captain
+offers a comm channel (`comms[faction]`, saved). The console seats the pilot
+at the ship's lance: aim, half-second charge, beam; a hit on any other fleet
+ship destroys it for good (`lost[]`, saved) and helps nobody but the
+worldship. A ship the pilot is docked on or walking cannot be lost.
+
+Not built yet: the ending.
 
 ### 5.8 The Sky City (Saturnia)
 

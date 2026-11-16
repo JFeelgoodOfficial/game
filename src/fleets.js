@@ -18,7 +18,8 @@
 
 import * as THREE from 'three';
 import { addNavBody, setNavHidden } from './nav.js';
-import { shipClasses, buildShip } from '../world/warships.js';
+import { shipClasses, buildShip, buildDeck } from '../world/warships.js';
+import { buildRig, poseRig } from '../world/aliens.js';
 
 const FACTIONS = ['rustia', 'saturnia', 'wavemall prime'];
 const NAV_COLOR = { rustia: '#ff8a4a', saturnia: '#fff0c0', 'wavemall prime': '#ff5fc4' };
@@ -82,7 +83,9 @@ function rng(seed) {
 }
 
 // ctx: { scene, find(name) -> world, explode(pos, scale), lost: Set<string>,
-//        onLost(id) — a ship has just been destroyed (save it) }
+//        onLost(id) — a ship has just been destroyed (save it),
+//        story — what captains and crews say (see world/warships.js buildDeck),
+//        sunDir — a live unit vector toward the sun, for the parked ship's lighting }
 export function createFleets(ctx) {
   const classes = shipClasses();
   const ships = [];
@@ -181,8 +184,22 @@ export function createFleets(ctx) {
     ship.fight = { group: g, uTime };
   }
 
+  let held = null; // id of the ship the pilot is docked on or walking: it cannot be lost
+
+  // one of the crew: an alien rig (world/aliens.js) standing at its post
+  const people = (seed) => {
+    const rig = buildRig(seed, 'fleet');
+    return {
+      group: rig.group,
+      lift: rig.params.groundOffset || 0,
+      update(dt, t) {
+        poseRig(rig, dt, t, 'idle', 0);
+      },
+    };
+  };
+
   function lose(ship, boom = true) {
-    if (!ship.alive) return;
+    if (!ship.alive || ship.id === held) return;
     ship.alive = false;
     ship.group.visible = false;
     setNavHidden(ship.group.position, true);
@@ -210,6 +227,7 @@ export function createFleets(ctx) {
       mats['wavemall prime'].glow.color.setHSL((t * 0.08) % 1, 0.45, 0.62).multiplyScalar(1.9);
       for (const s of ships) {
         if (!s.alive) continue;
+        if (s.site && s.id === held) s.site.update(dt, t);
         if (s.kind === 'warship') {
           const p = ctx.find(s.faction);
           if (!p || p.removed) {
@@ -256,7 +274,28 @@ export function createFleets(ctx) {
         }
       }
     },
-    // Destroy one by id (the guns, stage 4). Returns true if it was alive.
+    // The walkable deck of a ship (world/warships.js), built on first boarding.
+    site(ship) {
+      if (!ship.site) ship.site = buildDeck(ship, mats[ship.faction], people, ctx.story, ctx.sunDir);
+      return ship.site;
+    },
+    // The nearest ship that is still there, for docking.
+    nearest(pos) {
+      let best = null, bd = Infinity;
+      for (const s of ships) {
+        if (!s.alive || !s.group.visible) continue;
+        const d = s.group.position.distanceToSquared(pos);
+        if (d < bd) {
+          bd = d;
+          best = s;
+        }
+      }
+      return best;
+    },
+    hold(id) {
+      held = id;
+    },
+    // Destroy one by id (the guns). Returns true if it was alive.
     destroy(id) {
       const s = ships.find((x) => x.id === id);
       if (!s || !s.alive) return false;

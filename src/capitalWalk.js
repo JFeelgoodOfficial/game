@@ -14,6 +14,8 @@
 //   platform.consoles[]  { x, y, z, r, prompt, use() -> dialogue payload }
 //   platform.onChoice(tag) -> follow-up payload | null   (a picked option)
 //   platform.setWalker(localPos | null)   so the figures can watch the player
+//   platform.gun         { pivot, targets(), onHit(id) } on a warship: a console
+//                        with `gun: true` seats the walker at it (src/turretGun.js)
 //
 // walk.js dispatches its public surface here whenever capitalActive().
 
@@ -23,6 +25,7 @@ import { input, moveAxes } from './input.js';
 import { ship } from './ship.js';
 import { createShip as createParkedShip } from '../world/ship.js';
 import { openDialogue, advanceDialogue, isDialogueOpen, closeDialogue } from './dialogue.js';
+import { gun, enterGun, leaveGun, stepGun, pullTrigger, updateGunVisuals, gunCamera } from './turretGun.js';
 import {
   getViewPref,
   showViewChooser,
@@ -135,6 +138,7 @@ export function enterCapitalWalk(siteRef) {
 }
 
 function teardown() {
+  leaveGun();
   closeDialogue();
   if (parked) {
     parked.dispose();
@@ -156,6 +160,13 @@ export function exitCapitalWalk() {
 // ---------------------------------------------------------------------------
 
 export function stepCapitalWalk(dt) {
+  if (gun.active) {
+    // seated at the lance: the mouse is the gun's, the walker stays put
+    stepGun(dt, toWorld);
+    toWorld(cWalk.pos, ship.position);
+    ship.velocity.set(0, 0, 0);
+    return;
+  }
   cWalk.yaw -= input.mouseX * LOOK_SENS;
   cWalk.pitch -= input.mouseY * LOOK_SENS;
   cWalk.pitch = Math.min(Math.max(cWalk.pitch, -MAX_PITCH), MAX_PITCH);
@@ -269,7 +280,8 @@ export function updateCapitalVisuals(dt, t) {
   _q.setFromAxisAngle(_yAxis, cWalk.facingYaw);
   astronaut.group.quaternion.copy(site.group.quaternion).multiply(_q);
   astronaut.update(dt, cWalk.mode, cWalk.speed01);
-  astronaut.group.visible = cWalk.view === 'tp';
+  astronaut.group.visible = cWalk.view === 'tp' && !gun.active;
+  updateGunVisuals(dt, toWorld);
   site.setWalker(cWalk.pos);
   if (parked) {
     _up.set(0, 1, 0).applyQuaternion(site.group.quaternion);
@@ -312,12 +324,20 @@ function focus() {
 
 export function capitalInteract() {
   if (!cWalk.active) return undefined;
+  if (gun.active) {
+    pullTrigger();
+    return undefined;
+  }
   if (isDialogueOpen()) {
     advanceDialogue();
     return undefined;
   }
   const f = focus();
   if (!f) return undefined;
+  if (f.kind === 'use' && f.it.gun && site.gun) {
+    enterGun(site, f.it.gunYaw || 0);
+    return undefined;
+  }
   const payload = f.kind === 'use' ? f.it.use() : f.it.talk();
   if (!payload || !payload.lines || !payload.lines.length) return undefined;
   openDialogue(payload, {
@@ -327,6 +347,7 @@ export function capitalInteract() {
 }
 
 export function capitalPromptText() {
+  if (gun.active) return 'G — STAND DOWN';
   if (isDialogueOpen()) return null;
   const f = focus();
   if (f) return f.kind === 'use' ? f.it.prompt : 'E — TALK';
@@ -334,13 +355,14 @@ export function capitalPromptText() {
 }
 
 export function nearPad() {
-  if (!site || !cWalk.grounded) return false;
+  if (!site || !cWalk.grounded || gun.active) return false;
   const dx = cWalk.pos.x - site.pad.x;
   const dz = cWalk.pos.z - site.pad.z;
   return dx * dx + dz * dz < C.SKY_BOARD_RADIUS * C.SKY_BOARD_RADIUS;
 }
 
 export function promptReturnToPad() {
+  if (gun.active) return leaveGun();
   showViewToast('RETURN TO THE LANDING PAD TO LEAVE');
 }
 
@@ -377,6 +399,11 @@ export function updateCapitalCamera(camera, delta = 0) {
   const cosP = Math.cos(cWalk.pitch);
   _look.set(Math.sin(cWalk.yaw) * cosP, Math.sin(cWalk.pitch), Math.cos(cWalk.yaw) * cosP);
   _up.set(0, 1, 0).applyQuaternion(site.group.quaternion);
+  if (gun.active) {
+    gunCamera(camera, toWorld, _up);
+    camSnap = true;
+    return;
+  }
 
   if (cWalk.view === 'fp') {
     _desired.copy(cWalk.pos);
@@ -430,6 +457,7 @@ export function capitalSite() {
       camSnap = true;
     },
     interact: capitalInteract,
+    gun,
     prompt: capitalPromptText,
   };
 }

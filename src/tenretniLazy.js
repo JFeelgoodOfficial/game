@@ -106,6 +106,12 @@ export const tenretniSailVelocity = () => (mod ? mod.sailVelocity() : null);
 export const holoPrograms = () => (mod ? mod.programs() : []);
 export const holoWorld = (id, on) => (mod ? mod.holoWorld(id, on) : null);
 
+// The war fleets (src/fleets.js): the nearest ship to dock with, its walkable
+// deck, and keeping a ship from being lost while the pilot is on it.
+export const nearestVessel = (pos) => (mod ? mod.nearestVessel(pos) : null);
+export const vesselSite = (ship) => (mod ? mod.vesselSite(ship) : null);
+export const holdVessel = (id) => mod && mod.holdVessel(id);
+
 // dev/verification handle (__debug.tenretni)
 export const tenretniDebug = () => ({
   loaded: !!mod,
@@ -117,6 +123,7 @@ export const tenretniDebug = () => ({
   eat: (u) => mod && mod.debugEat(u),
   clock: (sec) => mod && mod.debugClock(sec),
   fleets: () => mod && mod.debugFleets(),
+  comms: () => (mod ? mod.commState() : {}),
   story: () => mod && mod.debugStory(),
   state: () => (mod ? mod.state() : { loaded: false, stage: questStage(SECRET) }),
 });

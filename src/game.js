@@ -52,6 +52,7 @@ import { initHoloPanel, openHoloPanel, closeHoloPanel, isHoloPanelOpen, holoPane
 import {
   initTenretni, updateTenretni, tenretniHolding, stepTenretniHold, resetTenretni,
   tenretniFx, tenretniDebug, capitalDock, tenretniSailVelocity, holoPrograms, holoWorld,
+  nearestVessel, vesselSite, holdVessel,
 } from './tenretniLazy.js';
 import {
   interiorScene,
@@ -576,7 +577,27 @@ if (import.meta.env.DEV) {
       setOnSkyPad(CAPITAL_DOCK);
       return true;
     },
+    // The war fleets: park on / step out onto the ship with this id.
+    vesselDock(id) {
+      const v = tenretniDebug().fleets()?.ships.find((x) => x.id === id);
+      if (!v || !v.alive) return false;
+      VESSEL_DOCK.vessel = v;
+      VESSEL_DOCK.planet.body.position = v.group.position;
+      VESSEL_DOCK.planet.radius = v.cls.radius * 0.8;
+      setOnSkyPad(VESSEL_DOCK);
+      return true;
+    },
+    vesselStepOut() {
+      if (dock !== VESSEL_DOCK || !VESSEL_DOCK.stepOut()) return false;
+      platformDock = VESSEL_DOCK;
+      landState = null;
+      landedPlanet = null;
+      skyLanding = false;
+      phase = 'walk';
+      return true;
+    },
     capitalStepOut() {
+      platformDock = CAPITAL_DOCK;
       if (!capitalDock() || !enterCapitalWalk(capitalDock())) return false;
       landState = null;
       landedPlanet = null;
@@ -1303,8 +1324,33 @@ const DOCKS = [
     },
     stepOut: () => enterCapitalWalk(capitalDock()),
   },
+  {
+    // A warship or freighter of the war fleets (src/fleets.js). One entry
+    // serves them all: `vessel` is whichever ship is nearest, re-chosen each
+    // tick until one captures, and `planet` is a stand-in whose centre is that
+    // ship — so the same arc-then-descend flies round a hull as round a world.
+    // The ship is moving the whole time; the pose is read from it live.
+    id: 'vessel', vessel: null, armed: true, freeze: false,
+    planet: { body: { position: new THREE.Vector3() }, radius: 300, cfg: { name: 'vessel' } },
+    get approach() { return `${this.vessel.label} — WE HAVE YOUR HELM`; },
+    get welcome() { return `${this.vessel.label} — PERMISSION TO COME ABOARD`; },
+    label: 'AUTO-LANDING · FLEET',
+    pose() {
+      const v = this.vessel;
+      const g = v.group;
+      _skyUp.set(0, 1, 0).applyQuaternion(g.quaternion);
+      _skyPad.copy(v.cls.pad).applyQuaternion(g.quaternion).addScaledVector(_skyUp, C.PARK_LIFT);
+      _skyHover.copy(_skyPad).addScaledVector(_skyUp, 160);
+      _landUprightQuat.copy(g.quaternion);
+      _skyPadLive.copy(_skyPad);
+      _skyQuatLive.copy(_landUprightQuat);
+    },
+    stepOut() { return enterCapitalWalk(vesselSite(this.vessel)); },
+  },
 ];
 const CAPITAL_DOCK = DOCKS[2];
+const VESSEL_DOCK = DOCKS[3];
+let platformDock = null; // the dock whose platform the pilot is walking (capital or a ship)
 let dock = DOCKS[0]; // the dock in play while skyLanding is set
 let walkDock = null; // the dock the current walk stepped out of, if it will be boarded back onto its pad
 function skyPadPose() {
@@ -1452,6 +1498,13 @@ function checkSkyCapture() {
   for (const d of DOCKS) {
     if (d.id === 'reach' && shatter.active) continue; // there is no flight deck any more
     if (d === CAPITAL_DOCK && !capitalDock()) continue; // not built (yet)
+    if (d === VESSEL_DOCK) {
+      const v = nearestVessel(ship.position);
+      if (!v) continue;
+      d.vessel = v;
+      d.planet.body.position = v.group.position; // live: the ship is under way
+      d.planet.radius = v.cls.radius * 0.8;
+    }
     if (d.planet.removed) continue; // the worldship has eaten it
     const r = ship.position.distanceTo(d.planet.body.position);
     if (!d.armed) {
@@ -2220,6 +2273,7 @@ function frame(now) {
         // go — and stepping out needs the on-foot chunk to have arrived.
         if (landState === 'landed' && skyLiftT < 0 && dock.stepOut()) {
           walkDock = dock.freeze ? dock : null;
+          platformDock = dock;
           landState = null;
           landedPlanet = null;
           skyLanding = false;
@@ -2346,7 +2400,7 @@ function frame(now) {
             coinBeginLeave();
           } else if (skyActive() || capitalActive()) {
             // Back into the seat, still parked on the pad: W lifts off.
-            const d = capitalActive() ? CAPITAL_DOCK : DOCKS[0];
+            const d = capitalActive() ? platformDock || CAPITAL_DOCK : DOCKS[0];
             endWalk();
             setOnSkyPad(d);
             snapCamera(ship);
@@ -2629,7 +2683,13 @@ function frame(now) {
       delta, now / 1000,
       phase === 'fly' && standing && onPatioDeck(),
       phase === 'fly' && !paused,
-      (skyLanding && dock === CAPITAL_DOCK) || capitalActive()
+      (skyLanding && dock === CAPITAL_DOCK) || (capitalActive() && platformDock === CAPITAL_DOCK)
+    );
+    // a ship the pilot is docked on or walking cannot be lost from under them
+    holdVessel(
+      (skyLanding && dock === VESSEL_DOCK) || (capitalActive() && platformDock === VESSEL_DOCK)
+        ? VESSEL_DOCK.vessel.id
+        : null
     );
   }
   // On foot (isolated) as much as in flight: the sea keeps running either way.
