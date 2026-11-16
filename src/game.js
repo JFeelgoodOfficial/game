@@ -117,6 +117,7 @@ import { CITIES, citiesForWorld, padLocalDir } from '../world/cityRegistry.js';
 import { initSun, updateSun, sunAltitude, sun } from './sun.js';
 import { initStations, updateStations, stations } from './stations.js';
 import { createSkyCity } from '../world/skycity.js';
+import { createCoinWorld, HEADS } from '../world/coinworld.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
 import {
   startMusic,
@@ -195,6 +196,8 @@ initCityFlatten(planets);
 // in the boot bundle, because you see it from orbit long before you walk it.
 const saturnia = planets.find((p) => p.cfg.name === 'saturnia');
 const skyCity = createSkyCity(saturnia);
+// stevenlacey, the coin world: likewise seen (tumbling) long before it is landed on.
+const coin = createCoinWorld(scene);
 
 // The on-foot astronaut (hidden until a disembark) lives in the world scene.
 initWalk(scene);
@@ -536,6 +539,25 @@ if (import.meta.env.DEV) {
       skyLanding = false;
       phase = 'walk';
       return true;
+    },
+    // stevenlacey (world/coinworld.js). approach(face) drops the ship just
+    // outside the capture radius over that face, closing; dock(face) skips the
+    // flight and parks it on the face.
+    coin: {
+      world: coin,
+      state: () => ({ landState, coinLanding, coinFace, coinArmed, coinLiftT, autoT, phase, ...coin.state() }),
+      approach(face = HEADS, speed = 200) {
+        coin.release(true);
+        coin.faceFrame(face, _lv0, _lv1, _lv2);
+        ship.position.copy(coin.group.position).addScaledVector(_lv2, C.COIN_CAPTURE + 120);
+        ship.velocity.copy(_lv2).multiplyScalar(-speed);
+        coinArmed = true;
+        landState = null;
+        coinLanding = false;
+      },
+      dock(face = HEADS) {
+        setOnCoinPad(face);
+      },
     },
     deepNebulae,
     paintingNebulae,
@@ -954,6 +976,7 @@ function enterHeaven() {
   landState = null;
   landedPlanet = null;
   skyLanding = false;
+  coinLanding = false;
   _padLocalDir.set(0, 0, 0);
   cancelAutopilot();
   closeCredits();
@@ -1176,6 +1199,149 @@ function checkSkyCapture() {
   if (r < skyShellRadius()) beginSkyAutoLand();
 }
 
+// --- stevenlacey landing (world/coinworld.js) ---------------------------------
+// The coin has no ground and no gravity, so like the Sky City it captures the
+// ship: come inside its capture radius and the tumble runs down while the
+// autopilot carries you round to the face you came in over and sets you against
+// it. Same landState pair as everywhere else, with coinLanding set; coinArmed is
+// the latch that stops a lift-off being re-captured on the spot.
+let coinLanding = false;
+let coinArmed = true;
+let coinFace = HEADS;
+let coinLiftT = -1;
+const _coinPad = new THREE.Vector3(); // rest point, offset from the coin's centre
+const _coinHover = new THREE.Vector3();
+const _coinR = new THREE.Vector3();
+const _coinU = new THREE.Vector3();
+const _coinN = new THREE.Vector3();
+const _coinAway = new THREE.Quaternion();
+
+// Where the ship rests and how it sits: standing on the 2D world's ground line
+// (its +Y along the face's up), nose along the face's right, belly-on to anyone
+// looking at the face. Recomputed live — the coin is still turning during the
+// first of the approach, and its group rides origin rebases.
+function coinPadPose() {
+  coin.faceOffset(coinFace, C.COIN_PAD_X, C.COIN_PAD_Y, C.COIN_PAD_OFF, _coinPad);
+  coin.faceFrame(coinFace, _coinR, _coinU, _coinN);
+  _coinHover.copy(_coinPad).addScaledVector(_coinN, C.COIN_HOVER);
+  // ship axes: X = right, Y = up, Z = back. Nose (-Z) along the face's right.
+  _lv2.copy(_coinR).multiplyScalar(-1);
+  _lm.makeBasis(_coinN, _coinU, _lv2);
+  _landUprightQuat.setFromRotationMatrix(_lm);
+}
+
+function beginCoinAutoLand() {
+  cancelAutopilot();
+  coinFace = coin.faceToward(ship.position);
+  coin.settle();
+  coinPadPose();
+  landedPlanet = null;
+  coinLanding = true;
+  coinArmed = false;
+  coinLiftT = -1;
+  _padLocalDir.set(0, 0, 0);
+  _landStartOff.subVectors(ship.position, coin.group.position);
+  _landStartQuat.copy(ship.quaternion);
+  autoLandDuration = C.COIN_ARC_TIME + C.COIN_DESCEND_TIME;
+  autoT = 0;
+  landState = 'auto';
+  showNavToast(
+    coinFace === HEADS ? 'STEVENLACEY — IT CAME UP HEADS' : 'STEVENLACEY — IT CAME UP TAILS', 5
+  );
+}
+
+// Two legs: a straight run to a point standing off the face (the start and that
+// point are both on the same side of the coin, so the line between them never
+// crosses it), then straight in.
+function stepCoinAutoLand(dt) {
+  coinPadPose();
+  autoT = Math.min(autoT + dt / autoLandDuration, 1);
+  const arcFrac = C.COIN_ARC_TIME / autoLandDuration;
+  _prevPos.copy(ship.position);
+  if (autoT < arcFrac) {
+    const u = autoT / arcFrac;
+    const k = u * u * (3 - 2 * u);
+    _lv0.lerpVectors(_landStartOff, _coinHover, k);
+    ship.position.copy(coin.group.position).add(_lv0);
+    ship.quaternion.slerpQuaternions(_landStartQuat, _landUprightQuat, k);
+  } else {
+    const u = (autoT - arcFrac) / (1 - arcFrac);
+    const k = u * u * (3 - 2 * u);
+    _lv0.lerpVectors(_coinHover, _coinPad, k);
+    ship.position.copy(coin.group.position).add(_lv0);
+    ship.quaternion.copy(_landUprightQuat);
+  }
+  ship.velocity.copy(ship.position).sub(_prevPos).divideScalar(dt);
+  ship.angularVelocity.set(0, 0, 0);
+  if (autoT >= 1) {
+    landState = 'landed';
+    settleT = 1;
+    ship.velocity.set(0, 0, 0);
+  }
+}
+
+// Against the face. W/Space lifts off: a short scripted run straight out, the
+// nose swinging to point away from the coin, then the stick is yours.
+function stepCoinLanded(dt, piloted) {
+  coinPadPose();
+  ship.angularVelocity.set(0, 0, 0);
+  ship.properAccel.set(0, 0, 0);
+  if (coinLiftT < 0) {
+    ship.position.copy(coin.group.position).add(_coinPad);
+    ship.quaternion.copy(_landUprightQuat);
+    ship.velocity.set(0, 0, 0);
+    if (piloted && (input.forward || input.brake)) coinLiftT = 0;
+    return;
+  }
+  coinLiftT = Math.min(coinLiftT + dt / C.COIN_LIFT_TIME, 1);
+  const k = coinLiftT * coinLiftT;
+  _prevPos.copy(ship.position);
+  ship.position.copy(coin.group.position).add(_coinPad)
+    .addScaledVector(_coinN, C.COIN_LIFT_HEIGHT * k);
+  // nose (-Z) out along the face normal, keeping the face's up as the ship's
+  _lv2.copy(_coinN).multiplyScalar(-1);
+  _lv1.crossVectors(_coinU, _lv2).normalize();
+  _lm.makeBasis(_lv1, _coinU, _lv2);
+  _coinAway.setFromRotationMatrix(_lm);
+  ship.quaternion.slerpQuaternions(
+    _landUprightQuat, _coinAway, coinLiftT * coinLiftT * (3 - 2 * coinLiftT)
+  );
+  ship.velocity.copy(ship.position).sub(_prevPos).divideScalar(dt);
+  if (coinLiftT >= 1) {
+    landState = null;
+    coinLanding = false;
+    coinLiftT = -1;
+  }
+}
+
+// Put the ship against a face, landed (boarding from a walk, debug hooks).
+function setOnCoinPad(face) {
+  cancelAutopilot();
+  coinFace = face;
+  coin.hold();
+  landedPlanet = null;
+  landState = 'landed';
+  coinLanding = true;
+  coinArmed = false;
+  settleT = 1;
+  coinLiftT = -1;
+  _padLocalDir.set(0, 0, 0);
+  stepCoinLanded(0, false);
+}
+
+// Capture check, once per physics tick in free flight.
+function checkCoinCapture() {
+  const r = ship.position.distanceTo(coin.group.position);
+  if (!coinArmed) {
+    if (r > C.COIN_CAPTURE + C.COIN_REARM_MARGIN) {
+      coinArmed = true;
+      coin.release();
+    }
+    return;
+  }
+  if (r < C.COIN_CAPTURE) beginCoinAutoLand();
+}
+
 // G at low altitude: on worlds with registry cities, arc to the CLOSEST
 // city landing pad (great-circle distance at the trigger moment, ties
 // broken by approach heading). On worlds without cities (the story-world
@@ -1261,6 +1427,7 @@ function beginAutoLand(floor) {
 
 function stepAutoLand(dt) {
   if (skyLanding) return stepSkyAutoLand(dt);
+  if (coinLanding) return stepCoinAutoLand(dt);
   const p = landedPlanet;
   autoT = Math.min(autoT + dt / autoLandDuration, 1);
   const k = autoT * autoT * (3 - 2 * autoT); // smoothstep ease
@@ -1324,6 +1491,7 @@ function stepAutoLand(dt) {
 // old radial-from-position pin drifts relative to a fixed pad.
 function stepLanded(dt, piloted) {
   if (skyLanding) return stepSkyLanded(dt, piloted);
+  if (coinLanding) return stepCoinLanded(dt, piloted);
   const p = landedPlanet;
   if (_padLocalDir.lengthSq() > 0.5) {
     _lv0.copy(_padLocalDir).applyAxisAngle(_yAxis, p.surface?.rotation?.y ?? 0);
@@ -1445,6 +1613,10 @@ function resetToStart() {
   skyArmed = true;
   skyFallT = -1;
   skyLiftT = -1;
+  coinLanding = false;
+  coinArmed = true;
+  coinLiftT = -1;
+  coin.release(true);
   _padLocalDir.set(0, 0, 0);
   standing = false;
   standBlend = 0;
@@ -1602,6 +1774,7 @@ function frame(now) {
         stepShip(DT, piloted);
         if (piloted && !autopilotActive()) checkTouchdown();
         if (landState === null) checkSkyCapture();
+        if (landState === null) checkCoinCapture();
       }
       accumulator -= DT;
     }
@@ -1659,6 +1832,8 @@ function frame(now) {
           phase = 'walk';
           accumulator = 0;
         }
+      } else if (coinLanding) {
+        // stevenlacey. No waving off, as at the Sky City.
       } else if (landState === 'landed') {
         const floor = nearestTerraFloor(ship.position);
         if (floor) {
@@ -1943,8 +2118,13 @@ function frame(now) {
       } else {
         // seated: landing prompts
         let prompt = null;
-        if (landState === 'landed') prompt = skyLanding && skyLiftT >= 0 ? null : 'G — STEP OUT · W — LIFT OFF';
-        else if (landState === 'auto') prompt = skyLanding ? 'AUTO-LANDING · SKY CITY' : 'AUTO-LANDING · G — ABORT';
+        if (landState === 'landed') {
+          if (coinLanding) prompt = coinLiftT >= 0 ? null : 'W — LIFT OFF';
+          else prompt = skyLanding && skyLiftT >= 0 ? null : 'G — STEP OUT · W — LIFT OFF';
+        } else if (landState === 'auto') {
+          prompt = coinLanding ? 'AUTO-LANDING · STEVENLACEY'
+            : skyLanding ? 'AUTO-LANDING · SKY CITY' : 'AUTO-LANDING · G — ABORT';
+        }
         else {
           const floor = nearestTerraFloor(ship.position);
           if (
@@ -1976,6 +2156,7 @@ function frame(now) {
     updatePlanets(now / 1000, camera.position);
     updateStations(now / 1000, ship.position);
     skyCity.update(delta, now / 1000, camera.position);
+    coin.update(delta);
   }
   // nav AFTER the stations are placed: a reset snaps orbiting stations back
   // to their snapshot spot for one frame, and a discovery check reading that

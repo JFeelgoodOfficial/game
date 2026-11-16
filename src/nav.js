@@ -14,6 +14,7 @@ import { sun } from './sun.js';
 import { blackhole } from './blackhole.js';
 import { deepNebulae } from './deepnebula.js';
 import { stations } from './stations.js';
+import { coinWorld } from '../world/coinworld.js';
 
 const CSS = `
 #navToast {
@@ -53,6 +54,7 @@ const PLANET_COLORS = {
   rustia: '#ff8a5a', saturnia: '#e8c78a', neptunia: '#6a7dff',
   'wavemall prime': '#d4408f', actuality: '#f2c94c',
   shadowreach: '#cfcfd4', wyattmattoe: '#f4f8ff',
+  stevenlacey: '#e7bf55',
 };
 
 // Every record carries an explicit `kind` — 'planet' | 'star' | 'anomaly' |
@@ -98,6 +100,14 @@ function buildBodies() {
       id: s.name, label: s.name.toUpperCase(), pos: s.group.position,
       dot: 3.5, radius: 400, logDist: s.logDist || 1600, color: '#82f7ff', station: true,
       kind: 'station',
+    });
+  }
+  // stevenlacey, the coin world: a place you land on, so it files as a planet.
+  if (coinWorld) {
+    bodies.push({
+      id: 'stevenlacey', label: 'STEVENLACEY', pos: coinWorld.group.position,
+      dot: 5, radius: coinWorld.radius, logDist: coinWorld.radius * 4,
+      color: PLANET_COLORS.stevenlacey, kind: 'planet',
     });
   }
 }

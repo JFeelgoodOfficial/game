@@ -203,6 +203,28 @@ export const C = {
   SKY_ARC_SPEED: 700.0, // u/s used to scale the arc's duration
   SKY_REARM_MARGIN: 300.0, // climb this far past the air shell before it re-captures
 
+  // --- stevenlacey, the coin world (world/coinworld.js) ---
+  COIN_RADIUS: 600.0,
+  COIN_THICKNESS: 60.0,
+  COIN_DIR_X: 0.25, COIN_DIR_Y: -0.6, COIN_DIR_Z: -0.4, // bearing from the origin (normalised on use)
+  COIN_DISTANCE: 45000.0,
+  COIN_TUMBLE: 0.05, // rad/s end over end
+  COIN_PRECESS: 0.011, // rad/s the flip axis wanders about Y
+  COIN_SETTLE_TIME: 1.5, // seconds for the tumble to run down once you are captured
+  COIN_SPINUP_TIME: 4.0, // seconds to get back up to speed after you leave
+  COIN_WOBBLE: 0.035, // rad: the rattle as it comes to rest
+  COIN_WOBBLE_TIME: 2.4, // seconds until the rattle has died
+  COIN_CAPTURE: 780.0, // capture radius from the coin's centre (1.3 radii)
+  COIN_REARM_MARGIN: 300.0, // fly this far past the capture radius before it re-captures
+  COIN_HOVER: 260.0, // auto-land arrives this far off the face, then closes in
+  COIN_ARC_TIME: 4.5, // seconds for the leg round to the hover point
+  COIN_DESCEND_TIME: 3.0, // seconds for the last leg onto the face
+  COIN_PAD_X: -120.0, // where the ship rests, in face coordinates (right, up)
+  COIN_PAD_Y: -40.0,
+  COIN_PAD_OFF: 6.0, // hull centre this far proud of the face
+  COIN_LIFT_TIME: 2.0, // seconds of scripted lift-off
+  COIN_LIFT_HEIGHT: 320.0, // how far off the face that carries the ship
+
   // --- ship interior walk (C) — owner override of GDD 1.2 ---
   // C stands you up out of the seat; the freighter holds attitude and brakes
   // to a drift while you walk it. Named INTERIOR_* to stay distinct from the
