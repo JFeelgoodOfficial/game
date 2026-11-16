@@ -90,6 +90,32 @@ const CSS = `
 #galPanel .g-cell button.del { color: #ff8a8a; border-color: rgba(255,110,110,0.4); }
 #galPanel .g-empty { color: #5da8b3; text-align: center; padding: 30px 0; letter-spacing: 0.2em; font-size: 12px; }
 #galPanel .g-foot { font-size: 10px; letter-spacing: 0.26em; color: #5da8b3; margin-top: 10px; text-align: center; }
+#galPanel .g-close {
+  align-self: center; margin-top: 10px; padding: 9px 34px; cursor: pointer;
+  font: inherit; font-size: 12px; letter-spacing: 0.3em; color: #a9f7ff;
+  background: rgba(130,247,255,0.08); border: 1px solid rgba(130,247,255,0.5); border-radius: 3px;
+}
+/* The camera bar (owner request): what the dash CAMERA button opens. It sits
+   low and out of the middle of the view, and is never in the photo. */
+#camBar {
+  position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+  z-index: 22; display: none; gap: 8px; user-select: none;
+  font-family: 'Courier New', ui-monospace, monospace;
+}
+#camBar.open { display: flex; }
+#camBar button {
+  min-height: 42px; padding: 0 14px; cursor: pointer; touch-action: manipulation;
+  font: inherit; font-size: 12px; letter-spacing: 0.2em; white-space: nowrap;
+  color: #a9f7ff; background: rgba(4,12,20,0.82);
+  border: 1px solid rgba(130,247,255,0.55); border-radius: 4px;
+}
+#camBar button:active { background: rgba(130,247,255,0.24); }
+#camBar .cb-rec { color: #ffb4b4; border-color: rgba(255,110,110,0.6); }
+#camBar .cb-rec.on { color: #fff; background: rgba(200,30,30,0.55); border-color: #ff5a5a; }
+#camBar .cb-stop { color: #ffc9ec; border-color: rgba(212,64,143,0.7); }
+/* Touch: clear of the move stick on foot and below the dash strips in flight. */
+body.touch-ui #camBar { left: 144px; transform: none; bottom: 10px; gap: 6px; }
+body.touch-ui #camBar button { min-height: 40px; padding: 0 9px; font-size: 11px; letter-spacing: 0.1em; }
 @media (max-width: 640px) {
   #capBtn {
     right: 12px; bottom: 14px; padding: 10px 16px;
@@ -127,6 +153,9 @@ const REC_FPS = 30;
 const REC_BPS = 8_000_000; // 8 Mbps — starfield/noise content is bitrate-hungry
 
 let galleryOpen = false;
+let camBar = null, camRecBtn = null;
+let barOpen = false;
+const touchUI = () => document.body.classList.contains('touch-ui');
 
 export function initCapture(gameRenderer) {
   renderer = gameRenderer;
@@ -136,9 +165,9 @@ export function initCapture(gameRenderer) {
 
   capBtn = document.createElement('div');
   capBtn.id = 'capBtn';
-  capBtn.textContent = 'PICS';
+  capBtn.textContent = 'CAMERA';
   capBtn.classList.add('hidden');
-  capBtn.addEventListener('click', () => (galleryOpen ? closeGallery() : openGallery()));
+  capBtn.addEventListener('click', () => toggleCameraBar());
   document.body.appendChild(capBtn);
 
   flash = document.createElement('div');
@@ -167,16 +196,77 @@ export function initCapture(gameRenderer) {
   panel.setAttribute('data-nocapture', '');
   const title = document.createElement('div');
   title.className = 'g-title';
-  title.textContent = 'CAMERA';
+  title.textContent = 'GALLERY';
   grid = document.createElement('div');
   grid.className = 'g-grid';
   foot = document.createElement('div');
   foot.className = 'g-foot';
   foot.textContent = 'P — PHOTO · R — RECORD · X — CLOSE';
+  const close = document.createElement('button');
+  close.className = 'g-close';
+  close.textContent = 'CLOSE';
+  close.addEventListener('click', () => closeGallery());
   panel.appendChild(title);
   panel.appendChild(grid);
   panel.appendChild(foot);
+  panel.appendChild(close);
   document.body.appendChild(panel);
+
+  // camera bar: PHOTO · REC VIDEO · GALLERY · STOP CAM
+  camBar = document.createElement('div');
+  camBar.id = 'camBar';
+  camBar.setAttribute('data-nocapture', '');
+  const mk = (label, cls, fn) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    if (cls) b.className = cls;
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fn();
+    });
+    camBar.appendChild(b);
+    return b;
+  };
+  mk('PHOTO', '', () => requestPhoto());
+  camRecBtn = mk('● REC VIDEO', 'cb-rec', () => {
+    toggleRecording();
+    syncRecButton();
+  });
+  mk('GALLERY', '', () => toggleGallery());
+  mk('✕ STOP CAM', 'cb-stop', () => closeCameraBar());
+  document.body.appendChild(camBar);
+}
+
+function syncRecButton() {
+  if (!camRecBtn) return;
+  camRecBtn.textContent = recording ? '■ STOP REC' : '● REC VIDEO';
+  camRecBtn.classList.toggle('on', recording);
+}
+
+// The dash CAMERA button (cockpit3d.js) and the on-foot ≡ panel open this.
+export function openCameraBar() {
+  barOpen = true;
+  syncRecButton();
+  camBar.classList.add('open');
+}
+
+// STOP CAM: put the camera away entirely — finish any clip (it lands in the
+// gallery as usual) and close the gallery if it was up.
+export function closeCameraBar() {
+  if (!barOpen) return;
+  barOpen = false;
+  camBar.classList.remove('open');
+  if (recording) stopRecording();
+  closeGallery();
+}
+
+export function toggleCameraBar() {
+  if (barOpen) closeCameraBar();
+  else openCameraBar();
+}
+
+export function isCameraBarOpen() {
+  return barOpen;
 }
 
 export function isGalleryOpen() {
@@ -264,7 +354,7 @@ function flashShutter() {
   uiSound('shutter');
   flash.style.opacity = '0.85';
   requestAnimationFrame(() => { flash.style.opacity = '0'; });
-  showToast('PHOTO SAVED — PICS');
+  showToast('PHOTO SAVED — GALLERY');
 }
 
 // --- recording ------------------------------------------------------------
@@ -327,7 +417,7 @@ export function toggleRecording() {
       const blob = new Blob(recChunks, { type: mediaRecorder.mimeType || 'video/webm' });
       recChunks = [];
       if (blob.size) addItem('video', blob);
-      showToast('CLIP SAVED — PICS');
+      showToast('CLIP SAVED — GALLERY');
     };
     mediaRecorder.start(1000); // 1s timeslice: bounds chunk memory, less lost on failure
     recording = true;
@@ -335,6 +425,7 @@ export function toggleRecording() {
     recNextFrame = 0;
     recDot.classList.add('on');
     recDotTime.textContent = 'REC 0:00';
+    syncRecButton();
   } catch {
     releaseRecordingSurface();
     showToast('RECORDING FAILED');
@@ -345,6 +436,7 @@ function stopRecording() {
   if (!recording) return;
   recording = false;
   recDot.classList.remove('on');
+  syncRecButton();
   try { mediaRecorder.stop(); } catch { /* already stopped */ }
   // safe to tear down now: the recorder already holds its data; onstop fires
   // async and only touches recChunks
@@ -513,7 +605,9 @@ function renderGrid() {
   if (!items.length) {
     const empty = document.createElement('div');
     empty.className = 'g-empty';
-    empty.textContent = 'NO CAPTURES YET — P PHOTO · R RECORD';
+    empty.textContent = touchUI()
+      ? 'NO CAPTURES YET — TAP PHOTO OR REC VIDEO ON THE CAMERA BAR'
+      : 'NO CAPTURES YET — P PHOTO · R RECORD';
     grid.appendChild(empty);
     return;
   }
@@ -550,6 +644,7 @@ function openGallery() {
   galleryOpen = true;
   panel.classList.add('open');
   document.exitPointerLock?.();
+  foot.style.display = touchUI() ? 'none' : '';
   renderGrid();
   document.addEventListener('keydown', onGalleryKey);
 }
@@ -565,8 +660,8 @@ function onGalleryKey(e) {
   if (e.code === 'KeyX') closeGallery();
 }
 
-// Toggle the camera / PICS pop-up. Called by the dash PHOTO button (cockpit3d.js)
-// in flight, replacing the corner PICS button that only shows on foot now.
+// Open or close the gallery panel. The camera bar's GALLERY button calls this;
+// the dash CAMERA button and the corner button open the camera bar instead.
 export function toggleGallery() {
   if (galleryOpen) closeGallery();
   else openGallery();
@@ -581,8 +676,8 @@ function showToast(text) {
 // --- per-frame ------------------------------------------------------------
 
 export function updateCapture(phase, frameBlend, delta) {
-  // PICS button: on foot only. In flight the camera lives on the dash PHOTO
-  // button (which opens this gallery), so the corner button would be redundant.
+  // CAMERA corner button: on foot only (desktop; touch has it in the ≡ panel).
+  // In flight the dash CAMERA button opens the same camera bar.
   const shown = phase === 'walk';
   if (shown !== lastBtnShown) {
     capBtn.classList.toggle('hidden', !shown);
@@ -598,6 +693,7 @@ export function updateCapture(phase, frameBlend, delta) {
   }
   // never keep recording once we leave gameplay
   if (phase === 'menu' && recording) stopRecording();
+  if (barOpen && phase !== 'fly' && phase !== 'walk') closeCameraBar();
 
   if (toastTimer > 0) {
     toastTimer -= delta;

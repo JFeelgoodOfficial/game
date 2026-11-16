@@ -56,7 +56,7 @@ const WALK_LINES = [
   'E — TALK · T — VIEW · SCROLL — ZOOM',
   'G — BOARD (AT YOUR SHIP) · , . — MUSIC',
   'I — EQUIPMENT · B — USE SELECTED',
-  'P — PHOTO · R — RECORD (PICS)',
+  'P — PHOTO · R — RECORD (CAMERA)',
 ];
 
 // Warzone cities (world/warzone.js): the weapon takes the mouse buttons, R,

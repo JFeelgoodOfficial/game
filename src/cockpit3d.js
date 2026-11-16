@@ -23,7 +23,7 @@ import { uiSound } from './sfx.js';
 import { camera } from './camera.js';
 import { cockpitScene } from './cockpit.js';
 import { toggleRadioPopup } from './radioPopup.js';
-import { toggleGallery } from './capture.js';
+import { toggleCameraBar, isCameraBarOpen } from './capture.js';
 import { toggleHolo, isHoloOpen, holoPick } from './holonav.js';
 import { initNavMenu, setNavMenuOpen, isNavMenuOpen, navMenuPick } from './navmenu.js';
 import { isTouch } from './touchText.js';
@@ -533,7 +533,7 @@ function buildButtons() {
     { name: 'RADIO', key: ', .', icon: 'radio', color: 0x9fd8e8, mode: 'fn', fn: toggleRadioPopup, x: -X[0] },
     { name: 'STAND', key: 'C', icon: 'stand', color: 0xcfe6ff, mode: 'edge', flag: 'toggleInterior', code: 'KeyC', x: X[0] },
     { name: 'REVERSE', key: 'S', icon: 'reverse', color: 0xa9f7ff, mode: 'hold', flag: 'reverse', code: 'KeyS', x: X[1] },
-    { name: 'CAMERA', key: '', icon: 'camera', color: 0xffc9ec, mode: 'fn', fn: toggleGallery, x: X[2] },
+    { name: 'CAMERA', key: '', icon: 'camera', color: 0xffc9ec, mode: 'fn', fn: toggleCameraBar, lit: isCameraBarOpen, x: X[2] },
     { name: 'LAND', key: 'G', icon: 'land', color: 0xffd75a, mode: 'edge', flag: 'toggleWalk', code: 'KeyG', x: X[3] },
   ];
   aux.forEach(function (d) {
@@ -839,6 +839,7 @@ export function updateCockpit3d(ship, delta, phase) {
     let active = 0;
     if (d.mode === 'hold') active = input[d.flag] ? 1 : 0;
     else if (d.mode === 'nav') active = isHoloOpen() ? 1 : 0;
+    else if (d.lit) active = d.lit() ? 1 : 0; // CAMERA stays lit while its bar is up
     if (u._flash > 0) {
       active = Math.max(active, u._flash);
       u._flash = Math.max(0, u._flash - dt * 2.5);
