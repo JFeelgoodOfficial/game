@@ -6,7 +6,7 @@
 // touch player otherwise cannot reach. Only what applies right now is shown:
 // a context button wearing the prompt's verb (TALK, READ, SIT...), BOARD by
 // the ship, combat buttons in a warzone; the rest sits behind the ≡ panel
-// (VIEW, PICS, EQUIPMENT, PAUSE) and the ✦ fan (RELOAD, SWAP, RIDE).
+// (VIEW, CAMERA, EQUIPMENT, PAUSE) and the ✦ fan (RELOAD, SWAP, RIDE).
 //
 // Everything writes into the same `input` object the keyboard writes into, so
 // every walker (planet, cottage, freighter interior) gets the sticks for free. The look
@@ -21,7 +21,7 @@ import { settings } from './settings.js';
 import { C } from './constants.js';
 import { walkCombatActive, coinActive, currentBoardable } from './walkLazy.js';
 import { promptActions, ACTION_KEYS } from './touchText.js';
-import { toggleGallery } from './capture.js';
+import { toggleCameraBar } from './capture.js';
 import { toggleVehicleMenu } from './vehicleMenu.js';
 
 // Same sniff the rest of the touch HUD uses (touchText.js).
@@ -70,7 +70,7 @@ const CSS = `
    Always there: the sticks, JUMP, the ≡ menu. Shown when it means something:
    the context button (wears the prompt's verb: TALK, SPEAK TO XAVIER, READ,
    SIT...), BOARD near the ship, the combat FIRE/AIM, and the ✦ fan when it
-   has anything in it. VIEW / PICS / EQUIPMENT / PAUSE live in the ≡ panel. */
+   has anything in it. VIEW / CAMERA / EQUIPMENT / PAUSE live in the ≡ panel. */
 #touchUI .tc-hide { display: none !important; }
 #tcJump {
   right: 162px; bottom: 24px; width: 76px; height: 76px; border-radius: 50%;
@@ -141,7 +141,7 @@ const CSS = `
 #tcPanel .tp-name { font-size: 13px; letter-spacing: 0.22em; }
 #tcPanel .tp-what { font-size: 10px; letter-spacing: 0.12em; color: #5da8b3; }
 #tcPanel .tp-close { min-height: 38px; align-items: center; color: #5da8b3; letter-spacing: 0.3em; font-size: 11px; }
-/* The corner EQUIPMENT (vehicleMenu.js) and PICS (capture.js) buttons are
+/* The corner EQUIPMENT (vehicleMenu.js) and CAMERA (capture.js) buttons are
    desktop furniture; on touch both are rows in the ≡ panel. */
 body.touch-ui #equipBtn, body.touch-ui #capBtn { display: none !important; }
 /* Phones in landscape are short (~270px of game under the browser bar), so
@@ -360,6 +360,7 @@ export function initTouchControls() {
 
   root = document.createElement('div');
   root.id = 'touchUI';
+  root.setAttribute('data-nocapture', ''); // keep the sticks out of photos
 
   const moveEl = stick('tcMove', 'MOVE');
   const lookEl = stick('tcLook', 'LOOK');
@@ -410,6 +411,7 @@ export function initTouchControls() {
   // ≡ panel: the non-action controls, each with what it does.
   panelEl = document.createElement('div');
   panelEl.id = 'tcPanel';
+  panelEl.setAttribute('data-nocapture', '');
   const box = document.createElement('div');
   box.className = 'tp-box';
   const title = document.createElement('div');
@@ -417,7 +419,7 @@ export function initTouchControls() {
   title.textContent = 'MENU';
   panelRows = {
     view: panelRow('VIEW', 'SWITCH FIRST / THIRD PERSON', () => { input.toggleView = true; }),
-    pics: panelRow('PICS', 'YOUR PHOTOS AND RECORDINGS', () => toggleGallery()),
+    pics: panelRow('CAMERA', 'TAKE PHOTOS, RECORD VIDEO, SEE YOUR GALLERY', () => toggleCameraBar()),
     equip: panelRow('EQUIPMENT', 'CHOOSE A VEHICLE OR YOUR SNOWBOARD', () => toggleVehicleMenu()),
   };
   const pause = panelRow('PAUSE', 'FREEZE THE GAME', () => { input.togglePause = true; });
