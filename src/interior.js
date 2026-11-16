@@ -34,6 +34,7 @@ import { titleOf, loadArtMid, loadArtFull, disposeArt } from './galleryArt.js';
 import { WEAPONS, WEAPON_ORDER, TROPHY_WORLDS } from './arsenal.js';
 import { hasWeapon, combatRecord, hasUpgrade } from './inventory.js';
 import { buildPatio } from './patio.js';
+import { buildHolodeck } from './holodeck.js';
 import { buildTerrarium } from './terrarium.js';
 
 export const interiorScene = new THREE.Scene();
@@ -51,6 +52,10 @@ const HALL_Z1 = HALL_Z0 + C.FREIGHTER_HALL_L;
 const AFT_Z = HALL_Z1 + C.FREIGHTER_LOUNGE_L;
 const ROOF_Y = FLOOR_Y + C.FREIGHTER_HALL_H;
 const BAY = 5; // hall rhythm: 3 m of wall, 2 m of window
+// the holodeck's doorway: the window of the third bay, starboard side
+const HOLO_BAY = 2;
+const HOLO_Z0 = HALL_Z0 + HOLO_BAY * BAY + 3;
+const HOLO_Z1 = HALL_Z0 + (HOLO_BAY + 1) * BAY;
 const PART_HW = 2.5, PART_TOP = 1.8; // freestanding partitions
 const ART_Y = 0.5; // canvas centre height (just above the standing eye)
 
@@ -330,6 +335,12 @@ let patio = null;
 let terrarium = null; // src/terrarium.js: the stevenlacey tank in the lounge
 let doorSolidAt = -1;
 let aftLimit = AFT_Z - BODY_R;
+// The holodeck (src/holodeck.js, an upgrade): the same arrangement on the
+// starboard side — one switching solid in a window bay, and `xLimit`, how far
+// to starboard the walker may go.
+let holodeck = null;
+let holoSolidAt = -1;
+let xLimit = HALL_HW - BODY_R;
 
 function resolveWalls(p) {
   for (let pass = 0; pass < 2; pass++) {
@@ -357,13 +368,24 @@ function resolveWalls(p) {
     }
   }
   // belt and braces: never outside the hull, whatever the boxes say
-  p.x = Math.max(-HALL_HW + BODY_R, Math.min(HALL_HW - BODY_R, p.x));
+  p.x = Math.max(-HALL_HW + BODY_R, Math.min(xLimit, p.x));
   p.z = Math.max(-0.2, Math.min(aftLimit, p.z));
 }
 
 // Open or close the stern doorway to match the inventory. Cheap enough to
 // call every frame; only does anything on a change.
+function syncHolodeck() {
+  const want = hasUpgrade('holodeck');
+  if (!holodeck || want === holodeck.open) return;
+  holodeck.setOpen(want);
+  xLimit = (want ? holodeck.xMax : HALL_HW) - BODY_R;
+  solidBuf[holoSolidAt] = want ? 1e6 : HALL_HW;
+  solidBuf[holoSolidAt + 1] = want ? 1e6 + 1 : HALL_HW + 1.3;
+  if (!want) resolveWalls(player.pos);
+}
+
 function syncPatio() {
+  syncHolodeck();
   const want = hasUpgrade('patio');
   if (!patio || want === patio.open) return;
   patio.setOpen(want);
@@ -831,18 +853,26 @@ export function initInterior() {
   box('trim', -1.12, 1.12, 1.28, 1.36, HALL_Z0 - 0.08, HALL_Z0 + 0.08);
   solidPair(1.1, HW + 1, HALL_Z0 - 0.12, HALL_Z0 + 0.12);
   // side walls: sill, header, and a 3 m panel then a 2 m window, six times
-  boxes('wall', HW, HW + 0.1, F, -0.8, HALL_Z0, HALL_Z1);
+  // (the starboard sill is broken at one bay: that window is the holodeck's
+  // doorway, and its sill, pane and solid belong to src/holodeck.js)
+  box('wall', -HW - 0.1, -HW, F, -0.8, HALL_Z0, HALL_Z1);
+  box('wall', HW, HW + 0.1, F, -0.8, HALL_Z0, HOLO_Z0);
+  box('wall', HW, HW + 0.1, F, -0.8, HOLO_Z1, HALL_Z1);
   boxes('wall', HW, HW + 0.1, 3.2, ROOF_Y, HALL_Z0, HALL_Z1);
   const bays = Math.floor(C.FREIGHTER_HALL_L / BAY);
   for (let i = 0; i < bays; i++) {
     const z = HALL_Z0 + i * BAY;
     boxes('hang', HW, HW + 0.1, -0.8, 3.2, z, z + 3);
     paneX(-HW - 0.05, -0.8, 3.2, z + 3, z + BAY);
-    paneX(HW + 0.05, -0.8, 3.2, z + 3, z + BAY);
+    if (i !== HOLO_BAY) paneX(HW + 0.05, -0.8, 3.2, z + 3, z + BAY);
     boxes('trim', HW - 0.02, HW + 0.12, -0.8, 3.2, z + 2.96, z + 3.04);
     boxes('trim', HW - 0.02, HW + 0.12, -0.8, 3.2, z + BAY - 0.04, z + BAY + 0.04);
   }
-  solidPair(HW, HW + 1.3, HALL_Z0, AFT_Z);
+  solid(-HW - 1.3, -HW, HALL_Z0, AFT_Z);
+  solid(HW, HW + 1.3, HALL_Z0, HOLO_Z0);
+  solid(HW, HW + 1.3, HOLO_Z1, AFT_Z);
+  holoSolidAt = solids.length;
+  solid(HW, HW + 1.3, HOLO_Z0, HOLO_Z1);
   // partitions, each with a picture light along its head, and a bench per bay
   for (let i = 0; i < bays - 1; i++) {
     const zc = HALL_Z0 + (i + 1) * BAY;
@@ -885,6 +915,7 @@ export function initInterior() {
   doorSolidAt = solids.length;
   solid(-1.36, 1.36, AFT_Z, AFT_Z + 1);
   patio = buildPatio({ group, MATS, glassMat, F, HW, AFT_Z, ROOF_Y, solid });
+  holodeck = buildHolodeck({ group, MATS, glassMat, F, HW, ROOF_Y, solid, Z0: HOLO_Z0, Z1: HOLO_Z1 });
   // two couches facing the view
   for (const sx of [-1, 1]) {
     const x = sx * 2.1;
@@ -1076,6 +1107,17 @@ export function nearPlaque() {
   const dx = player.pos.x - PLAQUE_X;
   const dz = player.pos.z - PLAQUE_Z;
   return dx * dx + dz * dz < 1.5 * 1.5;
+}
+
+// Standing at the holodeck's panel (src/holodeck.js), close enough to use it.
+export function nearHoloPanel() {
+  if (!holodeck || !holodeck.open) return false;
+  const dx = player.pos.x - holodeck.panel.x, dz = player.pos.z - holodeck.panel.z;
+  return dx * dx + dz * dz < 1.7 * 1.7;
+}
+// Where a finished program puts the pilot back: at the panel, facing the room.
+export function holoPanelSpot() {
+  return holodeck ? holodeck.panel : null;
 }
 
 // Out on the aft patio, past the doorway (src/tenretniLazy.js waits for this).

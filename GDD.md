@@ -429,8 +429,29 @@ over the bore; after the second it has a thin green air shell. Either order
 works. Saved as `eaten[]`, `size`, `eating` in `fgsf.tenretni`; a reload or
 world reset part-way finds the planet already gone.
 
-Not built yet: the holodeck and the clock, the three war fleets, boarding and
-the ending (plans/ and the next stages).
+**The holodeck** (`src/holodeck.js`, `src/holoPanel.js`). With both water
+worlds gone the Warden thanks the pilot and the ship gains the `holodeck`
+upgrade: the third starboard window of the gallery becomes a doorway into a
+gridded room with a wall panel. The panel lists programs, one per assimilated
+world worth keeping: Wyattmattoe (lands at Kite Saddle, beside the ski hill
+and lift) from the start, then Shadowreach, Actuality and Stevenlacey as each
+is consumed. A program is the real on-foot world: `startHolo` in `game.js`
+puts the removed world back for the session (`holoWorld`), keeps the ship's
+true position in absolute coordinates, and runs the ordinary walk. **G ends a
+program from anywhere** and stands the pilot back at the panel; Actuality's
+finale and the coin's fold-up end it the same way instead of resetting the
+game. The worldship's clock is paused while a program runs on an isolating
+world.
+
+**The clock.** After the second water world the worldship takes no more
+headings. Every `TENRETNI_QUICK_WAIT` + ~50 s it sails to and consumes the
+next of Shadowreach, Actuality, Stevenlacey (the assimilator's short form: no
+tube, no drain; ×1.12 growth each), then Wavemall Prime, Saturnia and Rustia
+`TENRETNI_SIEGE_WAIT` (4 min) apart. With nothing left it flies into the
+wormhole and is gone (`end: 'gone'`), unless the pilot is docked at or walking
+the capital, in which case it waits. There is no reset.
+
+Not built yet: the three war fleets, boarding and the ending.
 
 ### 5.8 The Sky City (Saturnia)
 

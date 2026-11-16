@@ -40,9 +40,11 @@ import hullVert from './shaders/tenretniHull.vert?raw';
 import hullFrag from './shaders/tenretniHull.frag?raw';
 
 const T_STRIKE = 56;
-const T_BREAK = 84;
-const T_GONE = 104;
-const T_END = 112;
+// The long form, for a world with water. The short form (a dry world, or the
+// coin) skips the tube and the drain: the swarm crosses, the city takes the
+// surface under it, and the break-up starts at 44.
+const LONG = { strike: true, brk: 84, gone: 104, end: 112 };
+const SHORT = { strike: false, brk: 44, gone: 60, end: 66 };
 const SWARM_COUNT = { low: 4000, medium: 12000, high: 30000, ultra: 30000 };
 const RINGS = 14;
 const CHUNKS = 420;
@@ -63,6 +65,7 @@ function rng(seed) {
 }
 
 // ctx: { scene, terra, planets, camera, fx, sunWorld, setRumble(r),
+//        find(name) — the world of that name,
 //        grow(k, progress) — the worldship is now k times its built size,
 //        done(name) — the planet is gone and the growth is finished }
 export function createAssimilator(ctx) {
@@ -166,11 +169,23 @@ export function createAssimilator(ctx) {
     chunkData.set([
       k * Math.cos(th), k * Math.sin(th), z,
       0.3 + 0.7 * cr(), 0.035 + 0.09 * cr() * cr(),
-      T_BREAK + 1 + 15 * cr(), 4.5 + 2.5 * cr(), cr() * 6.28,
+      cr(), 4.5 + 2.5 * cr(), cr() * 6.28, // depart: 0..1 through the break-up
     ], i * 8);
   }
 
-  const planetScaleAt = (u) => 1 - 0.97 * ease(seg(u, T_BREAK, T_GONE));
+  let T = LONG; // the form the current job runs to
+  const planetScaleAt = (u) => 1 - 0.97 * ease(seg(u, T.brk, T.gone));
+  const departAt = (f) => T.brk + 1 + f * (T.gone - T.brk - 5);
+  // a planet (src/planet.js) or anything else with a group and a radius (the coin)
+  const scaleWorld = (w, k) => (w.surface ? setPlanetScale(w, k) : w.group.scale.setScalar(k));
+  const removeWorld = (w) => {
+    if (w.surface) removePlanet(w, true);
+    else {
+      w.removed = true;
+      w.group.visible = false;
+    }
+    setNavHidden(w.group.position, true);
+  };
 
   function frame() {
     const p = job.target;
@@ -200,7 +215,7 @@ export function createAssimilator(ctx) {
     }
 
     // swarm
-    swarm.visible = u > 27 && u < 86;
+    swarm.visible = u > 27 && u < T.gone - 2 && u < 86;
     swarmU.uT.value = u;
     swarmU.uRs.value = Rw;
     swarmU.uRt.value = Rt;
@@ -208,8 +223,8 @@ export function createAssimilator(ctx) {
     swarmU.uCitySpan.value = SPAN0 * Rt;
 
     // tube: from the worldship's hull to the strike point facing it
-    const ext = Math.pow(seg(u, 40, T_STRIKE), 1.6);
-    const gone = seg(u, T_BREAK, T_BREAK + 4);
+    const ext = T.strike ? Math.pow(seg(u, 40, T_STRIKE), 1.6) : 0;
+    const gone = seg(u, T.brk, T.brk + 4);
     const L = Math.max(W.length() - Rw * 0.97 - Rt, 1);
     const len = L * ext;
     const rad = C.TENRETNI_TUNNEL_RADIUS * 1.3;
@@ -229,25 +244,28 @@ export function createAssimilator(ctx) {
     rings.instanceMatrix.needsUpdate = true;
 
     // the planet: drained, built over, then scaled away
-    const drain = u >= T_STRIKE ? ease(seg(u, 57, 73)) : 0;
-    const tech = u >= T_STRIKE ? ease(seg(u, 60, 72)) : 0;
-    const span = SPAN0 + (Math.PI - SPAN0) * ease(seg(u, 66, T_BREAK));
-    setPlanetDrain(p.cfg.name, drain, job.dirLocal, tech, span);
-    if (!p.removed) setPlanetScale(p, sP);
+    if (p.surface) {
+      const drain = T.strike && u >= T_STRIKE ? ease(seg(u, 57, 73)) : 0;
+      const t0 = T.strike ? 60 : 30;
+      const tech = u >= (T.strike ? T_STRIKE : 30) ? ease(seg(u, t0, t0 + 10)) : 0;
+      const span = SPAN0 + (Math.PI - SPAN0) * ease(seg(u, t0 + 4, T.brk));
+      setPlanetDrain(p.cfg.name, drain, job.dirLocal, tech, span);
+    }
+    if (!p.removed) scaleWorld(p, sP);
 
     // chunks
-    const on = u > T_BREAK && u < T_GONE + 8;
+    const on = u > T.brk && u < T.gone + 8;
     chunks.visible = on;
     if (on) {
       for (let i = 0; i < CHUNKS; i++) {
         const o = i * 8;
-        const a = (u - chunkData[o + 5]) / chunkData[o + 6];
+        const a = (u - departAt(chunkData[o + 5])) / chunkData[o + 6];
         if (a <= 0 || a >= 1) {
           _m.makeScale(0, 0, 0);
         } else {
           const k = a * a * (3 - 2 * a);
           // from where that piece of the planet was when it let go...
-          const r0 = Rt * chunkData[o + 3] * planetScaleAt(chunkData[o + 5]);
+          const r0 = Rt * chunkData[o + 3] * planetScaleAt(departAt(chunkData[o + 5]));
           _a.set(chunkData[o], chunkData[o + 1], chunkData[o + 2]);
           _b.copy(_a).multiplyScalar(r0);
           // ...to the worldship's near face, bowing out on the way
@@ -263,11 +281,8 @@ export function createAssimilator(ctx) {
     }
 
     // out of space, and the worldship grows
-    if (u >= T_GONE && !p.removed) {
-      removePlanet(p, true);
-      setNavHidden(p.group.position, true);
-    }
-    const g = ease(seg(u, T_GONE, T_END));
+    if (u >= T.gone && !p.removed) removeWorld(p);
+    const g = ease(seg(u, T.gone, T.end));
     ctx.grow(job.k0 + (job.k1 - job.k0) * g, g);
   }
 
@@ -276,18 +291,18 @@ export function createAssimilator(ctx) {
     const nm = job.target.cfg.name.toUpperCase();
     if (hit(13) && job.ice && flying) showViewToast(`${nm} — SURFACE TEMPERATURE RISING`, 6);
     if (hit(27)) fx.kick = 0.4;
-    if (hit(T_STRIKE)) {
+    if (T.strike && hit(T_STRIKE)) {
       fx.kick = 1;
       fx.flash = 0.5;
       uiSound('impact');
     }
-    if (hit(58) && flying) showViewToast(`${nm} — OCEAN LEVEL FALLING`, 6);
-    if (hit(T_BREAK)) {
+    if (T.strike && hit(58) && flying) showViewToast(`${nm} — OCEAN LEVEL FALLING`, 6);
+    if (hit(T.brk)) {
       fx.kick = 0.9;
       uiSound('impact');
       if (flying) showViewToast(`${nm} — CRUST FAILING`, 6);
     }
-    if (hit(T_GONE)) {
+    if (hit(T.gone)) {
       fx.kick = 0.7;
       if (flying) showNavToast(`${nm} HAS BEEN ASSIMILATED`, 7);
     }
@@ -296,34 +311,38 @@ export function createAssimilator(ctx) {
   function rumbleAt(u) {
     return clamp01(
       0.3 * Math.sin(Math.PI * seg(u, 12, 28)) * (job.ice ? 1 : 0) +
-      0.45 * seg(u, 40, T_STRIKE) * (1 - seg(u, 73, 76)) +
-      0.6 * Math.sin(Math.PI * seg(u, T_BREAK, T_GONE)) +
-      0.4 * Math.sin(Math.PI * seg(u, T_GONE, T_END))
+      (T.strike ? 0.45 * seg(u, 40, T_STRIKE) * (1 - seg(u, 73, 76)) : 0) +
+      0.6 * Math.sin(Math.PI * seg(u, T.brk, T.gone)) +
+      0.4 * Math.sin(Math.PI * seg(u, T.gone, T.end))
     );
   }
 
   function end() {
     const name = job.target.cfg.name;
+    const k1 = job.k1;
     anchor.visible = false;
     ctx.setRumble(0);
     job = null;
-    ctx.done(name);
+    ctx.done(name, k1);
   }
 
   return {
     active: () => !!job,
     target: () => (job ? job.target.cfg.name : null),
     // Begin on `name`. k0 -> k1: the worldship's size before and after.
-    start(name, k0, k1) {
-      const target = ctx.planets.find((q) => q.cfg.name === name);
+    // `short`: the quick form, for worlds with no water to take first.
+    start(name, k0, k1, short = false) {
+      const target = ctx.find(name);
       if (!target || job) return false;
-      // hold the planet still: the strike point must stay under the tube
-      target.spinLock = target.surface.rotation.y;
-      const ice = !!target.cfg.frozenSea;
+      T = short ? SHORT : LONG;
+      // hold a planet still: the strike point must stay under the tube
+      const rotY = target.surface ? target.surface.rotation.y : 0;
+      if (target.surface) target.spinLock = rotY;
+      const ice = !short && !!target.cfg.frozenSea;
       job = { name, target, u: ice ? 11 : 26, lastU: 0, k0, k1, ice, dirLocal: new THREE.Vector3() };
       job.lastU = job.u;
       frame();
-      job.dirLocal.copy(N).applyAxisAngle(Y, -target.surface.rotation.y);
+      job.dirLocal.copy(N).applyAxisAngle(Y, -rotY);
       anchor.visible = true;
       return true;
     },
@@ -334,19 +353,19 @@ export function createAssimilator(ctx) {
       ringMat.uniforms.uTime.value = t;
       chunkMat.uniforms.uTime.value = t;
       swarmU.uScale.value = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((ctx.camera.fov * Math.PI) / 360);
-      job.u = Math.min(job.u + delta, T_END);
+      job.u = Math.min(job.u + delta, T.end);
       pose(job.u);
       beats(job.lastU, job.u, flying);
       ctx.setRumble(rumbleAt(job.u));
       job.lastU = job.u;
-      if (job.u >= T_END) end();
+      if (job.u >= T.end) end();
     },
     // Jump to the end (world reset, reload mid-way): the planet is gone.
     finishNow() {
       if (!job) return;
       frame();
-      job.u = T_END;
-      pose(T_END);
+      job.u = T.end;
+      pose(T.end);
       end();
     },
     seek(u) {

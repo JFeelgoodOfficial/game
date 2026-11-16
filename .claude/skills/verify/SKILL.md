@@ -332,3 +332,15 @@ a world reset finishes the assimilation instantly. Park the test ship well
 clear before a voyage (`ship.position.y += 40000`) or the capital's dock will
 capture it as the worldship sails past.
 
+Holodeck and clock: seed `fgsf.tenretni` with `eaten: ['neptunia','wyattmattoe']`,
+`size: 2.25` and the `holodeck` upgrade is granted at load. `__debug.holodeck` →
+`{active(), start(id), end(), programs(), panel(), near(), spot()}` (note:
+`__debug.holo` is the navigation hologram). The room: `interior.stand()`, then
+`interior.place(spot.x, spot.z, -Math.PI / 2)` puts you at the panel; key `e`
+opens it, a digit runs a program, `g` ends it. After a program the ship's
+absolute position (`originOffset + ship.position`) must equal what it was, and
+`tenretni.state().removed` must list the world again. Programs build real
+worlds: allow 10 s+ and long screenshot timeouts. `tenretni.clock(sec)` sets
+the idle clock: a large value makes the next meal start at once, a large
+negative one holds it off. `state()` adds `clock, next, exiting, ended`.
+

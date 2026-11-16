@@ -74,7 +74,7 @@ export const stepTenretniHold = (dt) => mod && mod.stepHold(dt);
 
 // Per frame, while the space sim runs. `onDeck`: the pilot is standing on the
 // patio. `flying`: fly phase and not paused (toasts and sound only then).
-export function updateTenretni(delta, t, onDeck, flying) {
+export function updateTenretni(delta, t, onDeck, flying, aboard) {
   if (!mod) {
     const st = questStage(SECRET);
     if (st === 'armed' || st === 'done' || st === 'ship') load();
@@ -84,7 +84,7 @@ export function updateTenretni(delta, t, onDeck, flying) {
     arrived = false;
     mod.arrive();
   }
-  mod.update(delta, t, onDeck, flying);
+  mod.update(delta, t, onDeck, flying, aboard);
 }
 
 // World reset (death, the actuality loop): drop an event in progress. The
@@ -101,6 +101,11 @@ export const capitalDock = () => (mod ? mod.capitalSite() : null);
 // While the worldship is under way, its velocity (for the starfield's streaks).
 export const tenretniSailVelocity = () => (mod ? mod.sailVelocity() : null);
 
+// The holodeck: which programs exist and which are unlocked, and putting an
+// assimilated world back for the length of a session (see mod.holoWorld).
+export const holoPrograms = () => (mod ? mod.programs() : []);
+export const holoWorld = (id, on) => (mod ? mod.holoWorld(id, on) : null);
+
 // dev/verification handle (__debug.tenretni)
 export const tenretniDebug = () => ({
   loaded: !!mod,
@@ -110,6 +115,7 @@ export const tenretniDebug = () => ({
   seek: (s) => mod && mod.debugSeek(s),
   sail: (name) => mod && mod.debugSail(name),
   eat: (u) => mod && mod.debugEat(u),
+  clock: (sec) => mod && mod.debugClock(sec),
   story: () => mod && mod.debugStory(),
   state: () => (mod ? mod.state() : { loaded: false, stage: questStage(SECRET) }),
 });
