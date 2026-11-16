@@ -1090,16 +1090,18 @@ export function createReachShip(planet, def) {
     return out;
   }
 
+  const hullInv = new THREE.Matrix4();
   const _camL = new THREE.Vector3();
   const _padW = new THREE.Vector3();
-  const _q = new THREE.Quaternion();
-  const _e = new THREE.Euler();
 
   function update(dt, t, camWorld) {
     sea.update(camWorld);
     poseAt(sea.time);
     hull.position.y = pose.heave;
     hull.rotation.set(pose.pitch, 0, pose.roll);
+    hull.updateMatrix();
+    hullInv.copy(hull.matrix).invert();
+    if (parkedRef) placeParked();
     radar.rotation.y = t * 1.3;
     // small gear is sub-pixel from the air
     _camL.copy(camWorld);
@@ -1130,14 +1132,124 @@ export function createReachShip(planet, def) {
     return out;
   }
 
-  return {
+  // ======================= THE SHIP AS A TOWN ===============================
+  // walk.js walks a registry city through a small contract (world/city.js
+  // createCity). The ship answers the same one, so the whole on-foot path —
+  // isolation, the real sky, diamond rain, swimming, citizens, the governor's
+  // tour — is the stock code. Its "city-local" frame is the anchor's.
+  const _p = new THREE.Vector3(), _h = new THREE.Vector3();
+  const _dir = new THREE.Vector3();
+  // The hull moves between physics ticks (a whole render frame's worth of
+  // swell at a low frame rate), so a walker located by anchor-frame height
+  // alone could find the deck a metre above their feet and drop through it.
+  // Someone who was standing on a deck last tick is therefore tracked by
+  // their HULL-local height: where the deck went, they went.
+  let lastAnchorY = NaN, lastHullY = 0;
+  const hullFeet = (anchorY) => (Math.abs(anchorY - lastAnchorY) < 0.08 ? lastHullY : _p.y);
+  const wrapped = {
+    surfaceYAt(x, z, feetY) {
+      _p.set(x, feetY, z).applyMatrix4(hullInv);
+      const fy = feetY > 1e5 ? 1e6 : hullFeet(feetY);
+      const y = structure.surfaceYAt(_p.x, _p.z, fy);
+      if (y === null) return null;
+      _p.y = y;
+      const out = _p.applyMatrix4(hull.matrix).y;
+      if (feetY < 1e5 && fy - y < 0.3) { lastAnchorY = out; lastHullY = y; } // standing on it
+      return out;
+    },
+    resolveWalls(p, r) {
+      _p.copy(p).applyMatrix4(hullInv);
+      _h.set(_p.x, hullFeet(p.y), _p.z);
+      if (!structure.resolveWalls(_h, r)) return false;
+      _h.y = _p.y;
+      _h.applyMatrix4(hull.matrix);
+      p.x = _h.x; p.z = _h.z;
+      return true;
+    },
+    segmentHit(x0, z0, x1, z1, feetY) {
+      _p.set(x0, feetY, z0).applyMatrix4(hullInv);
+      const fy = hullFeet(feetY);
+      _h.set(x1, feetY, z1).applyMatrix4(hullInv);
+      return structure.segmentHit(_p.x, _p.z, _h.x, _h.z, fy);
+    },
+  };
+  // top of the highest deck over (x, z), anchor-local; 0 (the sea) off the ship
+  function groundLocalYAt(x, z) {
+    const y = wrapped.surfaceYAt(x, z, 1e6);
+    return y === null ? 0 : y;
+  }
+  // the real seabed under (x, z), as an anchor-local height
+  function walkFloorYAt(x, z) {
+    _dir.set(x, rw, z).applyQuaternion(anchor.quaternion).normalize();
+    const fr = planet.radius + planet.body.terrainAtLocal(_dir);
+    return Math.sqrt(Math.max(fr * fr - x * x - z * z, 0)) - rw;
+  }
+
+  // Where each resident stands (roster order, world/cityRegistry.js). Hull-local.
+  const home = (idx, role, x, y, z, face, extra = {}) => ({
+    idx, role, kind: 'ship', x, z, floorY: y, half: 4, noStroll: true,
+    doorX: x, doorZ: z, doorY: y, doorYaw: face,
+    anchor: { x, z, y, face }, ...extra,
+  });
+  const homes = [
+    home(0, 'governor', 0, H.T3, -26, 0, { penthouse: true, doorZ: -32.5 }), // Madame Ossva: the bridge
+    home(1, 'scholar', -8, H.T3, -30.5, 0), // the chart table
+    home(2, 'merchant', -10, H.MAIN, -28, Math.PI / 2), // market, port stalls
+    home(3, 'entertainer', -8, H.T2, -44, 0), // mess hall
+    home(4, 'artisan', 10, H.MAIN, -44, -Math.PI / 2), // market, starboard stalls
+    home(5, 'guide', 9, H.FLIGHT, -78, Math.PI), // the gangway by the pad
+    home(6, 'resident', 8, H.T2, -32, Math.PI), // mess hall
+    home(7, 'resident', 11.5, H.MAIN, 13, -Math.PI / 2), // the diver, at the moon pool
+  ];
+
+  let parkedRef = null;
+  const _pq = new THREE.Quaternion();
+  function placeParked() {
+    const g = parkedRef.group;
+    g.position.set(H.PAD.x, H.FLIGHT + C.PARK_LIFT, H.PAD.z).applyMatrix4(hull.matrix).applyMatrix4(anchor.matrix);
+    g.quaternion.copy(anchor.quaternion).multiply(_pq.setFromEuler(hull.rotation));
+  }
+
+  function asCity(cityDef) {
+    return {
+      group: anchor,
+      def: cityDef,
+      persistent: true, // built at boot, never disposed with a walk session
+      structures: [wrapped],
+      collidersLocal: [],
+      colliders: [],
+      outerRadius: 150,
+      padLocal: new THREE.Vector3(H.PAD.x, H.FLIGHT, H.PAD.z),
+      spawnLocal: { x: 0, z: H.PAD.z + 21 }, // clear of the freighter's nose, facing the house
+      gateSpot: { x: 0, z: -68 },
+      plazaCenters: [{ x: 0, z: -10, r: 8 }],
+      homes,
+      elevator: null,
+      npcRoot: hull, // residents ride the swell with the deck
+      groundLocalYAt,
+      groundHeightAt: groundLocalYAt,
+      walkFloorYAt,
+      adoptParked(parked) { parkedRef = parked; placeParked(); },
+      update() {},
+      dispose() { parkedRef = null; },
+    };
+  }
+
+  const ship = {
     anchor, hull, sea, structure, surfaces, walls, pose,
-    update, poseAt, padPose,
+    update, poseAt, padPose, asCity, groundLocalYAt, walkFloorYAt, homes,
     pad: new THREE.Vector3(H.PAD.x, H.FLIGHT, H.PAD.z),
     padR: H.PAD.r,
     def,
     lights: { workLight, padLight },
     detailGroup,
-    _scratch: { _q, _e },
   };
+  _ship = ship;
+  return ship;
+}
+
+let _ship = null;
+// The one Indigo Reach (built at boot by game.js; walk.js adopts it as a town).
+export function getReachShip() {
+  return _ship;
 }

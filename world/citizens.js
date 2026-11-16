@@ -433,7 +433,7 @@ export function createCitizens(planet, cityDef, city, opts = {}) {
 
       // Schedule: grounded, non-vendor-critical citizens stroll on a phase
       // window; the governor keeps the penthouse.
-      if (!c.penthouse && c.home) {
+      if (!c.penthouse && c.home && !c.home.noStroll) {
         if (c.mode === 'home' && ((clock + c.strollPhase) % STROLL_CYCLE) < dt * 1.5) {
           c.path = buildPath(c);
           c.mode = 'stroll';

@@ -857,6 +857,20 @@ if (import.meta.env.DEV) {
     // turns the planet so the site sits under the sun.
     reachSea,
     reachShip,
+    // Step out onto the flight deck without flying the landing.
+    reachStepOut() {
+      debug.reachView(0, 30, 0, true);
+      const pp = reachShip.padPose({ pad: new THREE.Vector3(), padMean: new THREE.Vector3(), up: new THREE.Vector3(), upMean: new THREE.Vector3(), quat: new THREE.Quaternion(), quatMean: new THREE.Quaternion() });
+      ship.position.copy(neptunia.group.position).add(pp.padMean).addScaledVector(pp.upMean, 6);
+      debug.paused = false;
+      landState = null;
+      landedPlanet = null;
+      _padLocalDir.set(0, 0, 0);
+      beginWalk(neptunia);
+      heat = 0;
+      phase = 'walk';
+      accumulator = 0;
+    },
     reachView(dist = 300, height = 60, bearing = 0, sunny = true) {
       const p = neptunia;
       if (sunny) {

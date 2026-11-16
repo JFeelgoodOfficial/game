@@ -159,10 +159,11 @@ export const CITIES = [
     // ship's tube runs the whole way to the seabed here.
     site: V(-0.933589, -0.142217, 0.328917),
     noFlatten: true, // all-ocean world: nothing to level, and levelling would bake an island
+    host: 'reachShip', // the town IS the factory ship (world/reachship.js), not a createCity layout
     style: 'abyssGlow',
     radius: 150,
     seed: 0xea404c7a,
-    pad: { x: -179, z: -14 }, // probed dry (scripts/probe-pads.mjs)
+    pad: { x: 0, z: -100 }, // the flight deck over the stern (reachship.js HULL.PAD)
     voice: 'tide',
     wonders: [
       { type: 'leviathan', title: 'Ribs of the Sound-Leviathan', bearing: 0.39, dist: 360, seed: 0x1111a00a },
