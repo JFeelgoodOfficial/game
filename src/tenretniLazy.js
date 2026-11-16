@@ -77,7 +77,7 @@ export const stepTenretniHold = (dt) => mod && mod.stepHold(dt);
 export function updateTenretni(delta, t, onDeck, flying) {
   if (!mod) {
     const st = questStage(SECRET);
-    if (st === 'armed' || st === 'done') load();
+    if (st === 'armed' || st === 'done' || st === 'ship') load();
     return;
   }
   if (arrived) {
@@ -95,6 +95,12 @@ export function resetTenretni() {
   if (mod) mod.abort();
 }
 
+// The worldship's capital (world/capital.js), once terra has become a ship:
+// game.js docks on it as it docks at the Sky City. Null until then.
+export const capitalDock = () => (mod ? mod.capitalSite() : null);
+// While the worldship is under way, its velocity (for the starfield's streaks).
+export const tenretniSailVelocity = () => (mod ? mod.sailVelocity() : null);
+
 // dev/verification handle (__debug.tenretni)
 export const tenretniDebug = () => ({
   loaded: !!mod,
@@ -102,5 +108,7 @@ export const tenretniDebug = () => ({
   arrive: () => { arrived = true; },
   start: () => mod && mod.debugStart(),
   seek: (s) => mod && mod.debugSeek(s),
+  sail: (name) => mod && mod.debugSail(name),
+  story: () => mod && mod.debugStory(),
   state: () => (mod ? mod.state() : { loaded: false, stage: questStage(SECRET) }),
 });

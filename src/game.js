@@ -49,7 +49,7 @@ import { navMenuDebug } from './navmenu.js';
 import { startAutoWarp, stepAutopilot, autopilotActive, cancelAutopilot } from './autopilot.js';
 import {
   initTenretni, updateTenretni, tenretniHolding, stepTenretniHold, resetTenretni,
-  tenretniFx, tenretniDebug,
+  tenretniFx, tenretniDebug, capitalDock, tenretniSailVelocity,
 } from './tenretniLazy.js';
 import {
   interiorScene,
@@ -116,6 +116,8 @@ import {
   enterSkyWalk,
   skyActive,
   skyFell,
+  enterCapitalWalk,
+  capitalActive,
   enterCoinWalk,
   coinActive,
   coinBeginLeave,
@@ -535,19 +537,35 @@ if (import.meta.env.DEV) {
     // air shell opposite the city (side = 1) or beside it (side = 0) so the
     // capture fires on the next tick; skyDock() skips the flight entirely.
     skyCity,
-    skyState: () => ({ landState, skyLanding, skyArmed, autoT, phase, flash }),
+    skyState: () => ({ landState, skyLanding, skyArmed: skyDock.armed, capArmed: capDock.armed, dock: dock === capDock ? 'capital' : 'sky', autoT, phase, flash }),
     skyApproach(side = 1, speed = 300) {
+      dock = skyDock;
       skyPadPose();
       const d = _skyPad.clone().normalize().multiplyScalar(side ? -1 : 1);
       if (!side) d.applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.5);
-      ship.position.copy(saturnia.body.position).addScaledVector(d, skyShellRadius() + 150);
+      ship.position.copy(saturnia.body.position).addScaledVector(d, skyShellRadius(skyDock) + 150);
       ship.velocity.copy(d).multiplyScalar(-speed);
-      skyArmed = true;
+      skyDock.armed = true;
       landState = null;
       skyLanding = false;
     },
     skyDock() {
-      setOnSkyPad();
+      setOnSkyPad(skyDock);
+    },
+    // The worldship's capital (src/tenretni.js): park on its pad / step out.
+    capitalDock() {
+      capDock.city = capitalDock();
+      if (!capDock.city) return false;
+      setOnSkyPad(capDock);
+      return true;
+    },
+    capitalStepOut() {
+      if (!capDock.city || !enterCapitalWalk(capDock.city)) return false;
+      landState = null;
+      landedPlanet = null;
+      skyLanding = false;
+      phase = 'walk';
+      return true;
     },
     skyStepOut() {
       if (!enterSkyWalk(skyCity)) return false;
@@ -1073,7 +1091,24 @@ function landingUpright(up, quatOut) {
 // cases. skyArmed is the latch that stops a liftoff being re-captured on the
 // spot: it only resets once the ship has climbed clear of the shell.
 let skyLanding = false;
-let skyArmed = true;
+// Two places dock a ship this way: the Sky City, and the capital of the
+// worldship terra becomes (src/tenretni.js), which does not exist until that
+// story has run. `dock` is whichever one currently has the helm.
+const skyDock = {
+  city: skyCity,
+  armed: true,
+  hail: 'SKY CITY APPROACH CONTROL — WE HAVE YOUR HELM',
+  welcome: 'SKY CITY — WELCOME ABOARD',
+  enter: () => enterSkyWalk(skyCity),
+};
+const capDock = {
+  city: null,
+  armed: false, // armed by flying clear once the capital exists
+  hail: 'TENRETNI CAPITAL — YOUR HELM IS OURS',
+  welcome: 'TENRETNI CAPITAL — YOU ARE EXPECTED',
+  enter: () => enterCapitalWalk(capDock.city),
+};
+let dock = skyDock;
 let skyArcFrac = 0.7; // share of the auto-land spent on the arc (rest: descent)
 let skyFallT = -1; // >= 0 while the white is rising over a fall from the city
 const _skyUp = new THREE.Vector3();
@@ -1089,26 +1124,27 @@ let skyArcAng = 0;
 // nose toward the city centre. Offsets are from the planet centre, which is
 // what survives a floating-origin rebase mid-arc.
 function skyPadPose() {
-  const g = skyCity.group;
+  const g = dock.city.group;
   _skyUp.set(0, 1, 0).applyQuaternion(g.quaternion);
-  _skyPad.copy(skyCity.pad).applyQuaternion(g.quaternion).add(g.position)
+  _skyPad.copy(dock.city.pad).applyQuaternion(g.quaternion).add(g.position)
     .addScaledVector(_skyUp, C.PARK_LIFT);
   _skyHover.copy(_skyPad).addScaledVector(_skyUp, C.SKY_HOVER);
   _landUprightQuat.copy(g.quaternion);
 }
 
-function skyShellRadius() {
-  return saturnia.radius * C.ATMO_SHELL;
+function skyShellRadius(d = dock) {
+  return d.city.planet.radius * C.ATMO_SHELL;
 }
 
-function beginSkyAutoLand() {
+function beginSkyAutoLand(d) {
   cancelAutopilot();
+  dock = d;
   skyPadPose();
-  landedPlanet = saturnia;
+  landedPlanet = dock.city.planet;
   skyLanding = true;
-  skyArmed = false;
+  dock.armed = false;
   _padLocalDir.set(0, 0, 0);
-  _landStartOff.subVectors(ship.position, saturnia.body.position);
+  _landStartOff.subVectors(ship.position, dock.city.planet.body.position);
   _landStartQuat.copy(ship.quaternion);
   skyStartR = _landStartOff.length();
   _skyStartDir.copy(_landStartOff).normalize();
@@ -1121,13 +1157,13 @@ function beginSkyAutoLand() {
   }
   _skyAxis.normalize();
   const arcTime = THREE.MathUtils.clamp(
-    2.5 + (skyArcAng * saturnia.radius) / C.SKY_ARC_SPEED, 3.5, C.AUTOLAND_MAX_TIME
+    2.5 + (skyArcAng * dock.city.planet.radius) / C.SKY_ARC_SPEED, 3.5, C.AUTOLAND_MAX_TIME
   );
   autoLandDuration = arcTime + C.SKY_DESCEND_TIME;
   skyArcFrac = arcTime / autoLandDuration;
   autoT = 0;
   landState = 'auto';
-  showNavToast('SKY CITY APPROACH CONTROL — WE HAVE YOUR HELM', 5);
+  showNavToast(dock.hail, 5);
 }
 
 // Two legs. The arc swings round the planet on a great circle to a point high
@@ -1150,13 +1186,13 @@ function stepSkyAutoLand(dt) {
       THREE.MathUtils.lerp(skyStartR, hoverR, k),
       THREE.MathUtils.lerp(skyStartR, hoverR, rise * rise * (3 - 2 * rise))
     );
-    ship.position.copy(saturnia.body.position).addScaledVector(_lv0, r);
+    ship.position.copy(dock.city.planet.body.position).addScaledVector(_lv0, r);
     ship.quaternion.slerpQuaternions(_landStartQuat, _landUprightQuat, k);
   } else {
     const u = (autoT - skyArcFrac) / (1 - skyArcFrac);
     const k = u * u * (3 - 2 * u);
     _lv0.lerpVectors(_skyHover, _skyPad, k);
-    ship.position.copy(saturnia.body.position).add(_lv0);
+    ship.position.copy(dock.city.planet.body.position).add(_lv0);
     ship.quaternion.copy(_landUprightQuat);
   }
   ship.velocity.copy(ship.position).sub(_prevPos).divideScalar(dt);
@@ -1165,7 +1201,7 @@ function stepSkyAutoLand(dt) {
     landState = 'landed';
     settleT = 1;
     ship.velocity.set(0, 0, 0);
-    showNavToast('SKY CITY — WELCOME ABOARD', 4);
+    showNavToast(dock.welcome, 4);
   }
 }
 
@@ -1183,7 +1219,7 @@ function stepSkyLanded(dt, piloted) {
   ship.angularVelocity.set(0, 0, 0);
   ship.properAccel.set(0, 0, 0);
   if (skyLiftT < 0) {
-    ship.position.copy(saturnia.body.position).add(_skyPad);
+    ship.position.copy(dock.city.planet.body.position).add(_skyPad);
     ship.quaternion.copy(_landUprightQuat);
     ship.velocity.set(0, 0, 0);
     if (piloted && (input.forward || input.brake)) skyLiftT = 0;
@@ -1192,7 +1228,7 @@ function stepSkyLanded(dt, piloted) {
   skyLiftT = Math.min(skyLiftT + dt / SKY_LIFT_TIME, 1);
   const k = skyLiftT * skyLiftT; // ease in: it gathers speed off the pad
   _prevPos.copy(ship.position);
-  ship.position.copy(saturnia.body.position).add(_skyPad)
+  ship.position.copy(dock.city.planet.body.position).add(_skyPad)
     .addScaledVector(_skyUp, SKY_LIFT_HEIGHT * k);
   _skyPitched.copy(_landUprightQuat).multiply(_skyPitch);
   ship.quaternion.slerpQuaternions(
@@ -1208,12 +1244,13 @@ function stepSkyLanded(dt, piloted) {
 }
 
 // Put the ship back on the pad, landed (boarding from a walk, debug hooks).
-function setOnSkyPad() {
+function setOnSkyPad(d = dock) {
   cancelAutopilot();
-  landedPlanet = saturnia;
+  dock = d;
+  landedPlanet = dock.city.planet;
   landState = 'landed';
   skyLanding = true;
-  skyArmed = false;
+  dock.armed = false;
   settleT = 1;
   skyLiftT = -1;
   _padLocalDir.set(0, 0, 0);
@@ -1222,12 +1259,23 @@ function setOnSkyPad() {
 
 // Capture check, once per physics tick in free flight.
 function checkSkyCapture() {
-  const r = ship.position.distanceTo(saturnia.body.position);
-  if (!skyArmed) {
-    if (r > skyShellRadius() + C.SKY_REARM_MARGIN) skyArmed = true;
-    return;
+  if (checkDockCapture(skyDock)) return;
+  // the worldship's capital exists only once the story has built it
+  capDock.city = capitalDock();
+  if (capDock.city) checkDockCapture(capDock);
+}
+
+function checkDockCapture(d) {
+  const r = ship.position.distanceTo(d.city.planet.body.position);
+  if (!d.armed) {
+    if (r > skyShellRadius(d) + C.SKY_REARM_MARGIN) d.armed = true;
+    return false;
   }
-  if (r < skyShellRadius()) beginSkyAutoLand();
+  if (r < skyShellRadius(d)) {
+    beginSkyAutoLand(d);
+    return true;
+  }
+  return false;
 }
 
 // --- stevenlacey landing (world/coinworld.js) ---------------------------------
@@ -1647,7 +1695,8 @@ function resetToStart() {
   landState = null;
   landedPlanet = null;
   skyLanding = false;
-  skyArmed = true;
+  skyDock.armed = true;
+  capDock.armed = false;
   skyFallT = -1;
   skyLiftT = -1;
   coinLanding = false;
@@ -1871,7 +1920,7 @@ function frame(now) {
       if (skyLanding) {
         // The Sky City. No waving off the approach — there is nowhere else to
         // go — and stepping out needs the on-foot chunk to have arrived.
-        if (landState === 'landed' && skyLiftT < 0 && enterSkyWalk(skyCity)) {
+        if (landState === 'landed' && skyLiftT < 0 && dock.enter()) {
           landState = null;
           landedPlanet = null;
           skyLanding = false;
@@ -1979,7 +2028,7 @@ function frame(now) {
           } else if (coinActive()) {
             // The world folds up first; coinLeft() above finishes the boarding.
             coinBeginLeave();
-          } else if (skyActive()) {
+          } else if (skyActive() || capitalActive()) {
             // Back into the seat, still parked on the pad: W lifts off.
             endWalk();
             setOnSkyPad();
@@ -2241,7 +2290,7 @@ function frame(now) {
     // even one left to spin. Skip the pass entirely.
     if (isolated.keep) updatePlanets(now / 1000, camera.position, isolated.keep);
   } else {
-    updateStarfield(camera, Q.pixelRatio, ship.velocity);
+    updateStarfield(camera, Q.pixelRatio, tenretniSailVelocity() || ship.velocity);
     updateSun(now / 1000);
     updateNebula(camera);
     updateDeepNebula(renderer, camera);

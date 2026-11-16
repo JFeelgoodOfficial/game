@@ -355,6 +355,7 @@ function makeSurfaceUniforms(cfg, radius) {
     // Tenretni: strike direction (object space) + how far the sea has drained.
     uDrain: { value: new THREE.Vector4(0, 1, 0, 0) },
     uTech: { value: new THREE.Vector2(0, 0.95) },
+    uBore: { value: new THREE.Vector4(0, 1, 0, 1) },
   };
 }
 
@@ -740,7 +741,8 @@ export function updatePlanets(t, camPos, only = null) {
         p.spinPhase = (p.spinning[0]?.rotation.y ?? 0) - t * spin;
         p.spinNeedsResync = false;
       }
-      const ang = t * spin + (p.spinPhase || 0);
+      // spinLock: a world that has stopped turning for good (the worldship)
+      const ang = p.spinLock ?? t * spin + (p.spinPhase || 0);
       for (const m of p.spinning) m.rotation.y = ang;
       p.spinVirtualY = ang;
       // Once the planet is turning again the swing has to go: seen from space
@@ -829,6 +831,26 @@ export function setPlanetDrain(name, k, dir, tech = 0, span = 0.3) {
   if (p.noLandBase === undefined) p.noLandBase = !!p.cfg.noLand;
   p.cfg.noLand = p.noLandBase || k >= 1;
 }
+
+// The last of it (src/tenretni.js): the drained world becomes a vessel. `air`
+// 1..0 thins the air shell to nothing (call AFTER setPlanetDrain, which sets
+// the shell's colour); `bore` is the axis of the opening cut to the core in
+// the surface mesh's frame and `boreCos` the cosine of its half-angle (1 =
+// closed). With the air gone the approach fog goes dark instead of sky-blue.
+export function setPlanetShip(name, air, bore, boreCos) {
+  const p = planets.find((q) => q.cfg.name === name);
+  if (!p || p.cfg.type !== 'terra') return;
+  const u = p.surface.material.uniforms.uBore.value;
+  if (bore) u.set(bore.x, bore.y, bore.z, boreCos);
+  else u.w = 1;
+  const a = p.atmosphere.userData;
+  a.limbMat.uniforms.uColor.value.multiplyScalar(air);
+  a.scatterMat.uniforms.uBeta.value.multiplyScalar(air);
+  p.atmosphere.visible = air > 0.02;
+  if (p.skyBase === undefined) p.skyBase = p.cfg.skyColor;
+  p.cfg.skyColor = air < 0.5 ? DARK_SKY : p.skyBase;
+}
+const DARK_SKY = () => 0x040806;
 
 // A fully drained world within `maxAlt` of `pos`, or null (the G key's reason
 // for doing nothing over it).

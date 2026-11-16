@@ -41,6 +41,9 @@ uniform vec4 uDrain;
 // ...and the city it leaves at the strike point: x = how much is built 0..1,
 // y = cos of the city's angular radius.
 uniform vec2 uTech;
+// ...and the bore that opens terra to its core when it becomes a ship: xyz the
+// axis (object space), w the cosine of the opening (1 = closed).
+uniform vec4 uBore;
 
 float hash(vec3 p) {
   p = fract(p * 0.3183099 + 0.1);
@@ -91,6 +94,8 @@ float elevation(vec3 p, int oct) {
 
 void main() {
   vec3 p = normalize(vObjPos);
+  float boreD = dot(p, uBore.xyz);
+  if (boreD > uBore.w) discard; // the hollow: the shell and core behind show through
   float elev = elevation(p, uOct);
   float lat = abs(p.y);
 
@@ -210,7 +215,11 @@ void main() {
       vec3 t1 = normalize(cross(uDrain.xyz, ax));
       vec3 t2 = cross(uDrain.xyz, t1);
       float th = atan(dot(p, t2), dot(p, t1));
-      float edge = 1.0 - smoothstep(0.72, 1.0, rr + 0.14 * (vnoise(p * 60.0) - 0.5));
+      // (once the city has the whole globe there is no edge left to fray)
+      float whole = 1.0 - smoothstep(-0.98, -0.6, uTech.y);
+      float edge = max(1.0 - smoothstep(0.72, 1.0, rr + 0.14 * (vnoise(p * 60.0) - 0.5)), whole);
+      // the advancing front: a hot line where ground is being recompiled
+      float front = (1.0 - whole) * smoothstep(0.86, 0.97, rr) * (1.0 - smoothstep(0.97, 1.0, rr)) * step(uTech.y, 0.9);
       float spokes = pow(abs(sin(th * 9.0 + 2.0 * vnoise(p * 30.0))), 24.0);
       float ringsT = pow(abs(sin(rr * 26.0)), 18.0);
       float blocks = step(0.55, vnoise(p * 420.0)) * 0.35;
@@ -219,8 +228,15 @@ void main() {
       float m = built * edge;
       lit = mix(lit, plate * (0.3 + 0.9 * day), m);
       vec3 glow = mix(vec3(0.15, 1.0, 0.5), vec3(0.4, 0.85, 1.0), smoothstep(0.5, 0.0, rr));
-      lit += glow * m * (street * 1.4 + 1.2 * exp(-rr * rr * 30.0)) * uCityHdr * 0.2;
+      lit += glow * m * (street * 1.4 + 1.2 * exp(-rr * rr * 30.0)) * uCityHdr * 0.2 * (1.0 - 0.72 * whole);
+      lit += vec3(0.5, 1.0, 0.7) * front * uCityHdr * 0.5;
     }
+  }
+
+  // the lip of the bore: lit from inside
+  if (uBore.w < 0.9999) {
+    float lip = smoothstep(uBore.w - 0.05, uBore.w, boreD);
+    lit = mix(lit, vec3(1.0, 0.45, 0.1) * 0.9, lip * 0.6);
   }
 
   if (uFogDensity > 0.0) {

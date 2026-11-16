@@ -276,3 +276,18 @@ screenshot. At `u = 90` the stage becomes `done`, `state().drain` is 1 and
 `noLand` true; a reload must come back in the same state. Poll with
 `page.evaluate` in a loop rather than `waitForFunction` — rAF polling starves
 under SwiftShader while on foot.
+
+Act two and the worldship: `seek(u)` runs to 165 (bore open by 150, capital at
+160); `state()` adds `held, at, sailing, bore, spinLock, capital, terraPos`.
+Seed `quests.tenretni = 'done'` plus `fgsf.tenretni = {"city":[0.956,0.174,-0.236]}`
+to watch act two start by itself, or `'ship'` with
+`{"city":[...],"bore":[-0.18,-0.17,-0.97],"rotY":0.046,"at":"terra"}` to start
+from the finished ship. `__debug.capitalDock()` parks on the capital's pad,
+`capitalStepOut()` walks; a real capture is: put the ship ~1900 from terra's
+centre moving inward and wait for `skyState().landState === 'landed'`
+(`skyState().dock` says `'capital'` or `'sky'`). On foot,
+`walkSite().capital` → `{cWalk, place(x,y,z), focus, prompt(), floor, interact}`;
+places: plaza (0,0,30), command dais (0,3,-67), navigation console (79.5,0,0),
+pad (10,0,91). `tenretni.story()` returns the dialogue source; `tenretni.sail(name)`
+starts a voyage without the console (`'wyattmattoe' | 'neptunia'`), about 42 s.
+

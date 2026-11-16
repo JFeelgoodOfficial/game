@@ -24,6 +24,23 @@
 //   74–78  the tunnel breaks (two ring frames stay adrift), the swarm recalls
 //   78–88  Tenretni goes back through; 84–90 the wormhole settles, and stays
 //
+// ACT TWO runs straight on (journal stage 'done' -> 'ship'):
+//
+//   92      terra stops turning (spinLock) — everything after is static in its frame
+//   94–132  the city takes the whole surface; spires rise behind the front
+//   120–152 the bore opens: surface cut away over the magma core, shell inside
+//   140–163 three engines grow opposite the bore, and light
+//   160–165 the capital (world/capital.js) comes up on the strike point
+//
+// After that the world is a SHIP. game.js docks the player's ship on the
+// capital's pad as it does at the Sky City; src/capitalWalk.js walks it; the
+// robots there ask for a planet with water, and the navigation console sends
+// the whole world to wyattmattoe or neptunia (sail(), below), where it parks.
+//
+// The wormhole and the loose ring frames must not travel with it, so the
+// event frame hangs off its own origin-shifted anchor at terra's first
+// position rather than off terra's group.
+//
 // The swarm is one THREE.Points whose motion is entirely in its vertex shader;
 // the rest is a dozen draw calls. Nothing allocates per frame.
 
@@ -33,7 +50,12 @@ import { ship } from './ship.js';
 import { input } from './input.js';
 import { Q } from './quality.js';
 import { questStage, setQuestStage, addCodex } from './journal.js';
-import { setPlanetDrain } from './planet.js';
+import { setPlanetDrain, setPlanetShip, planets } from './planet.js';
+import { sun } from './sun.js';
+import { addShiftable } from './origin.js';
+import { createCapital } from '../world/capital.js';
+import coreFrag from './shaders/tenretniCore.frag?raw';
+import shellFrag from './shaders/tenretniShell.frag?raw';
 import { showNavToast, hideNavToast } from './nav.js';
 import { showViewToast } from './walkview.js';
 import { setEventRumble, uiSound } from './sfx.js';
@@ -50,7 +72,15 @@ import hullFrag from './shaders/tenretniHull.frag?raw';
 
 const SECRET = 'tenretni';
 const STORE_KEY = 'fgsf.tenretni';
-const SCRIPT = 90; // the clock every beat time below is written against
+const SCRIPT = 90; // act one's length, on the clock every beat time is written against
+const END = 165; // ...and act two's last beat
+const T_LOCK = 92; // terra stops turning
+const T_CAPITAL = 160;
+const BORE_ANGLE = 0.66; // rad, half-angle of the opening
+const SPIRES = 700;
+const SAIL_TIME = 42; // seconds for a voyage
+const SAIL_STANDOFF = 2500; // gap left between the two worlds on arrival
+const WATER_WORLDS = { wyattmattoe: 'Wyattmattoe', neptunia: 'Neptunia' };
 const T_STRIKE = 56;
 const SWARM_COUNT = { low: 4000, medium: 12000, high: 30000, ultra: 30000 };
 const BEAMS = 170;
@@ -64,8 +94,18 @@ let camera = null;
 let fx = null;
 
 // 'idle' nothing happening · 'glide' settling at the viewpoint · 'wait' parked,
-// waiting for the pilot on the patio · 'play' the script is running · 'done'
+// waiting for the pilot on the patio · 'play' the script is running · 'rest'
+// the script is over and the world is a ship
 let state = 'idle';
+let held = false; // the script was started from the patio: the ship stays pinned
+let boreDir = null; // axis of the bore, unit, in terra.surface's own frame
+let rotLock = null; // the angle terra's surface is latched at
+let at = 'terra'; // where the worldship is parked
+let sail = null; // { name, target, t, rel: Vector3, off: Vector3 } while under way
+let capital = null; // world/capital.js, built at T_CAPITAL
+let shipBuilt = false;
+const sailVel = new THREE.Vector3();
+const anchor = new THREE.Group(); // terra's first position; the event frame hangs here
 let glideT = 0;
 let playT = 0; // seconds of script played
 let lastU = 0;
@@ -87,6 +127,8 @@ const sunWorld = new THREE.Vector3();
 // objects
 let worm, sphere, beams, swarm, tunnel, shell, rings, cityHolder, towers;
 let wormU, sphereU, beamU, swarmU, tubeU, ringU, towerU;
+let boreGroup, innerShell, core, rim, engines, spires;
+let coreU, shellU, rimU, spireU, engineU, plumeU;
 
 // scratch
 const Y = new THREE.Vector3(0, 1, 0);
@@ -137,7 +179,11 @@ function buildFrame() {
   terraC.set(-Math.sin(a), 0, Math.cos(a)).multiplyScalar(C.TENRETNI_VIEW_DIST);
   root.position.copy(viewOffset);
   root.quaternion.copy(viewQuat);
-  terra.group.add(root);
+  // terra is still where it began when this runs (init moves it afterwards)
+  anchor.position.copy(terra.group.position);
+  anchor.add(root);
+  scene.add(anchor);
+  addShiftable(anchor);
 }
 
 function buildWormhole() {
@@ -342,29 +388,42 @@ function placeCity() {
   rad.needsUpdate = true;
 }
 
+const readDir = (c) =>
+  Array.isArray(c) && c.length === 3 && c.every(Number.isFinite)
+    ? new THREE.Vector3(c[0], c[1], c[2]).normalize()
+    : null;
+
 function loadSaved() {
   try {
     const raw = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
-    const c = raw?.city;
-    if (Array.isArray(c) && c.length === 3 && c.every(Number.isFinite)) {
-      cityDir = new THREE.Vector3(c[0], c[1], c[2]).normalize();
-    }
+    cityDir = readDir(raw?.city);
+    boreDir = readDir(raw?.bore);
+    if (Number.isFinite(raw?.rotY)) rotLock = raw.rotY;
+    if (raw?.at && WATER_WORLDS[raw.at]) at = raw.at;
   } catch {
-    // unreadable save: the strike point is recomputed below
+    // unreadable save: whatever is missing is recomputed
   }
 }
 
-function saveCity() {
+function save() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ city: [cityDir.x, cityDir.y, cityDir.z] }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      city: cityDir ? cityDir.toArray() : undefined,
+      bore: boreDir ? boreDir.toArray() : undefined,
+      rotY: rotLock ?? undefined,
+      at,
+    }));
   } catch {
     // storage full or blocked: the world still changes for this session
   }
 }
 
+let scene = null;
+
 export function init(deps, fxOut) {
   terra = deps.planets.find((p) => p.cfg.name === 'terra');
   camera = deps.camera;
+  scene = deps.scene;
   fx = fxOut;
   buildFrame();
   buildWormhole();
@@ -372,13 +431,314 @@ export function init(deps, fxOut) {
   buildSwarm();
   buildTunnel();
   buildCity();
-  if (questStage(SECRET) === 'done') {
+  const stage = questStage(SECRET);
+  if (stage === 'ship') {
+    // the finished world: everything in its last pose, parked where it was left
     loadSaved();
     if (cityDir) placeCity();
-    state = 'done';
+    if (rotLock !== null) terra.spinLock = rotLock;
+    state = 'rest';
+    pose(END);
+    if (at !== 'terra') parkAt(at);
+  } else if (stage === 'done') {
+    // act one was seen; act two has not run. It runs now, wherever the ship is.
+    loadSaved();
+    if (cityDir) placeCity();
+    state = 'play';
+    held = false;
+    playT = (SCRIPT * C.TENRETNI_DURATION) / SCRIPT;
+    lastU = SCRIPT;
     pose(SCRIPT);
   } else pose(0);
 }
+
+// ---------------------------------------------------------------------------
+// act two: what terra is rebuilt into
+// ---------------------------------------------------------------------------
+
+// Pick the bore's axis and build everything that hangs off it. Runs once, when
+// terra stops turning (or at load into a later stage).
+function buildShip() {
+  if (shipBuilt) return;
+  shipBuilt = true;
+  const R = terra.radius;
+  const rotY = rotLock ?? terra.surface.rotation.y;
+  if (!boreDir) {
+    // Facing the patio, swung a little further round from the city so the
+    // opening and the capital do not meet: both worked out in the event frame.
+    const v = _a.copy(terraC).negate().normalize(); // terra -> patio
+    const c = _b.copy(cityDir).applyAxisAngle(Y, rotY).applyQuaternion(viewQuatInv);
+    _c.crossVectors(c, v);
+    if (_c.lengthSq() < 1e-6) _c.set(0, 1, 0);
+    _c.normalize();
+    boreDir = v.clone().applyAxisAngle(_c, 0.56).applyQuaternion(viewQuat).applyAxisAngle(Y, -rotY).normalize();
+  }
+
+  boreGroup = new THREE.Group();
+  boreGroup.quaternion.setFromUnitVectors(Y, boreDir);
+  terra.surface.add(boreGroup);
+
+  shellU = { uTime: { value: 0 }, uHeat: { value: 0 }, uHdr: { value: C.TENRETNI_HDR } };
+  innerShell = new THREE.Mesh(
+    new THREE.SphereGeometry(R * 0.9, 64, 40),
+    new THREE.ShaderMaterial({ vertexShader: commonVert, fragmentShader: shellFrag, uniforms: shellU, side: THREE.BackSide })
+  );
+  boreGroup.add(innerShell);
+
+  coreU = { uTime: { value: 0 }, uHeat: { value: 0 } };
+  core = new THREE.Mesh(
+    new THREE.SphereGeometry(R * 0.44, 48, 32),
+    new THREE.ShaderMaterial({ vertexShader: commonVert, fragmentShader: coreFrag, uniforms: coreU })
+  );
+  boreGroup.add(core);
+
+  // the rim: a unit ring, scaled and slid along the axis as the bore opens
+  const rimMat = hullMaterial(46); // the ring is built at unit radius
+  rimU = rimMat.uniforms;
+  rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.035, 10, 96).rotateX(Math.PI / 2), rimMat);
+  boreGroup.add(rim);
+
+  // engines: three bells opposite the bore, each with a plume
+  engines = new THREE.Group();
+  engines.rotation.x = Math.PI; // +Y of the group now points away from the bore
+  boreGroup.add(engines);
+  const engMat = hullMaterial(0.05);
+  engineU = engMat.uniforms;
+  plumeU = { uTime: { value: 0 }, uOn: { value: 0 } };
+  const plumeMat = new THREE.ShaderMaterial({
+    uniforms: plumeU,
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `varying vec2 vUv; uniform float uTime; uniform float uOn;
+      void main(){ float a = pow(vUv.y, 1.6) * (0.75 + 0.25 * sin(vUv.y * 40.0 - uTime * 18.0));
+        vec3 c = mix(vec3(0.1, 1.0, 0.5), vec3(0.9, 1.0, 0.95), pow(vUv.y, 6.0));
+        gl_FragColor = vec4(c * a * uOn * 2.6, 1.0); }`,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    const tilt = 0.34;
+    const e = new THREE.Group();
+    e.position.set(Math.sin(tilt) * Math.cos(a), Math.cos(tilt), Math.sin(tilt) * Math.sin(a)).multiplyScalar(R * 0.96);
+    e.quaternion.setFromUnitVectors(Y, _a.copy(e.position).normalize());
+    e.add(new THREE.Mesh(new THREE.CylinderGeometry(R * 0.2, R * 0.11, R * 0.34, 20, 1, true).translate(0, R * 0.17, 0), engMat));
+    e.add(new THREE.Mesh(new THREE.CylinderGeometry(R * 0.115, R * 0.115, R * 0.1, 20).translate(0, R * 0.02, 0), engMat));
+    // plume: uv.y = 1 at the bell, 0 at the tip
+    const pl = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.02, R * 0.17, R * 1.5, 20, 1, true).translate(0, R * 1.02, 0), plumeMat);
+    pl.geometry.attributes.uv.array.forEach((_, k, arr) => { if (k % 2) arr[k] = 1 - arr[k]; });
+    pl.frustumCulled = false;
+    e.add(pl);
+    engines.add(e);
+  }
+  engMat.side = THREE.DoubleSide;
+
+  // spires over the rest of the globe, away from the bore and the first city
+  const geo = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
+  const rad = new THREE.InstancedBufferAttribute(new Float32Array(SPIRES), 1);
+  geo.setAttribute('aRad', rad);
+  const spMat = hullMaterial(0.14);
+  spireU = spMat.uniforms;
+  spires = new THREE.InstancedMesh(geo, spMat, SPIRES);
+  spires.frustumCulled = false;
+  const r = rng(9091);
+  const cosBore = Math.cos(BORE_ANGLE + 0.07);
+  const cosCity = Math.cos(C.TENRETNI_CITY_SPAN + 0.03);
+  for (let i = 0; i < SPIRES; i++) {
+    do {
+      const z = r() * 2 - 1, th = r() * Math.PI * 2, k = Math.sqrt(1 - z * z);
+      _a.set(k * Math.cos(th), z, k * Math.sin(th));
+    } while (_a.dot(boreDir) > cosBore || _a.dot(cityDir) > cosCity);
+    const ground = terra.body.groundAtLocal ? terra.body.groundAtLocal(_a) : 0;
+    const tall = 18 + 110 * r() * r();
+    const wide = 10 + 26 * r();
+    _q.setFromUnitVectors(Y, _a);
+    _q2.setFromAxisAngle(Y, r() * Math.PI);
+    _q.multiply(_q2);
+    rad.setX(i, Math.acos(Math.min(Math.max(_a.dot(cityDir), -1), 1)) / Math.PI);
+    _b.copy(_a).multiplyScalar(R + ground - 2);
+    _m.compose(_b, _q, _s.set(wide, tall, wide * (0.6 + 0.8 * r())));
+    spires.setMatrixAt(i, _m);
+  }
+  terra.surface.add(spires);
+}
+
+function poseShip(u) {
+  const locked = u >= T_LOCK;
+  if (locked && terra.spinLock == null) {
+    if (rotLock === null) rotLock = terra.surface.rotation.y;
+    terra.spinLock = rotLock;
+  } else if (!locked && terra.spinLock != null && state !== 'rest') {
+    terra.spinLock = null; // debug seek backwards
+    rotLock = null;
+  }
+  if (locked && cityDir) buildShip();
+  const spread = ease(seg(u, 94, 132));
+  const bore = ease(seg(u, 120, 152));
+  const air = 1 - ease(seg(u, 96, 124));
+  setPlanetShip('terra', air, boreDir, bore > 0 ? Math.cos(BORE_ANGLE * bore) : 1);
+  if (!shipBuilt) return spread;
+
+  const R = terra.radius;
+  const open = bore > 0;
+  boreGroup.visible = locked;
+  innerShell.visible = core.visible = rim.visible = open;
+  const ang = BORE_ANGLE * Math.max(bore, 0.02);
+  rim.position.y = R * Math.cos(ang);
+  rim.scale.set(R * Math.sin(ang), R * Math.sin(ang), R * Math.sin(ang));
+  const heat = clamp01(0.25 + 0.75 * ease(seg(u, 130, 158)) + (sail ? 0.4 : 0));
+  coreU.uHeat.value = heat;
+  shellU.uHeat.value = heat;
+
+  const grow = ease(seg(u, 140, 158));
+  engines.visible = grow > 0;
+  engines.scale.setScalar(Math.max(grow, 0.001));
+  plumeU.uOn.value = ease(seg(u, 158, 163)) * (sail ? 1 : 0.28);
+
+  spires.visible = spread > 0;
+  spireU.uGrow.value = spread;
+
+  // the capital, on the strike point
+  if (u >= T_CAPITAL && !capital && cityDir) {
+    capital = createCapital(terra, cityDir, rotLock ?? terra.surface.rotation.y, STORY);
+  }
+  if (capital) capital.group.visible = u >= T_CAPITAL;
+  return spread;
+}
+
+// ---------------------------------------------------------------------------
+// the capital's story: what the robots say and what the console does
+// ---------------------------------------------------------------------------
+
+const ROBOT_NAMES = {
+  warden: 'The Warden', navigator: 'Navigator', sentry: 'Sentry', operator: 'Operator', counter: 'Counter',
+};
+const who = (role) => ({ name: ROBOT_NAMES[role] || 'Unit', species: 'Tenretni', cityId: 'Tenretni Capital' });
+const CONSOLE = { name: 'Navigation Console', species: 'Tenretni Capital', cityId: 'Tenretni Capital' };
+const hereName = () => WATER_WORLDS[at] || 'Terra';
+
+const STORY = {
+  talk(role, i) {
+    const speaker = who(role);
+    if (sail) {
+      return { speaker, lines: role === 'warden'
+        ? [`Under way. Heading: ${WATER_WORLDS[sail.name]}. Do not leave the deck.`]
+        : ['Under way.'] };
+    }
+    if (role === 'warden') {
+      if (at !== 'terra') {
+        return { speaker, lines: [
+          `${hereName()}. Water confirmed. The count is correct.`,
+          'We hold here. What happens next is not yours to choose.',
+          'The navigation deck remains open to you. There is one other world with water in your log.',
+        ] };
+      }
+      return { speaker, lines: [
+        'Pilot. Your vessel was read on approach. Its navigation log has been copied. All of it.',
+        'This world has been recompiled. Its core is the engine. It moves now.',
+        'It does not move without a heading. The heading is yours to give. That is the arrangement.',
+        'We require a planet with water. Your log holds two. Go to the navigation deck and choose.',
+      ] };
+    }
+    if (role === 'navigator') {
+      return { speaker, lines: at === 'terra'
+        ? ['The chart is yours. We drew it from your log.', 'Two worlds with water. Use the console.']
+        : [`Arrived: ${hereName()}.`, 'The console will still take a heading.'] };
+    }
+    if (role === 'sentry') return { speaker, lines: ['You are expected. Walk.'] };
+    if (role === 'operator') return { speaker, lines: ['Core output nominal.', 'Do not touch the consoles. Not these.'] };
+    const counts = [
+      'Four hundred and twelve trillion, nine hundred billion, six. Seven. Eight.',
+      'One ocean. Removed. Next.',
+      'Tenretni counts. Tenretni is never wrong. Tenretni counts.',
+    ];
+    return { speaker, lines: [counts[i % counts.length]] };
+  },
+  useConsole() {
+    if (sail) return { speaker: CONSOLE, lines: [`HEADING LOCKED: ${WATER_WORLDS[sail.name].toUpperCase()}. UNDER WAY.`] };
+    const options = Object.keys(WATER_WORLDS)
+      .filter((k) => k !== at)
+      .map((k) => ({
+        label: k === 'wyattmattoe' ? 'Wyattmattoe — the ice world' : 'Neptunia — the deep ocean',
+        outcomeTag: `tenretni:sail:${k}`,
+      }));
+    options.push({ label: 'Not yet.', outcomeTag: 'tenretni:sail:none' });
+    return {
+      speaker: CONSOLE,
+      lines: [
+        'NAVIGATION DATA: IMPORTED FROM VISITING VESSEL.',
+        `PRESENT POSITION: ${hereName().toUpperCase()}. WORLDS WITH WATER IN RANGE: ${options.length - 1}.`,
+      ],
+      offer: { kind: 'choice', prompt: 'Set a heading for this world?', options },
+    };
+  },
+  choice(tag) {
+    const m = /^tenretni:sail:(\w+)$/.exec(tag ?? '');
+    if (!m || !WATER_WORLDS[m[1]] || !startSail(m[1])) return null;
+    return { speaker: CONSOLE, lines: [`HEADING ACCEPTED: ${WATER_WORLDS[m[1]].toUpperCase()}.`, 'CORE TO DRIVE. HOLD ON TO SOMETHING.'] };
+  },
+};
+
+// ---------------------------------------------------------------------------
+// the voyage: the whole world goes to another world and stops beside it
+// ---------------------------------------------------------------------------
+
+// Where the worldship parks at `target`: on the line back toward `from`.
+function standoff(target, fromDir, out) {
+  return out.copy(fromDir).multiplyScalar(target.radius + terra.radius + SAIL_STANDOFF);
+}
+
+function startSail(name) {
+  const target = planets.find((p) => p.cfg.name === name);
+  if (!target || sail || name === at || state !== 'rest') return false;
+  const rel = new THREE.Vector3().subVectors(terra.group.position, target.group.position);
+  const off = standoff(target, _a.copy(rel).normalize(), new THREE.Vector3());
+  rel.sub(off); // from the parking spot back to where terra is now
+  sail = { name, target, t: 0, rel, off };
+  at = name; // saved at once: a reload mid-voyage has already arrived
+  save();
+  fx.kick = 0.8;
+  uiSound('impact');
+  return true;
+}
+
+function stepSail(delta) {
+  sail.t = Math.min(sail.t + delta / SAIL_TIME, 1);
+  const k = ease(sail.t);
+  // written between live vectors, so a floating-origin rebase cannot fight it
+  _a.copy(sail.target.group.position).add(sail.off).addScaledVector(sail.rel, 1 - k);
+  if (delta > 0) sailVel.copy(_a).sub(terra.group.position).divideScalar(delta);
+  terra.group.position.copy(_a);
+  setRumble(0.35 + 0.4 * Math.sin(Math.PI * sail.t));
+  if (sail.t >= 1) {
+    const name = WATER_WORLDS[sail.name];
+    sail = null;
+    sailVel.set(0, 0, 0);
+    setRumble(0);
+    fx.kick = 0.6;
+    showNavToast(`${name.toUpperCase()} — THE WORLD HOLDS HERE`, 7);
+  }
+}
+
+// Put terra straight at its parking spot beside `name` (load, world reset).
+// Terra must be at its first position when this is called.
+function parkAt(name) {
+  const target = planets.find((p) => p.cfg.name === name);
+  if (!target) return;
+  _b.subVectors(terra.group.position, target.group.position).normalize();
+  terra.group.position.copy(target.group.position).add(standoff(target, _b, _a));
+}
+
+// Lighting: terra's bearing to the sun was fixed at boot; a world that moves
+// has to keep it current, and so do the materials here that share it.
+function trackSun() {
+  terra.sunBase.subVectors(sun.group.position, terra.group.position).normalize();
+  sunWorld.copy(terra.sunBase);
+}
+
+export const capitalSite = () => (state === 'rest' && capital ? capital : null);
+export const sailVelocity = () => (sail ? sailVel : null);
 
 // ---------------------------------------------------------------------------
 // the script
@@ -451,7 +811,7 @@ function pose(u) {
 
   // the strike happens once
   if (u >= T_STRIKE && !cityDir) strike();
-  if (u < T_STRIKE && cityDir && state !== 'done') cityDir = null; // debug seek backwards
+  if (u < T_STRIKE && cityDir && state === 'play' && questStage(SECRET) === 'armed') cityDir = null; // debug seek backwards
 
   // swarm
   swarm.visible = u > 27 && u < 86;
@@ -488,15 +848,19 @@ function pose(u) {
   // terra
   const drain = cityDir ? ease(seg(u, 57, 73)) : 0;
   const tech = cityDir ? ease(seg(u, 60, 76)) : 0;
-  setPlanetDrain('terra', drain, cityDir, tech, C.TENRETNI_CITY_SPAN);
+  // act two widens the city from its first patch to the whole globe
+  const spread = u > SCRIPT ? ease(seg(u, 94, 132)) : 0;
+  const span = C.TENRETNI_CITY_SPAN + (Math.PI - C.TENRETNI_CITY_SPAN) * spread;
+  setPlanetDrain('terra', drain, cityDir, tech, span);
   cityHolder.visible = tech > 0;
   towerU.uGrow.value = tech;
+  poseShip(u);
 }
 
 // Ring frames along the tunnel. They appear as it passes them and are pulled
 // back in when it breaks — all but two, which are left to drift.
 function poseRings(u, len, gone) {
-  const drift = Math.min(Math.max(u - 74, 0), SCRIPT - 74);
+  const drift = Math.min(Math.max(u - 74, 0), END - 74);
   for (let i = 0; i < RINGS; i++) {
     const y = ((i + 0.5) / RINGS) * tunnelL;
     const keep = i === KEEP_A || i === KEEP_B;
@@ -535,13 +899,27 @@ function beats(u0, u1, flying) {
   if (hit(87.5)) fx.kick = 0.5;
   if (flying && hit(13)) showViewToast('UNKNOWN MASS IN TRANSIT', 5);
   if (flying && hit(58)) showViewToast('TERRA — OCEAN LEVEL FALLING', 6);
+  // act two
+  if (hit(SCRIPT)) finishActOne();
+  if (flying && hit(96)) showViewToast('TERRA — THE CITY IS SPREADING', 6);
+  if (hit(121)) {
+    fx.kick = 0.7;
+    uiSound('impact');
+    if (flying) showViewToast('TERRA — CRUST BREACH. CORE EXPOSED', 6);
+  }
+  if (hit(158)) {
+    fx.kick = 0.9;
+    uiSound('impact');
+    if (flying) showViewToast('TERRA — DRIVE IGNITION', 5);
+  }
 }
 
 function rumbleAt(u) {
   const open = ease(seg(u, 0, 10)) * (1 - ease(seg(u, 84, 90)));
   const transit = Math.sin(Math.PI * seg(u, 11, 27)) + Math.sin(Math.PI * seg(u, 77, 89));
   const pipe = seg(u, 40, T_STRIKE) * (1 - seg(u, 73, 76));
-  return clamp01(0.2 * open + 0.45 * transit + 0.5 * pipe);
+  const rebuild = 0.25 * seg(u, 94, 100) + 0.3 * Math.sin(Math.PI * seg(u, 120, 152)) + 0.35 * seg(u, 156, 160);
+  return clamp01(0.2 * open + 0.45 * transit + 0.5 * pipe + (u > SCRIPT ? rebuild * (1 - seg(u, 162, END)) : 0));
 }
 
 function setRumble(r) {
@@ -568,7 +946,7 @@ export function arrive() {
   _d1.copy(viewOffset).normalize();
 }
 
-export const holding = () => state === 'glide' || state === 'wait' || state === 'play';
+export const holding = () => state === 'glide' || state === 'wait' || (state === 'play' && held);
 
 // Physics tick while holding(): game.js skips stepShip, so no thrust, no
 // gravity. Glide round terra to the viewpoint (the bearing swings, the radius
@@ -607,12 +985,21 @@ export function update(delta, t, onDeck, flying) {
   tubeU.uTime.value = t;
   ringU.uTime.value = t;
   towerU.uTime.value = t;
+  if (shipBuilt) {
+    coreU.uTime.value = t;
+    shellU.uTime.value = t;
+    rimU.uTime.value = t;
+    spireU.uTime.value = t;
+    engineU.uTime.value = t;
+    plumeU.uTime.value = t;
+  }
   if (worm.visible) worm.lookAt(camera.position);
   swarmU.uScale.value = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((camera.fov * Math.PI) / 360);
 
   if (state === 'wait') {
     if (onDeck) {
       state = 'play';
+      held = true;
       playT = 0;
       lastU = 0;
       hideNavToast();
@@ -627,30 +1014,68 @@ export function update(delta, t, onDeck, flying) {
   }
   if (state === 'play') {
     playT += delta;
-    const u = Math.min((playT * SCRIPT) / C.TENRETNI_DURATION, SCRIPT);
+    const u = Math.min((playT * SCRIPT) / C.TENRETNI_DURATION, END);
     pose(u);
     beats(lastU, u, flying);
     setRumble(rumbleAt(u));
     lastU = u;
-    if (u >= SCRIPT) finish();
-  } else if (state === 'done') {
-    // the two loose ring frames keep turning
-    poseRings(SCRIPT, tunnelL, 1);
+    if (u >= END) finish(flying);
+  } else if (state === 'rest') {
+    // the two loose ring frames keep turning; the world may be under way
+    poseRings(END, tunnelL, 1);
+    if (sail) {
+      stepSail(delta);
+      plumeU.uOn.value = 0.28 + 0.72 * Math.sin(Math.PI * Math.min(sail ? sail.t : 1, 1));
+      const hot = clamp01(1 + 0.4);
+      coreU.uHeat.value = hot;
+      shellU.uHeat.value = hot;
+    } else if (plumeU.uOn.value !== 0.28) {
+      plumeU.uOn.value = 0.28;
+      coreU.uHeat.value = 1;
+      shellU.uHeat.value = 1;
+    }
+    trackSun();
+    if (capital) capital.update(delta, t, camera.position, sail ? 1 : 0);
   }
 }
 
-function finish() {
-  state = 'done';
-  setRumble(0);
-  saveCity();
+// Act one is over (script time 90): terra is drained and that is saved. The
+// script carries straight on into act two.
+function finishActOne() {
+  save();
   setQuestStage(SECRET, 'done');
   addCodex('Tenretni');
-  showNavToast('TENRETNI HAS GONE. TERRA WILL NOT RECOVER.', 8);
+  showNavToast('TENRETNI HAS GONE. SOMETHING IS STILL MOVING ON TERRA.', 8);
 }
 
-// World reset mid-event: put everything away. The stage is still 'armed'.
+// Act two is over: the world is a ship and the capital is open.
+function finish(flying) {
+  state = 'rest';
+  held = false;
+  setRumble(0);
+  save();
+  setQuestStage(SECRET, 'ship');
+  addCodex('The Worldship');
+  if (flying) showNavToast('TERRA IS A SHIP NOW. A LANDING BEACON IS LIT ON ITS CAPITAL.', 9);
+}
+
+// World reset (death, the actuality loop). restoreShiftables has just put
+// terra back where it began, so the anchor is re-read from it and a parked
+// worldship is put back beside its water world. An event still in act one is
+// dropped (the stage is still 'armed'); act two simply carries on, unheld.
 export function abort() {
-  if (state === 'done') return;
+  anchor.position.copy(terra.group.position);
+  held = false;
+  if (state === 'rest') {
+    if (sail) {
+      sail = null;
+      sailVel.set(0, 0, 0);
+      setRumble(0);
+    }
+    if (at !== 'terra') parkAt(at);
+    return;
+  }
+  if (questStage(SECRET) !== 'armed') return; // act two in progress
   state = 'idle';
   playT = 0;
   lastU = 0;
@@ -665,14 +1090,18 @@ export function abort() {
 // ---------------------------------------------------------------------------
 
 export function debugStart() {
-  if (state === 'done') return;
+  if (state === 'rest') return;
   state = 'play';
+  held = true;
   playT = 0;
   lastU = 0;
 }
 
+export const debugSail = (name) => startSail(name);
+export const debugStory = () => STORY;
+
 export function debugSeek(u) {
-  if (state === 'done') return;
+  if (state === 'rest') return;
   state = 'play';
   playT = (u * C.TENRETNI_DURATION) / SCRIPT;
   lastU = u;
@@ -684,7 +1113,14 @@ function report() {
     loaded: true,
     state,
     stage: questStage(SECRET),
-    u: state === 'play' ? lastU : state === 'done' ? SCRIPT : 0,
+    u: state === 'play' ? lastU : state === 'rest' ? END : 0,
+    held,
+    at,
+    sailing: sail ? { to: sail.name, t: sail.t } : null,
+    bore: boreDir ? boreDir.toArray() : null,
+    spinLock: terra.spinLock ?? null,
+    capital: !!capital,
+    terraPos: terra.group.position.toArray(),
     city: cityDir ? cityDir.toArray() : null,
     swarm: swarm.geometry.getAttribute('position').count,
     sphere: { visible: sphere.visible, z: sphere.position.z, scale: sphere.scale.x },

@@ -384,9 +384,40 @@ the stage is `done`: Terra is dry (`setPlanetDrain` in `src/planet.js`,
 `uDrain`/`uTech` in `surface.frag`), carries the city at the saved strike point
 (`localStorage['fgsf.tenretni']`), takes no landings (`cfg.noLand`), and the
 wormhole remains. A world reset mid-event drops it and leaves the secret armed.
-Tunables: `C.TENRETNI_*`. Not built: landing on dry Terra, entering the city or
-the wormhole. Tenretni is an original design, not a copy of any existing
-franchise's ships.
+Tunables: `C.TENRETNI_*`. Tenretni is an original design, not a copy of any
+existing franchise's ships.
+
+**Act two: the worldship** (script time 90–165, stage `done` → `ship`). The
+script runs straight on. Terra stops turning (`p.spinLock`); the city takes the
+whole surface behind a bright front, with 700 instanced spires (`uTech` span to
+π); a bore opens over the magma core (`uBore` discards the surface inside a
+cone; behind it an inward shell and the core, `tenretniShell.frag` /
+`tenretniCore.frag`); three engines grow opposite the bore and light. A save
+already at `done` plays this the next time it is in space, unheld.
+
+**The capital** (`world/capital.js`) comes up on the strike point at 160: a deck
+on a pylon 280 units over the datum, clear of the towers. Landing pad, plaza,
+a command station on a raised dais, a navigation deck with a chart of the
+system. `game.js` docks on it with the Sky City's code, now written against a
+dock target (`skyDock` / `capDock`): enter Terra's shell at stage `ship` and
+the capital takes the helm. `src/capitalWalk.js` is the Sky City walker reduced
+to walking; it cannot leave the deck. Nine robots stand there (tall, green, one
+eye bar; every head follows the player). The Warden says the ship's navigation
+log has been copied and the world needs a planet with water; the navigation
+console offers Wyattmattoe or Neptunia.
+
+**The voyage.** Picking one moves Terra's whole group to a standoff beside that
+planet in about 42 s (`startSail`/`stepSail` in `src/tenretni.js`), written
+between live vectors so origin rebases cannot fight it. The walker, parked
+ship, capital and Terra's two stations ride along; the wormhole and the loose
+ring frames stay behind on their own anchor. `terra.sunBase` is refreshed every
+frame. On arrival it holds there; nothing happens to the water planet yet. The
+console then offers the other one. Saved in `fgsf.tenretni` as
+`{city, bore, rotY, at}`; a reload mid-voyage has already arrived, and a world
+reset re-parks it.
+
+Not built: draining the destination, steering the world by hand, building
+interiors, flying into the bore or the wormhole.
 
 ### 5.8 The Sky City (Saturnia)
 

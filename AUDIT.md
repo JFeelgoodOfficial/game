@@ -297,3 +297,10 @@ voice in `sfx.js`: `game-*.js` 363 kB (130 kB gzip). The event itself is about
 twelve draw calls; the swarm is one `Points` of 4k/12k/30k by tier, animated
 wholly in its vertex shader. Not measured on real hardware: headless SwiftShader
 frame times say nothing about a phone GPU.
+
+Act two and the worldship (same month) take the chunk to 43.8 kB (16.8 kB
+gzip): the capital builder (`world/capital.js`, two merged meshes plus nine
+robots) and the ship parts live in it. `src/capitalWalk.js` adds about 6 kB to
+the walk chunk (794 kB). `game-*.js` is 365 kB (131 kB gzip). The finished
+worldship costs roughly ten draw calls beyond Terra itself, plus the capital's
+dozen when within 3,000 units.

@@ -101,6 +101,9 @@ export const exitCottageWalk = () => mod && mod.exitCottageWalk();
 export const enterSkyWalk = (city) => (mod ? mod.enterSkyWalk(city) : false);
 export const skyActive = () => (mod ? mod.skyActive() : false);
 export const skyFell = () => (mod ? mod.skyFell() : false);
+// The worldship's capital (src/tenretni.js). Same fail-safe.
+export const enterCapitalWalk = (site) => (mod ? mod.enterCapitalWalk(site) : false);
+export const capitalActive = () => (mod ? mod.capitalActive() : false);
 // stevenlacey, the coin world. Same fail-safe: nothing happens until the chunk lands.
 export const enterCoinWalk = (coin, face, camera) => (mod ? mod.enterCoinWalk(coin, face, camera) : false);
 export const coinActive = () => (mod ? mod.coinActive() : false);
