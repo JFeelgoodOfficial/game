@@ -150,6 +150,7 @@ import {
 import { initCompass, updateCompass } from './compass.js';
 import { initControls, updateControls, setObjective } from './controls.js';
 import { initTouchControls, updateTouchControls } from './touchControls.js';
+import { touchify } from './touchText.js';
 import { initCapture, capturePendingPhoto, updateCapture, updateRecordingFrame, requestPhoto, toggleRecording, isGalleryOpen, isRecording } from './capture.js';
 import { MOTION_SCALE } from './motion.js';
 import { initSfx, updateSfx, sfxState } from './sfx.js';
@@ -1612,6 +1613,9 @@ function setPaused(v) {
 
 
 const hintEl = document.getElementById('hint');
+// The prompt line as the game wrote it ("E — TALK"), before touchify() strips
+// the keys. Last frame's value feeds the on-foot context button.
+let hudPrompt = null;
 
 function resetToStart() {
   // Safety net for every path that bypasses both liftoff and boarding: the
@@ -1742,7 +1746,10 @@ function frame(now) {
   // the look travel it injects is consumed by the same stepWalk tick a mouse
   // delta would have fed. Flight needs nothing here — the 3D dashboard already
   // owns touch — so the sticks hide outside the walk phase.
-  updateTouchControls(delta, phase, paused, standing);
+  updateTouchControls(delta, phase, paused, standing, {
+    prompt: hudPrompt,
+    nearShip: phase === 'walk' && nearParkedShip(),
+  });
 
   // Title screen: the view behind the menu pans slowly side to side instead
   // of sitting dead still. Launch resets the ship, so nothing carries over.
@@ -2143,7 +2150,9 @@ function frame(now) {
     closeRadioPopup(); // a flight dialog has no business over the walk HUD
     // "E — TALK" while an alien/creature is in range (dialogue hints are on
     // the dialogue panel itself). Reuses the interior prompt element.
-    setPrompt(walkPromptText());
+    hudPrompt = walkPromptText();
+    // Touch: the context button carries the keyed half of the prompt.
+    setPrompt(touchify(hudPrompt, { drop: true }));
   } else {
     interiorPass.enabled = standBlend > 0.001;
     cockpitPass.enabled = !(debug && debug.hideCockpit);
@@ -2163,7 +2172,8 @@ function frame(now) {
             else if (nearTank()) prompt = 'THE TERRARIUM · E — LOOK CLOSER';
           }
         }
-        setPrompt(prompt);
+        hudPrompt = prompt;
+        setPrompt(touchify(prompt, { drop: true }));
       } else {
         // seated: landing prompts
         let prompt = null;
@@ -2184,9 +2194,11 @@ function frame(now) {
             prompt = 'G — LAND';
         }
         // No "C — STAND UP" reminder: the dash C button already shows it.
-        setPrompt(prompt);
+        hudPrompt = prompt;
+        setPrompt(touchify(prompt, { seated: true }));
       }
     } else {
+      hudPrompt = null;
       setPrompt(null);
     }
   }

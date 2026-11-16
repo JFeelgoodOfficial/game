@@ -15,6 +15,7 @@ import { blackhole } from './blackhole.js';
 import { deepNebulae } from './deepnebula.js';
 import { stations } from './stations.js';
 import { coinWorld } from '../world/coinworld.js';
+import { touchify } from './touchText.js';
 
 const CSS = `
 #navToast {
@@ -122,7 +123,7 @@ function showToast(label) {
 
 // Also used by game.js for the one-time first-launch nudge.
 export function showNavToast(text, seconds = 3.2) {
-  toast.textContent = text;
+  toast.textContent = touchify(text, { seated: true });
   toast.style.opacity = '1';
   toastTimer = seconds;
 }

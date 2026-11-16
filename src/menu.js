@@ -4,6 +4,7 @@
 // the runtime-generated canopy cracks, the explosion flash, and the
 // hold-to-warp button.
 
+import { isTouch } from './touchText.js';
 import { input } from './input.js';
 import { openSettings } from './settingsPanel.js';
 
@@ -258,7 +259,12 @@ export function showMenu(mode, reason) {
   } else {
     sub.textContent = '';
     sub.className = 'sub';
-    if (sub2) sub2.replaceChildren(keyGrid());
+    // A phone has none of these keys: the first-flight coach walks a touch
+    // pilot through the dash instead.
+    if (sub2) {
+      if (isTouch) sub2.textContent = 'DRAG THE VIEW TO STEER · THE DASH FLIES THE SHIP';
+      else sub2.replaceChildren(keyGrid());
+    }
     button.textContent = 'LAUNCH';
   }
   button.disabled = false;

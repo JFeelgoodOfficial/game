@@ -9,6 +9,7 @@
 // the last step is a single comparison.
 
 import { input } from './input.js';
+import { isTouch as touch } from './touchText.js';
 
 const KEY = 'nova7.coach';
 
@@ -24,6 +25,11 @@ const CSS = `
   text-shadow: 0 0 8px rgba(130,247,255,0.5);
 }
 #coach.on { opacity: 1; }
+/* Touch: the dash buttons the coach points at sit along the bottom of the
+   screen, so the banner rides high, clear of them. */
+@media (pointer: coarse) {
+  #coach { bottom: auto; top: 36%; }
+}
 #coach .co-key {
   padding: 3px 10px; border-radius: 3px; color: #ffd0ee;
   border: 1px solid rgba(212,64,143,0.75); background: rgba(212,64,143,0.18);
@@ -35,7 +41,6 @@ const CSS = `
 }
 `;
 
-const touch = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
 
 // `need` seconds of the condition holding completes a step (0 = on first true).
 const STEPS = [
@@ -45,9 +50,9 @@ const STEPS = [
     need: 0.6,
     done: (s) => s.turning,
   },
-  { key: 'W', text: touch ? 'THRUST — HOLD THE W KEY ON THE DASH' : 'HOLD TO THRUST', need: 1.0, done: () => input.forward },
+  { key: touch ? 'THRUST' : 'W', text: touch ? 'HOLD THRUST, TOP LEFT OF THE DASH' : 'HOLD TO THRUST', need: 1.0, done: () => input.forward },
   { key: touch ? 'WARP' : 'F', text: 'HOLD TO WARP — AIM AT THE PLANET AHEAD', need: 1.5, done: () => input.warp },
-  { key: touch ? 'BRAKE' : 'SPACE', text: 'HOLD TO BRAKE', need: 0.5, done: () => input.brake },
+  { key: touch ? 'REVERSE' : 'S', text: 'HOLD TO REVERSE AND SLOW DOWN', need: 0.5, done: () => input.reverse },
   { key: touch ? 'NAV' : 'N', text: 'OPEN THE NAV CHART', need: 0, done: (s) => s.navOpen },
   { key: touch ? 'LAND' : 'G', text: 'FLY LOW AND SLOW OVER A WORLD, THEN LAND', need: 0, done: (s) => s.landed },
 ];
