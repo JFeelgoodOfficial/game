@@ -42,6 +42,10 @@ function loadLog() {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) logged = new Set(JSON.parse(raw));
   } catch { /* session-only */ }
+  // stevenlacey is a gift, not a secret: it is on the chart from the first
+  // launch, so it can be picked as a destination without stumbling on it first
+  // (it is small, 45,000 units out and well below the plane of the planets).
+  logged.add('stevenlacey');
 }
 function saveLog() {
   try {
