@@ -116,12 +116,15 @@ import {
   coinLeft,
   cottageActive,
 } from './walkLazy.js';
-import { initJournal, journalState } from './journal.js';
+import { initJournal, journalState, questStage, setQuestStage } from './journal.js';
 import { initInventory, inventoryState } from './inventory.js';
 import { CITIES, citiesForWorld, padLocalDir } from '../world/cityRegistry.js';
 import { initSun, updateSun, sunAltitude, sun } from './sun.js';
 import { initStations, updateStations, stations } from './stations.js';
 import { createSkyCity } from '../world/skycity.js';
+import { createReachShip } from '../world/reachship.js';
+import { createShatter } from '../world/shatter.js';
+import { CHARGE_QUEST } from '../world/reachtube.js';
 import { createCoinWorld, HEADS } from '../world/coinworld.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
 import {
@@ -205,6 +208,14 @@ initCityFlatten(planets);
 // in the boot bundle, because you see it from orbit long before you walk it.
 const saturnia = planets.find((p) => p.cfg.name === 'saturnia');
 const skyCity = createSkyCity(saturnia);
+// Neptunia's factory ship rides real swell: a displaced sea patch at its site.
+const neptunia = planets.find((p) => p.cfg.name === 'neptunia');
+const reachDef = CITIES.find((c) => c.id === 'neptunia-indigo');
+const reachShip = createReachShip(neptunia, reachDef);
+const reachSea = reachShip.sea;
+// ...and what Neptunia becomes when the governor's charge goes off. Applied at
+// boot for a save in which it already has (see the initJournal call below).
+const shatter = createShatter(neptunia, reachDef.site, reachShip);
 // stevenlacey, the coin world: likewise seen (tumbling) long before it is landed on.
 const coin = createCoinWorld(scene);
 
@@ -242,6 +253,8 @@ initArtView();
 initTerrariumView();
 initSfx();
 initJournal();
+// A save in which the charge already went off: Neptunia stays broken.
+if (questStage(CHARGE_QUEST) === 'blown') shatter.apply();
 initInventory();
 initSettingsPanel();
 initCoach();
@@ -528,14 +541,15 @@ if (import.meta.env.DEV) {
     // air shell opposite the city (side = 1) or beside it (side = 0) so the
     // capture fires on the next tick; skyDock() skips the flight entirely.
     skyCity,
-    skyState: () => ({ landState, skyLanding, skyArmed, autoT, phase, flash }),
+    skyState: () => ({ landState, skyLanding, skyArmed: DOCKS[0].armed, dock: dock.id, autoT, phase, flash }),
     skyApproach(side = 1, speed = 300) {
+      dock = DOCKS[0];
       skyPadPose();
       const d = _skyPad.clone().normalize().multiplyScalar(side ? -1 : 1);
       if (!side) d.applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.5);
       ship.position.copy(saturnia.body.position).addScaledVector(d, skyShellRadius() + 150);
       ship.velocity.copy(d).multiplyScalar(-speed);
-      skyArmed = true;
+      DOCKS[0].armed = true;
       landState = null;
       skyLanding = false;
     },
@@ -846,6 +860,96 @@ if (import.meta.env.DEV) {
       ship.angularVelocity.set(0, 0, 0);
       ship.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(ship.position, target, new THREE.Vector3(0, 1, 0)));
     },
+    // The Indigo Reach's sea (world/seapatch.js). reachView parks the ship
+    // `dist` out from the ship's site on anchor bearing `bearing` (0 = off the
+    // bow, +Z), `height` above the still sea, looking at the site; `sunny`
+    // turns the planet so the site sits under the sun.
+    reachSea,
+    reachShip,
+    // The charge mission: reachCharge('go') unseals the lift, reachCharge()
+    // clears it; reachPlace puts the walker at an ANCHOR-frame point (the
+    // ship's static frame: +Z the bow, y = 0 the still sea); reachBlow() is the
+    // arm button; shatter is the broken-planet state.
+    shatter,
+    // Side-on to the break: both halves in frame. az swings round the blast axis.
+    shatterView(distR = 3.4, az = 0, lift = 0.25) {
+      const p = neptunia, q = p.surface.getWorldQuaternion(new THREE.Quaternion());
+      const d = shatter.T1.clone().multiplyScalar(Math.cos(az)).addScaledVector(shatter.T2, Math.sin(az)).addScaledVector(shatter.N, lift).normalize().applyQuaternion(q);
+      const look = p.group.position.clone().addScaledVector(shatter.N.clone().applyQuaternion(q), p.radius * 0.7);
+      ship.position.copy(look).addScaledVector(d, p.radius * distR);
+      ship.velocity.set(0, 0, 0);
+      ship.angularVelocity.set(0, 0, 0);
+      ship.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(ship.position, look, new THREE.Vector3(0, 1, 0)));
+      debug.paused = true;
+      snapCamera(ship);
+    },
+    reachQuest(id, stage) { setQuestStage(id, stage); return questStage(id); },
+    reachCharge(stage) { setQuestStage(CHARGE_QUEST, stage); return questStage(CHARGE_QUEST); },
+    reachPlace(x, y, z) {
+      const a = reachShip.anchor;
+      a.updateWorldMatrix(true, false);
+      ship.position.set(x, y, z).applyMatrix4(a.matrixWorld);
+      ship.velocity.set(0, 0, 0);
+    },
+    reachBlow() { reachShip.tube.module.interact({ kind: 'arm' }); },
+    reachState: () => ({ landState, skyLanding, armed: DOCKS[1].armed, dock: dock.id, autoT, phase, frozen: !!neptunia.spinFrozen }),
+    // Drop the ship into Neptunia's air shell beside the Reach (side 0) or on
+    // the far side of the planet (side 1), inbound: capture fires next tick.
+    reachApproach(side = 0, speed = 300) {
+      dock = DOCKS[1];
+      skyPadPose();
+      const d = _skyPad.clone().normalize().multiplyScalar(side ? -1 : 1);
+      if (!side) d.applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.5);
+      ship.position.copy(neptunia.body.position).addScaledVector(d, skyShellRadius(DOCKS[1]) + 150);
+      ship.velocity.copy(d).multiplyScalar(-speed);
+      debug.paused = false;
+      DOCKS[1].armed = true;
+      landState = null;
+      skyLanding = false;
+    },
+    // On the pad, landed, without flying it.
+    reachDock() {
+      debug.paused = false;
+      setOnSkyPad(DOCKS[1]);
+      snapCamera(ship);
+    },
+    // Step out onto the flight deck without flying the landing.
+    reachStepOut() {
+      debug.reachView(0, 30, 0, true);
+      const pp = reachShip.padPose({ pad: new THREE.Vector3(), padMean: new THREE.Vector3(), up: new THREE.Vector3(), upMean: new THREE.Vector3(), quat: new THREE.Quaternion(), quatMean: new THREE.Quaternion() });
+      ship.position.copy(neptunia.group.position).add(pp.padMean).addScaledVector(pp.upMean, 6);
+      debug.paused = false;
+      landState = null;
+      landedPlanet = null;
+      _padLocalDir.set(0, 0, 0);
+      beginWalk(neptunia);
+      heat = 0;
+      phase = 'walk';
+      accumulator = 0;
+    },
+    reachView(dist = 300, height = 60, bearing = 0, sunny = true) {
+      const p = neptunia;
+      if (sunny) {
+        const sd = p.sunBase, s = reachDef.site;
+        // rotate the site about +Y onto the sun's meridian
+        const ang = Math.atan2(s.z, s.x) - Math.atan2(sd.z, sd.x);
+        p.spinPhase = ang - (performance.now() / 1000) * p.cfg.spin();
+        p.spinNeedsResync = false;
+        for (const m of p.spinning) m.rotation.y = ang;
+        p.group.updateMatrixWorld(true);
+      }
+      setPlanetSpinFrozen(p, true); // or the site turns away from under the pose
+      const q = p.surface.getWorldQuaternion(new THREE.Quaternion()).multiply(reachSea.anchorQ);
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+      const out = new THREE.Vector3(Math.sin(bearing), 0, Math.cos(bearing)).applyQuaternion(q);
+      const anchor = p.group.position.clone().addScaledVector(up, reachSea.rw);
+      ship.position.copy(anchor).addScaledVector(out, dist).addScaledVector(up, height);
+      ship.velocity.set(0, 0, 0);
+      ship.angularVelocity.set(0, 0, 0);
+      ship.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(ship.position, anchor, up));
+      debug.paused = true; // hold the pose: gravity would have it otherwise
+      snapCamera(ship);
+    },
     coach: coachState,
     hideCockpit: false, // screenshots of the world without the dashboard
     setAO(v) {
@@ -1065,9 +1169,9 @@ function landingUpright(up, quatOut) {
 // cases. skyArmed is the latch that stops a liftoff being re-captured on the
 // spot: it only resets once the ship has climbed clear of the shell.
 let skyLanding = false;
-let skyArmed = true;
 let skyArcFrac = 0.7; // share of the auto-land spent on the arc (rest: descent)
 let skyFallT = -1; // >= 0 while the white is rising over a fall from the city
+let chargeT = -1; // >= 0 while the white is rising from the Reach's charge
 const _skyUp = new THREE.Vector3();
 const _skyPad = new THREE.Vector3(); // pad rest point, offset from planet centre
 const _skyHover = new THREE.Vector3(); // above the pad, offset from planet centre
@@ -1077,30 +1181,89 @@ const _skyQuat = new THREE.Quaternion();
 let skyStartR = 0;
 let skyArcAng = 0;
 
-// Where the ship rests on the pad and how it sits: +Y along the city's up,
-// nose toward the city centre. Offsets are from the planet centre, which is
-// what survives a floating-origin rebase mid-arc.
+// A pad that rides a swell has two poses: the MEAN one (_skyPad, _skyHover,
+// _landUprightQuat — the approach aims at these, so the arc ends on a still
+// point) and the LIVE one (_skyPadLive, _skyQuatLive — where the deck is this
+// tick, which the last of the descent and the parked ship follow). For the Sky
+// City the two are the same.
+const _skyPadLive = new THREE.Vector3();
+const _skyQuatLive = new THREE.Quaternion();
+const _reachPose = {
+  pad: new THREE.Vector3(), padMean: new THREE.Vector3(), up: new THREE.Vector3(), upMean: new THREE.Vector3(),
+  quat: new THREE.Quaternion(), quatMean: new THREE.Quaternion(),
+};
+const _noseToBow = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+
+// The places that capture a ship and land it for you. Each dock's pose() fills
+// the scratch above: where the ship rests on the pad and how it sits, as
+// offsets from the planet centre (which is what survives a floating-origin
+// rebase mid-arc). `armed` is the latch that stops a liftoff being re-captured
+// on the spot. `freeze`: the pad rides a spinning planet, so the world is held
+// still from capture to liftoff, as on any terra landing.
+const DOCKS = [
+  {
+    id: 'sky', planet: saturnia, armed: true, freeze: false,
+    approach: 'SKY CITY APPROACH CONTROL — WE HAVE YOUR HELM',
+    welcome: 'SKY CITY — WELCOME ABOARD',
+    label: 'AUTO-LANDING · SKY CITY',
+    // +Y along the city's up, nose toward the city centre
+    pose() {
+      const g = skyCity.group;
+      _skyUp.set(0, 1, 0).applyQuaternion(g.quaternion);
+      _skyPad.copy(skyCity.pad).applyQuaternion(g.quaternion).add(g.position)
+        .addScaledVector(_skyUp, C.PARK_LIFT);
+      _skyHover.copy(_skyPad).addScaledVector(_skyUp, C.SKY_HOVER);
+      _landUprightQuat.copy(g.quaternion);
+      _skyPadLive.copy(_skyPad);
+      _skyQuatLive.copy(_landUprightQuat);
+    },
+    stepOut: () => enterSkyWalk(skyCity),
+  },
+  {
+    // The Indigo Reach's flight deck (world/reachship.js): same capture, same
+    // arc, onto a pad that heaves with the sea.
+    id: 'reach', planet: neptunia, armed: true, freeze: true,
+    approach: 'INDIGO REACH FLIGHT DECK — WE HAVE YOUR HELM',
+    welcome: 'INDIGO REACH — WELCOME ABOARD',
+    label: 'AUTO-LANDING · INDIGO REACH',
+    pose() {
+      const o = reachShip.padPose(_reachPose);
+      _skyUp.copy(o.upMean);
+      _skyPad.copy(o.padMean).addScaledVector(_skyUp, C.PARK_LIFT);
+      _skyHover.copy(_skyPad).addScaledVector(_skyUp, C.REACH_HOVER);
+      _landUprightQuat.copy(o.quatMean).multiply(_noseToBow); // nose to the bow, at the house
+      _skyPadLive.copy(o.pad).addScaledVector(o.up, C.PARK_LIFT);
+      _skyQuatLive.copy(o.quat).multiply(_noseToBow);
+    },
+    // An ordinary town walk (src/walk.js adopts the ship as its city).
+    stepOut: () => {
+      if (!walkLoaded()) return false;
+      beginWalk(neptunia);
+      return true;
+    },
+  },
+];
+let dock = DOCKS[0]; // the dock in play while skyLanding is set
+let walkDock = null; // the dock the current walk stepped out of, if it will be boarded back onto its pad
 function skyPadPose() {
-  const g = skyCity.group;
-  _skyUp.set(0, 1, 0).applyQuaternion(g.quaternion);
-  _skyPad.copy(skyCity.pad).applyQuaternion(g.quaternion).add(g.position)
-    .addScaledVector(_skyUp, C.PARK_LIFT);
-  _skyHover.copy(_skyPad).addScaledVector(_skyUp, C.SKY_HOVER);
-  _landUprightQuat.copy(g.quaternion);
+  dock.pose();
 }
 
-function skyShellRadius() {
-  return saturnia.radius * C.ATMO_SHELL;
+function skyShellRadius(d = dock) {
+  return d.planet.radius * C.ATMO_SHELL;
 }
 
-function beginSkyAutoLand() {
+function beginSkyAutoLand(d) {
   cancelAutopilot();
+  dock = d;
+  // Hold the world still first: the pad pose below is then the one we fly to.
+  if (d.freeze) setPlanetSpinFrozen(d.planet, true);
   skyPadPose();
-  landedPlanet = saturnia;
+  landedPlanet = d.planet;
   skyLanding = true;
-  skyArmed = false;
+  d.armed = false;
   _padLocalDir.set(0, 0, 0);
-  _landStartOff.subVectors(ship.position, saturnia.body.position);
+  _landStartOff.subVectors(ship.position, d.planet.body.position);
   _landStartQuat.copy(ship.quaternion);
   skyStartR = _landStartOff.length();
   _skyStartDir.copy(_landStartOff).normalize();
@@ -1113,13 +1276,13 @@ function beginSkyAutoLand() {
   }
   _skyAxis.normalize();
   const arcTime = THREE.MathUtils.clamp(
-    2.5 + (skyArcAng * saturnia.radius) / C.SKY_ARC_SPEED, 3.5, C.AUTOLAND_MAX_TIME
+    2.5 + (skyArcAng * d.planet.radius) / C.SKY_ARC_SPEED, 3.5, C.AUTOLAND_MAX_TIME
   );
   autoLandDuration = arcTime + C.SKY_DESCEND_TIME;
   skyArcFrac = arcTime / autoLandDuration;
   autoT = 0;
   landState = 'auto';
-  showNavToast('SKY CITY APPROACH CONTROL — WE HAVE YOUR HELM', 5);
+  showNavToast(d.approach, 5);
 }
 
 // Two legs. The arc swings round the planet on a great circle to a point high
@@ -1142,14 +1305,16 @@ function stepSkyAutoLand(dt) {
       THREE.MathUtils.lerp(skyStartR, hoverR, k),
       THREE.MathUtils.lerp(skyStartR, hoverR, rise * rise * (3 - 2 * rise))
     );
-    ship.position.copy(saturnia.body.position).addScaledVector(_lv0, r);
+    ship.position.copy(dock.planet.body.position).addScaledVector(_lv0, r);
     ship.quaternion.slerpQuaternions(_landStartQuat, _landUprightQuat, k);
   } else {
+    // Down onto the LIVE pad: by the last of the descent the ship is matching
+    // the deck's heave and tilt, so it meets the plating instead of a memory of it.
     const u = (autoT - skyArcFrac) / (1 - skyArcFrac);
     const k = u * u * (3 - 2 * u);
-    _lv0.lerpVectors(_skyHover, _skyPad, k);
-    ship.position.copy(saturnia.body.position).add(_lv0);
-    ship.quaternion.copy(_landUprightQuat);
+    _lv0.lerpVectors(_skyHover, _skyPadLive, k);
+    ship.position.copy(dock.planet.body.position).add(_lv0);
+    ship.quaternion.slerpQuaternions(_landUprightQuat, _skyQuatLive, k);
   }
   ship.velocity.copy(ship.position).sub(_prevPos).divideScalar(dt);
   ship.angularVelocity.set(0, 0, 0);
@@ -1157,7 +1322,8 @@ function stepSkyAutoLand(dt) {
     landState = 'landed';
     settleT = 1;
     ship.velocity.set(0, 0, 0);
-    showNavToast('SKY CITY — WELCOME ABOARD', 4);
+    showNavToast(dock.welcome, 4);
+    if (dock.freeze) touchdownIsolate(dock.planet);
   }
 }
 
@@ -1175,8 +1341,8 @@ function stepSkyLanded(dt, piloted) {
   ship.angularVelocity.set(0, 0, 0);
   ship.properAccel.set(0, 0, 0);
   if (skyLiftT < 0) {
-    ship.position.copy(saturnia.body.position).add(_skyPad);
-    ship.quaternion.copy(_landUprightQuat);
+    ship.position.copy(dock.planet.body.position).add(_skyPadLive);
+    ship.quaternion.copy(_skyQuatLive);
     ship.velocity.set(0, 0, 0);
     if (piloted && (input.forward || input.brake)) skyLiftT = 0;
     return;
@@ -1184,7 +1350,7 @@ function stepSkyLanded(dt, piloted) {
   skyLiftT = Math.min(skyLiftT + dt / SKY_LIFT_TIME, 1);
   const k = skyLiftT * skyLiftT; // ease in: it gathers speed off the pad
   _prevPos.copy(ship.position);
-  ship.position.copy(saturnia.body.position).add(_skyPad)
+  ship.position.copy(dock.planet.body.position).add(_skyPad)
     .addScaledVector(_skyUp, SKY_LIFT_HEIGHT * k);
   _skyPitched.copy(_landUprightQuat).multiply(_skyPitch);
   ship.quaternion.slerpQuaternions(
@@ -1192,6 +1358,11 @@ function stepSkyLanded(dt, piloted) {
   );
   ship.velocity.copy(ship.position).sub(_prevPos).divideScalar(dt);
   if (skyLiftT >= 1) {
+    if (dock.freeze) {
+      // the day resumes, and the universe comes back, as on any liftoff
+      setPlanetSpinFrozen(dock.planet, false);
+      releaseUniverse();
+    }
     landState = null;
     landedPlanet = null;
     skyLanding = false;
@@ -1200,12 +1371,14 @@ function stepSkyLanded(dt, piloted) {
 }
 
 // Put the ship back on the pad, landed (boarding from a walk, debug hooks).
-function setOnSkyPad() {
+function setOnSkyPad(d = DOCKS[0]) {
   cancelAutopilot();
-  landedPlanet = saturnia;
+  dock = d;
+  if (d.freeze) touchdownIsolate(d.planet);
+  landedPlanet = d.planet;
   landState = 'landed';
   skyLanding = true;
-  skyArmed = false;
+  d.armed = false;
   settleT = 1;
   skyLiftT = -1;
   _padLocalDir.set(0, 0, 0);
@@ -1214,12 +1387,18 @@ function setOnSkyPad() {
 
 // Capture check, once per physics tick in free flight.
 function checkSkyCapture() {
-  const r = ship.position.distanceTo(saturnia.body.position);
-  if (!skyArmed) {
-    if (r > skyShellRadius() + C.SKY_REARM_MARGIN) skyArmed = true;
-    return;
+  for (const d of DOCKS) {
+    if (d.id === 'reach' && shatter.active) continue; // there is no flight deck any more
+    const r = ship.position.distanceTo(d.planet.body.position);
+    if (!d.armed) {
+      if (r > skyShellRadius(d) + C.SKY_REARM_MARGIN) d.armed = true;
+      continue;
+    }
+    if (r < skyShellRadius(d)) {
+      beginSkyAutoLand(d);
+      return;
+    }
   }
-  if (r < skyShellRadius()) beginSkyAutoLand();
 }
 
 // --- stevenlacey landing (world/coinworld.js) ---------------------------------
@@ -1590,7 +1769,7 @@ function touchdownIsolate(p) {
 // Undo the touchdown freeze. Stepping out doesn't need this (enterWalk
 // re-freezes the same planet, idempotently); liftoff and the hard resets do.
 function thawLandedPlanet() {
-  if (landedPlanet && !skyLanding) setPlanetSpinFrozen(landedPlanet, false);
+  if (landedPlanet && (!skyLanding || dock.freeze)) setPlanetSpinFrozen(landedPlanet, false);
 }
 
 // Backspace — real pause (audit fix: Escape only dropped pointer lock while
@@ -1638,7 +1817,10 @@ function resetToStart() {
   landState = null;
   landedPlanet = null;
   skyLanding = false;
-  skyArmed = true;
+  for (const d of DOCKS) d.armed = true;
+  walkDock = null;
+  chargeT = -1;
+  reachShip.tube.reset();
   skyFallT = -1;
   skyLiftT = -1;
   coinLanding = false;
@@ -1859,7 +2041,8 @@ function frame(now) {
       if (skyLanding) {
         // The Sky City. No waving off the approach — there is nowhere else to
         // go — and stepping out needs the on-foot chunk to have arrived.
-        if (landState === 'landed' && skyLiftT < 0 && enterSkyWalk(skyCity)) {
+        if (landState === 'landed' && skyLiftT < 0 && dock.stepOut()) {
+          walkDock = dock.freeze ? dock : null;
           landState = null;
           landedPlanet = null;
           skyLanding = false;
@@ -1934,6 +2117,23 @@ function frame(now) {
       snapCamera(ship);
       phase = 'fly';
       accumulator = 0;
+    } else if (chargeT >= 0 || reachShip.tube.consumeDetonation()) {
+      // The arm button. There was never a timer: the white comes up from the
+      // bore faster than a thought, and that is the end of the walker, the
+      // ship and half the world. The run ends as any death does; Neptunia
+      // stays the way this left it (journal quest 'blown').
+      chargeT = Math.max(chargeT, 0) + delta;
+      flash = Math.min(chargeT / C.CHARGE_FLASH, 1);
+      if (flash >= 1) {
+        chargeT = -1;
+        setQuestStage(CHARGE_QUEST, 'blown');
+        endWalk();
+        shatter.apply();
+        deathReason = 'THE CHARGE WAS NEVER ON A TIMER — NEPTUNIA IS BROKEN';
+        phase = 'explode';
+        warpT = C.EXPLODE_TIME * 0.35; // already at full white
+        accumulator = 0;
+      }
     } else if (skyFallT >= 0 || skyFell()) {
       // Off the edge of the Sky City. The walker is still falling under the
       // rising white; at full white the run ends and starts over, in the ship,
@@ -1966,6 +2166,15 @@ function frame(now) {
             // Back into the seat, still parked on the pad: W lifts off.
             endWalk();
             setOnSkyPad();
+            snapCamera(ship);
+            phase = 'fly';
+            accumulator = 0;
+          } else if (walkDock) {
+            // The Indigo Reach: the same — back in the seat on the flight deck.
+            const d = walkDock;
+            walkDock = null;
+            endWalk();
+            setOnSkyPad(d);
             snapCamera(ship);
             phase = 'fly';
             accumulator = 0;
@@ -2182,7 +2391,7 @@ function frame(now) {
           else prompt = skyLanding && skyLiftT >= 0 ? null : 'G — STEP OUT · W — LIFT OFF';
         } else if (landState === 'auto') {
           prompt = coinLanding ? 'AUTO-LANDING · STEVENLACEY'
-            : skyLanding ? 'AUTO-LANDING · SKY CITY' : 'AUTO-LANDING · G — ABORT';
+            : skyLanding ? dock.label : 'AUTO-LANDING · G — ABORT';
         }
         else {
           const floor = nearestTerraFloor(ship.position);
@@ -2219,6 +2428,9 @@ function frame(now) {
     skyCity.update(delta, now / 1000, camera.position);
     coin.update(delta);
   }
+  // On foot (isolated) as much as in flight: the sea keeps running either way.
+  reachShip.update(delta, now / 1000, camera.position);
+  shatter.update(delta, now / 1000, camera.position);
   // nav AFTER the stations are placed: a reset snaps orbiting stations back
   // to their snapshot spot for one frame, and a discovery check reading that
   // stale position would log everything sitting at the spawn point

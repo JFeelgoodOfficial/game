@@ -3,9 +3,10 @@
 // systems (GDD 5.7):
 //   - Terra: continents, liquid ocean, clouds, blue sky.
 //   - Rustia: dead rock — sea level below the terrain minimum, no water.
-//   - Saturnia: ringed gold gas giant.  - Neptunia: blue ice giant.
-//     Saturnia has no surface, but it does have the Sky City
-//     (world/skycity.js), a child of its group, which is where ships land.
+//   - Saturnia: ringed gold gas giant. No surface, but it does have the
+//     Sky City (world/skycity.js), a child of its group, where ships land.
+//   - Neptunia: all-ocean storm world. Ships land on the Indigo Reach
+//     factory ship (world/reachship.js).
 // Every planet registers gravity + an altitude floor (dive into any
 // atmosphere; never land). Rocky planets' floors follow their terrain via
 // terrain.js with per-planet sea level and amplitude.
@@ -208,14 +209,17 @@ const CONFIGS = [
     rings: { inner: 1.7, outer: 3.5, tilt: 0.47, color: 0xd8c49a },
   },
   {
-    // Once a flyby ice giant — now a landable deep-ocean world (GDD 5.7:
-    // ocean world = high sea level). Violet archipelagos over an indigo sea
-    // you can dive INTO: oceanDepth carves real trenches below the datum,
-    // divable unlocks underwater swimming, and diamond rain falls on shore.
-    // The balloon-whale sky ecology stays as high-altitude ambiance
-    // (world/creatures.js buildNeptunia).
+    // Once a flyby ice giant — now an all-ocean storm world (GDD 5.7: ocean
+    // world = high sea level). seaLevel 1.0 sits above every peak the field
+    // can produce, so no land breaks the surface; oceanDepth keeps a real
+    // seabed below it and divable unlocks swimming down to it. The only
+    // settlement is the Indigo Reach factory ship (world/reachship.js),
+    // riding a displaced-swell sea patch (world/seapatch.js). noLand: the
+    // ship captures and auto-lands you the way the Sky City does. Diamond
+    // rain, the cloud shell and the balloon-whale sky ecology are unchanged.
     name: 'neptunia',
     type: 'terra',
+    noLand: true, // no ground: the Reach's flight deck captures you (game.js DOCKS)
     dir: new THREE.Vector3(-0.15, 0.22, 0.96).normalize(),
     distance: () => 70000,
     radius: () => 1400,
@@ -223,24 +227,20 @@ const CONFIGS = [
     skyColor: () => 0x4050d8,
     spin: () => 0.03,
     atmoColor: 0x5a6aff,
-    seaLevel: () => 0.68,
+    seaLevel: () => 1.0, // above every peak: all ocean
     terrainHeight: () => 95,
-    oceanDepth: () => 70, // trenches to −70 u below the sea datum
+    oceanDepth: () => 260, // seabed roughly −60 (seamounts) to −215 u: a long way down the tube
     shape: { ridge: 0.34, ridgeFreq: 3.5, valley: 0.05 },
     divable: true,
     diamondRain: true,
-    iceLat: 0.9,
+    iceLat: 2, // no ice caps
     palette: {
       deep: 0x040824, shallow: 0x14329a, sand: 0x8a7fc4,
       low: 0x54418f, mid: 0x342e72, high: 0xe0dcf6,
     },
-    water: { color: 0x081c52, gloss: 1.0 },
+    water: { color: 0x081c52, gloss: 1.0, foam: 0xdfe2ff },
+    seaStorm: 0.65, // a sea running high everywhere; the sky keeps its own weather
     clouds: true,
-    dress: {
-      grass: { root: 0x3a3f8a, tip: 0x7a8fe8, emissive: 0x5a6ac8 },
-      shrubs: true,
-      rocks: true,
-    },
   },
   {
     // Extreme-alpine world: ride the ridgelines, fly the canyons. The
@@ -312,10 +312,28 @@ function atmoBeta(hex) {
   return new THREE.Vector3(c.r * k, c.g * k, c.b * k);
 }
 
+// One set of shatter uniforms per planet, shared BY REFERENCE between its
+// surface, sea and cloud materials (world/shatter.js writes them once). w = 2
+// means the world is whole and the shaders' `shattered()` is a no-op.
+const _shatter = new Map();
+function shatterFor(cfg) {
+  let u = _shatter.get(cfg.name);
+  if (!u) {
+    u = {
+      uShatterN: { value: new THREE.Vector4(0, 1, 0, 2) },
+      uShatterT1: { value: new THREE.Vector3(1, 0, 0) },
+      uShatterT2: { value: new THREE.Vector3(0, 0, 1) },
+    };
+    _shatter.set(cfg.name, u);
+  }
+  return u;
+}
+
 function makeSurfaceUniforms(cfg, radius) {
   const p = cfg.palette;
   const s = cfg.shape || DEFAULT_SHAPE;
   return {
+    ...shatterFor(cfg),
     uSun: { value: SUN.clone() },
     uSeaLevel: { value: cfg.seaLevel() },
     uAmp: { value: cfg.terrainHeight() },
@@ -389,6 +407,7 @@ export function initPlanets(scene) {
             vertexShader: surfaceVert,
             fragmentShader: waterFrag,
             uniforms: {
+              ...shatterFor(cfg),
               uSun: { value: SUN.clone() },
               uSeaLevel: { value: 0 },
               uAmp: { value: 0 },
@@ -398,7 +417,10 @@ export function initPlanets(scene) {
               uSkyColor: { value: new THREE.Color(cfg.skyColor()) },
               uGlint: { value: C.SEA_GLINT },
               uDetail: { value: 0 },
-              uStorm: { value: cfg.storm ?? 0 },
+              // seaStorm roughens the water alone; storm also thunders the clouds
+              uStorm: { value: cfg.seaStorm ?? cfg.storm ?? 0 },
+              uFoamColor: { value: new THREE.Color(cfg.water.foam ?? 0xf2e0b2) },
+              uHole: { value: new THREE.Vector4(0, 1, 0, 2) },
               uFade: { value: 1 },
               uFogColor: { value: new THREE.Color(0) },
               uFogDensity: { value: 0 },
@@ -418,6 +440,7 @@ export function initPlanets(scene) {
           vertexShader: surfaceVert,
           fragmentShader: cloudFrag,
           uniforms: {
+            ...shatterFor(cfg),
             uSun: { value: SUN.clone() },
             uSeaLevel: { value: 0 },
             uAmp: { value: 0 },
@@ -566,6 +589,7 @@ export function initPlanets(scene) {
     };
     // the lit meshes, gathered once so updatePlanets has no list to build
     // (both air-shell materials, so whichever the tier swaps in is already aimed)
+    p.shatter = shatterFor(cfg);
     p.lit = [surface, clouds, waterMesh].filter((m) => m?.material?.uniforms?.uSun).map((m) => m.material);
     p.lit.push(atmoLimbMat, atmoScatterMat);
 

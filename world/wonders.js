@@ -182,7 +182,10 @@ function sampleGround(planet, localDir) {
 function placeOnSurface(planet, localDir, yawRad = 0) {
   const group = new THREE.Group();
   const groundH = sampleGround(planet, localDir);
-  const radius = (planet.radius ?? 900) + groundH;
+  let radius = (planet.radius ?? 900) + groundH;
+  // An all-ocean world (cfg.noLand) has no shore to stand a wonder on: it
+  // stands in the sea instead, its footing just awash.
+  if (planet.cfg?.noLand && planet.water?.r && radius < planet.water.r) radius = planet.water.r - 1.2;
   group.position.copy(localDir).multiplyScalar(radius);
   _quat.setFromUnitVectors(_yAxis, localDir);
   group.quaternion.copy(_quat);
