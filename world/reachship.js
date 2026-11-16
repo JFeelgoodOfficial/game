@@ -1147,14 +1147,15 @@ export function createReachShip(planet, def) {
   let lastAnchorY = NaN, lastHullY = 0;
   const hullFeet = (anchorY) => (Math.abs(anchorY - lastAnchorY) < 0.08 ? lastHullY : _p.y);
   const wrapped = {
-    surfaceYAt(x, z, feetY) {
-      _p.set(x, feetY, z).applyMatrix4(hullInv);
-      const fy = feetY > 1e5 ? 1e6 : hullFeet(feetY);
+    // top: ignore the feet and return the highest deck over (x, z)
+    surfaceYAt(x, z, feetY, top = false) {
+      _p.set(x, top ? H.MAIN : feetY, z).applyMatrix4(hullInv);
+      const fy = top ? 1e6 : hullFeet(feetY);
       const y = structure.surfaceYAt(_p.x, _p.z, fy);
       if (y === null) return null;
       _p.y = y;
       const out = _p.applyMatrix4(hull.matrix).y;
-      if (feetY < 1e5 && fy - y < 0.3) { lastAnchorY = out; lastHullY = y; } // standing on it
+      if (!top && fy - y < 0.3) { lastAnchorY = out; lastHullY = y; } // standing on it
       return out;
     },
     resolveWalls(p, r) {
@@ -1175,7 +1176,7 @@ export function createReachShip(planet, def) {
   };
   // top of the highest deck over (x, z), anchor-local; 0 (the sea) off the ship
   function groundLocalYAt(x, z) {
-    const y = wrapped.surfaceYAt(x, z, 1e6);
+    const y = wrapped.surfaceYAt(x, z, 0, true);
     return y === null ? 0 : y;
   }
   // the real seabed under (x, z), as an anchor-local height

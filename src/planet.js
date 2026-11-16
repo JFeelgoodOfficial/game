@@ -219,6 +219,7 @@ const CONFIGS = [
     // rain, the cloud shell and the balloon-whale sky ecology are unchanged.
     name: 'neptunia',
     type: 'terra',
+    noLand: true, // no ground: the Reach's flight deck captures you (game.js DOCKS)
     dir: new THREE.Vector3(-0.15, 0.22, 0.96).normalize(),
     distance: () => 70000,
     radius: () => 1400,

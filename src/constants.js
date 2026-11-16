@@ -199,6 +199,7 @@ export const C = {
   SKY_FALL_FLASH: 0.6, // seconds of ramp to white
   SKY_FALL_FADE: 1.4, // seconds of white fading off the start
   SKY_HOVER: 190.0, // auto-land arrives this far above the pad, then descends
+  REACH_HOVER: 120.0, // the same, over the Indigo Reach's flight deck (world/reachship.js)
   SKY_DESCEND_TIME: 3.2, // seconds for that last vertical leg
   SKY_ARC_SPEED: 700.0, // u/s used to scale the arc's duration
   SKY_REARM_MARGIN: 300.0, // climb this far past the air shell before it re-captures
