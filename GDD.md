@@ -416,8 +416,21 @@ console then offers the other one. Saved in `fgsf.tenretni` as
 `{city, bore, rotY, at}`; a reload mid-voyage has already arrived, and a world
 reset re-parks it.
 
-Not built: draining the destination, steering the world by hand, building
-interiors, flying into the bore or the wormhole.
+**Assimilation** (`src/assimilate.js`). On arrival the worldship does to the
+water world what Tenretni did to Terra, and then takes it apart. One script
+clock, about 85 s (100 s for Wyattmattoe): a heat beam melts the ice world to
+open water first (`setPlanetMelt`); the swarm crosses; the tube strikes; the
+sea drains; the city takes the surface; then the planet shrinks to nothing
+while 420 instanced chunks stream to the worldship, and it is removed from
+space (`removePlanet`: hidden, no gravity, no floor, off NAV with its stations,
+its dock skipped). The worldship then grows ×1.5 (`setPlanetScale`; the capital
+re-seats and its pylon stretches). After the first world an iris shield closes
+over the bore; after the second it has a thin green air shell. Either order
+works. Saved as `eaten[]`, `size`, `eating` in `fgsf.tenretni`; a reload or
+world reset part-way finds the planet already gone.
+
+Not built yet: the holodeck and the clock, the three war fleets, boarding and
+the ending (plans/ and the next stages).
 
 ### 5.8 The Sky City (Saturnia)
 

@@ -322,3 +322,13 @@ places: plaza (0,0,30), command dais (0,3,-67), navigation console (79.5,0,0),
 pad (10,0,91). `tenretni.story()` returns the dialogue source; `tenretni.sail(name)`
 starts a voyage without the console (`'wyattmattoe' | 'neptunia'`), about 42 s.
 
+Assimilation (stage `ship`): arriving from `tenretni.sail(name)` starts it by
+itself. `state()` adds `eaten[], size, radius, eatingNow {name, u}, removed[]`.
+`tenretni.eat(u)` seeks its clock (beats: melt 12–26 on wyattmattoe only, swarm
+27, strike 56, drain to 73, break-up 84–104, growth to 112). Afterwards the
+planet is in `removed`, absent from `navMenu.rows('planets')`, and
+`planets[0].radius` is 1500 then 2250. Do NOT call `__debug.launch()` mid-way:
+a world reset finishes the assimilation instantly. Park the test ship well
+clear before a voyage (`ship.position.y += 40000`) or the capital's dock will
+capture it as the worldship sails past.
+

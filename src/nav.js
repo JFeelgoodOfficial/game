@@ -187,6 +187,23 @@ export function getBodies() {
   return bodies;
 }
 
+// Take a body off every chart (hologram, destination menu, proximity log), or
+// put it back. Matched by the position object it tracks, so one call covers a
+// world and the stations that ride it. Used when a world leaves space.
+const hiddenBodies = [];
+export function setNavHidden(pos, hidden) {
+  if (!bodies) buildBodies();
+  if (hidden) {
+    for (let i = bodies.length - 1; i >= 0; i--) {
+      if (bodies[i].pos === pos) hiddenBodies.push(bodies.splice(i, 1)[0]);
+    }
+  } else {
+    for (let i = hiddenBodies.length - 1; i >= 0; i--) {
+      if (hiddenBodies[i].pos === pos) bodies.push(hiddenBodies.splice(i, 1)[0]);
+    }
+  }
+}
+
 export function isLogged(id) {
   return logged.has(id);
 }

@@ -1437,6 +1437,7 @@ function checkSkyCapture() {
   for (const d of DOCKS) {
     if (d.id === 'reach' && shatter.active) continue; // there is no flight deck any more
     if (d === CAPITAL_DOCK && !capitalDock()) continue; // not built (yet)
+    if (d.planet.removed) continue; // the worldship has eaten it
     const r = ship.position.distanceTo(d.planet.body.position);
     if (!d.armed) {
       if (r > skyShellRadius(d) + C.SKY_REARM_MARGIN) d.armed = true;

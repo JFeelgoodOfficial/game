@@ -109,6 +109,7 @@ export const tenretniDebug = () => ({
   start: () => mod && mod.debugStart(),
   seek: (s) => mod && mod.debugSeek(s),
   sail: (name) => mod && mod.debugSail(name),
+  eat: (u) => mod && mod.debugEat(u),
   story: () => mod && mod.debugStory(),
   state: () => (mod ? mod.state() : { loaded: false, stage: questStage(SECRET) }),
 });

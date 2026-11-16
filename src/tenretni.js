@@ -50,13 +50,14 @@ import { ship } from './ship.js';
 import { input } from './input.js';
 import { Q } from './quality.js';
 import { questStage, setQuestStage, addCodex } from './journal.js';
-import { setPlanetDrain, setPlanetShip, planets } from './planet.js';
+import { setPlanetDrain, setPlanetShip, setPlanetScale, removePlanet, planets } from './planet.js';
+import { createAssimilator } from './assimilate.js';
 import { sun } from './sun.js';
 import { addShiftable } from './origin.js';
 import { createCapital } from '../world/capital.js';
 import coreFrag from './shaders/tenretniCore.frag?raw';
 import shellFrag from './shaders/tenretniShell.frag?raw';
-import { showNavToast, hideNavToast } from './nav.js';
+import { showNavToast, hideNavToast, setNavHidden } from './nav.js';
 import { showViewToast } from './walkview.js';
 import { setEventRumble, uiSound } from './sfx.js';
 import commonVert from './shaders/tenretni.vert?raw';
@@ -105,6 +106,15 @@ let sail = null; // { name, target, t, rel: Vector3, off: Vector3 } while under 
 let capital = null; // world/capital.js, built at T_CAPITAL
 let shipBuilt = false;
 const sailVel = new THREE.Vector3();
+// What the worldship has done since: the planets it has taken apart
+// (src/assimilate.js), how big that has made it, and the one it is on now.
+let eaten = [];
+let size = 1; // multiple of terra's built size
+let eating = null;
+let assim = null;
+let shield = null;
+let shieldU = null;
+const GROWTH = 1.5; // each water world makes it half as big again
 const anchor = new THREE.Group(); // terra's first position; the event frame hangs here
 let glideT = 0;
 let playT = 0; // seconds of script played
@@ -400,6 +410,9 @@ function loadSaved() {
     boreDir = readDir(raw?.bore);
     if (Number.isFinite(raw?.rotY)) rotLock = raw.rotY;
     if (raw?.at && WATER_WORLDS[raw.at]) at = raw.at;
+    if (Array.isArray(raw?.eaten)) eaten = raw.eaten.filter((n) => planets.some((p) => p.cfg.name === n));
+    if (Number.isFinite(raw?.size) && raw.size >= 1) size = raw.size;
+    if (typeof raw?.eating === 'string') eating = raw.eating;
   } catch {
     // unreadable save: whatever is missing is recomputed
   }
@@ -412,6 +425,9 @@ function save() {
       bore: boreDir ? boreDir.toArray() : undefined,
       rotY: rotLock ?? undefined,
       at,
+      eaten,
+      size,
+      eating: eating ?? undefined,
     }));
   } catch {
     // storage full or blocked: the world still changes for this session
@@ -431,6 +447,11 @@ export function init(deps, fxOut) {
   buildSwarm();
   buildTunnel();
   buildCity();
+  assim = createAssimilator({
+    scene, terra, planets, camera, fx, sunWorld, setRumble,
+    grow: growTo,
+    done: ateOne,
+  });
   const stage = questStage(SECRET);
   if (stage === 'ship') {
     // the finished world: everything in its last pose, parked where it was left
@@ -439,7 +460,7 @@ export function init(deps, fxOut) {
     if (rotLock !== null) terra.spinLock = rotLock;
     state = 'rest';
     pose(END);
-    if (at !== 'terra') parkAt(at);
+    restoreEaten();
   } else if (stage === 'done') {
     // act one was seen; act two has not run. It runs now, wherever the ship is.
     loadSaved();
@@ -497,6 +518,36 @@ function buildShip() {
   rimU = rimMat.uniforms;
   rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.035, 10, 96).rotateX(Math.PI / 2), rimMat);
   boreGroup.add(rim);
+
+  // the shield: an iris of plates that closes over the bore once the world
+  // has fed (uClose 0 open .. 1 shut, closing from the rim inward)
+  shieldU = { uClose: { value: 0 }, uSun: { value: sunWorld }, uTime: { value: 0 }, uHdr: { value: C.TENRETNI_HDR } };
+  shield = new THREE.Mesh(
+    new THREE.SphereGeometry(R * 1.006, 72, 24, 0, Math.PI * 2, 0, BORE_ANGLE + 0.03),
+    new THREE.ShaderMaterial({
+      uniforms: shieldU,
+      vertexShader: commonVert,
+      fragmentShader: `varying vec2 vUv; varying vec3 vWorldNormal; varying vec3 vView;
+        uniform float uClose; uniform vec3 uSun; uniform float uTime; uniform float uHdr;
+        void main() {
+          if (vUv.y > uClose) discard;                 // v = 0 at the rim, 1 at the centre
+          float petal = fract(vUv.x * 12.0 + vUv.y * 0.6);
+          float seam = 1.0 - smoothstep(0.0, 0.035, min(petal, 1.0 - petal));
+          float band = 1.0 - smoothstep(0.0, 0.04, abs(fract(vUv.y * 5.0) - 0.5));
+          vec3 N = normalize(vWorldNormal), S = normalize(uSun), V = normalize(vView);
+          float day = smoothstep(-0.1, 0.5, dot(N, S));
+          vec3 base = vec3(0.16, 0.17, 0.18) * (0.8 + 0.4 * step(0.5, fract(vUv.x * 6.0)));
+          vec3 lit = base * (0.07 + 1.3 * day) * (1.0 - 0.7 * seam);
+          lit += vec3(0.6) * pow(max(dot(N, normalize(S + V)), 0.0), 30.0) * day;
+          lit += vec3(0.15, 1.0, 0.45) * (seam * 0.5 + band * 0.12) * uHdr * (0.7 + 0.3 * sin(uTime * 1.3));
+          lit += vec3(1.0, 0.5, 0.15) * smoothstep(uClose - 0.03, uClose, vUv.y) * 2.0; // the closing lip, lit from inside
+          gl_FragColor = vec4(lit, 1.0);
+        }`,
+      side: THREE.DoubleSide,
+    })
+  );
+  shield.visible = false;
+  boreGroup.add(shield);
 
   // engines: three bells opposite the bore, each with a plume
   engines = new THREE.Group();
@@ -626,6 +677,23 @@ const STORY = {
         ? [`Under way. Heading: ${WATER_WORLDS[sail.name]}. Do not leave the deck.`]
         : ['Under way.'] };
     }
+    if (assim.active()) {
+      return { speaker, lines: role === 'warden'
+        ? [`${WATER_WORLDS[assim.target()]} is being taken in. Watch, if you like. You brought us here.`]
+        : ['Assimilating.'] };
+    }
+    if (role === 'warden' && eaten.length) {
+      const left = Object.keys(WATER_WORLDS).filter((k) => !eaten.includes(k));
+      return { speaker, lines: left.length
+        ? [
+          `${WATER_WORLDS[eaten[eaten.length - 1]]} is part of this world now. We are larger. The count is correct.`,
+          `One world with water remains in your log: ${WATER_WORLDS[left[0]]}. The navigation deck is open to you.`,
+        ]
+        : [
+          'Two oceans. Both ours. This world has air again, and a shield over its heart.',
+          'You have been useful, pilot. Tenretni does not forget what is useful.',
+        ] };
+    }
     if (role === 'warden') {
       if (at !== 'terra') {
         return { speaker, lines: [
@@ -657,12 +725,18 @@ const STORY = {
   },
   useConsole() {
     if (sail) return { speaker: CONSOLE, lines: [`HEADING LOCKED: ${WATER_WORLDS[sail.name].toUpperCase()}. UNDER WAY.`] };
+    if (assim.active()) {
+      return { speaker: CONSOLE, lines: [`ASSIMILATING: ${WATER_WORLDS[assim.target()].toUpperCase()}. HELM LOCKED.`] };
+    }
     const options = Object.keys(WATER_WORLDS)
-      .filter((k) => k !== at)
+      .filter((k) => k !== at && !eaten.includes(k))
       .map((k) => ({
         label: k === 'wyattmattoe' ? 'Wyattmattoe — the ice world' : 'Neptunia — the deep ocean',
         outcomeTag: `tenretni:sail:${k}`,
       }));
+    if (!options.length) {
+      return { speaker: CONSOLE, lines: ['NAVIGATION DATA: EXHAUSTED.', 'NO WORLDS WITH WATER REMAIN IN YOUR LOG.'] };
+    }
     options.push({ label: 'Not yet.', outcomeTag: 'tenretni:sail:none' });
     return {
       speaker: CONSOLE,
@@ -686,12 +760,13 @@ const STORY = {
 
 // Where the worldship parks at `target`: on the line back toward `from`.
 function standoff(target, fromDir, out) {
-  return out.copy(fromDir).multiplyScalar(target.radius + terra.radius + SAIL_STANDOFF);
+  // (the target's built size: it may since have been scaled away to nothing)
+  return out.copy(fromDir).multiplyScalar((target.baseRadius ?? target.radius) + terra.radius + SAIL_STANDOFF);
 }
 
 function startSail(name) {
   const target = planets.find((p) => p.cfg.name === name);
-  if (!target || sail || name === at || state !== 'rest') return false;
+  if (!target || sail || name === at || state !== 'rest' || assim.active() || eaten.includes(name)) return false;
   const rel = new THREE.Vector3().subVectors(terra.group.position, target.group.position);
   const off = standoff(target, _a.copy(rel).normalize(), new THREE.Vector3());
   rel.sub(off); // from the parking spot back to where terra is now
@@ -718,6 +793,69 @@ function stepSail(delta) {
     setRumble(0);
     fx.kick = 0.6;
     showNavToast(`${name.toUpperCase()} — THE WORLD HOLDS HERE`, 7);
+    beginEat(at);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// feeding: the worldship takes the planet it has been brought to
+// ---------------------------------------------------------------------------
+
+function beginEat(name) {
+  if (eaten.includes(name) || !assim.start(name, size, size * GROWTH)) return;
+  eating = name; // saved: a reload part-way finds the planet already gone
+  save();
+}
+
+// The worldship is `k` times its built size; `g` 0..1 through this growth.
+function growTo(k, g) {
+  setPlanetScale(terra, k);
+  if (capital) capital.reseat(k);
+  dressShip(eaten.length + (g > 0 ? g : 0));
+}
+
+// What it wears for how much it has eaten (fractional while growing): after
+// one world the shield closes over the bore; after two it has air again.
+function dressShip(fed) {
+  if (!shipBuilt) return;
+  const close = clamp01(fed);
+  shield.visible = close > 0;
+  shieldU.uClose.value = ease(close);
+  const air = clamp01(fed - 1) * 0.55; // thin: a haze, not a glare
+  const a = terra.atmosphere.userData;
+  terra.atmosphere.visible = air > 0.02;
+  a.limbMat.uniforms.uColor.value.setRGB(0.1, 0.75, 0.38).multiplyScalar(air);
+  a.scatterMat.uniforms.uBeta.value
+    .set(0.1, 0.75, 0.38)
+    .multiplyScalar((C.ATMO_TAU / C.ATMO_SCALE_HEIGHT / 0.75) * air);
+}
+
+function ateOne(name) {
+  eaten.push(name);
+  size *= GROWTH;
+  eating = null;
+  growTo(size, 0);
+  save();
+  addCodex(`${WATER_WORLDS[name] || name}, assimilated`);
+}
+
+// Load into a worldship that has already fed: its size, its parking spot,
+// and the planets that are no longer in space.
+function restoreEaten() {
+  if (eating && !eaten.includes(eating)) {
+    eaten.push(eating); // the save was made part-way through that one
+    size *= GROWTH;
+  }
+  eating = null;
+  if (size !== 1) setPlanetScale(terra, size);
+  if (capital) capital.reseat(size);
+  dressShip(eaten.length);
+  if (at !== 'terra') parkAt(at);
+  for (const name of eaten) {
+    const p = planets.find((q) => q.cfg.name === name);
+    if (!p || p.removed) continue;
+    removePlanet(p, true);
+    setNavHidden(p.group.position, true);
   }
 }
 
@@ -1035,6 +1173,8 @@ export function update(delta, t, onDeck, flying) {
       shellU.uHeat.value = 1;
     }
     trackSun();
+    if (assim.active()) assim.update(delta, t, flying);
+    if (shieldU) shieldU.uTime.value = t;
     if (capital) capital.update(delta, t, camera.position, sail ? 1 : 0);
   }
 }
@@ -1072,6 +1212,8 @@ export function abort() {
       sailVel.set(0, 0, 0);
       setRumble(0);
     }
+    // a planet half-eaten when the world reset is simply finished off
+    if (assim.active()) assim.finishNow();
     if (at !== 'terra') parkAt(at);
     return;
   }
@@ -1098,6 +1240,7 @@ export function debugStart() {
 }
 
 export const debugSail = (name) => startSail(name);
+export const debugEat = (u) => assim.seek(u);
 export const debugStory = () => STORY;
 
 export function debugSeek(u) {
@@ -1117,6 +1260,11 @@ function report() {
     held,
     at,
     sailing: sail ? { to: sail.name, t: sail.t } : null,
+    eaten: eaten.slice(),
+    size,
+    radius: terra.radius,
+    eatingNow: assim ? assim.state() : null,
+    removed: planets.filter((p) => p.removed).map((p) => p.cfg.name),
     bore: boreDir ? boreDir.toArray() : null,
     spinLock: terra.spinLock ?? null,
     capital: !!capital,

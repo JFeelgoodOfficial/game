@@ -140,10 +140,13 @@ export function createCapital(planet, cityDir, rotY, story) {
   };
 
   // --- the pylon and the deck's underside (never walked, seen from space) ---
-  lit.push(tint(cyl(34, 70, DECK_ALT + 40, 0, -(DECK_ALT + 40) / 2 - 3, 0, 10), COL.hull));
+  // The pylon is its own pair of meshes (built below): the world under it
+  // grows, and the pylon stretches to keep the deck clear of the towers.
+  const pylonLit = [tint(cyl(34, 70, DECK_ALT + 40, 0, -(DECK_ALT + 40) / 2 - 3, 0, 10), COL.hull)];
+  const pylonGlow = [];
   lit.push(tint(cyl(58, 34, 26, 0, -16, 0, 10), COL.hull));
   for (let i = 0; i < 5; i++) {
-    glow.push(tint(cyl(35 + i * 6.5, 35 + i * 6.5, 1.2, 0, -40 - i * 52, 0, 10), GLOW.green, 1.3));
+    pylonGlow.push(tint(cyl(35 + i * 6.5, 35 + i * 6.5, 1.2, 0, -40 - i * 52, 0, 10), GLOW.green, 1.3));
   }
 
   // --- plaza ---
@@ -228,6 +231,10 @@ export function createCapital(planet, cityDir, rotY, story) {
   glowMat.color.setScalar(0.72);
   group.add(mergedMesh(lit, litMat));
   group.add(mergedMesh(glow, glowMat));
+  const pylon = new THREE.Group();
+  pylon.add(mergedMesh(pylonLit, litMat));
+  pylon.add(mergedMesh(pylonGlow, glowMat));
+  group.add(pylon);
 
   // --- things that move: the count band, the chart, the beacon, the robots ---
   const detail = new THREE.Group();
@@ -384,6 +391,12 @@ export function createCapital(planet, cityDir, rotY, story) {
     npcs,
     consoles,
     onChoice: (tag) => story.choice(tag),
+    // The world has grown to `k` times its built size (planet.radius already
+    // says so): ride out to the new surface, the same k times higher over it.
+    reseat(k) {
+      group.position.copy(dir).multiplyScalar(planet.radius + DECK_ALT * k);
+      pylon.scale.y = k;
+    },
     setWalker(p) { walker = p; },
     places: {
       plaza: [0, 0, 12], command: [0, CMD_Y, CMD_Z + 8], nav: [NAV_X - 7, 0, 0], pad: [10, 0, PAD_Z - 9],
