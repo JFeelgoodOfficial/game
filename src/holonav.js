@@ -12,7 +12,7 @@
 
 import * as THREE from 'three';
 import { getBodies, isLogged, setNavOpenProbe } from './nav.js';
-import { startAutoWarp } from './autopilot.js';
+import { engageWarp } from './tenretniLazy.js';
 import { label } from './holoLabel.js';
 import { C } from './constants.js';
 import { uiSound } from './sfx.js';
@@ -368,7 +368,7 @@ function engage() {
   const body = getBodies().find((b) => b.id === selectedId);
   if (body) {
     toggleHolo(false);
-    startAutoWarp(body);
+    engageWarp(body);
   }
 }
 

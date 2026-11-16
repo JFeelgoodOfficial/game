@@ -261,3 +261,18 @@ The terrarium: `__debug.interior.stand()`, then
 `interior.place(-2.4, 1.5 + C.FREIGHTER_VEST_L + C.FREIGHTER_HALL_L + 2.0, Math.PI / 2)`;
 `interior.nearTank()` and `interior.tankView()` report the prompt and the close-up. Seed
 `localStorage['fgsf.inventory'] = '{"specimens":["sprout","puddle"]}'` before load to fill it.
+
+## Tenretni (the governor's secret)
+`__debug.tenretni` → `{loaded, load(), arrive(), start(), seek(u), state()}`.
+The chunk only loads when `journal().quests.tenretni` is `armed` or `done`:
+seed `localStorage['fgsf.journal'] = {"codex":[],"outcomes":[],"quests":{"tenretni":"armed"}}`
+and `fgsf.inventory = {"upgrades":["patio"]}` before load. `arrive()` stands in
+for the NAV warp to terra (`navMenu.tap('terra')` is the real route); wait for
+`state().state === 'wait'` (ship pinned 2600 from terra), then
+`interior.stand()` + `interior.place(1.2, 48.5, Math.PI)` starts the script
+(`'play'`). `seek(u)` jumps the 90 s clock (beats at 6, 20, 36, 50, 66, 82);
+set `__debug.paused = true` after a couple of seconds to hold a frame for a
+screenshot. At `u = 90` the stage becomes `done`, `state().drain` is 1 and
+`noLand` true; a reload must come back in the same state. Poll with
+`page.evaluate` in a loop rather than `waitForFunction` — rAF polling starves
+under SwiftShader while on foot.

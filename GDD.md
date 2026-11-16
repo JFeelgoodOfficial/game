@@ -354,6 +354,40 @@ Redline Claim is a mining town, and until now nothing in it was a mine. The Embe
 
 **Feel constants worth knowing:** cage speed and shaft depth (`RIDE_SPEED` 13 m/s over `SHAFT_H` 120 m — the ride is the first act; shorter and it is a loading screen, longer and it is a wait); the mine's exposure, bloom threshold and fog (`MINE_*` in `mineWalk.js` — the difference between a cathedral and an orange room is almost entirely these three and the light intensities in `embermine.js`); `PATIO_LEN`.
 
+### 5.7.2 Tenretni: the governor's secret (Rustia → Terra)
+
+Owner addition. Once the patio is fitted, Baron Rynva ends the hand-over with
+"Do you want to know a secret?" (registry `mine.secret`, `src/mineWalk.js`
+`secretOffer`/`secretOutcome`). No closes the panel and he asks again on later
+visits; yes sets the journal stage `tenretni` to `armed`. Only one choice fits
+a dialogue, so while his wonder-tour offer is pending the secret waits behind it.
+
+With the secret armed, choosing Terra in NAV (`engageWarp`, `src/tenretniLazy.js`)
+ends with the ship glided to a fixed viewpoint 2,600 units off Terra and held
+there (`stepTenretniHold` replaces `stepShip`): stern to open space, sun
+`TENRETNI_HALF_ANGLE` to the left, Terra the same to the right. The pilot can
+stand, walk and look, but not fly. Stepping onto the patio deck starts a
+90-second script (`src/tenretni.js`, its own lazy chunk):
+
+| Script time | Beat |
+|---|---|
+| 0–10 | wormhole opens |
+| 12–26 | the machine-world Tenretni comes through |
+| 26–42 | beams; the swarm (one `Points`, 4k/12k/30k by tier) leaves for Terra |
+| 40–56 | the tunnel reaches out and strikes |
+| 57–76 | the sea drains up the tunnel; Terra dries outward from the strike; the city grows there |
+| 74–90 | tunnel breaks (two ring frames stay adrift), Tenretni withdraws, wormhole settles |
+
+Every object is placed by `pose(u)` from the script clock alone, so the debug
+handle can seek and a reload into the finished world is `pose(90)`. Afterwards
+the stage is `done`: Terra is dry (`setPlanetDrain` in `src/planet.js`,
+`uDrain`/`uTech` in `surface.frag`), carries the city at the saved strike point
+(`localStorage['fgsf.tenretni']`), takes no landings (`cfg.noLand`), and the
+wormhole remains. A world reset mid-event drops it and leaves the secret armed.
+Tunables: `C.TENRETNI_*`. Not built: landing on dry Terra, entering the city or
+the wormhole. Tenretni is an original design, not a copy of any existing
+franchise's ships.
+
 ### 5.8 The Sky City (Saturnia)
 
 Saturnia has no surface, so it gets a place instead: a floating city 320 units

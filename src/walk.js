@@ -2090,9 +2090,12 @@ function governorInteract(c, { fill, speakerFor }) {
   const ember = mineWalk.emberDelivery(def, speaker, fillLine);
   if (ember) return ember;
   const aside = mineWalk.emberAside(def, fillLine);
-  if (!q) return { speaker, lines: [fill('Welcome to {{cityName}}.', c), ...aside] };
+  // The secret rides on any of his lines that do not already end in a choice
+  // (undefined until the patio is fitted, and again once he has told it).
+  const secret = mineWalk.secretOffer(def) ?? undefined;
+  if (!q) return { speaker, lines: [fill('Welcome to {{cityName}}.', c), ...aside], offer: secret };
   const st = questStage(def.id);
-  if (st === 'done') return { speaker, lines: [fill(q.thanks, c), ...aside] };
+  if (st === 'done') return { speaker, lines: [fill(q.thanks, c), ...aside], offer: secret };
   if (st === undefined) {
     return {
       speaker,
@@ -2113,13 +2116,13 @@ function governorInteract(c, { fill, speakerFor }) {
     setQuestStage(def.id, 'done');
     removeBeacon();
     clearWaypoint();
-    return { speaker, lines: [fill(q.complete, c)] };
+    return { speaker, lines: [fill(q.complete, c)], offer: secret };
   }
   // Mid-tour reminder, with the next stop's flavor line.
   const nextLine = q.wonderLines?.[st]
     ? fill(q.wonderLines[st], c)
     : `Next: ${def.wonders[st].title}.`;
-  return { speaker, lines: [fill(q.remind, c), nextLine, ...aside] };
+  return { speaker, lines: [fill(q.remind, c), nextLine, ...aside], offer: secret };
 }
 
 // ---------------------------------------------------------------------------
@@ -2164,9 +2167,12 @@ function surfaceFromSub() {
 governorInteract.onOutcome = (tag) => {
   const m = /^menu:([^:]+):gov:(\w+)$/.exec(tag ?? '');
   if (!m || m[1] !== city?.def?.id) return null;
-  if (m[2] !== 'accept') return null; // 'later' just closes the panel
   const def = city.def;
   const gov = citizens.citizens.find((x) => x.dialogue === 'governor');
+  if (m[2] === 'secretYes' || m[2] === 'secretNo') {
+    return mineWalk.secretOutcome(def, citizens.speakerFor(gov), m[2] === 'secretYes');
+  }
+  if (m[2] !== 'accept') return null; // 'later' just closes the panel
   setQuestStage(def.id, 0);
   armTourBeacon(0);
   const first = def.quest.wonderLines?.[0]

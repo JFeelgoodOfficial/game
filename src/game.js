@@ -48,6 +48,10 @@ import { initHolonav, updateHolonav, isHoloOpen, holonavDebug } from './holonav.
 import { navMenuDebug } from './navmenu.js';
 import { startAutoWarp, stepAutopilot, autopilotActive, cancelAutopilot } from './autopilot.js';
 import {
+  initTenretni, updateTenretni, tenretniHolding, stepTenretniHold, resetTenretni,
+  tenretniFx, tenretniDebug,
+} from './tenretniLazy.js';
+import {
   interiorScene,
   initInterior,
   loadInteriorPictures,
@@ -63,6 +67,7 @@ import {
   resetPlayer,
   playerState,
   setPrompt,
+  onPatioDeck,
 } from './interior.js';
 import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
 import {
@@ -82,6 +87,7 @@ import {
   planets,
   setPlanetSpinFrozen,
   SUN,
+  drainedWorldBelow,
 } from './planet.js';
 import { initCityFlatten } from './cityflatten.js';
 import {
@@ -242,6 +248,7 @@ initArtView();
 initTerrariumView();
 initSfx();
 initJournal();
+initTenretni({ scene, planets, camera }); // the governor's secret; reads the journal
 initInventory();
 initSettingsPanel();
 initCoach();
@@ -646,6 +653,7 @@ if (import.meta.env.DEV) {
       trackTitles,
     },
     navState,
+    tenretni: tenretniDebug(),
     cockpit: cockpitDebug(),
     holo: holonavDebug(),
     navMenu: navMenuDebug(),
@@ -1631,6 +1639,7 @@ function resetToStart() {
   ship.properAccel.set(0, 0, 0);
   restoreShiftables(); // planets, sun, stations, black hole + origin offset
   cancelAutopilot();
+  resetTenretni(); // an event in progress is dropped; the secret stays armed
   heat = 0;
   burnedBySun = false;
   flash = 0;
@@ -1802,6 +1811,9 @@ function frame(now) {
     while (accumulator >= DT) {
       if (landState === 'auto') stepAutoLand(DT);
       else if (landState === 'landed') stepLanded(DT, piloted);
+      // Tenretni (src/tenretniLazy.js): the event parks the ship off terra
+      // and holds it there — no thrust, no gravity — until it is over.
+      else if (tenretniHolding()) stepTenretniHold(DT);
       else {
         // nav auto-warp drives the ship (turn + warp) before the normal step;
         // it suppresses player input, so stepShip flies the plotted course
@@ -1903,6 +1915,11 @@ function frame(now) {
           ship.velocity.length() < C.AUTOLAND_SPEED
         ) {
           beginAutoLand(floor);
+        } else {
+          // a drained world (Tenretni) takes no landings; say so rather than
+          // leaving G dead over it
+          const dry = drainedWorldBelow(ship.position, C.AUTOLAND_ALTITUDE * 2);
+          if (dry) showNavToast(`${dry.cfg.name.toUpperCase()} — NO SAFE LANDING`, 4);
         }
       }
     }
@@ -2065,6 +2082,14 @@ function frame(now) {
       accumulator = 0;
     }
   }
+  // Tenretni's tunnel striking terra: a white flash that fades on its own.
+  if (tenretniFx.flash > 0) {
+    if (phase === 'fly') {
+      flash = Math.max(flash, tenretniFx.flash);
+      flashFade = 1.6;
+    }
+    tenretniFx.flash = 0;
+  }
   // Every other phase: let whatever the last transition left on screen fade.
   if (phase !== 'explode' && phase !== 'ascend' && phase !== 'depart' && skyFallT < 0 && flash > 0) {
     flash = flashFade > 0 ? Math.max(0, flash - delta / flashFade) : 0;
@@ -2126,9 +2151,15 @@ function frame(now) {
     wasWarping = input.warp;
     if (phase === 'fly') trauma = Math.min(trauma + C.WARP_KICK, 1);
   }
+  // Tenretni's jolts land on the same trauma; its rumble is a steady term.
+  if (tenretniFx.kick > 0) {
+    trauma = Math.min(trauma + tenretniFx.kick, 1);
+    tenretniFx.kick = 0;
+  }
   trauma = Math.max(trauma - C.TRAUMA_DECAY * delta, 0);
   const shake =
-    Math.max(heat - 0.5, 0) * 2 + (phase === 'explode' || phase === 'ascend' ? 1.5 : 0) + trauma * trauma * 3;
+    Math.max(heat - 0.5, 0) * 2 + (phase === 'explode' || phase === 'ascend' ? 1.5 : 0) + trauma * trauma * 3 +
+    (phase === 'fly' ? tenretniFx.rumble : 0);
   if (shake > 0 && !paused) {
     const s = shake * 0.02 * MOTION_SCALE;
     camera.position.x += Math.sin(now * 0.093) * s;
@@ -2218,6 +2249,11 @@ function frame(now) {
     updateStations(now / 1000, ship.position);
     skyCity.update(delta, now / 1000, camera.position);
     coin.update(delta);
+    updateTenretni(
+      delta, now / 1000,
+      phase === 'fly' && standing && onPatioDeck(),
+      phase === 'fly' && !paused
+    );
   }
   // nav AFTER the stations are placed: a reset snaps orbiting stations back
   // to their snapshot spot for one frame, and a discovery check reading that
@@ -2226,7 +2262,8 @@ function frame(now) {
   // hologram AFTER updateStations so orbiting stations plot at their live spot;
   // usable only when the pilot is seated, flying, and not already auto-warping
   const holoActive =
-    phase === 'fly' && !paused && !standing && landState === null && !autopilotActive();
+    phase === 'fly' && !paused && !standing && landState === null && !autopilotActive() &&
+    !tenretniHolding();
   updateHolonav(ship, delta, holoActive);
   // First-flight coaching. "Turning" is read off the ship, not the mouse, so
   // it counts touch drags and does not care when input deltas are consumed.

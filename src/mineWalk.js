@@ -602,7 +602,34 @@ export function emberDelivery(def, speaker, fillLine) {
   takeCargo('emberOre');
   grantUpgrade('patio');
   setQuestStage(EMBER_QUEST, 'done');
-  return { speaker, lines: m.deliver.map(fillLine) };
+  return { speaker, lines: m.deliver.map(fillLine), offer: secretOffer(def) ?? undefined };
+}
+
+// The Baron's secret (registry `mine.secret`, src/tenretni.js): a yes/no put
+// on the end of the hand-over, and of his ordinary lines on every later visit
+// until the pilot has said yes. Null once it is told, or before the patio.
+export const SECRET_QUEST = 'tenretni';
+export function secretOffer(def) {
+  const sec = def?.mine?.secret;
+  if (!sec || !hasUpgrade('patio')) return null;
+  const st = questStage(SECRET_QUEST);
+  if (st !== undefined && st !== 'declined') return null;
+  return {
+    kind: 'choice',
+    prompt: sec.prompt,
+    options: [
+      { label: sec.yesLabel, outcomeTag: `menu:${def.id}:gov:secretYes` },
+      { label: sec.noLabel, outcomeTag: `menu:${def.id}:gov:secretNo` },
+    ],
+  };
+}
+
+// His answer to the choice above: the payload that replaces the panel.
+export function secretOutcome(def, speaker, yes) {
+  const sec = def?.mine?.secret;
+  if (!sec) return null;
+  setQuestStage(SECRET_QUEST, yes ? 'armed' : 'declined');
+  return { speaker, lines: yes ? sec.yes.slice() : [sec.no] };
 }
 
 // One extra line on the end of whatever else the Baron says: a nudge toward

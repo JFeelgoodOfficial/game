@@ -283,3 +283,17 @@ every PR costs more than that is worth.
 - **Flight has sound** (`src/sfx.js`): engine, warp and atmosphere, synthesised.
 - Not done, and still worth measuring before doing: planet geometry LOD, a
   shader pre-warm at touchdown, merging station meshes.
+
+---
+
+# Tenretni event — November 2026
+
+The governor's secret (GDD 5.7.2) ships as its own lazy chunk, `tenretni-*.js`
+(23.8 kB, 9.2 kB gzip, ten shaders included), requested only once the journal
+stage `tenretni` is `armed` or `done`. The boot chunk gained the facade
+(`src/tenretniLazy.js`), the `uDrain`/`uTech` branches in `surface.frag` (both
+skipped by a uniform test on every world that is not drained) and a rumble
+voice in `sfx.js`: `game-*.js` 363 kB (130 kB gzip). The event itself is about
+twelve draw calls; the swarm is one `Points` of 4k/12k/30k by tier, animated
+wholly in its vertex shader. Not measured on real hardware: headless SwiftShader
+frame times say nothing about a phone GPU.

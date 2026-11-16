@@ -1078,6 +1078,11 @@ export function nearPlaque() {
   return dx * dx + dz * dz < 1.5 * 1.5;
 }
 
+// Out on the aft patio, past the doorway (src/tenretniLazy.js waits for this).
+export function onPatioDeck() {
+  return player.pos.z > AFT_Z + 0.6;
+}
+
 // The canvas the pilot is standing at and looking toward, or null. Returns
 // the slot itself ({ file, title }) — not a copy; this runs every frame.
 // Standing at the terrarium's glass, facing it.

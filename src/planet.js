@@ -352,6 +352,9 @@ function makeSurfaceUniforms(cfg, radius) {
     uCloudShadow: { value: 0 },
     uTime: { value: 0 },
     uCover: { value: cfg.cloudCover ?? C.CLOUD_COVER },
+    // Tenretni: strike direction (object space) + how far the sea has drained.
+    uDrain: { value: new THREE.Vector4(0, 1, 0, 0) },
+    uTech: { value: new THREE.Vector2(0, 0.95) },
   };
 }
 
@@ -425,6 +428,7 @@ export function initPlanets(scene) {
             uTime: { value: 0 },
             uCover: { value: cfg.cloudCover ?? C.CLOUD_COVER },
             uStorm: { value: cfg.storm ?? 0 },
+            uFade: { value: 1 },
           },
           transparent: true,
           depthWrite: false,
@@ -777,7 +781,9 @@ export function updatePlanets(t, camPos, only = null) {
         // From far out the sea mesh fades away and the surface shader draws
         // the ocean itself, shelf gradient and all; the two surfaces sit 1.5
         // units apart, which the depth buffer cannot separate at that range.
-        const fade = 1 - Math.min(Math.max((distR - C.WATER_FADE_NEAR) / (C.WATER_FADE_FAR - C.WATER_FADE_NEAR), 0), 1);
+        const fade =
+          (1 - Math.min(Math.max((distR - C.WATER_FADE_NEAR) / (C.WATER_FADE_FAR - C.WATER_FADE_NEAR), 0), 1)) *
+          (1 - (p.drain || 0));
         const wm = p.waterMesh.material;
         wm.uniforms.uTime.value = t;
         wm.uniforms.uFade.value = fade;
@@ -788,6 +794,50 @@ export function updatePlanets(t, camPos, only = null) {
       p.surface.material.uniforms.uTime.value = t;
     }
   }
+}
+
+// Tenretni (src/tenretni.js) drains a world: k 0..1, `dir` the strike point in
+// the surface mesh's own (unrotated) frame. The surface shader bakes the sea
+// floor dry outward from there; the sea mesh and the weather thin to nothing;
+// the air goes from blue to dust. At k = 1 the world also stops taking
+// landings (`noLand`, read by walk.js nearestTerraFloor). Reversible: k = 0
+// puts everything back, which a mid-event reset relies on.
+const DUST_AIR = new THREE.Color(0xb08a5e);
+const _airCol = new THREE.Color();
+// `tech` 0..1 is how much of the city at the strike point is built, `span` its
+// angular radius (rad).
+export function setPlanetDrain(name, k, dir, tech = 0, span = 0.3) {
+  const p = planets.find((q) => q.cfg.name === name);
+  if (!p || p.cfg.type !== 'terra') return;
+  p.drain = k;
+  p.surface.material.uniforms.uTech.value.set(tech, Math.cos(span));
+  const d = p.surface.material.uniforms.uDrain.value;
+  if (dir) d.set(dir.x, dir.y, dir.z, k);
+  else d.w = k;
+  if (p.clouds) {
+    p.clouds.material.uniforms.uFade.value = 1 - k;
+    p.clouds.visible = k < 0.995;
+  }
+  // air: both shells, whichever the tier has in use
+  if (p.airBase === undefined) p.airBase = new THREE.Color(p.cfg.atmoColor);
+  _airCol.copy(p.airBase).lerp(DUST_AIR, k);
+  const a = p.atmosphere.userData;
+  a.limbMat.uniforms.uColor.value.copy(_airCol);
+  const m = Math.max(_airCol.r, _airCol.g, _airCol.b, 1e-3);
+  const s = C.ATMO_TAU / C.ATMO_SCALE_HEIGHT / m;
+  a.scatterMat.uniforms.uBeta.value.set(_airCol.r * s, _airCol.g * s, _airCol.b * s);
+  if (p.noLandBase === undefined) p.noLandBase = !!p.cfg.noLand;
+  p.cfg.noLand = p.noLandBase || k >= 1;
+}
+
+// A fully drained world within `maxAlt` of `pos`, or null (the G key's reason
+// for doing nothing over it).
+export function drainedWorldBelow(pos, maxAlt) {
+  for (const p of planets) {
+    if ((p.drain || 0) < 1) continue;
+    if (pos.distanceTo(p.group.position) - p.radius < maxAlt) return p;
+  }
+  return null;
 }
 
 // The planet whose atmosphere the given position is deepest inside (or the

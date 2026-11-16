@@ -137,6 +137,20 @@ export const CITIES = [
       ],
       // ...and the aside afterwards.
       after: 'How is the patio? I keep your ore on the desk. It lights the whole room after dark.',
+      // The secret (src/tenretni.js): offered at the end of the hand-over, and
+      // again on later visits until the pilot says yes.
+      secret: {
+        prompt: 'Do you want to know a secret?',
+        yesLabel: 'Yes. Tell me.',
+        noLabel: 'No. Keep it.',
+        yes: [
+          'Then listen, and do not repeat it on the pad. My deep arrays have been hearing something for a year. Counting. Getting closer.',
+          'It is coming for Terra. The blue one. I have told the Crown and they laughed down the line at me.',
+          'Go to your ship. Press NAV, find Terra, and let the autopilot take you. Then walk out onto that new patio and watch the sky.',
+          'I would rather somebody saw it who will remember what the oceans looked like.',
+        ],
+        no: 'Wise, maybe. Some things are lighter not carried. Ask me again if the sky ever makes you curious.',
+      },
     },
     citizens: [
       { name: 'Baron Rynva', role: 'governor', dialogue: 'governor', home: 'penthouse' },

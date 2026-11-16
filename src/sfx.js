@@ -38,6 +38,7 @@ let ui = null; // interface bus: open whenever sound is on, flying or not
 let uiCount = 0; // interface sounds triggered (for sfxState)
 const tone = [null, null]; // two re-triggerable tone voices: { osc, gain }
 let tick = null; // one re-triggerable noise voice: gain after a band-pass
+let eventLevel = 0; // Tenretni's rumble, 0..1 (src/tenretni.js sets it each frame)
 
 const UI_LEVEL = 0.5; // interface sounds, relative to the music slider
 const REVERB_SEND = 0.2;
@@ -172,6 +173,21 @@ function build() {
   v.air.gain.value = 0;
   loop(1.7).connect(v.airBp).connect(v.air).connect(master);
 
+  // event rumble (Tenretni): very low noise and a sub tone, silent otherwise
+  const rumbleLp = ctx.createBiquadFilter();
+  rumbleLp.type = 'lowpass';
+  rumbleLp.frequency.value = 85;
+  v.rumble = ctx.createGain();
+  v.rumble.gain.value = 0;
+  loop(1.2).connect(rumbleLp).connect(v.rumble).connect(master);
+  v.rumbleOsc = ctx.createOscillator();
+  v.rumbleOsc.type = 'sine';
+  v.rumbleOsc.frequency.value = 33;
+  const rumbleSub = ctx.createGain();
+  rumbleSub.gain.value = 0.35;
+  v.rumbleOsc.connect(rumbleSub).connect(v.rumble);
+  v.rumbleOsc.start();
+
   // interface voices: silent oscillators and a noise tap, waiting to be played
   for (let i = 0; i < tone.length; i++) {
     const osc = ctx.createOscillator();
@@ -210,6 +226,7 @@ function note(voice, f0, f1, peak, tau, at) {
 //   engage   autopilot committed: two voices a fifth apart, sweeping up
 //   shutter  photo taken: a noise snap
 //   toggle   a cockpit switch thrown: a lower, rounder click
+//   impact   the Tenretni tunnel striking terra: a falling boom
 export function uiSound(kind) {
   if (!ctx || ctx.state !== 'running' || settings.muted) return;
   const t = ctx.currentTime;
@@ -223,7 +240,19 @@ export function uiSound(kind) {
     tick.gain.setValueAtTime(0.9, t);
     tick.gain.setTargetAtTime(0, t + 0.01, 0.035);
   } else if (kind === 'toggle') note(tone[1], 520, 390, 0.2, 0.03, t);
-  else note(tone[0], 1500, 1100, 0.14, 0.018, t);
+  else if (kind === 'impact') {
+    // something very large has hit something else very large
+    note(tone[1], 95, 28, 0.5, 0.45, t);
+    tick.gain.cancelScheduledValues(t);
+    tick.gain.setValueAtTime(0.5, t);
+    tick.gain.setTargetAtTime(0, t + 0.02, 0.25);
+  } else note(tone[0], 1500, 1100, 0.14, 0.018, t);
+}
+
+// Tenretni's presence, 0..1: a rumble under everything else. Written every
+// frame of the event and left at 0 the rest of the time.
+export function setEventRumble(level) {
+  eventLevel = level;
 }
 
 // Call once at boot. The context itself waits for the first gesture.
@@ -282,6 +311,9 @@ export function updateSfx(dt, s) {
     v.warpA.frequency.setTargetAtTime(f, t, 0.05);
     v.warpB.frequency.setTargetAtTime(f * 1.012 + 2, t, 0.05);
   }
+
+  v.rumble.gain.setTargetAtTime(eventLevel * 0.7, t, 0.3);
+  v.rumbleOsc.frequency.setTargetAtTime(33 + 14 * eventLevel, t, 0.5);
 
   const rush = s.atmo * (0.25 + 0.75 * s.speed);
   v.air.gain.setTargetAtTime(Math.min(0.6, rush * 0.5 + s.heat * 0.35) * muffle, t, 0.2);

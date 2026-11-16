@@ -19,7 +19,7 @@
 
 import * as THREE from 'three';
 import { getBodies, isLogged } from './nav.js';
-import { startAutoWarp } from './autopilot.js';
+import { engageWarp } from './tenretniLazy.js';
 import { toggleHolo } from './holonav.js';
 
 const PANEL_W = 0.66;
@@ -229,7 +229,7 @@ export function navMenuPick(raycaster) {
 // aligns then warps, and stand the nav UI down.
 function engage(body) {
   toggleHolo(false);
-  startAutoWarp(body);
+  engageWarp(body);
 }
 
 // dev/verification handle

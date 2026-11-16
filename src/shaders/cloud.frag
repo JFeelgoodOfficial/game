@@ -9,7 +9,8 @@ varying vec3 vWorldNormal;
 uniform vec3 uSun;
 uniform float uTime;
 uniform float uCover; // 0 clear .. 1 overcast
-uniform float uStorm; // 0 fair weather .. 1 thunderheads: dark bases, fast churn, lightning
+uniform float uStorm;
+uniform float uFade; // 1 normally; Tenretni thins the weather to nothing // 0 fair weather .. 1 thunderheads: dark bases, fast churn, lightning
 
 float hash(vec3 p) {
   p = fract(p * 0.3183099 + 0.1);
@@ -76,5 +77,5 @@ void main() {
     }
   }
 
-  gl_FragColor = vec4(col, alpha);
+  gl_FragColor = vec4(col, alpha * uFade);
 }
