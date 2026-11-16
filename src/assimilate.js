@@ -372,5 +372,7 @@ export function createAssimilator(ctx) {
       if (job) job.u = job.lastU = u;
     },
     state: () => (job ? { name: job.name, u: job.u } : null),
+    // 0 at the start .. 1 when the planet leaves space
+    progress: () => (job ? Math.min(Math.max((job.u - 26) / (T.gone - 26), 0), 1) : 0),
   };
 }

@@ -168,7 +168,7 @@ export function updateNav(ship, delta, active) {
     if (checkTimer <= 0) {
       checkTimer = 0.5;
       for (const b of bodies) {
-        if (logged.has(b.id)) continue;
+        if (logged.has(b.id) || sessionKnown.has(b.id)) continue;
         if (_rel.subVectors(b.pos, ship.position).length() < b.logDist) {
           logged.add(b.id);
           saveLog();
@@ -204,7 +204,20 @@ export function setNavHidden(pos, hidden) {
   }
 }
 
+// Put something new on the chart after boot (the war fleets, src/fleets.js).
+// `known` charts it at once, without having to be flown up to first; that is
+// kept for the session only, so a ship that no longer exists is not left in
+// the saved log.
+const sessionKnown = new Set();
+export function addNavBody(body, known = true) {
+  if (!bodies) buildBodies();
+  if (bodies.some((b) => b.id === body.id) || hiddenBodies.some((b) => b.id === body.id)) return;
+  bodies.push(body);
+  if (known) sessionKnown.add(body.id);
+}
+
 export function isLogged(id) {
+  if (sessionKnown.has(id)) return true;
   return logged.has(id);
 }
 

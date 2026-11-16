@@ -52,6 +52,8 @@ import { Q } from './quality.js';
 import { questStage, setQuestStage, addCodex } from './journal.js';
 import { setPlanetDrain, setPlanetShip, setPlanetScale, setPlanetMelt, removePlanet, planets } from './planet.js';
 import { createAssimilator } from './assimilate.js';
+import { createFleets } from './fleets.js';
+import { createExplosions } from './explosion.js';
 import { grantUpgrade, hasUpgrade } from './inventory.js';
 import { sun } from './sun.js';
 import { addShiftable } from './origin.js';
@@ -139,6 +141,11 @@ let coin = null; // stevenlacey (world/coinworld.js): a world, but not a planet
 let clockT = 0; // seconds idle since the last meal
 let exit = null; // { t, rel: Vector3 } while leaving through the wormhole
 let ended = null; // 'gone' once it has left
+// The war (src/fleets.js): begins with the worldship's first meal.
+let fleets = null;
+let explosions = null;
+const lost = new Set(); // ships destroyed by gunfire (saved); siege losses follow from `eaten`
+const _siege = { name: null, k: 0 };
 const waterDone = () => Object.keys(WATER_WORLDS).every((k) => eaten.includes(k));
 // A world by name: a planet record, or the coin dressed as one.
 const worldByName = (name) => planets.find((p) => p.cfg.name === name) || (name === 'stevenlacey' ? coin : null);
@@ -440,6 +447,7 @@ function loadSaved() {
     if (raw?.at && LABELS[raw.at]) at = raw.at;
     if (Array.isArray(raw?.eaten)) eaten = raw.eaten.filter((n) => !!LABELS[n]);
     if (raw?.end === 'gone') ended = 'gone';
+    if (Array.isArray(raw?.lost)) for (const id of raw.lost) if (typeof id === 'string') lost.add(id);
     if (Number.isFinite(raw?.size) && raw.size >= 1) size = raw.size;
     if (typeof raw?.eating === 'string') eating = raw.eating;
   } catch {
@@ -458,6 +466,7 @@ function save() {
       size,
       eating: eating ?? undefined,
       end: ended ?? undefined,
+      lost: lost.size ? [...lost] : undefined,
     }));
   } catch {
     // storage full or blocked: the world still changes for this session
@@ -882,6 +891,10 @@ function ateOne(name, k1) {
   save();
   addCodex(`${LABELS[name] || name}, assimilated`);
   thank();
+  if (!fleets && !ended) {
+    startWar();
+    showNavToast('THE OTHER WORLDS HAVE SEEN IT. FLEETS ARE LAUNCHING.', 8);
+  }
   if (PROGRAMS.some((p) => p.id === name) && hasUpgrade('holodeck')) {
     showViewToast(`HOLODECK — NEW PROGRAM: ${LABELS[name].toUpperCase()}`, 7);
   }
@@ -891,6 +904,45 @@ function ateOne(name, k1) {
 function thank() {
   if (!waterDone() || hasUpgrade('holodeck')) return;
   grantUpgrade('holodeck');
+}
+
+// --- the war: the fleets of the worlds it has not reached yet ---
+
+function startWar() {
+  if (fleets || ended || !eaten.length) return;
+  explosions = createExplosions(scene);
+  fleets = createFleets({
+    scene,
+    find: worldByName,
+    explode: (pos, scale) => {
+      explosions.fire(pos, scale);
+      // close enough to feel it
+      if (pos.distanceToSquared(camera.position) < 9e6) fx.kick = Math.max(fx.kick, 0.5);
+    },
+    lost,
+    onLost: (id) => {
+      lost.add(id);
+      save();
+    },
+  });
+}
+
+// Which planet the swarm is fighting over, and how far gone it is: the one
+// being eaten, else the next of the last three once the quick ones are done.
+function siege() {
+  const now = assim.active() ? assim.target() : null;
+  if (now && SIEGE.includes(now)) {
+    _siege.name = now;
+    _siege.k = assim.progress();
+    return _siege;
+  }
+  const next = !sail || SIEGE.includes(sail.name) ? nextMeal() : null;
+  if (next && SIEGE.includes(next) && waterDone()) {
+    _siege.name = next;
+    _siege.k = 0;
+    return _siege;
+  }
+  return null;
 }
 
 // --- the clock: what it does once it needs no pilot ---
@@ -942,6 +994,7 @@ function stepExit(delta) {
 // The worldship is out of this system for good.
 function gone() {
   ended = 'gone';
+  if (fleets) fleets.clear();
   removePlanet(terra, true);
   setNavHidden(terra.group.position, true);
   wormU.uPower.value = 0.65;
@@ -996,6 +1049,7 @@ function restoreEaten() {
   }
   thank(); // a save from before the room existed
   if (ended === 'gone') gone();
+  else startWar();
 }
 
 // Put terra straight at its parking spot beside `name` (load, world reset).
@@ -1317,6 +1371,10 @@ export function update(delta, t, onDeck, flying, aboard) {
       stepClock(delta, aboard, flying);
     }
     if (assim.active()) assim.update(delta, t, flying);
+    if (fleets) {
+      fleets.update(delta, t, ended ? null : siege());
+      explosions.update(delta, camera);
+    }
     if (shieldU) shieldU.uTime.value = t;
     if (capital) capital.update(delta, t, camera.position, sail ? 1 : 0);
   }
@@ -1391,6 +1449,7 @@ export function debugStart() {
 export const debugSail = (name) => startSail(name);
 export const debugEat = (u) => assim.seek(u);
 export const debugClock = (sec) => { clockT = sec; };
+export const debugFleets = () => fleets;
 export const debugStory = () => STORY;
 
 export function debugSeek(u) {
@@ -1419,6 +1478,7 @@ function report() {
     radius: terra.radius,
     eatingNow: assim ? assim.state() : null,
     removed: planets.filter((p) => p.removed).map((p) => p.cfg.name),
+    fleets: fleets ? fleets.state() : null,
     bore: boreDir ? boreDir.toArray() : null,
     spinLock: terra.spinLock ?? null,
     capital: !!capital,

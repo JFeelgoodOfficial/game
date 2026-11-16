@@ -344,3 +344,10 @@ worlds: allow 10 s+ and long screenshot timeouts. `tenretni.clock(sec)` sets
 the idle clock: a large value makes the next meal start at once, a large
 negative one holds it off. `state()` adds `clock, next, exiting, ended`.
 
+Fleets: exist once `eaten` has any entry. `tenretni.state().fleets` →
+`[{id, alive, kind, pos}]` (ids like `rustia:w0`, `saturnia:f1`,
+`wavemall prime:w2`); `tenretni.fleets()` is the live object (`ships[].group`,
+`destroy(id)`, `alive(faction)`). `navMenu.rows('fleets')` lists them and
+`navMenu.tap(id)` flies there (stops ~2.4 hull radii out). Freighters move
+~200 u/s: frame them quickly or pause.
+

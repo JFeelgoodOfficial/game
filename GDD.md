@@ -451,7 +451,20 @@ tube, no drain; ×1.12 growth each), then Wavemall Prime, Saturnia and Rustia
 wormhole and is gone (`end: 'gone'`), unless the pilot is docked at or walking
 the capital, in which case it waits. There is no reset.
 
-Not built yet: the three war fleets, boarding and the ending.
+**The war** (`src/fleets.js`, `world/warships.js`, `src/explosion.js`). The
+worldship's first meal launches the fleets of the three worlds it reaches
+last. Three warships guard each of Rustia (iron wedges with ember seams),
+Saturnia (pale spindles ringed in halos) and Wavemall Prime (stacked blocks
+with dance-floor lights that cycle colour); two freighters shuttle on each of
+the three routes between them. A class is two merged geometries shared by all
+its ships. Positions are a function of the clock and the planets' live
+positions, so nothing is simulated or saved. All fifteen are on the NAV chart
+under FLEETS and the autopilot flies to them. Once the quick worlds are gone,
+the next planet's warships are wrapped in a dogfight (one swarm `Points` and
+flickering tracer lines each); as the planet is assimilated they explode one
+by one, and freighters die with either end of their route.
+
+Not built yet: boarding the ships and the ending.
 
 ### 5.8 The Sky City (Saturnia)
 
