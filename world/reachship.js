@@ -31,6 +31,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { C } from '../src/constants.js';
 import { createSeaPatch } from './seapatch.js';
+import { createReachTube } from './reachtube.js';
 
 export const HULL = {
   L: 130, // half length
@@ -780,6 +781,12 @@ export function createReachShip(planet, def) {
         const cx = P.x + Math.cos(a) * (P.r + 0.4), cz = P.z + Math.sin(a) * (P.r + 0.4);
         wall(cx - 1.1, cx + 1.1, cz - 1.1, cz + 1.1, y, y + 1.0);
       }
+      // the well below the plating: the lift shaft's wall while it passes the hull
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2;
+        const cx = P.x + Math.cos(a) * (P.r + 1.3), cz = P.z + Math.sin(a) * (P.r + 1.3);
+        wall(cx - 1.7, cx + 1.7, cz - 1.7, cz + 1.7, -H.DRAFT, y - 0.4);
+      }
       // derrick: four legs leaning in to a crown block 30 u up
       const top = y + 30, foot = P.r + 3.5, crown = 2.2;
       for (const sx of [1, -1]) for (const sz of [1, -1]) {
@@ -1094,7 +1101,26 @@ export function createReachShip(planet, def) {
   const _camL = new THREE.Vector3();
   const _padW = new THREE.Vector3();
 
+  // After the charge (world/shatter.js): the hull is cut loose from the sea
+  // and handed to the debris field, dark. No pad, no riser, no swell.
+  let wrecked = false;
+  function wreck(parent) {
+    if (wrecked) return;
+    wrecked = true;
+    sea.setScale(0);
+    parent.add(hull);
+    hull.position.set(0, 0, 0);
+    hull.rotation.set(0, 0, 0);
+    hull.updateMatrix();
+    glowMesh.visible = false;
+    workLight.visible = false;
+    padLight.visible = false;
+    tube.group.visible = false;
+    detailGroup.visible = true;
+  }
+
   function update(dt, t, camWorld) {
+    if (wrecked) return;
     sea.update(camWorld);
     poseAt(sea.time);
     hull.position.y = pose.heave;
@@ -1102,6 +1128,9 @@ export function createReachShip(planet, def) {
     hull.updateMatrix();
     hullInv.copy(hull.matrix).invert();
     if (parkedRef) placeParked();
+    // the lift's top station rides the deck
+    tube.setTopY(_top.set(H.POOL.x, H.MAIN, H.POOL.z).applyMatrix4(hull.matrix).y);
+    tube.update(dt, t, camWorld);
     radar.rotation.y = t * 1.3;
     // small gear is sub-pixel from the air
     _camL.copy(camWorld);
@@ -1216,7 +1245,7 @@ export function createReachShip(planet, def) {
       group: anchor,
       def: cityDef,
       persistent: true, // built at boot, never disposed with a walk session
-      structures: [wrapped],
+      structures: [wrapped, tube.structure],
       collidersLocal: [],
       colliders: [],
       outerRadius: 150,
@@ -1225,7 +1254,8 @@ export function createReachShip(planet, def) {
       gateSpot: { x: 0, z: -68 },
       plazaCenters: [{ x: 0, z: -10, r: 8 }],
       homes,
-      elevator: null,
+      elevator: tube.module, // the riser lift: walk.js steps and scans it like a tower cab
+      isDry: tube.isDry, // far below the sea, standing in air
       npcRoot: hull, // residents ride the swell with the deck
       groundLocalYAt,
       groundHeightAt: groundLocalYAt,
@@ -1236,7 +1266,16 @@ export function createReachShip(planet, def) {
     };
   }
 
+  // ======================= THE RISER ========================================
+  const tube = createReachTube({
+    anchor, H, PAINT, tint, boxG, cylG, beamG, makeStructure, mulberry32,
+    deckMat, bulkMat, glowMat, seabedYAt: walkFloorYAt,
+  });
+  const _top = new THREE.Vector3();
+
   const ship = {
+    tube, wreck,
+    get wrecked() { return wrecked; },
     anchor, hull, sea, structure, surfaces, walls, pose,
     update, poseAt, padPose, asCity, groundLocalYAt, walkFloorYAt, homes,
     pad: new THREE.Vector3(H.PAD.x, H.FLIGHT, H.PAD.z),

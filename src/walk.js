@@ -32,6 +32,7 @@ import { createShip as createParkedShip } from '../world/ship.js';
 import { MOTION_SCALE } from './motion.js';
 import { createCity, CITY_STYLES } from '../world/city.js';
 import { getReachShip } from '../world/reachship.js';
+import { CHARGE_QUEST } from '../world/reachtube.js';
 import { createCitizens } from '../world/citizens.js';
 import { createWonder } from '../world/wonders.js';
 import { nearestCity, wonderLocalDir, citiesForWorld } from '../world/cityRegistry.js';
@@ -385,6 +386,14 @@ function waterDepth(planet, up) {
 function seaR(planet, up) {
   const w = planet.water;
   return w.swellAt ? w.r + w.swellAt(up) : w.r;
+}
+
+// True while the walker stands in a hosted town's air pocket under the sea.
+const _dryLocal = new THREE.Vector3();
+function walkDry(planet) {
+  if (!city?.isDry || walk.planet !== planet) return false;
+  playerLocalInto(city.group, _cityInvQuat, _dryLocal);
+  return city.isDry(_dryLocal);
 }
 
 // Drop out of the ship onto the given terra planet, directly below where the
@@ -1148,9 +1157,15 @@ export function stepWalk(dt) {
   let r = ship.position.distanceTo(planet.body.position);
   let depth = waterDepth(planet, _up);
   // Swimming: deep water and the body at (or under) the surface.
+  // A hosted town can hold air below the sea (the Reach's riser and seabed
+  // habitat): in there the water outside is scenery, not something to swim in.
+  const dryBelow = walkDry(planet);
+  if (dryBelow) depth = 0;
   walk.swimming =
     depth > C.WALK_SWIM_DEPTH && planet.water && r <= seaR(planet, _up) + 0.05;
-  const wading = !walk.swimming && depth > C.WALK_WADE_DEPTH;
+  // Wading means feet in the water: a deck high over a deep sea is dry land.
+  const wading = !walk.swimming && depth > C.WALK_WADE_DEPTH &&
+    (!planet.water?.swellAt || r <= seaR(planet, _up) + 0.3);
 
   // --- dive toggle (C): on divable worlds, submerge into free 3D swimming.
   // Consumed here — the fly phase's C (stand up) never coexists with walk.
@@ -1583,7 +1598,7 @@ export function stepWalk(dt) {
     // the walker climb onto them and drop back to raw ground past the edge.
     surfaceR = Math.max(surfaceR, wavemallGroundR);
   }
-  depth = waterDepth(planet, _up);
+  depth = walkDry(planet) ? 0 : waterDepth(planet, _up);
   const seaNow = planet.water ? seaR(planet, _up) : 0;
   walk.swimming =
     depth > C.WALK_SWIM_DEPTH && planet.water && r <= seaNow + 0.05;
@@ -2114,7 +2129,29 @@ function governorInteract(c, { fill, speakerFor }) {
   const aside = mineWalk.emberAside(def, fillLine);
   if (!q) return { speaker, lines: [fill('Welcome to {{cityName}}.', c), ...aside] };
   const st = questStage(def.id);
-  if (st === 'done') return { speaker, lines: [fill(q.thanks, c), ...aside] };
+  if (st === 'done') {
+    // Towns with a second errand (registry `charge` — Neptunia's Reach).
+    const ch = def.charge;
+    if (ch) {
+      const cs = questStage(CHARGE_QUEST);
+      if (cs === undefined) {
+        return {
+          speaker,
+          lines: ch.offer.map((l) => fill(l, c)),
+          offer: {
+            kind: 'choice',
+            prompt: ch.prompt,
+            options: [
+              { label: ch.accept, outcomeTag: `menu:${def.id}:gov:charge` },
+              { label: ch.decline, outcomeTag: `menu:${def.id}:gov:later` },
+            ],
+          },
+        };
+      }
+      if (cs === 'go') return { speaker, lines: [fill(ch.remind, c)] };
+    }
+    return { speaker, lines: [fill(q.thanks, c), ...aside] };
+  }
   if (st === undefined) {
     return {
       speaker,
@@ -2186,9 +2223,14 @@ function surfaceFromSub() {
 governorInteract.onOutcome = (tag) => {
   const m = /^menu:([^:]+):gov:(\w+)$/.exec(tag ?? '');
   if (!m || m[1] !== city?.def?.id) return null;
-  if (m[2] !== 'accept') return null; // 'later' just closes the panel
   const def = city.def;
   const gov = citizens.citizens.find((x) => x.dialogue === 'governor');
+  if (m[2] === 'charge' && def.charge) {
+    setQuestStage(CHARGE_QUEST, 'go'); // unseals the riser lift (world/reachtube.js)
+    setObjective(def.charge.objective);
+    return { speaker: citizens.speakerFor(gov), lines: def.charge.go.map((l) => citizens.fill(l, gov)) };
+  }
+  if (m[2] !== 'accept') return null; // 'later' just closes the panel
   setQuestStage(def.id, 0);
   armTourBeacon(0);
   const first = def.quest.wonderLines?.[0]
@@ -2598,7 +2640,8 @@ export function updateWalkCamera(camera, delta = 0) {
   _camDir.multiplyScalar(1 / camR);
   let minR = planet.radius + planet.body.terrainAt(_camDir) + 1.15;
   const camSea = planet.water ? seaR(planet, _camDir) : 0;
-  if (planet.water && !walk.diving && minR < camSea + 0.4)
+  const camUnder = walk.diving || walkDry(planet); // below the surface, by water or by lift
+  if (planet.water && !camUnder && minR < camSea + 0.4)
     minR = camSea + 0.4;
   // Actuality's Zone 9 descends into an open pit below the terrain. When the
   // walker is underground the terrain clamp would shove the third-person camera
@@ -2610,7 +2653,7 @@ export function updateWalkCamera(camera, delta = 0) {
     if (wr < terraR - 1.5) minR = Math.min(minR, wr - 4);
   }
   // Diving: the orbit camera stays submerged with the walker.
-  const maxR = walk.diving && planet.water ? camSea - 0.2 : Infinity;
+  const maxR = camUnder && planet.water ? camSea - 0.2 : Infinity;
   const clampedR = Math.min(Math.max(camR, minR), maxR);
   if (clampedR !== camR)
     _desired.copy(planet.body.position).addScaledVector(_camDir, clampedR);

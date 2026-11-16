@@ -312,10 +312,28 @@ function atmoBeta(hex) {
   return new THREE.Vector3(c.r * k, c.g * k, c.b * k);
 }
 
+// One set of shatter uniforms per planet, shared BY REFERENCE between its
+// surface, sea and cloud materials (world/shatter.js writes them once). w = 2
+// means the world is whole and the shaders' `shattered()` is a no-op.
+const _shatter = new Map();
+function shatterFor(cfg) {
+  let u = _shatter.get(cfg.name);
+  if (!u) {
+    u = {
+      uShatterN: { value: new THREE.Vector4(0, 1, 0, 2) },
+      uShatterT1: { value: new THREE.Vector3(1, 0, 0) },
+      uShatterT2: { value: new THREE.Vector3(0, 0, 1) },
+    };
+    _shatter.set(cfg.name, u);
+  }
+  return u;
+}
+
 function makeSurfaceUniforms(cfg, radius) {
   const p = cfg.palette;
   const s = cfg.shape || DEFAULT_SHAPE;
   return {
+    ...shatterFor(cfg),
     uSun: { value: SUN.clone() },
     uSeaLevel: { value: cfg.seaLevel() },
     uAmp: { value: cfg.terrainHeight() },
@@ -389,6 +407,7 @@ export function initPlanets(scene) {
             vertexShader: surfaceVert,
             fragmentShader: waterFrag,
             uniforms: {
+              ...shatterFor(cfg),
               uSun: { value: SUN.clone() },
               uSeaLevel: { value: 0 },
               uAmp: { value: 0 },
@@ -421,6 +440,7 @@ export function initPlanets(scene) {
           vertexShader: surfaceVert,
           fragmentShader: cloudFrag,
           uniforms: {
+            ...shatterFor(cfg),
             uSun: { value: SUN.clone() },
             uSeaLevel: { value: 0 },
             uAmp: { value: 0 },
@@ -569,6 +589,7 @@ export function initPlanets(scene) {
     };
     // the lit meshes, gathered once so updatePlanets has no list to build
     // (both air-shell materials, so whichever the tier swaps in is already aimed)
+    p.shatter = shatterFor(cfg);
     p.lit = [surface, clouds, waterMesh].filter((m) => m?.material?.uniforms?.uSun).map((m) => m.material);
     p.lit.push(atmoLimbMat, atmoScatterMat);
 

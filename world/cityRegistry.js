@@ -166,11 +166,13 @@ export const CITIES = [
     pad: { x: 0, z: -100 }, // the flight deck over the stern (reachship.js HULL.PAD)
     voice: 'tide',
     wonders: [
-      { type: 'leviathan', title: 'Ribs of the Sound-Leviathan', bearing: 0.39, dist: 360, seed: 0x1111a00a },
+      // Both stand in the open sea off the ship now: a swim (or, later, a
+      // jetpack hop) from the boarding ladders.
+      { type: 'leviathan', title: 'Ribs of the Sound-Leviathan', bearing: 0.39, dist: 210, seed: 0x1111a00a },
       // Inherited from Diamondwake when the resort folded into the Reach.
-      { type: 'diamondveil', title: 'The Diamond Veil', bearing: 1.36, dist: 500, seed: 0x1111a00b },
+      { type: 'diamondveil', title: 'The Diamond Veil', bearing: 3.6, dist: 250, seed: 0x1111a00b },
     ],
-    flavor: 'A trench-research port pressed against the abyss — sonar chimes roll through the streets like bells.',
+    flavor: 'A factory ship under way on the abyss, a derrick amidships and a riser to the floor — sonar chimes roll down her decks like bells.',
     quest: {
       reward: 'jetpack',
       offer: [
@@ -184,6 +186,26 @@ export const CITIES = [
       remind: 'The survey’s half-filed. The beacon carries the next station’s ping.',
       complete: 'Readings received. The expedition pack is yours — trench thermals will hold you like water.',
       thanks: 'The Reach logs your altitude with some envy, surveyor.',
+    },
+    // The governor's second errand, offered once the survey is filed
+    // (src/walk.js governorInteract; world/reachtube.js holds the lift and the
+    // console). Quest id 'neptunia-charge': undefined -> 'go' -> 'blown'.
+    charge: {
+      offer: [
+        'You filed the survey, so I will tell you what the survey was for.',
+        'The Reach does not fish. The riser amidships runs two hundred fathoms to the floor, and at its foot we have seated a charge in the bedrock.',
+        'It will open the crust and let the deep out. That is this ship’s whole errand, and it wants one thing more: a hand to arm it.',
+        'Ride the lift down. Find the charge. Arm it for detonation, then come back up and tell me it is ready. We fire from the bridge, once you are clear.',
+      ],
+      prompt: 'Go down the riser?',
+      accept: 'I’ll arm it.',
+      decline: 'Not yet.',
+      go: [
+        'The lift is unsealed for you. Midships, under the derrick.',
+        'You will have company on the way down. The glass is thick. Look as long as you like.',
+      ],
+      remind: 'The charge is not armed until you arm it. The lift waits under the derrick. Come and tell me when it is ready.',
+      objective: 'RIDE THE RISER DOWN — ARM THE CHARGE — REPORT TO THE GOVERNOR',
     },
     citizens: [
       { name: 'Madame Ossva', role: 'governor', dialogue: 'governor', home: 'penthouse' },

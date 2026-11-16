@@ -116,13 +116,15 @@ import {
   coinLeft,
   cottageActive,
 } from './walkLazy.js';
-import { initJournal, journalState } from './journal.js';
+import { initJournal, journalState, questStage, setQuestStage } from './journal.js';
 import { initInventory, inventoryState } from './inventory.js';
 import { CITIES, citiesForWorld, padLocalDir } from '../world/cityRegistry.js';
 import { initSun, updateSun, sunAltitude, sun } from './sun.js';
 import { initStations, updateStations, stations } from './stations.js';
 import { createSkyCity } from '../world/skycity.js';
 import { createReachShip } from '../world/reachship.js';
+import { createShatter } from '../world/shatter.js';
+import { CHARGE_QUEST } from '../world/reachtube.js';
 import { createCoinWorld, HEADS } from '../world/coinworld.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
 import {
@@ -210,6 +212,9 @@ const neptunia = planets.find((p) => p.cfg.name === 'neptunia');
 const reachDef = CITIES.find((c) => c.id === 'neptunia-indigo');
 const reachShip = createReachShip(neptunia, reachDef);
 const reachSea = reachShip.sea;
+// ...and what Neptunia becomes when the governor's charge goes off. Applied at
+// boot for a save in which it already has (see the initJournal call below).
+const shatter = createShatter(neptunia, reachDef.site, reachShip);
 // stevenlacey, the coin world: likewise seen (tumbling) long before it is landed on.
 const coin = createCoinWorld(scene);
 
@@ -247,6 +252,8 @@ initArtView();
 initTerrariumView();
 initSfx();
 initJournal();
+// A save in which the charge already went off: Neptunia stays broken.
+if (questStage(CHARGE_QUEST) === 'blown') shatter.apply();
 initInventory();
 initSettingsPanel();
 initCoach();
@@ -858,6 +865,31 @@ if (import.meta.env.DEV) {
     // turns the planet so the site sits under the sun.
     reachSea,
     reachShip,
+    // The charge mission: reachCharge('go') unseals the lift, reachCharge()
+    // clears it; reachPlace puts the walker at an ANCHOR-frame point (the
+    // ship's static frame: +Z the bow, y = 0 the still sea); reachBlow() is the
+    // arm button; shatter is the broken-planet state.
+    shatter,
+    // Side-on to the break: both halves in frame. az swings round the blast axis.
+    shatterView(distR = 3.4, az = 0, lift = 0.25) {
+      const p = neptunia, q = p.surface.getWorldQuaternion(new THREE.Quaternion());
+      const d = shatter.T1.clone().multiplyScalar(Math.cos(az)).addScaledVector(shatter.T2, Math.sin(az)).addScaledVector(shatter.N, lift).normalize().applyQuaternion(q);
+      const look = p.group.position.clone().addScaledVector(shatter.N.clone().applyQuaternion(q), p.radius * 0.7);
+      ship.position.copy(look).addScaledVector(d, p.radius * distR);
+      ship.velocity.set(0, 0, 0);
+      ship.angularVelocity.set(0, 0, 0);
+      ship.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(ship.position, look, new THREE.Vector3(0, 1, 0)));
+      debug.paused = true;
+      snapCamera(ship);
+    },
+    reachCharge(stage) { setQuestStage(CHARGE_QUEST, stage); return questStage(CHARGE_QUEST); },
+    reachPlace(x, y, z) {
+      const a = reachShip.anchor;
+      a.updateWorldMatrix(true, false);
+      ship.position.set(x, y, z).applyMatrix4(a.matrixWorld);
+      ship.velocity.set(0, 0, 0);
+    },
+    reachBlow() { reachShip.tube.module.interact({ kind: 'arm' }); },
     reachState: () => ({ landState, skyLanding, armed: DOCKS[1].armed, dock: dock.id, autoT, phase, frozen: !!neptunia.spinFrozen }),
     // Drop the ship into Neptunia's air shell beside the Reach (side 0) or on
     // the far side of the planet (side 1), inbound: capture fires next tick.
@@ -1137,6 +1169,7 @@ function landingUpright(up, quatOut) {
 let skyLanding = false;
 let skyArcFrac = 0.7; // share of the auto-land spent on the arc (rest: descent)
 let skyFallT = -1; // >= 0 while the white is rising over a fall from the city
+let chargeT = -1; // >= 0 while the white is rising from the Reach's charge
 const _skyUp = new THREE.Vector3();
 const _skyPad = new THREE.Vector3(); // pad rest point, offset from planet centre
 const _skyHover = new THREE.Vector3(); // above the pad, offset from planet centre
@@ -1353,6 +1386,7 @@ function setOnSkyPad(d = DOCKS[0]) {
 // Capture check, once per physics tick in free flight.
 function checkSkyCapture() {
   for (const d of DOCKS) {
+    if (d.id === 'reach' && shatter.active) continue; // there is no flight deck any more
     const r = ship.position.distanceTo(d.planet.body.position);
     if (!d.armed) {
       if (r > skyShellRadius(d) + C.SKY_REARM_MARGIN) d.armed = true;
@@ -1780,6 +1814,8 @@ function resetToStart() {
   skyLanding = false;
   for (const d of DOCKS) d.armed = true;
   walkDock = null;
+  chargeT = -1;
+  reachShip.tube.reset();
   skyFallT = -1;
   skyLiftT = -1;
   coinLanding = false;
@@ -2073,6 +2109,23 @@ function frame(now) {
       snapCamera(ship);
       phase = 'fly';
       accumulator = 0;
+    } else if (chargeT >= 0 || reachShip.tube.consumeDetonation()) {
+      // The arm button. There was never a timer: the white comes up from the
+      // bore faster than a thought, and that is the end of the walker, the
+      // ship and half the world. The run ends as any death does; Neptunia
+      // stays the way this left it (journal quest 'blown').
+      chargeT = Math.max(chargeT, 0) + delta;
+      flash = Math.min(chargeT / C.CHARGE_FLASH, 1);
+      if (flash >= 1) {
+        chargeT = -1;
+        setQuestStage(CHARGE_QUEST, 'blown');
+        endWalk();
+        shatter.apply();
+        deathReason = 'THE CHARGE WAS NEVER ON A TIMER — NEPTUNIA IS BROKEN';
+        phase = 'explode';
+        warpT = C.EXPLODE_TIME * 0.35; // already at full white
+        accumulator = 0;
+      }
     } else if (skyFallT >= 0 || skyFell()) {
       // Off the edge of the Sky City. The walker is still falling under the
       // rising white; at full white the run ends and starts over, in the ship,
@@ -2364,6 +2417,7 @@ function frame(now) {
   }
   // On foot (isolated) as much as in flight: the sea keeps running either way.
   reachShip.update(delta, now / 1000, camera.position);
+  shatter.update(delta, now / 1000, camera.position);
   // nav AFTER the stations are placed: a reset snaps orbiting stations back
   // to their snapshot spot for one frame, and a discovery check reading that
   // stale position would log everything sitting at the spawn point
