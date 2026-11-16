@@ -237,7 +237,8 @@ const CONFIGS = [
       deep: 0x040824, shallow: 0x14329a, sand: 0x8a7fc4,
       low: 0x54418f, mid: 0x342e72, high: 0xe0dcf6,
     },
-    water: { color: 0x081c52, gloss: 1.0 },
+    water: { color: 0x081c52, gloss: 1.0, foam: 0xdfe2ff },
+    seaStorm: 0.65, // a sea running high everywhere; the sky keeps its own weather
     clouds: true,
   },
   {
@@ -396,7 +397,10 @@ export function initPlanets(scene) {
               uSkyColor: { value: new THREE.Color(cfg.skyColor()) },
               uGlint: { value: C.SEA_GLINT },
               uDetail: { value: 0 },
-              uStorm: { value: cfg.storm ?? 0 },
+              // seaStorm roughens the water alone; storm also thunders the clouds
+              uStorm: { value: cfg.seaStorm ?? cfg.storm ?? 0 },
+              uFoamColor: { value: new THREE.Color(cfg.water.foam ?? 0xf2e0b2) },
+              uHole: { value: new THREE.Vector4(0, 1, 0, 2) },
               uFade: { value: 1 },
               uFogColor: { value: new THREE.Color(0) },
               uFogDensity: { value: 0 },

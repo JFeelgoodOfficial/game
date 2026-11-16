@@ -18,6 +18,8 @@ uniform float uGlint;     // peak sun-glint intensity (HDR)
 uniform float uDetail;    // 1 on HIGH and up: noise swell instead of sine trains
 uniform float uFade;      // 1 near, 0 far: hands the ocean to surface.frag
 uniform float uStorm;     // 0 calm .. 1 a sea in a gale: mountainous swell, breaking crests
+uniform vec3 uFoamColor;  // whitecap tint
+uniform vec4 uHole;       // xyz object-space dir, w cos(half-angle): a disc handed to the sea patch (w > 1: none)
 
 float hash(vec3 p) {
   p = fract(p * 0.3183099 + 0.1);
@@ -50,6 +52,8 @@ float stormSea(vec3 q) {
 }
 
 void main() {
+  // world/seapatch.js draws real swell over this disc
+  if (dot(normalize(vObjPos), uHole.xyz) > uHole.w) discard;
   vec3 N = normalize(vWorldNormal), S = normalize(uSun), V = normalize(vViewDir);
   float dist = length(vViewDir);
   // 1 at the hull, 0 from orbit. Wave relief is sub-pixel from far away, where
@@ -117,7 +121,7 @@ void main() {
   if (uStorm > 0.0) {
     float foam = smoothstep(0.6, 0.84, crest);
     foam = max(foam, 0.35 * smoothstep(0.42, 0.7, crest) * vnoise(vObjPos * 0.9 + uTime * 0.7));
-    col = mix(col, vec3(0.95, 0.88, 0.7) * (0.08 + 0.92 * day), foam * uStorm);
+    col = mix(col, uFoamColor * (0.08 + 0.92 * day), foam * uStorm);
   }
 
   // Seen from below (divable worlds render DoubleSide): a Snell's-window

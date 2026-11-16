@@ -122,6 +122,7 @@ import { CITIES, citiesForWorld, padLocalDir } from '../world/cityRegistry.js';
 import { initSun, updateSun, sunAltitude, sun } from './sun.js';
 import { initStations, updateStations, stations } from './stations.js';
 import { createSkyCity } from '../world/skycity.js';
+import { createSeaPatch } from '../world/seapatch.js';
 import { createCoinWorld, HEADS } from '../world/coinworld.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
 import {
@@ -204,6 +205,10 @@ initCityFlatten(planets);
 // in the boot bundle, because you see it from orbit long before you walk it.
 const saturnia = planets.find((p) => p.cfg.name === 'saturnia');
 const skyCity = createSkyCity(saturnia);
+// Neptunia's factory ship rides real swell: a displaced sea patch at its site.
+const neptunia = planets.find((p) => p.cfg.name === 'neptunia');
+const reachDef = CITIES.find((c) => c.id === 'neptunia-indigo');
+const reachSea = createSeaPatch(neptunia, reachDef.site, { hull: { halfBeam: 23, halfLength: 130 } });
 // stevenlacey, the coin world: likewise seen (tumbling) long before it is landed on.
 const coin = createCoinWorld(scene);
 
@@ -844,6 +849,34 @@ if (import.meta.env.DEV) {
       ship.velocity.set(0, 0, 0);
       ship.angularVelocity.set(0, 0, 0);
       ship.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(ship.position, target, new THREE.Vector3(0, 1, 0)));
+    },
+    // The Indigo Reach's sea (world/seapatch.js). reachView parks the ship
+    // `dist` out from the ship's site on anchor bearing `bearing` (0 = off the
+    // bow, +Z), `height` above the still sea, looking at the site; `sunny`
+    // turns the planet so the site sits under the sun.
+    reachSea,
+    reachView(dist = 300, height = 60, bearing = 0, sunny = true) {
+      const p = neptunia;
+      if (sunny) {
+        const sd = p.sunBase, s = reachDef.site;
+        // rotate the site about +Y onto the sun's meridian
+        const ang = Math.atan2(s.z, s.x) - Math.atan2(sd.z, sd.x);
+        p.spinPhase = ang - (performance.now() / 1000) * p.cfg.spin();
+        p.spinNeedsResync = false;
+        for (const m of p.spinning) m.rotation.y = ang;
+        p.group.updateMatrixWorld(true);
+      }
+      setPlanetSpinFrozen(p, true); // or the site turns away from under the pose
+      const q = p.surface.getWorldQuaternion(new THREE.Quaternion()).multiply(reachSea.anchorQ);
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+      const out = new THREE.Vector3(Math.sin(bearing), 0, Math.cos(bearing)).applyQuaternion(q);
+      const anchor = p.group.position.clone().addScaledVector(up, reachSea.rw);
+      ship.position.copy(anchor).addScaledVector(out, dist).addScaledVector(up, height);
+      ship.velocity.set(0, 0, 0);
+      ship.angularVelocity.set(0, 0, 0);
+      ship.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(ship.position, anchor, up));
+      debug.paused = true; // hold the pose: gravity would have it otherwise
+      snapCamera(ship);
     },
     coach: coachState,
     hideCockpit: false, // screenshots of the world without the dashboard
@@ -2207,6 +2240,8 @@ function frame(now) {
     skyCity.update(delta, now / 1000, camera.position);
     coin.update(delta);
   }
+  // On foot (isolated) as much as in flight: the sea keeps running either way.
+  reachSea.update(camera.position);
   // nav AFTER the stations are placed: a reset snaps orbiting stations back
   // to their snapshot spot for one frame, and a discovery check reading that
   // stale position would log everything sitting at the spawn point
