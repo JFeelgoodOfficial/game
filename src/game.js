@@ -122,7 +122,7 @@ import { CITIES, citiesForWorld, padLocalDir } from '../world/cityRegistry.js';
 import { initSun, updateSun, sunAltitude, sun } from './sun.js';
 import { initStations, updateStations, stations } from './stations.js';
 import { createSkyCity } from '../world/skycity.js';
-import { createSeaPatch } from '../world/seapatch.js';
+import { createReachShip } from '../world/reachship.js';
 import { createCoinWorld, HEADS } from '../world/coinworld.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
 import {
@@ -208,7 +208,8 @@ const skyCity = createSkyCity(saturnia);
 // Neptunia's factory ship rides real swell: a displaced sea patch at its site.
 const neptunia = planets.find((p) => p.cfg.name === 'neptunia');
 const reachDef = CITIES.find((c) => c.id === 'neptunia-indigo');
-const reachSea = createSeaPatch(neptunia, reachDef.site, { hull: { halfBeam: 23, halfLength: 130 } });
+const reachShip = createReachShip(neptunia, reachDef);
+const reachSea = reachShip.sea;
 // stevenlacey, the coin world: likewise seen (tumbling) long before it is landed on.
 const coin = createCoinWorld(scene);
 
@@ -855,6 +856,7 @@ if (import.meta.env.DEV) {
     // bow, +Z), `height` above the still sea, looking at the site; `sunny`
     // turns the planet so the site sits under the sun.
     reachSea,
+    reachShip,
     reachView(dist = 300, height = 60, bearing = 0, sunny = true) {
       const p = neptunia;
       if (sunny) {
@@ -2241,7 +2243,7 @@ function frame(now) {
     coin.update(delta);
   }
   // On foot (isolated) as much as in flight: the sea keeps running either way.
-  reachSea.update(camera.position);
+  reachShip.update(delta, now / 1000, camera.position);
   // nav AFTER the stations are placed: a reset snaps orbiting stations back
   // to their snapshot spot for one frame, and a discovery check reading that
   // stale position would log everything sitting at the spawn point

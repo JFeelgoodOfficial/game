@@ -213,8 +213,8 @@ const float ADVECT = ${f(SEA.ADVECT)};
   // above the anchor origin's level, still-sea lift included) and returns it.
   // Mirrors ocean.vert: one fixed-point step undoes the Gerstner side-shift, so
   // this is the height OVER (x, z), not of the vertex that started there.
-  function waveAt(x, z, t, out = _w) {
-    const n = count();
+  function waveAt(x, z, t, out = _w, limit = 99) {
+    const n = Math.min(count(), limit);
     let px = x, pz = z, h = 0;
     for (let pass = 0; pass < 2; pass++) {
       const r = Math.hypot(px, pz);

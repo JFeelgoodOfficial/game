@@ -60,9 +60,11 @@ void main() {
   // Hull outline: no sea inside the ship.
   float hullD = 9.0;
   if (uHull.z > 0.5) {
+    // world/reachship.js hullHalfWidth: blunt transom astern, a finer bow
     vec2 q = abs(p / uHull.xy);
-    hullD = pow(pow(q.x, 2.6) + pow(q.y, 2.6), 1.0 / 2.6);
-    if (hullD < 0.9) discard;
+    float e = p.y > 0.0 ? 2.1 : 4.5;
+    hullD = pow(pow(q.x, e) + pow(q.y, e), 1.0 / e);
+    if (hullD < 0.93) discard;
   }
 
   vec3 N0 = normalize(vWorldNormal), S = normalize(uSun), V = normalize(vViewDir);
