@@ -748,6 +748,7 @@ export function updatePlanets(t, camPos, only = null) {
   _lastSpinT = t;
   for (const p of planets) {
     if (only && p !== only) continue;
+    if (p.removed && !only) continue; // out of space; nothing to turn or light
     if (p.spinFrozen) {
       p.spinNeedsResync = true; // rotation.y stays latched
       // The ground holds still under the walker's feet, but the DAY should not
@@ -875,6 +876,74 @@ export function setPlanetShip(name, air, bore, boreCos) {
   p.cfg.skyColor = air < 0.5 ? DARK_SKY : p.skyBase;
 }
 const DARK_SKY = () => 0x040806;
+
+// A world's size as a multiple of the size it was built at. The worldship
+// grows by this as it assimilates planets; a planet being assimilated shrinks
+// by it. Meshes are scaled (nothing is rebuilt), and everything that reads the
+// radius live — gravity floor, air shell, LOD, the docks — follows.
+export function setPlanetScale(p, k) {
+  if (p.baseRadius === undefined) {
+    p.baseRadius = p.radius;
+    const g = p.body.groundAt, gl = p.body.groundAtLocal;
+    // terrain heights are in built units; the scaled mesh stands k times taller
+    if (g) p.body.groundAt = (d) => g(d) * p.scale;
+    if (gl) p.body.groundAtLocal = (d) => gl(d) * p.scale;
+  }
+  p.scale = k;
+  for (const m of p.spinning) m.scale.setScalar(k);
+  p.atmosphere.scale.setScalar(k);
+  p.atmosphere.userData.scatterMat.uniforms.uRadius.value = p.baseRadius * k;
+  p.radius = p.baseRadius * k;
+  if (!p.removed) p.body.radius = p.radius;
+}
+
+// Take a world out of space, or put it back. The planet object stays alive
+// (the holodeck still walks assimilated worlds): its group is hidden, it
+// stops pulling and stops having a floor, and nothing lands on it. Everything
+// that iterates `planets` to show, chart or dock checks `p.removed`.
+export function removePlanet(p, gone = true) {
+  if (p.baseMass === undefined) p.baseMass = p.body.mass;
+  if (p.noLandBase === undefined) p.noLandBase = !!p.cfg.noLand;
+  p.removed = gone;
+  p.group.visible = !gone;
+  p.body.mass = gone ? 0 : p.baseMass;
+  p.body.radius = gone ? 0 : p.radius;
+  p.cfg.noLand = gone || p.noLandBase || (p.drain || 0) >= 1;
+}
+
+// Wyattmattoe under the worldship's heat: 0 the ice world it is, 1 open water
+// to the horizon. Sea level rises in the shader (the mesh keeps its shape —
+// from orbit a flat sea over drowned valleys is what it should look like),
+// the ice caps go, the sea turns from matte white to deep blue.
+const _meltA = new THREE.Color();
+const MELT_DEEP = new THREE.Color(0x06305a);
+const MELT_SHALLOW = new THREE.Color(0x1b6d9a);
+const MELT_SEA = new THREE.Color(0x0a3a66);
+export function setPlanetMelt(p, k) {
+  const u = p.surface.material.uniforms;
+  if (!p.meltBase) {
+    p.meltBase = {
+      sea: p.cfg.seaLevel, ice: u.uIceLat.value,
+      deep: u.uColDeep.value.clone(), shallow: u.uColShallow.value.clone(),
+      water: p.waterMesh ? p.waterMesh.material.uniforms.uWaterColor.value.clone() : null,
+      gloss: p.waterMesh ? p.waterMesh.material.uniforms.uGloss.value : 0,
+      seaGloss: u.uSeaGloss.value,
+    };
+  }
+  const b = p.meltBase;
+  p.melt = k;
+  const s0 = b.sea();
+  p.cfg.seaLevel = k > 0 ? () => s0 + (0.6 - s0) * p.melt : b.sea;
+  u.uIceLat.value = b.ice + (2.2 - b.ice) * k;
+  u.uColDeep.value.copy(_meltA.copy(b.deep).lerp(MELT_DEEP, k));
+  u.uColShallow.value.copy(_meltA.copy(b.shallow).lerp(MELT_SHALLOW, k));
+  u.uSeaGloss.value = k > 0.5 ? 1 : b.seaGloss;
+  if (p.waterMesh) {
+    const w = p.waterMesh.material.uniforms;
+    w.uWaterColor.value.copy(_meltA.copy(b.water).lerp(MELT_SEA, k));
+    w.uGloss.value = b.gloss + (1 - b.gloss) * k;
+  }
+}
 
 // A fully drained world within `maxAlt` of `pos`, or null (the G key's reason
 // for doing nothing over it).

@@ -173,5 +173,6 @@ const _d = new THREE.Vector3();
 
 // Altitude above the sun's surface for the given position (for the burn zone).
 export function sunAltitude(pos) {
+  if (sun.gone) return Infinity; // swallowed (src/endgame.js): nothing left to burn on
   return _d.subVectors(pos, sun.group.position).length() - C.SUN_RADIUS;
 }

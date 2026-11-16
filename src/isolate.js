@@ -153,7 +153,8 @@ export const isolated = iso; // read-only for callers (game.js, __debug)
 // through a daylit atmosphere, so hiding it the moment the skids touch is
 // invisible. Toggled with the universe stage.
 function setFarFieldVisible(v, keep) {
-  for (const p of planets) if (p !== keep) p.group.visible = v;
+  // (a removed world — assimilated by the worldship — never comes back on)
+  for (const p of planets) if (p !== keep) p.group.visible = v && !p.removed;
   // The painting nebulae push their records into deepNebulae too, so this one
   // loop covers both fields.
   for (const d of deepNebulae) if (d.group) d.group.visible = v;
@@ -174,7 +175,7 @@ function setSkyVisible(v, keep) {
     if (keep.atmosphere) keep.atmosphere.visible = v;
     if (keep.clouds) keep.clouds.visible = v;
   }
-  if (sun.group) sun.group.visible = v;
+  if (sun.group) sun.group.visible = v && !sun.gone; // (the ending leaves no sun to bring back)
   if (blackhole.group) blackhole.group.visible = v;
   setStarfieldVisible(v);
 }

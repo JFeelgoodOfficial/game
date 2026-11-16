@@ -304,3 +304,10 @@ robots) and the ship parts live in it. `src/capitalWalk.js` adds about 6 kB to
 the walk chunk (794 kB). `game-*.js` is 365 kB (131 kB gzip). The finished
 worldship costs roughly ten draw calls beyond Terra itself, plus the capital's
 dozen when within 3,000 units.
+
+The war stages (assimilation, holodeck, fleets, boarding, ending) take the lazy
+chunk to 83 kB (32 kB gzip); it is still only requested once the story stage
+is `armed` or later. The holodeck room, its panel and the session code are in
+the boot chunk (they are part of the ship). Fifteen fleet ships cost thirty
+draw calls (two shared geometries per class); a siege adds two per besieged
+warship. None of this has been measured on a phone.

@@ -31,6 +31,9 @@ const CATEGORIES = [
   { id: 'planets', title: 'PLANETS', color: '#8cffd1', kinds: ['planet', 'star', 'anomaly'] },
   { id: 'nebulas', title: 'NEBULAS', color: '#c9a0ff', kinds: ['nebula'] },
   { id: 'stations', title: 'STATIONS', color: '#82f7ff', kinds: ['station'] },
+  // the war fleets and the freighters between them (src/fleets.js); empty,
+  // and so just a header, until there is a war
+  { id: 'fleets', title: 'FLEETS', color: '#ffb36a', kinds: ['ship'] },
 ];
 
 let root = null; // the whole panel, hidden when closed

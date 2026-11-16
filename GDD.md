@@ -416,8 +416,78 @@ console then offers the other one. Saved in `fgsf.tenretni` as
 `{city, bore, rotY, at}`; a reload mid-voyage has already arrived, and a world
 reset re-parks it.
 
-Not built: draining the destination, steering the world by hand, building
-interiors, flying into the bore or the wormhole.
+**Assimilation** (`src/assimilate.js`). On arrival the worldship does to the
+water world what Tenretni did to Terra, and then takes it apart. One script
+clock, about 85 s (100 s for Wyattmattoe): a heat beam melts the ice world to
+open water first (`setPlanetMelt`); the swarm crosses; the tube strikes; the
+sea drains; the city takes the surface; then the planet shrinks to nothing
+while 420 instanced chunks stream to the worldship, and it is removed from
+space (`removePlanet`: hidden, no gravity, no floor, off NAV with its stations,
+its dock skipped). The worldship then grows ×1.5 (`setPlanetScale`; the capital
+re-seats and its pylon stretches). After the first world an iris shield closes
+over the bore; after the second it has a thin green air shell. Either order
+works. Saved as `eaten[]`, `size`, `eating` in `fgsf.tenretni`; a reload or
+world reset part-way finds the planet already gone.
+
+**The holodeck** (`src/holodeck.js`, `src/holoPanel.js`). With both water
+worlds gone the Warden thanks the pilot and the ship gains the `holodeck`
+upgrade: the third starboard window of the gallery becomes a doorway into a
+gridded room with a wall panel. The panel lists programs, one per assimilated
+world worth keeping: Wyattmattoe (lands at Kite Saddle, beside the ski hill
+and lift) from the start, then Shadowreach, Actuality and Stevenlacey as each
+is consumed. A program is the real on-foot world: `startHolo` in `game.js`
+puts the removed world back for the session (`holoWorld`), keeps the ship's
+true position in absolute coordinates, and runs the ordinary walk. **G ends a
+program from anywhere** and stands the pilot back at the panel; Actuality's
+finale and the coin's fold-up end it the same way instead of resetting the
+game. The worldship's clock is paused while a program runs on an isolating
+world.
+
+**The clock.** After the second water world the worldship takes no more
+headings. Every `TENRETNI_QUICK_WAIT` + ~50 s it sails to and consumes the
+next of Shadowreach, Actuality, Stevenlacey (the assimilator's short form: no
+tube, no drain; ×1.12 growth each), then Wavemall Prime, Saturnia and Rustia
+`TENRETNI_SIEGE_WAIT` (4 min) apart. With nothing left it flies into the
+wormhole and is gone (`end: 'gone'`), unless the pilot is docked at or walking
+the capital, in which case it waits. There is no reset.
+
+**The war** (`src/fleets.js`, `world/warships.js`, `src/explosion.js`). The
+worldship's first meal launches the fleets of the three worlds it reaches
+last. Three warships guard each of Rustia (iron wedges with ember seams),
+Saturnia (pale spindles ringed in halos) and Wavemall Prime (stacked blocks
+with dance-floor lights that cycle colour); two freighters shuttle on each of
+the three routes between them. A class is two merged geometries shared by all
+its ships. Positions are a function of the clock and the planets' live
+positions, so nothing is simulated or saved. All fifteen are on the NAV chart
+under FLEETS and the autopilot flies to them. Once the quick worlds are gone,
+the next planet's warships are wrapped in a dogfight (one swarm `Points` and
+flickering tracer lines each); as the planet is assimilated they explode one
+by one, and freighters die with either end of their route.
+
+**Boarding** (`world/warships.js` `buildDeck`, `src/turretGun.js`). Fly close
+to any fleet ship and it takes the helm: one `DOCKS` entry (`vessel`) serves
+them all, with a stand-in planet centred on the nearest ship so the Sky City's
+arc-and-descend flies round a moving hull. G steps out onto a deck kit built
+on first boarding: the pad, a gangway to starboard and an open bridge wing
+with the captain, two crew (alien rigs) and, on warships, a gunnery console.
+`src/capitalWalk.js` walks it unchanged, and gained a gun mode. The captain
+offers a comm channel (`comms[faction]`, saved). The console seats the pilot
+at the ship's lance: aim, half-second charge, beam; a hit on any other fleet
+ship destroys it for good (`lost[]`, saved) and helps nobody but the
+worldship. A ship the pilot is docked on or walking cannot be lost.
+
+**The ending** (`src/endgame.js`). With a channel open to all three fleets, at
+least one warship left in each, and the pilot's ship within 9,000 units of the
+worldship, a CALL THE FLEETS control appears (H, or a tap). One 74 s script:
+every surviving warship jumps to a ring round the worldship (`fleets.muster`),
+charges, and fires together; white; the worldship is removed and a new star
+burns in its place; each remaining world (the coin included) falls into the
+old sun and bursts; the black hole crosses to the sun and swallows it. Saved
+as `end: 'star'` with the star's absolute position, and re-laid on every load
+and world reset: no planets, no sun (`sun.gone`), the black hole where the sun
+was, THE NEW STAR on the chart, the warships on a ring round it, freighters
+adrift, the wormhole. The other ending is `end: 'gone'` (the clock ran out).
+Neither can be undone.
 
 ### 5.8 The Sky City (Saturnia)
 

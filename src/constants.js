@@ -460,6 +460,8 @@ export const C = {
   TENRETNI_SPHERE_RADIUS: 900.0,
   TENRETNI_TUNNEL_RADIUS: 190.0,
   TENRETNI_CITY_SPAN: 0.3, // rad: angular radius of the city on terra
+  TENRETNI_QUICK_WAIT: 10.0, // seconds the worldship idles before each of the three quick worlds
+  TENRETNI_SIEGE_WAIT: 240.0, // ...and before each of the last three planets
   TENRETNI_STRIKE_BIAS: 0.55, // 0 strikes terra facing the sphere, 1 facing the patio
   TENRETNI_HDR: 1.5, // emissive scale of the lights, beams and swarm
 };

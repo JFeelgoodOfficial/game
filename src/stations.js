@@ -622,6 +622,12 @@ export function updateStations(t, shipPos) {
     // spin 0 means a deliberately fixed orientation (Port Feelgood's bore
     // stays aimed down the route) — don't clobber its quaternion
     if (s.spin && animate) s.group.rotation.y = t * s.spin;
+    // a station whose world has been taken out of space goes with it
+    const host = planets[s.orbit ? s.orbit.planetIndex : s.planetIndex];
+    if (host && host.removed) {
+      s.group.visible = false;
+      continue;
+    }
     if (s.orbit) {
       const p = planets[s.orbit.planetIndex].group.position;
       const a = s.orbit.phase + t * s.orbit.rate;

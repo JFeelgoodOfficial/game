@@ -44,6 +44,7 @@ export const CARGO = {
 };
 export const UPGRADES = {
   patio: { name: 'Aft Patio', hint: 'An open deck off the stern lounge. Stand up (C) and walk aft.' },
+  holodeck: { name: 'Holodeck', hint: 'A door on the starboard side of the gallery. The panel inside runs worlds that are gone.' },
 };
 let cargo = new Set(); // carried quest cargo ids (persisted)
 let upgrades = new Set(); // owned ship upgrade ids (persisted)

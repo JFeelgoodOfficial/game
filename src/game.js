@@ -47,9 +47,12 @@ import {
 import { initHolonav, updateHolonav, isHoloOpen, holonavDebug } from './holonav.js';
 import { navMenuDebug } from './navmenu.js';
 import { startAutoWarp, stepAutopilot, autopilotActive, cancelAutopilot } from './autopilot.js';
+import { showViewToast } from './walkview.js';
+import { initHoloPanel, openHoloPanel, closeHoloPanel, isHoloPanelOpen, holoPanelDebug } from './holoPanel.js';
 import {
   initTenretni, updateTenretni, tenretniHolding, stepTenretniHold, resetTenretni,
-  tenretniFx, tenretniDebug, capitalDock, tenretniSailVelocity,
+  tenretniFx, tenretniDebug, capitalDock, tenretniSailVelocity, holoPrograms, holoWorld,
+  nearestVessel, vesselSite, holdVessel,
 } from './tenretniLazy.js';
 import {
   interiorScene,
@@ -68,6 +71,8 @@ import {
   playerState,
   setPrompt,
   onPatioDeck,
+  nearHoloPanel,
+  holoPanelSpot,
 } from './interior.js';
 import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
 import {
@@ -259,9 +264,10 @@ initCapture(renderer);
 initCredits();
 initArtView();
 initTerrariumView();
+initHoloPanel();
 initSfx();
 initJournal();
-initTenretni({ scene, planets, camera }); // the governor's secret; reads the journal
+initTenretni({ scene, planets, camera, coin }); // the governor's secret; reads the journal
 // A save in which the charge already went off: Neptunia stays broken.
 if (questStage(CHARGE_QUEST) === 'blown') shatter.apply();
 initInventory();
@@ -571,7 +577,27 @@ if (import.meta.env.DEV) {
       setOnSkyPad(CAPITAL_DOCK);
       return true;
     },
+    // The war fleets: park on / step out onto the ship with this id.
+    vesselDock(id) {
+      const v = tenretniDebug().fleets()?.ships.find((x) => x.id === id);
+      if (!v || !v.alive) return false;
+      VESSEL_DOCK.vessel = v;
+      VESSEL_DOCK.planet.body.position = v.group.position;
+      VESSEL_DOCK.planet.radius = v.cls.radius * 0.8;
+      setOnSkyPad(VESSEL_DOCK);
+      return true;
+    },
+    vesselStepOut() {
+      if (dock !== VESSEL_DOCK || !VESSEL_DOCK.stepOut()) return false;
+      platformDock = VESSEL_DOCK;
+      landState = null;
+      landedPlanet = null;
+      skyLanding = false;
+      phase = 'walk';
+      return true;
+    },
     capitalStepOut() {
+      platformDock = CAPITAL_DOCK;
       if (!capitalDock() || !enterCapitalWalk(capitalDock())) return false;
       landState = null;
       landedPlanet = null;
@@ -684,6 +710,15 @@ if (import.meta.env.DEV) {
     },
     navState,
     tenretni: tenretniDebug(),
+    holodeck: {
+      active: () => (holo ? holo.id : null),
+      start: (id) => startHolo(id),
+      end: () => endHolo(),
+      programs: () => holoPrograms(),
+      panel: holoPanelDebug,
+      near: () => nearHoloPanel(),
+      spot: () => holoPanelSpot(),
+    },
     cockpit: cockpitDebug(),
     holo: holonavDebug(),
     navMenu: navMenuDebug(),
@@ -1132,6 +1167,7 @@ function enterHeaven() {
   closeCredits();
   closeArtView();
   closeTerrariumView();
+  closeHoloPanel();
   setCockpitStanding(false);
   closeRadioPopup();
   closeVehicleMenu();
@@ -1288,8 +1324,33 @@ const DOCKS = [
     },
     stepOut: () => enterCapitalWalk(capitalDock()),
   },
+  {
+    // A warship or freighter of the war fleets (src/fleets.js). One entry
+    // serves them all: `vessel` is whichever ship is nearest, re-chosen each
+    // tick until one captures, and `planet` is a stand-in whose centre is that
+    // ship — so the same arc-then-descend flies round a hull as round a world.
+    // The ship is moving the whole time; the pose is read from it live.
+    id: 'vessel', vessel: null, armed: true, freeze: false,
+    planet: { body: { position: new THREE.Vector3() }, radius: 300, cfg: { name: 'vessel' } },
+    get approach() { return `${this.vessel.label} — WE HAVE YOUR HELM`; },
+    get welcome() { return `${this.vessel.label} — PERMISSION TO COME ABOARD`; },
+    label: 'AUTO-LANDING · FLEET',
+    pose() {
+      const v = this.vessel;
+      const g = v.group;
+      _skyUp.set(0, 1, 0).applyQuaternion(g.quaternion);
+      _skyPad.copy(v.cls.pad).applyQuaternion(g.quaternion).addScaledVector(_skyUp, C.PARK_LIFT);
+      _skyHover.copy(_skyPad).addScaledVector(_skyUp, 160);
+      _landUprightQuat.copy(g.quaternion);
+      _skyPadLive.copy(_skyPad);
+      _skyQuatLive.copy(_landUprightQuat);
+    },
+    stepOut() { return enterCapitalWalk(vesselSite(this.vessel)); },
+  },
 ];
 const CAPITAL_DOCK = DOCKS[2];
+const VESSEL_DOCK = DOCKS[3];
+let platformDock = null; // the dock whose platform the pilot is walking (capital or a ship)
 let dock = DOCKS[0]; // the dock in play while skyLanding is set
 let walkDock = null; // the dock the current walk stepped out of, if it will be boarded back onto its pad
 function skyPadPose() {
@@ -1437,6 +1498,14 @@ function checkSkyCapture() {
   for (const d of DOCKS) {
     if (d.id === 'reach' && shatter.active) continue; // there is no flight deck any more
     if (d === CAPITAL_DOCK && !capitalDock()) continue; // not built (yet)
+    if (d === VESSEL_DOCK) {
+      const v = nearestVessel(ship.position);
+      if (!v) continue;
+      d.vessel = v;
+      d.planet.body.position = v.group.position; // live: the ship is under way
+      d.planet.radius = v.cls.radius * 0.8;
+    }
+    if (d.planet.removed) continue; // the worldship has eaten it
     const r = ship.position.distanceTo(d.planet.body.position);
     if (!d.armed) {
       if (r > skyShellRadius(d) + C.SKY_REARM_MARGIN) d.armed = true;
@@ -1583,6 +1652,7 @@ function setOnCoinPad(face) {
 
 // Capture check, once per physics tick in free flight.
 function checkCoinCapture() {
+  if (coin.removed) return; // the worldship has eaten it
   const r = ship.position.distanceTo(coin.group.position);
   if (!coinArmed) {
     if (r > C.COIN_CAPTURE + C.COIN_REARM_MARGIN) {
@@ -1844,7 +1914,103 @@ const hintEl = document.getElementById('hint');
 // the keys. Last frame's value feeds the on-foot context button.
 let hudPrompt = null;
 
+// --- the holodeck (src/holodeck.js, src/holoPanel.js, src/tenretni.js) --------
+// A program is a walk on a world the worldship has taken out of space. The
+// world is put back for the length of the session (tenretniLazy holoWorld),
+// the ship is moved there on paper — its real place is kept, in absolute
+// coordinates, because every step of a walk can rebase the origin — and the
+// ordinary walk runs. Ending it undoes all of that and stands the pilot back
+// at the panel.
+let holo = null;
+
+function startHolo(id) {
+  if (holo || phase !== 'fly' || !walkLoaded() || autopilotActive() || tenretniHolding()) return false;
+  if (landState === 'auto' || coinLanding) return false;
+  const w = holoWorld(id, true);
+  if (!w) return false;
+  holo = {
+    id,
+    x: originOffset.x + ship.position.x, y: originOffset.y + ship.position.y, z: originOffset.z + ship.position.z,
+    quat: ship.quaternion.clone(),
+    landState, landedPlanet, skyLanding,
+  };
+  closeHoloPanel();
+  closeCredits();
+  closeArtView();
+  closeTerrariumView();
+  closeRadioPopup();
+  standing = false;
+  standBlend = 0;
+  setCockpitStanding(false);
+  landState = null;
+  landedPlanet = null;
+  skyLanding = false;
+  heat = 0;
+  ship.velocity.set(0, 0, 0);
+  ship.angularVelocity.set(0, 0, 0);
+  let ok = true;
+  if (id === 'stevenlacey') {
+    setOnCoinPad(HEADS);
+    ok = !!enterCoinWalk(coin, HEADS, camera);
+    landState = null;
+    coinLanding = false;
+  } else {
+    // where to set down: the town on worlds that have one (the ski hill is
+    // built beside it), otherwise the daylight side
+    const site = citiesForWorld(id)[0]?.site;
+    if (site) _lv0.copy(site).applyAxisAngle(_yAxis, w.surface.rotation.y);
+    else _lv0.copy(w.sunBase);
+    ship.position.copy(w.body.position).addScaledVector(_lv0.normalize(), w.radius + 60);
+    beginWalk(w);
+  }
+  if (!ok) {
+    endHolo();
+    return false;
+  }
+  phase = 'walk';
+  accumulator = 0;
+  flash = 1;
+  flashFade = 1.4;
+  showViewToast('HOLODECK — G — END PROGRAM', 6);
+  return true;
+}
+
+// `resetting`: called from resetToStart, which puts the ship and the pilot
+// where it wants them itself.
+function endHolo(resetting = false) {
+  if (!holo) return;
+  const h = holo;
+  holo = null;
+  if (phase === 'walk') endWalk();
+  if (h.id === 'stevenlacey') {
+    coinLanding = false;
+    coinLiftT = -1;
+    coin.release(true);
+  }
+  holoWorld(h.id, false);
+  if (resetting) return;
+  ship.position.set(h.x - originOffset.x, h.y - originOffset.y, h.z - originOffset.z);
+  ship.quaternion.copy(h.quat);
+  ship.velocity.set(0, 0, 0);
+  ship.angularVelocity.set(0, 0, 0);
+  heat = 0;
+  landState = h.landState;
+  landedPlanet = h.landedPlanet;
+  skyLanding = h.skyLanding;
+  standing = true;
+  standBlend = 1;
+  setCockpitStanding(true);
+  const spot = holoPanelSpot();
+  if (spot) placePlayer(spot.x, spot.z, -Math.PI / 2); // facing the panel
+  snapCamera(ship);
+  phase = 'fly';
+  accumulator = 0;
+  flash = 1;
+  flashFade = 1.4;
+}
+
 function resetToStart() {
+  endHolo(true); // a program running when the world resets is simply over
   // Safety net for every path that bypasses both liftoff and boarding: the
   // collapse/respawn reset, the menu launch, debug.launch(), and the actuality
   // finale's game reset. A stranded pause would hand the flight sim an invisible
@@ -1882,6 +2048,7 @@ function resetToStart() {
   closeCredits();
   closeArtView();
   closeTerrariumView();
+  closeHoloPanel();
   setCockpitStanding(false);
   closeRadioPopup();
   closeVehicleMenu();
@@ -1989,6 +2156,13 @@ function frame(now) {
     ship.quaternion.multiply(_menuQ);
   }
 
+  // A holodeck program ends on G, wherever the pilot is in it — and on the two
+  // endings that would otherwise throw them out into flight (Actuality's
+  // finale reset, the coin folding itself up).
+  if (phase === 'walk' && holo && (input.toggleWalk || walkPendingReset() || coinLeft())) {
+    input.toggleWalk = false;
+    endHolo();
+  }
   if (phase === 'fly') {
     // C: stand up out of the seat / sit back down at it. Standing is
     // blocked at warp (nobody walks at 10,000 u/s); sitting requires being
@@ -2004,6 +2178,8 @@ function frame(now) {
         closeCredits(); // never leave a popup up in the pilot seat
         closeArtView();
         closeTerrariumView();
+        closeHoloPanel();
+  closeHoloPanel();
       }
     }
     // E while standing: read the plaque, look closer at a canvas, or close
@@ -2014,11 +2190,13 @@ function frame(now) {
       if (isCreditsOpen()) closeCredits();
       else if (isArtViewOpen()) closeArtView();
       else if (isTerrariumViewOpen()) closeTerrariumView();
+      else if (isHoloPanelOpen()) closeHoloPanel();
       else if (standBlend > 0.5 && nearPlaque()) openCredits();
       else if (standBlend > 0.5) {
         const art = nearPainting();
         if (art) openArtView(art.file, art.title);
         else if (nearTank()) openTerrariumView();
+        else if (nearHoloPanel()) openHoloPanel(holoPrograms(), startHolo);
       }
     }
     setCockpitStanding(standing);
@@ -2095,6 +2273,7 @@ function frame(now) {
         // go — and stepping out needs the on-foot chunk to have arrived.
         if (landState === 'landed' && skyLiftT < 0 && dock.stepOut()) {
           walkDock = dock.freeze ? dock : null;
+          platformDock = dock;
           landState = null;
           landedPlanet = null;
           skyLanding = false;
@@ -2221,7 +2400,7 @@ function frame(now) {
             coinBeginLeave();
           } else if (skyActive() || capitalActive()) {
             // Back into the seat, still parked on the pad: W lifts off.
-            const d = capitalActive() ? CAPITAL_DOCK : DOCKS[0];
+            const d = capitalActive() ? platformDock || CAPITAL_DOCK : DOCKS[0];
             endWalk();
             setOnSkyPad(d);
             snapCamera(ship);
@@ -2431,7 +2610,7 @@ function frame(now) {
     closeRadioPopup(); // a flight dialog has no business over the walk HUD
     // "E — TALK" while an alien/creature is in range (dialogue hints are on
     // the dialogue panel itself). Reuses the interior prompt element.
-    hudPrompt = walkPromptText();
+    hudPrompt = walkPromptText() || (holo ? 'G — END PROGRAM' : null);
     // Touch: the context button carries the keyed half of the prompt.
     setPrompt(touchify(hudPrompt, { drop: true }));
   } else {
@@ -2444,13 +2623,14 @@ function frame(now) {
     if (phase === 'fly') {
       if (standing) {
         let prompt = null;
-        if (standBlend > 0.5 && !isCreditsOpen() && !isArtViewOpen() && !isTerrariumViewOpen()) {
+        if (standBlend > 0.5 && !isCreditsOpen() && !isArtViewOpen() && !isTerrariumViewOpen() && !isHoloPanelOpen()) {
           if (nearSeat()) prompt = 'C — SIT';
           else if (nearPlaque()) prompt = 'E — READ';
           else {
             const art = nearPainting();
             if (art) prompt = art.prompt || (art.prompt = `${art.title.toUpperCase()} · E — VIEW`);
             else if (nearTank()) prompt = 'THE TERRARIUM · E — LOOK CLOSER';
+            else if (nearHoloPanel()) prompt = 'HOLODECK · E — CHOOSE PROGRAM';
           }
         }
         hudPrompt = prompt;
@@ -2502,7 +2682,14 @@ function frame(now) {
     updateTenretni(
       delta, now / 1000,
       phase === 'fly' && standing && onPatioDeck(),
-      phase === 'fly' && !paused
+      phase === 'fly' && !paused,
+      (skyLanding && dock === CAPITAL_DOCK) || (capitalActive() && platformDock === CAPITAL_DOCK)
+    );
+    // a ship the pilot is docked on or walking cannot be lost from under them
+    holdVessel(
+      (skyLanding && dock === VESSEL_DOCK) || (capitalActive() && platformDock === VESSEL_DOCK)
+        ? VESSEL_DOCK.vessel.id
+        : null
     );
   }
   // On foot (isolated) as much as in flight: the sea keeps running either way.

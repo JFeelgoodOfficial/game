@@ -322,3 +322,51 @@ places: plaza (0,0,30), command dais (0,3,-67), navigation console (79.5,0,0),
 pad (10,0,91). `tenretni.story()` returns the dialogue source; `tenretni.sail(name)`
 starts a voyage without the console (`'wyattmattoe' | 'neptunia'`), about 42 s.
 
+Assimilation (stage `ship`): arriving from `tenretni.sail(name)` starts it by
+itself. `state()` adds `eaten[], size, radius, eatingNow {name, u}, removed[]`.
+`tenretni.eat(u)` seeks its clock (beats: melt 12–26 on wyattmattoe only, swarm
+27, strike 56, drain to 73, break-up 84–104, growth to 112). Afterwards the
+planet is in `removed`, absent from `navMenu.rows('planets')`, and
+`planets[0].radius` is 1500 then 2250. Do NOT call `__debug.launch()` mid-way:
+a world reset finishes the assimilation instantly. Park the test ship well
+clear before a voyage (`ship.position.y += 40000`) or the capital's dock will
+capture it as the worldship sails past.
+
+Holodeck and clock: seed `fgsf.tenretni` with `eaten: ['neptunia','wyattmattoe']`,
+`size: 2.25` and the `holodeck` upgrade is granted at load. `__debug.holodeck` →
+`{active(), start(id), end(), programs(), panel(), near(), spot()}` (note:
+`__debug.holo` is the navigation hologram). The room: `interior.stand()`, then
+`interior.place(spot.x, spot.z, -Math.PI / 2)` puts you at the panel; key `e`
+opens it, a digit runs a program, `g` ends it. After a program the ship's
+absolute position (`originOffset + ship.position`) must equal what it was, and
+`tenretni.state().removed` must list the world again. Programs build real
+worlds: allow 10 s+ and long screenshot timeouts. `tenretni.clock(sec)` sets
+the idle clock: a large value makes the next meal start at once, a large
+negative one holds it off. `state()` adds `clock, next, exiting, ended`.
+
+Fleets: exist once `eaten` has any entry. `tenretni.state().fleets` →
+`[{id, alive, kind, pos}]` (ids like `rustia:w0`, `saturnia:f1`,
+`wavemall prime:w2`); `tenretni.fleets()` is the live object (`ships[].group`,
+`destroy(id)`, `alive(faction)`). `navMenu.rows('fleets')` lists them and
+`navMenu.tap(id)` flies there (stops ~2.4 hull radii out). Freighters move
+~200 u/s: frame them quickly or pause.
+
+Boarding: put the ship ~900 above a fleet ship (along its own +Y) moving in;
+wait for `skyState().landState === 'landed'` with `dock: 'vessel'`
+(`__debug.vesselDock(id)` skips the flight, `vesselStepOut()` skips G). On foot
+it is `walkSite().capital` again; `fleets().ships[i].site.places` →
+`{pad, bridge, gun}`. Captain: stand at `bridge` +7 in x, key `e` through the
+lines, `1` opens the channel (`tenretni.comms()`). Gun: stand at `gun`, `e`
+seats you (`capital.gun.active`), set `gun.yaw/aimYaw/pitch/aimPitch` to the
+target's bearing in the ship's own frame, `e` fires; the target's `alive`
+goes false and its id is in `fgsf.tenretni.lost`. `g` stands down.
+
+The ending: `tenretni.setComms(true)` opens all three channels; put the ship
+within 9000 of terra's surface and `tenretni.end().state()` → `{v, done, ready,
+missing, star}` reads `ready: true` and the CALL THE FLEETS button shows; key
+`h` calls. `tenretni.end().seek(u)` jumps the script (ring by 20, volley
+30–34, star at 34, falls from 38, black hole 62, done 74). Afterwards
+`planets.every(p => p.removed)`, `sun.group.visible === false`, the black hole
+is at the sun's position, and a reload or `launch()` must come back the same.
+The run is destructive to the save: use a fresh browser context.
+

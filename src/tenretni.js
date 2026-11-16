@@ -50,13 +50,18 @@ import { ship } from './ship.js';
 import { input } from './input.js';
 import { Q } from './quality.js';
 import { questStage, setQuestStage, addCodex } from './journal.js';
-import { setPlanetDrain, setPlanetShip, planets } from './planet.js';
+import { setPlanetDrain, setPlanetShip, setPlanetScale, setPlanetMelt, removePlanet, planets } from './planet.js';
+import { createAssimilator } from './assimilate.js';
+import { createFleets } from './fleets.js';
+import { createExplosions } from './explosion.js';
+import { createEndgame } from './endgame.js';
+import { grantUpgrade, hasUpgrade } from './inventory.js';
 import { sun } from './sun.js';
 import { addShiftable } from './origin.js';
 import { createCapital } from '../world/capital.js';
 import coreFrag from './shaders/tenretniCore.frag?raw';
 import shellFrag from './shaders/tenretniShell.frag?raw';
-import { showNavToast, hideNavToast } from './nav.js';
+import { showNavToast, hideNavToast, setNavHidden } from './nav.js';
 import { showViewToast } from './walkview.js';
 import { setEventRumble, uiSound } from './sfx.js';
 import commonVert from './shaders/tenretni.vert?raw';
@@ -81,6 +86,26 @@ const SPIRES = 700;
 const SAIL_TIME = 42; // seconds for a voyage
 const SAIL_STANDOFF = 2500; // gap left between the two worlds on arrival
 const WATER_WORLDS = { wyattmattoe: 'Wyattmattoe', neptunia: 'Neptunia' };
+// Every world the worldship can end up beside, by the name it is saved under.
+const LABELS = {
+  ...WATER_WORLDS, shadowreach: 'Shadowreach', actuality: 'Actuality', stevenlacey: 'Stevenlacey',
+  'wavemall prime': 'Wavemall Prime', saturnia: 'Saturnia', rustia: 'Rustia',
+};
+// Once both water worlds are gone the worldship stops taking headings and
+// feeds by the clock: these three a minute apart, then these three slowly.
+const QUICK = ['shadowreach', 'actuality', 'stevenlacey'];
+const SIEGE = ['wavemall prime', 'saturnia', 'rustia'];
+const QUICK_SAIL = 18;
+const SIEGE_SAIL = 30;
+const SMALL_GROWTH = 1.12;
+const EXIT_TIME = 34; // seconds from the last meal to gone through the wormhole
+// The holodeck's programs: assimilated worlds with something worth keeping.
+const PROGRAMS = [
+  { id: 'wyattmattoe', label: 'WYATTMATTOE', note: 'THE SKI HILL' },
+  { id: 'shadowreach', label: 'SHADOWREACH', note: 'THE DREAM' },
+  { id: 'actuality', label: 'ACTUALITY', note: 'THE GROUNDS' },
+  { id: 'stevenlacey', label: 'STEVENLACEY', note: 'THE COIN' },
+];
 const T_STRIKE = 56;
 const SWARM_COUNT = { low: 4000, medium: 12000, high: 30000, ultra: 30000 };
 const BEAMS = 170;
@@ -105,6 +130,30 @@ let sail = null; // { name, target, t, rel: Vector3, off: Vector3 } while under 
 let capital = null; // world/capital.js, built at T_CAPITAL
 let shipBuilt = false;
 const sailVel = new THREE.Vector3();
+// What the worldship has done since: the planets it has taken apart
+// (src/assimilate.js), how big that has made it, and the one it is on now.
+let eaten = [];
+let size = 1; // multiple of terra's built size
+let eating = null;
+let assim = null;
+let shield = null;
+let shieldU = null;
+let coin = null; // stevenlacey (world/coinworld.js): a world, but not a planet
+let clockT = 0; // seconds idle since the last meal
+let exit = null; // { t, rel: Vector3 } while leaving through the wormhole
+let ended = null; // 'gone' once it has left; 'star' once the fleets have killed it
+let endgame = null; // src/endgame.js, built with the fleets
+let starSaved = null; // the new star's absolute position (saved)
+// The war (src/fleets.js): begins with the worldship's first meal.
+let fleets = null;
+let explosions = null;
+const lost = new Set(); // ships destroyed by gunfire (saved); siege losses follow from `eaten`
+const comms = {}; // faction -> true once its captain has opened a channel (saved)
+const _siege = { name: null, k: 0 };
+const waterDone = () => Object.keys(WATER_WORLDS).every((k) => eaten.includes(k));
+// A world by name: a planet record, or the coin dressed as one.
+const worldByName = (name) => planets.find((p) => p.cfg.name === name) || (name === 'stevenlacey' ? coin : null);
+const GROWTH = 1.5; // each water world makes it half as big again
 const anchor = new THREE.Group(); // terra's first position; the event frame hangs here
 let glideT = 0;
 let playT = 0; // seconds of script played
@@ -399,7 +448,15 @@ function loadSaved() {
     cityDir = readDir(raw?.city);
     boreDir = readDir(raw?.bore);
     if (Number.isFinite(raw?.rotY)) rotLock = raw.rotY;
-    if (raw?.at && WATER_WORLDS[raw.at]) at = raw.at;
+    if (raw?.at && LABELS[raw.at]) at = raw.at;
+    if (Array.isArray(raw?.eaten)) eaten = raw.eaten.filter((n) => !!LABELS[n]);
+    if (raw?.end === 'gone' || raw?.end === 'star') ended = raw.end;
+    if (Array.isArray(raw?.star) && raw.star.length === 3 && raw.star.every(Number.isFinite)) starSaved = raw.star;
+    if (raw?.calling) ended = 'star'; // the call was made: it finished
+    if (Array.isArray(raw?.lost)) for (const id of raw.lost) if (typeof id === 'string') lost.add(id);
+    if (raw?.comms && typeof raw.comms === 'object') for (const k of Object.keys(raw.comms)) if (raw.comms[k]) comms[k] = true;
+    if (Number.isFinite(raw?.size) && raw.size >= 1) size = raw.size;
+    if (typeof raw?.eating === 'string') eating = raw.eating;
   } catch {
     // unreadable save: whatever is missing is recomputed
   }
@@ -412,6 +469,14 @@ function save() {
       bore: boreDir ? boreDir.toArray() : undefined,
       rotY: rotLock ?? undefined,
       at,
+      eaten,
+      size,
+      eating: eating ?? undefined,
+      end: ended ?? undefined,
+      star: (endgame && endgame.starAbs()) || starSaved || undefined,
+      calling: endgame && endgame.active() ? true : undefined,
+      lost: lost.size ? [...lost] : undefined,
+      comms: Object.keys(comms).length ? comms : undefined,
     }));
   } catch {
     // storage full or blocked: the world still changes for this session
@@ -425,12 +490,20 @@ export function init(deps, fxOut) {
   camera = deps.camera;
   scene = deps.scene;
   fx = fxOut;
+  coin = deps.coin || null;
+  if (coin && !coin.cfg) coin.cfg = { name: 'stevenlacey' };
   buildFrame();
   buildWormhole();
   buildSphere();
   buildSwarm();
   buildTunnel();
   buildCity();
+  assim = createAssimilator({
+    scene, terra, camera, fx, sunWorld, setRumble,
+    find: worldByName,
+    grow: growTo,
+    done: ateOne,
+  });
   const stage = questStage(SECRET);
   if (stage === 'ship') {
     // the finished world: everything in its last pose, parked where it was left
@@ -439,7 +512,7 @@ export function init(deps, fxOut) {
     if (rotLock !== null) terra.spinLock = rotLock;
     state = 'rest';
     pose(END);
-    if (at !== 'terra') parkAt(at);
+    restoreEaten();
   } else if (stage === 'done') {
     // act one was seen; act two has not run. It runs now, wherever the ship is.
     loadSaved();
@@ -497,6 +570,36 @@ function buildShip() {
   rimU = rimMat.uniforms;
   rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.035, 10, 96).rotateX(Math.PI / 2), rimMat);
   boreGroup.add(rim);
+
+  // the shield: an iris of plates that closes over the bore once the world
+  // has fed (uClose 0 open .. 1 shut, closing from the rim inward)
+  shieldU = { uClose: { value: 0 }, uSun: { value: sunWorld }, uTime: { value: 0 }, uHdr: { value: C.TENRETNI_HDR } };
+  shield = new THREE.Mesh(
+    new THREE.SphereGeometry(R * 1.006, 72, 24, 0, Math.PI * 2, 0, BORE_ANGLE + 0.03),
+    new THREE.ShaderMaterial({
+      uniforms: shieldU,
+      vertexShader: commonVert,
+      fragmentShader: `varying vec2 vUv; varying vec3 vWorldNormal; varying vec3 vView;
+        uniform float uClose; uniform vec3 uSun; uniform float uTime; uniform float uHdr;
+        void main() {
+          if (vUv.y > uClose) discard;                 // v = 0 at the rim, 1 at the centre
+          float petal = fract(vUv.x * 12.0 + vUv.y * 0.6);
+          float seam = 1.0 - smoothstep(0.0, 0.035, min(petal, 1.0 - petal));
+          float band = 1.0 - smoothstep(0.0, 0.04, abs(fract(vUv.y * 5.0) - 0.5));
+          vec3 N = normalize(vWorldNormal), S = normalize(uSun), V = normalize(vView);
+          float day = smoothstep(-0.1, 0.5, dot(N, S));
+          vec3 base = vec3(0.16, 0.17, 0.18) * (0.8 + 0.4 * step(0.5, fract(vUv.x * 6.0)));
+          vec3 lit = base * (0.07 + 1.3 * day) * (1.0 - 0.7 * seam);
+          lit += vec3(0.6) * pow(max(dot(N, normalize(S + V)), 0.0), 30.0) * day;
+          lit += vec3(0.15, 1.0, 0.45) * (seam * 0.5 + band * 0.12) * uHdr * (0.7 + 0.3 * sin(uTime * 1.3));
+          lit += vec3(1.0, 0.5, 0.15) * smoothstep(uClose - 0.03, uClose, vUv.y) * 2.0; // the closing lip, lit from inside
+          gl_FragColor = vec4(lit, 1.0);
+        }`,
+      side: THREE.DoubleSide,
+    })
+  );
+  shield.visible = false;
+  boreGroup.add(shield);
 
   // engines: three bells opposite the bore, each with a plume
   engines = new THREE.Group();
@@ -616,15 +719,34 @@ const ROBOT_NAMES = {
 };
 const who = (role) => ({ name: ROBOT_NAMES[role] || 'Unit', species: 'Tenretni', cityId: 'Tenretni Capital' });
 const CONSOLE = { name: 'Navigation Console', species: 'Tenretni Capital', cityId: 'Tenretni Capital' };
-const hereName = () => WATER_WORLDS[at] || 'Terra';
+const hereName = () => LABELS[at] || 'Terra';
 
 const STORY = {
   talk(role, i) {
     const speaker = who(role);
     if (sail) {
       return { speaker, lines: role === 'warden'
-        ? [`Under way. Heading: ${WATER_WORLDS[sail.name]}. Do not leave the deck.`]
+        ? [`Under way. Heading: ${LABELS[sail.name]}. Do not leave the deck.`]
         : ['Under way.'] };
+    }
+    if (assim.active()) {
+      return { speaker, lines: role === 'warden'
+        ? [`${LABELS[assim.target()]} is being taken in. Watch, if you like.`]
+        : ['Assimilating.'] };
+    }
+    if (role === 'warden' && eaten.length) {
+      const left = Object.keys(WATER_WORLDS).filter((k) => !eaten.includes(k));
+      return { speaker, lines: left.length
+        ? [
+          `${WATER_WORLDS[eaten[eaten.length - 1]]} is part of this world now. We are larger. The count is correct.`,
+          `One world with water remains in your log: ${WATER_WORLDS[left[0]]}. The navigation deck is open to you.`,
+        ]
+        : [
+          'Two oceans. Both ours. This world has air again, and a shield over its heart.',
+          'You have been useful, pilot. Tenretni does not forget what is useful: your vessel has a new room. Starboard side of your gallery.',
+          'It holds what we hold. Every world we take in will be there for you to walk. The first is the ice world you gave us.',
+          'We no longer need a heading. The count continues without you.',
+        ] };
     }
     if (role === 'warden') {
       if (at !== 'terra') {
@@ -656,13 +778,26 @@ const STORY = {
     return { speaker, lines: [counts[i % counts.length]] };
   },
   useConsole() {
-    if (sail) return { speaker: CONSOLE, lines: [`HEADING LOCKED: ${WATER_WORLDS[sail.name].toUpperCase()}. UNDER WAY.`] };
+    if (sail) return { speaker: CONSOLE, lines: [`HEADING LOCKED: ${LABELS[sail.name].toUpperCase()}. UNDER WAY.`] };
+    if (assim.active()) {
+      return { speaker: CONSOLE, lines: [`ASSIMILATING: ${LABELS[assim.target()].toUpperCase()}. HELM LOCKED.`] };
+    }
+    if (waterDone()) {
+      const next = nextMeal();
+      return { speaker: CONSOLE, lines: [
+        'HELM: AUTONOMOUS. PILOT INPUT NO LONGER REQUIRED.',
+        next ? `NEXT: ${LABELS[next].toUpperCase()}.` : 'NEXT: THE WAY WE CAME.',
+      ] };
+    }
     const options = Object.keys(WATER_WORLDS)
-      .filter((k) => k !== at)
+      .filter((k) => k !== at && !eaten.includes(k))
       .map((k) => ({
         label: k === 'wyattmattoe' ? 'Wyattmattoe — the ice world' : 'Neptunia — the deep ocean',
         outcomeTag: `tenretni:sail:${k}`,
       }));
+    if (!options.length) {
+      return { speaker: CONSOLE, lines: ['NAVIGATION DATA: EXHAUSTED.', 'NO WORLDS WITH WATER REMAIN IN YOUR LOG.'] };
+    }
     options.push({ label: 'Not yet.', outcomeTag: 'tenretni:sail:none' });
     return {
       speaker: CONSOLE,
@@ -686,16 +821,17 @@ const STORY = {
 
 // Where the worldship parks at `target`: on the line back toward `from`.
 function standoff(target, fromDir, out) {
-  return out.copy(fromDir).multiplyScalar(target.radius + terra.radius + SAIL_STANDOFF);
+  // (the target's built size: it may since have been scaled away to nothing)
+  return out.copy(fromDir).multiplyScalar((target.baseRadius ?? target.radius) + terra.radius + SAIL_STANDOFF);
 }
 
-function startSail(name) {
-  const target = planets.find((p) => p.cfg.name === name);
-  if (!target || sail || name === at || state !== 'rest') return false;
+function startSail(name, dur = SAIL_TIME) {
+  const target = worldByName(name);
+  if (!target || sail || exit || ended || name === at || state !== 'rest' || assim.active() || eaten.includes(name)) return false;
   const rel = new THREE.Vector3().subVectors(terra.group.position, target.group.position);
   const off = standoff(target, _a.copy(rel).normalize(), new THREE.Vector3());
   rel.sub(off); // from the parking spot back to where terra is now
-  sail = { name, target, t: 0, rel, off };
+  sail = { name, target, t: 0, rel, off, dur };
   at = name; // saved at once: a reload mid-voyage has already arrived
   save();
   fx.kick = 0.8;
@@ -704,7 +840,7 @@ function startSail(name) {
 }
 
 function stepSail(delta) {
-  sail.t = Math.min(sail.t + delta / SAIL_TIME, 1);
+  sail.t = Math.min(sail.t + delta / sail.dur, 1);
   const k = ease(sail.t);
   // written between live vectors, so a floating-origin rebase cannot fight it
   _a.copy(sail.target.group.position).add(sail.off).addScaledVector(sail.rel, 1 - k);
@@ -712,19 +848,357 @@ function stepSail(delta) {
   terra.group.position.copy(_a);
   setRumble(0.35 + 0.4 * Math.sin(Math.PI * sail.t));
   if (sail.t >= 1) {
-    const name = WATER_WORLDS[sail.name];
+    const name = LABELS[sail.name];
     sail = null;
     sailVel.set(0, 0, 0);
     setRumble(0);
     fx.kick = 0.6;
     showNavToast(`${name.toUpperCase()} — THE WORLD HOLDS HERE`, 7);
+    beginEat(at);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// feeding: the worldship takes the planet it has been brought to
+// ---------------------------------------------------------------------------
+
+function beginEat(name) {
+  const water = !!WATER_WORLDS[name];
+  if (eaten.includes(name) || !assim.start(name, size, size * (water ? GROWTH : SMALL_GROWTH), !water)) return;
+  eating = name; // saved: a reload part-way finds the planet already gone
+  save();
+}
+
+// The worldship is `k` times its built size; `g` 0..1 through this growth.
+function growTo(k, g) {
+  setPlanetScale(terra, k);
+  if (capital) capital.reseat(k);
+  dressShip(eaten.length + (g > 0 ? g : 0));
+}
+
+// What it wears for how much it has eaten (fractional while growing): after
+// one world the shield closes over the bore; after two it has air again.
+function dressShip(fed) {
+  if (!shipBuilt) return;
+  const close = clamp01(fed);
+  shield.visible = close > 0;
+  shieldU.uClose.value = ease(close);
+  const air = clamp01(fed - 1) * 0.55; // thin: a haze, not a glare
+  const a = terra.atmosphere.userData;
+  terra.atmosphere.visible = air > 0.02;
+  a.limbMat.uniforms.uColor.value.setRGB(0.1, 0.75, 0.38).multiplyScalar(air);
+  a.scatterMat.uniforms.uBeta.value
+    .set(0.1, 0.75, 0.38)
+    .multiplyScalar((C.ATMO_TAU / C.ATMO_SCALE_HEIGHT / 0.75) * air);
+}
+
+function ateOne(name, k1) {
+  eaten.push(name);
+  size = k1;
+  eating = null;
+  clockT = 0;
+  growTo(size, 0);
+  save();
+  addCodex(`${LABELS[name] || name}, assimilated`);
+  thank();
+  if (!fleets && !ended) {
+    startWar();
+    showNavToast('THE OTHER WORLDS HAVE SEEN IT. FLEETS ARE LAUNCHING.', 8);
+  }
+  if (PROGRAMS.some((p) => p.id === name) && hasUpgrade('holodeck')) {
+    showViewToast(`HOLODECK — NEW PROGRAM: ${LABELS[name].toUpperCase()}`, 7);
+  }
+}
+
+// Two oceans delivered: the worldship pays with a room (src/holodeck.js).
+function thank() {
+  if (!waterDone() || hasUpgrade('holodeck')) return;
+  grantUpgrade('holodeck');
+}
+
+// --- the war: the fleets of the worlds it has not reached yet ---
+
+function startWar() {
+  if (fleets || ended === 'gone' || !eaten.length) return;
+  explosions = createExplosions(scene);
+  fleets = createFleets({
+    scene,
+    find: worldByName,
+    explode: (pos, scale) => {
+      explosions.fire(pos, scale);
+      // close enough to feel it
+      if (pos.distanceToSquared(camera.position) < 9e6) fx.kick = Math.max(fx.kick, 0.5);
+    },
+    lost,
+    onLost: (id) => {
+      lost.add(id);
+      save();
+    },
+    story: FLEET_STORY,
+    sunDir: sunWorld,
+  });
+  endgame = createEndgame({
+    scene, camera, terra, fx, setRumble,
+    extra: coin ? [coin] : [],
+    fleets: () => fleets,
+    explode: (pos, scale) => explosions.fire(pos, scale),
+    comms,
+    worldshipAlive: () => !ended && !exit && state === 'rest',
+    killWorldship: () => {
+      if (assim.active()) assim.finishNow();
+      sail = null;
+      sailVel.set(0, 0, 0);
+      ended = 'star';
+      removePlanet(terra, true);
+      setNavHidden(terra.group.position, true);
+      addCodex('The New Star');
+    },
+    save,
+  });
+  if (ended === 'star') endgame.restore(starSaved || fallbackStar());
+}
+
+// A save that says the call was made but not where the star is (it was written
+// before the volley): where the worldship is now will do.
+const fallbackStar = () => [terra.group.position.x, terra.group.position.y, terra.group.position.z];
+
+// What the fleets' people say. A captain will open a comm channel if asked;
+// with all three open the pilot can call them together (the ending).
+const CAPTAINS = {
+  rustia: { title: 'Shift-Captain', names: ['Orrin Vask', 'Dela Roon', 'Haim Kett'] },
+  saturnia: { title: 'Cantor', names: ['Ilse Marrow', 'Teo Vandry', 'Suvi Aln'] },
+  'wavemall prime': { title: 'Floor Manager', names: ['Brandi Lux', 'Chad Meridian', 'Tawny Voss'] },
+};
+const VOICE = {
+  rustia: {
+    hello: [
+      'You are the pilot off that freighter. Wipe your boots. This deck was a smelter floor before it was a warship.',
+      'We watched that thing drink two oceans. Rustia has no ocean, and it is coming anyway.',
+      'Three fleets, three peoples who do not like each other much. Nobody has got us all in one place.',
+    ],
+    ask: 'Open a channel to this ship?',
+    yes: ['Done. One word from you and every furnace I have is pointed where you say.', 'Get the other two. Then get close to it, and call.'],
+    open: ['Channel is open. We are listening for you. Do not waste it.'],
+    crew: ['Seam pressure is holding. Mostly.', 'My brother went down the Emberdeep and came up a gunner. Strange days.'],
+  },
+  saturnia: {
+    hello: [
+      'Be welcome. You have come a long way through a great deal of noise.',
+      'We have sung over every world it has taken. We are tired of that song.',
+      'Our lances are true but they are few. It would take all of us, at once, at its heart.',
+    ],
+    ask: 'Ask for a channel to this ship?',
+    yes: ['It is given. When you call, the halos will answer.', 'Go to the iron people, and to the bright ones. Then stand before it and call.'],
+    open: ['We hold the channel open and we hold you in mind.'],
+    crew: ['The rings ring true today.', 'I have never fired in anger. I am practising the anger.'],
+  },
+  'wavemall prime': {
+    hello: [
+      'Hi! Welcome aboard the fleet, are you finding everything okay?',
+      'So that planet thing is technically a competitor now. Corporate has approved a response.',
+      'We cannot coordinate with the other fleets without a customer-side point of contact. That could be you!',
+    ],
+    ask: 'Sign up for a direct channel?',
+    yes: ['Amazing. You are all signed up. Call us any time and the whole fleet attends, no purchase necessary.', 'Get the other two on board and we will see you at the event.'],
+    open: ['Your channel is active! Is there anything else I can help you with today?'],
+    crew: ['Clean up on deck nine. It is always deck nine.', 'These lights were for the sales floor. Now they are targeting. Same lights.'],
+  },
+};
+const captainOf = (ship) => {
+  const c = CAPTAINS[ship.faction];
+  const i = Number(ship.id.slice(-1)) % c.names.length;
+  return { name: `${c.title} ${c.names[i]}`, species: LABELS[ship.faction], cityId: ship.name };
+};
+const FLEET_STORY = {
+  captain(ship) {
+    const v = VOICE[ship.faction];
+    const speaker = captainOf(ship);
+    if (ended) return { speaker, lines: ['It is over.'] };
+    if (comms[ship.faction]) {
+      const n = Object.keys(VOICE).filter((f) => comms[f]).length;
+      return { speaker, lines: [...v.open, n >= 3 ? 'All three fleets are on your word. Go and stand in front of it.' : `${n} of three fleets are with you.`] };
+    }
+    return {
+      speaker,
+      lines: v.hello.slice(),
+      offer: {
+        kind: 'choice',
+        prompt: v.ask,
+        options: [
+          { label: 'Yes. Open it.', outcomeTag: `fleet:comm:${ship.faction}` },
+          { label: 'Not now.', outcomeTag: 'fleet:comm:none' },
+        ],
+      },
+    };
+  },
+  crew(ship, i) {
+    return { speaker: { name: 'Crew', species: LABELS[ship.faction], cityId: ship.name }, lines: [VOICE[ship.faction].crew[i % 2]] };
+  },
+  choice(tag, ship) {
+    const m = /^fleet:comm:(.+)$/.exec(tag ?? '');
+    if (!m || !VOICE[m[1]] || m[1] !== ship.faction) return null;
+    comms[m[1]] = true;
+    save();
+    showViewToast(`COMM CHANNEL OPEN — ${ship.label}`, 6);
+    return { speaker: captainOf(ship), lines: VOICE[m[1]].yes.slice() };
+  },
+  // everything else out there, for the lance: the hull you stand on is not a target
+  targets(ship) {
+    _targets.length = 0;
+    for (const s of fleets.ships) {
+      if (!s.alive || s === ship || !s.group.visible) continue;
+      _targets.push({ id: s.id, pos: s.group.position, r: s.cls.radius, label: s.label });
+    }
+    return _targets;
+  },
+  onHit(id) {
+    if (fleets.destroy(id)) showViewToast('TARGET DESTROYED. THAT WAS ONE OF OURS.', 6);
+  },
+};
+const _targets = [];
+
+// Docking and boarding (src/game.js): the nearest ship, its deck, and holding
+// a ship in existence while the pilot is on it.
+export const nearestVessel = (pos) => (fleets && !ended ? fleets.nearest(pos) : null);
+export const vesselSite = (ship) => (fleets ? fleets.site(ship) : null);
+export const holdVessel = (id) => fleets && fleets.hold(id);
+export const commState = () => ({ ...comms });
+
+// Which planet the swarm is fighting over, and how far gone it is: the one
+// being eaten, else the next of the last three once the quick ones are done.
+function siege() {
+  const now = assim.active() ? assim.target() : null;
+  if (now && SIEGE.includes(now)) {
+    _siege.name = now;
+    _siege.k = assim.progress();
+    return _siege;
+  }
+  const next = !sail || SIEGE.includes(sail.name) ? nextMeal() : null;
+  if (next && SIEGE.includes(next) && waterDone()) {
+    _siege.name = next;
+    _siege.k = 0;
+    return _siege;
+  }
+  return null;
+}
+
+// --- the clock: what it does once it needs no pilot ---
+
+const nextMeal = () => QUICK.concat(SIEGE).find((n) => !eaten.includes(n) && worldByName(n)) || null;
+
+// `aboard`: the pilot is docked at or walking the capital. It will not leave
+// through the wormhole with them on it.
+function stepClock(delta, aboard, flying) {
+  if (ended || exit || sail || assim.active() || !waterDone()) return;
+  clockT += delta;
+  const next = nextMeal();
+  if (next) {
+    const quick = QUICK.includes(next);
+    if (clockT < (quick ? C.TENRETNI_QUICK_WAIT : C.TENRETNI_SIEGE_WAIT)) return;
+    if (startSail(next, quick ? QUICK_SAIL : SIEGE_SAIL) && flying) {
+      showNavToast(`THE WORLDSHIP IS MOVING — ${LABELS[next].toUpperCase()}`, 6);
+    }
+  } else if (clockT > 20 && !aboard) {
+    // nothing left: back the way Tenretni came
+    worm.getWorldPosition(_c);
+    exit = { t: 0, rel: new THREE.Vector3().subVectors(terra.group.position, _c), k0: size };
+    if (flying) showNavToast('THE WORLDSHIP IS LEAVING', 7);
+  }
+}
+
+function stepExit(delta) {
+  exit.t = Math.min(exit.t + delta / EXIT_TIME, 1);
+  const k = ease(exit.t);
+  worm.getWorldPosition(_c);
+  terra.group.position.copy(_c).addScaledVector(exit.rel, 1 - k);
+  // it goes in the way the first one did: smaller, into the light
+  setPlanetScale(terra, exit.k0 * (1 - 0.985 * ease(seg(exit.t, 0.55, 1))));
+  if (capital) capital.reseat(terra.scale);
+  setRumble(0.5 * Math.sin(Math.PI * exit.t));
+  wormU.uPower.value = 0.85 + 0.6 * Math.sin(Math.PI * seg(exit.t, 0.5, 1));
+  if (exit.t >= 1) {
+    exit = null;
+    setRumble(0);
+    fx.kick = 0.8;
+    fx.flash = 0.5;
+    gone();
+    save();
+    addCodex('The Worldship, departed');
+    showNavToast('IT HAS GONE THROUGH. THERE IS NOTHING LEFT HERE.', 10);
+  }
+}
+
+// The worldship is out of this system for good.
+function gone() {
+  ended = 'gone';
+  if (fleets) fleets.clear();
+  removePlanet(terra, true);
+  setNavHidden(terra.group.position, true);
+  wormU.uPower.value = 0.65;
+}
+
+// --- the holodeck (src/holodeck.js, src/holoPanel.js; sessions in game.js) ---
+
+export const programs = () => PROGRAMS.map((p) => ({ ...p, unlocked: eaten.includes(p.id) }));
+
+// Put an assimilated world back the way it was for a holodeck session, or put
+// it away again afterwards. Returns the world (a planet record or the coin).
+export function holoWorld(id, on) {
+  const w = worldByName(id);
+  if (!w || !eaten.includes(id)) return null;
+  if (w.surface) {
+    if (on) {
+      removePlanet(w, false);
+      setPlanetScale(w, 1);
+      setPlanetDrain(id, 0, null, 0);
+      if (w.meltBase) setPlanetMelt(w, 0);
+      w.spinLock = undefined;
+    } else removePlanet(w, true);
+  } else {
+    w.removed = !on;
+    w.group.visible = on;
+    w.group.scale.setScalar(1);
+  }
+  return w;
+}
+
+// Load into a worldship that has already fed: its size, its parking spot,
+// and the planets that are no longer in space.
+function restoreEaten() {
+  if (eating && !eaten.includes(eating)) {
+    eaten.push(eating); // the save was made part-way through that one
+    size *= GROWTH;
+  }
+  eating = null;
+  if (size !== 1) setPlanetScale(terra, size);
+  if (capital) capital.reseat(size);
+  dressShip(eaten.length);
+  if (at !== 'terra') parkAt(at);
+  for (const name of eaten) {
+    const w = worldByName(name);
+    if (!w || w.removed) continue;
+    if (w.surface) removePlanet(w, true);
+    else {
+      w.removed = true;
+      w.group.visible = false;
+    }
+    setNavHidden(w.group.position, true);
+  }
+  thank(); // a save from before the room existed
+  if (ended === 'gone') gone();
+  else {
+    if (ended === 'star') {
+      removePlanet(terra, true);
+      setNavHidden(terra.group.position, true);
+    }
+    startWar();
   }
 }
 
 // Put terra straight at its parking spot beside `name` (load, world reset).
 // Terra must be at its first position when this is called.
 function parkAt(name) {
-  const target = planets.find((p) => p.cfg.name === name);
+  const target = worldByName(name);
   if (!target) return;
   _b.subVectors(terra.group.position, target.group.position).normalize();
   terra.group.position.copy(target.group.position).add(standoff(target, _b, _a));
@@ -737,7 +1211,7 @@ function trackSun() {
   sunWorld.copy(terra.sunBase);
 }
 
-export const capitalSite = () => (state === 'rest' && capital ? capital : null);
+export const capitalSite = () => (state === 'rest' && capital && !ended && !exit ? capital : null);
 export const sailVelocity = () => (sail ? sailVel : null);
 
 // ---------------------------------------------------------------------------
@@ -978,7 +1452,7 @@ export function stepHold(dt) {
 // per frame
 // ---------------------------------------------------------------------------
 
-export function update(delta, t, onDeck, flying) {
+export function update(delta, t, onDeck, flying, aboard) {
   time = t;
   wormU.uTime.value = t;
   sphereU.uTime.value = t;
@@ -1034,7 +1508,18 @@ export function update(delta, t, onDeck, flying) {
       coreU.uHeat.value = 1;
       shellU.uHeat.value = 1;
     }
-    trackSun();
+    if (exit) stepExit(delta);
+    if (!ended) {
+      trackSun();
+      if (!endgame || !endgame.active()) stepClock(delta, aboard, flying);
+    }
+    if (endgame) endgame.update(delta, t, flying);
+    if (assim.active()) assim.update(delta, t, flying);
+    if (fleets) {
+      fleets.update(delta, t, ended || (endgame && endgame.active()) ? null : siege());
+      explosions.update(delta, camera);
+    }
+    if (shieldU) shieldU.uTime.value = t;
     if (capital) capital.update(delta, t, camera.position, sail ? 1 : 0);
   }
 }
@@ -1072,7 +1557,22 @@ export function abort() {
       sailVel.set(0, 0, 0);
       setRumble(0);
     }
-    if (at !== 'terra') parkAt(at);
+    // a planet half-eaten when the world reset is simply finished off
+    if (assim.active()) assim.finishNow();
+    if (exit) {
+      // half-way out when the world reset: it finishes leaving
+      exit = null;
+      gone();
+      save();
+    }
+    if (at !== 'terra' && !ended) parkAt(at);
+    // the ending, re-laid on the freshly restored system
+    if (endgame && (endgame.active() || endgame.done())) {
+      if (endgame.active() && !endgame.starAbs()) starSaved = fallbackStar();
+      ended = 'star';
+      removePlanet(terra, true);
+      endgame.restore(endgame.starAbs() || starSaved);
+    }
     return;
   }
   if (questStage(SECRET) !== 'armed') return; // act two in progress
@@ -1098,6 +1598,11 @@ export function debugStart() {
 }
 
 export const debugSail = (name) => startSail(name);
+export const debugEat = (u) => assim.seek(u);
+export const debugClock = (sec) => { clockT = sec; };
+export const debugFleets = () => fleets;
+export const debugEnd = () => endgame;
+export const debugComms = (on) => { for (const f of Object.keys(VOICE)) { if (on) comms[f] = true; else delete comms[f]; } };
 export const debugStory = () => STORY;
 
 export function debugSeek(u) {
@@ -1117,6 +1622,16 @@ function report() {
     held,
     at,
     sailing: sail ? { to: sail.name, t: sail.t } : null,
+    eaten: eaten.slice(),
+    clock: clockT,
+    next: waterDone() ? nextMeal() : null,
+    exiting: exit ? exit.t : null,
+    ended,
+    size,
+    radius: terra.radius,
+    eatingNow: assim ? assim.state() : null,
+    removed: planets.filter((p) => p.removed).map((p) => p.cfg.name),
+    fleets: fleets ? fleets.state() : null,
     bore: boreDir ? boreDir.toArray() : null,
     spinLock: terra.spinLock ?? null,
     capital: !!capital,
