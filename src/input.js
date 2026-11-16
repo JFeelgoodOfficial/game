@@ -47,6 +47,7 @@ export const input = {
   weaponCycle: 0, // +1 / -1 edge-trigger: next / previous weapon (touch SWAP)
   fireTouch: false, // FIRE touch button held (touchControls.js)
   adsTouch: false, // AIM touch toggle (touchControls.js)
+  coinDash: false, // DASH touch button on stevenlacey; src/coinWalk.js consumes it
 };
 
 // Every walker resolves its movement axes the same way, so they share this:

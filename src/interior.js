@@ -34,6 +34,7 @@ import { titleOf, loadArtMid, loadArtFull, disposeArt } from './galleryArt.js';
 import { WEAPONS, WEAPON_ORDER, TROPHY_WORLDS } from './arsenal.js';
 import { hasWeapon, combatRecord, hasUpgrade } from './inventory.js';
 import { buildPatio } from './patio.js';
+import { buildTerrarium } from './terrarium.js';
 
 export const interiorScene = new THREE.Scene();
 
@@ -326,6 +327,7 @@ let solidBuf = null;
 // the one box that switches: `doorSolidAt` is its offset in solidBuf, parked
 // far away while the door is open. `aftLimit` is how far aft the walker may go.
 let patio = null;
+let terrarium = null; // src/terrarium.js: the stevenlacey tank in the lounge
 let doorSolidAt = -1;
 let aftLimit = AFT_Z - BODY_R;
 
@@ -549,6 +551,7 @@ function setSlotMap(s) {
 // hang the collection, door end first.
 export function openGallery() {
   refreshLounge();
+  if (terrarium) terrarium.refresh();
   if (galleryOpen) return;
   galleryOpen = true;
   titleStrip();
@@ -891,6 +894,9 @@ export function initInterior() {
     solid(x - 1.3, x + 1.3, AFT_Z - 3.15, AFT_Z - 2.3);
   }
 
+  // the terrarium, against the port window: what came home from stevenlacey
+  terrarium = buildTerrarium({ group, MATS, solid, F, HW, Z0: HALL_Z1, signTexture });
+
   // ---- the glass roof over hall and lounge: ribs, purlins, one pane ----
   for (let z = HALL_Z0; z <= AFT_Z + 0.01; z += 2.5) {
     box('trim', -HW, HW, ROOF_Y - 0.08, ROOF_Y + 0.08, z - 0.07, z + 0.07);
@@ -1007,6 +1013,7 @@ export function updateInterior(ship, delta = 0, active = false) {
   if (!active) return;
   syncPatio();
   patio.update(performance.now() / 1000);
+  terrarium.update(delta);
   if (sun.group) {
     _p.subVectors(sun.group.position, ship.position).normalize();
     sunLight.position.copy(ship.position).addScaledVector(_p, 50);
@@ -1073,6 +1080,11 @@ export function nearPlaque() {
 
 // The canvas the pilot is standing at and looking toward, or null. Returns
 // the slot itself ({ file, title }) — not a copy; this runs every frame.
+// Standing at the terrarium's glass, facing it.
+export function nearTank() {
+  return !!terrarium && terrarium.near(player.pos, player.yaw);
+}
+
 export function nearPainting() {
   // view direction on the floor plane (yaw 0 faces -z)
   const vx = -Math.sin(player.yaw);

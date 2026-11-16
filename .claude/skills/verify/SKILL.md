@@ -240,3 +240,24 @@ position deltas as approximate.
 - Teardown: `walkExit()` then re-land; watch for pageerrors.
 - Terra regression after wavemall changes (and vice versa): the walk.js spawn
   branch forks on `planet.cfg.name === 'wavemall prime'`.
+
+
+## stevenlacey (the coin world)
+`__debug.coin`: `world` (the coin: `hold()`, `release()`, `faceFrame`), `state()` →
+`{landState, coinLanding, coinFace, coinArmed, coinLiftT, phase, flip, rate, settling}`,
+`approach(face)` (1 heads, -1 tails: drops the ship outside the capture radius, closing),
+`dock(face)` (parked on the face), `enter(face)` (straight into the 2D world).
+
+In 2D, `__debug.walkSite().coin` → `{mode ('in'|'play'|'flip'|'out'|'gone'), face, landFace, save,
+team, player, focus, prompt, battle, teamMenu, boss, level, ents}` plus test hooks:
+`put(x, y)` (tiles; y is the feet row, 30 on the main floor), `press()` (an E press),
+`give('claw'|'dash'|<specimen id>)`, `setTeam(ids)`, `heal()`, `battleWith(id|'champion')`,
+`endBattle('win'|'lose'|'run')`. Drive it with `walkStep(n)` and `input.left/right/brake/
+sprint/warp`; wait for `mode === 'play'` after `enter()` (the fold-in takes about 2 s of
+sim time). E is ignored for 0.4 s after a battle or a pickup, so step ~30 ticks first.
+Leaving: put the walker by `level.pad`, press `g`, wait for `coin.state().phase === 'fly'`.
+
+The terrarium: `__debug.interior.stand()`, then
+`interior.place(-2.4, 1.5 + C.FREIGHTER_VEST_L + C.FREIGHTER_HALL_L + 2.0, Math.PI / 2)`;
+`interior.nearTank()` and `interior.tankView()` report the prompt and the close-up. Seed
+`localStorage['fgsf.inventory'] = '{"specimens":["sprout","puddle"]}'` before load to fill it.

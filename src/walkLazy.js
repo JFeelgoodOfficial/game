@@ -101,6 +101,11 @@ export const exitCottageWalk = () => mod && mod.exitCottageWalk();
 export const enterSkyWalk = (city) => (mod ? mod.enterSkyWalk(city) : false);
 export const skyActive = () => (mod ? mod.skyActive() : false);
 export const skyFell = () => (mod ? mod.skyFell() : false);
+// stevenlacey, the coin world. Same fail-safe: nothing happens until the chunk lands.
+export const enterCoinWalk = (coin, face, camera) => (mod ? mod.enterCoinWalk(coin, face, camera) : false);
+export const coinActive = () => (mod ? mod.coinActive() : false);
+export const coinBeginLeave = () => mod && mod.coinBeginLeave();
+export const coinLeft = () => (mod ? mod.coinLeft() : 0);
 
 // Quest vehicles (selector menu + debug).
 export const deployVehicle = (id) => (mod ? mod.deployVehicle(id) : false);

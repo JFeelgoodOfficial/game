@@ -16,7 +16,7 @@
 import { input } from './input.js';
 import { settings } from './settings.js';
 import { C } from './constants.js';
-import { walkCombatActive } from './walkLazy.js';
+import { walkCombatActive, coinActive } from './walkLazy.js';
 
 // Same sniff cockpit3d.js uses, widened with the media query so a coarse-pointer
 // device that reports no ontouchstart still gets the sticks.
@@ -75,6 +75,13 @@ const CSS = `
 #touchUI .tc-ship { display: none; }
 #touchUI.interior .tc-ship { display: flex; }
 #touchUI.interior #tcJump, #touchUI.interior #tcView, #touchUI.interior #tcBoard { display: none; }
+/* stevenlacey (src/coinWalk.js): a side-scroller. No look stick and no view to
+   switch; a CLAW and a DASH where the look stick was. */
+#touchUI .tc-coin { display: none; }
+#touchUI.coin .tc-coin { display: flex; }
+#touchUI.coin #tcLook, #touchUI.coin #tcView { display: none; }
+#tcClaw { right: 24px; bottom: 112px; width: 76px; height: 76px; border-radius: 50%; }
+#tcDash { right: 24px; bottom: 24px; width: 76px; height: 76px; border-radius: 50%; }
 #touchUI .tc-combat { display: none; }
 #touchUI.combat .tc-combat { display: flex; }
 #touchUI .tc-fire {
@@ -140,6 +147,7 @@ let tcJump = false;
 let uiOn = false;
 let shipOn = false;
 let combatOn = false;
+let coinOn = false;
 let aimBtn = null;
 
 function axis(stick) {
@@ -280,6 +288,11 @@ export function initTouchControls() {
   root.appendChild(view);
   root.appendChild(board);
 
+  const claw = button('tcClaw', 'CLAW');
+  const dash = button('tcDash', 'DASH');
+  claw.classList.add('tc-coin');
+  dash.classList.add('tc-coin');
+  root.append(claw, dash);
   const fireR = button('tcFireR', 'FIRE');
   const fireL = button('tcFireL', 'FIRE');
   const aim = button('tcAim', 'AIM');
@@ -325,6 +338,12 @@ export function initTouchControls() {
   const fireDown = () => { firing++; input.fireTouch = true; };
   const fireUp = () => { firing = Math.max(0, firing - 1); input.fireTouch = firing > 0; };
   bindButton(fireR, fireDown, fireUp);
+  // CLAW shares the fire flag (the walker reads either); DASH is its own edge,
+  // because the stick's run threshold already owns `sprint` on touch.
+  bindButton(claw, fireDown, fireUp);
+  bindButton(dash, () => {
+    input.coinDash = true;
+  });
   bindButton(fireL, fireDown, fireUp);
   bindButton(aim, () => {
     input.adsTouch = !input.adsTouch;
@@ -377,6 +396,11 @@ export function updateTouchControls(dt, phase, paused, standing = false) {
   }
   if (!on) return;
 
+  const coin = !inShip && coinActive();
+  if (coin !== coinOn) {
+    coinOn = coin;
+    root.classList.toggle('coin', coin);
+  }
   const combat = !inShip && walkCombatActive();
   if (combat !== combatOn) {
     combatOn = combat;
