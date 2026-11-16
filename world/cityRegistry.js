@@ -14,6 +14,13 @@
 // completing the tour awards one of the four vehicles (plane, motorcycle,
 // jetpack, hang glider) into the player's persistent inventory.
 //
+// Hosted towns: an entry with `host` is not a createCity layout at all. Its
+// town lives on a permanent structure built at boot that answers the same
+// contract (neptunia: `host: 'reachShip'`, the factory ship in
+// world/reachship.js — its `pad` is the ship's flight deck). Such entries set
+// `noFlatten` (src/cityflatten.js must not bake an island under them) and may
+// carry `charge`, a second governor errand offered once the tour is done.
+//
 // Conventions (the same frame contract as world/wonders.js):
 //   - `site` is a unit direction in planet.surface's UNROTATED local frame.
 //     Sites were chosen offline against src/terrain.js (deterministic, exact

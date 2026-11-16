@@ -18,6 +18,10 @@
 //   - wet means: planetRadius + groundHeight(dir) < waterR + margin, unless the
 //     world is dry or its sea is frozen (city.js isWetLocal).
 
+// Hosted towns (registry `host` — neptunia's factory ship) float: for them the
+// "wet" verdicts below are expected, and the number that matters is the seabed
+// depth at the site, which is how far the ship's riser has to reach.
+
 import { groundHeight, DEFAULT_SHAPE } from '../src/terrain.js';
 import { CITIES } from '../world/cityRegistry.js';
 
