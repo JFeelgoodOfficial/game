@@ -15,6 +15,8 @@ uniform float uTile;
 uniform float uPad; // nothing stands on a cage's plate
 uniform float uR;
 uniform float uFade;
+uniform float uTaper; // how far a tower narrows toward its top, 0..1 (by its seed)
+uniform vec3 uLand; // the landing: xz from the camera, and the radius kept clear round it
 
 varying vec3 vPos;
 varying vec3 vWorldNormal;
@@ -31,9 +33,11 @@ void main() {
   vec2 L = rel + uOffCage;
   vec3 cg = cage(floor(L / uS));
   g *= mix(1.0, smoothstep(uPad, uPad * 1.2, distance(L, cg.xy)), cg.z);
+  g *= smoothstep(uLand.z, uLand.z * 1.3 + 1.0, distance(rel, uLand.xy));
   g *= uFade;
 
   vec3 pos = position * aDim;
+  pos.xz *= 1.0 - uTaper * aSeed * position.y;
   pos.y *= g;
   vUp = position.y;
   // windows are cut in the tower's own frame, a different stretch of it each

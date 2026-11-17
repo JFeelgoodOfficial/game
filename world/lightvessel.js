@@ -1,0 +1,309 @@
+// The hangar in the City of Light, and what is being built in it
+// (world/lightcity.js; GDD 5.7.3).
+//
+// A vessel, behemoth in size, floating over its yard inside a frame of
+// iridescent glass. Its body is hundreds of cells, cubes and longer prisms,
+// each one turning through the whole spectrum at its own pace, and each one
+// lived in: figures can be seen moving in every cell, and they are dancing.
+// Forward of the cells a truss spine runs out to a bulb of hexagonal cells;
+// aft is the drive, a hub inside two great rings. Nobody says what it is for.
+//
+// Everything here is seen from the gallery, never walked. The cells are two
+// instanced meshes with one shader (CELL_FRAG): colour, frame, glass and the
+// life inside are all drawn per fragment from a seed per instance, so the
+// whole hull animates for the cost of two draw calls and one uniform.
+
+import * as THREE from 'three';
+import { tint, box, cyl, mergedMesh } from './capital.js';
+
+// The vessel's place in the city's frame: its long axis runs along z.
+export const VESSEL = { x: -430, y: 30, z: -110 };
+// The box the city's towers keep out of (world/lightcity.js): [x0, x1, z0, z1].
+export const HANGAR_BOX = [-900, -150, -760, 560];
+
+const CELL = 30; // a cubic cell's edge
+const NX = 5, NY = 9, NZ = 14; // deep, tall, long
+
+function rng(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const CELL_VERT = /* glsl */ `
+  attribute float aSeed;
+  varying vec3 vLocal; // on the unit cell, -0.5..0.5
+  varying vec3 vLN; // the cell's own normal
+  varying vec3 vWorld;
+  varying vec3 vN;
+  varying float vSeed;
+  varying vec3 vSize; // the cell's size, in cubic cells
+  void main() {
+    vLocal = position;
+    vLN = normal;
+    vSeed = aSeed;
+    vSize = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz)) / ${CELL.toFixed(1)};
+    vec4 world = modelMatrix * instanceMatrix * vec4(position, 1.0);
+    vWorld = world.xyz;
+    vN = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
+    gl_Position = projectionMatrix * viewMatrix * world;
+  }
+`;
+const CELL_FRAG = /* glsl */ `
+  uniform float uTime;
+  varying vec3 vLocal;
+  varying vec3 vLN;
+  varying vec3 vWorld;
+  varying vec3 vN;
+  varying float vSeed;
+  varying vec3 vSize;
+  vec3 hue(float h) {
+    return clamp(abs(fract(h + vec3(0.0, 0.6667, 0.3333)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+  }
+  // one of the people inside: a body, a head, arms that go up
+  float figure(vec2 p, float dance) {
+    p.y -= 0.03 * abs(sin(dance)); // a hop
+    float body = 1.0 - smoothstep(0.030, 0.042, length(vec2(p.x, max(abs(p.y) - 0.075, 0.0))));
+    float head = 1.0 - smoothstep(0.026, 0.036, length(p - vec2(0.0, 0.145)));
+    // arms: up and out, swinging
+    float sway = 0.5 + 0.5 * sin(dance * 0.5);
+    vec2 a = vec2(abs(p.x), p.y) - vec2(0.03, 0.06);
+    vec2 dir = normalize(vec2(0.55 + 0.3 * sway, 0.5 + 0.5 * sway));
+    float along = clamp(dot(a, dir), 0.0, 0.11);
+    float arm = 1.0 - smoothstep(0.010, 0.018, length(a - dir * along));
+    return max(body, max(head, arm));
+  }
+  void main() {
+    // which face of the cell this is, and where on it (in cubic cells)
+    vec3 an = abs(vLN);
+    vec2 uv, size;
+    if (an.x > an.y && an.x > an.z) { uv = vLocal.zy; size = vSize.zy; }
+    else if (an.y > an.z) { uv = vLocal.xz; size = vSize.xz; }
+    else { uv = vLocal.xy; size = vSize.xy; }
+    vec2 p = uv * size; // -size/2 .. size/2
+    vec2 edge = size * 0.5 - abs(p);
+    float frame = 1.0 - smoothstep(0.035, 0.055, min(edge.x, edge.y));
+
+    // its colour: all the way round the spectrum, at its own pace, from its
+    // own place in it
+    float rate = 0.035 + 0.11 * fract(vSeed * 7.31);
+    vec3 tintC = hue(vSeed + uTime * rate);
+    vec3 V = normalize(cameraPosition - vWorld);
+    float facing = max(dot(normalize(vN), V), 0.0);
+    // glass lit from inside: brightest in the middle of the pane
+    float glow = 0.55 + 0.45 * (1.0 - smoothstep(0.0, 0.7, length(p / size) * 2.0));
+    float beat = 0.86 + 0.14 * sin(uTime * (1.6 + fract(vSeed * 3.7) * 2.0) + vSeed * 40.0);
+    vec3 col = tintC * glow * beat * 0.95 + vec3(1.0) * 0.10 * glow;
+
+    // the life in it: a few figures to a cubic cell, each on its own beat
+    float people = 0.0;
+    vec2 g = p / 0.34;
+    vec2 gc = floor(g + 0.5);
+    float who = fract(sin(dot(gc + vSeed * 31.0, vec2(12.99, 78.23))) * 43758.5);
+    if (who > 0.25 && abs(p.y + 0.12) < 0.30) {
+      vec2 fp = vec2((g.x - gc.x) * 0.34, p.y + 0.16 - (who - 0.6) * 0.06);
+      people = figure(fp, uTime * (4.0 + who * 3.0) + who * 30.0);
+    }
+    // silhouettes against the light, with a rim of it round them
+    col = mix(col, tintC * 0.10 + vec3(0.02), people * 0.86);
+    // motes of light drifting up through it
+    vec2 mg = vec2(p.x * 9.0, p.y * 9.0 - uTime * (0.5 + who));
+    float mote = step(0.93, fract(sin(dot(floor(mg) + vSeed * 9.0, vec2(41.3, 17.7))) * 9731.1)) * (1.0 - smoothstep(0.1, 0.4, length(fract(mg) - 0.5)));
+    col += vec3(1.0, 0.98, 0.9) * mote * 0.7 * (1.0 - people);
+
+    // the frame it is held in, and the shine on the glass
+    col = mix(col, vec3(0.05, 0.06, 0.08) + tintC * 0.06, frame);
+    col += vec3(1.0) * pow(1.0 - facing, 3.0) * 0.30;
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+// The hangar's glass: a film of every colour over something nearly clear.
+const GLASS_VERT = /* glsl */ `
+  varying vec3 vWorld;
+  varying vec3 vN;
+  void main() {
+    vec4 world = modelMatrix * vec4(position, 1.0);
+    vWorld = world.xyz;
+    vN = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * viewMatrix * world;
+  }
+`;
+const GLASS_FRAG = /* glsl */ `
+  uniform float uTime;
+  varying vec3 vWorld;
+  varying vec3 vN;
+  void main() {
+    vec3 V = normalize(cameraPosition - vWorld);
+    float facing = abs(dot(normalize(vN), V));
+    float film = facing * 1.2 + vWorld.y * 0.004 + (vWorld.x + vWorld.z) * 0.0016 + uTime * 0.02;
+    vec3 irid = 0.5 + 0.5 * cos(6.2832 * (film + vec3(0.0, 0.33, 0.67)));
+    vec3 col = mix(vec3(0.70, 0.86, 1.0), irid, 0.7) * (0.55 + 0.6 * pow(1.0 - facing, 2.0));
+    gl_FragColor = vec4(col, 0.34 + 0.4 * pow(1.0 - facing, 2.0));
+  }
+`;
+
+// Builds it all into `group` (the city's). Returns { tick(t), cells }.
+export function buildHangar(group) {
+  const root = new THREE.Group();
+  root.position.set(VESSEL.x, VESSEL.y, VESSEL.z);
+  group.add(root);
+  const r = rng(0xbea57);
+  const dummy = new THREE.Object3D();
+  const uniforms = { uTime: { value: 0 } };
+  const cellMat = new THREE.ShaderMaterial({ vertexShader: CELL_VERT, fragmentShader: CELL_FRAG, uniforms, fog: false });
+
+  // --- the cells: a block NX deep, NY tall, NZ long, still being added to ---
+  // Some are two cells long or two tall; the upper forward corner is not
+  // built yet, so the block's edge there is ragged.
+  const taken = new Uint8Array(NX * NY * NZ);
+  const at = (x, y, z) => x + NX * (y + NY * z);
+  const list = []; // [x, y, z, sx, sy, sz]
+  for (let z = 0; z < NZ; z++) {
+    for (let y = 0; y < NY; y++) {
+      for (let x = 0; x < NX; x++) {
+        if (taken[at(x, y, z)]) continue;
+        // unbuilt: toward the top at the forward (+z) end
+        const raw = (y / NY) * 0.9 + (z / NZ) * 0.9 - 1.15;
+        if (raw > 0 && r() < raw * 2.2) continue;
+        if ((y === NY - 1 || z === NZ - 1 || z === 0) && r() < 0.14) continue;
+        let sz = 1, sy = 1;
+        const roll = r();
+        if (roll < 0.20 && z + 1 < NZ && !taken[at(x, y, z + 1)]) sz = 2;
+        else if (roll < 0.30 && y + 1 < NY && !taken[at(x, y + 1, z)]) sy = 2;
+        taken[at(x, y, z)] = 1;
+        if (sz === 2) taken[at(x, y, z + 1)] = 1;
+        if (sy === 2) taken[at(x, y + 1, z)] = 1;
+        list.push([x, y, z, 1, sy, sz]);
+      }
+    }
+  }
+  const GAP = 1.6;
+  const cells = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), cellMat, list.length);
+  const seeds = new Float32Array(list.length);
+  const BZ0 = -40; // the block's forward face, along the vessel
+  list.forEach(([x, y, z, sx, sy, sz], i) => {
+    dummy.position.set(
+      (x + sx / 2 - NX / 2) * CELL,
+      (y + sy / 2 - NY / 2) * CELL,
+      BZ0 - (z + sz / 2) * CELL
+    );
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.set(sx * CELL - GAP, sy * CELL - GAP, sz * CELL - GAP);
+    dummy.updateMatrix();
+    cells.setMatrixAt(i, dummy.matrix);
+    seeds[i] = r();
+  });
+  cells.geometry.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seeds, 1));
+  cells.frustumCulled = false;
+  root.add(cells);
+
+  // --- the bow: a bulb of hexagonal cells round the end of the spine ---
+  const BOW_Z = 330;
+  const hexN = 54;
+  const hexes = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 6), cellMat, hexN);
+  const hseeds = new Float32Array(hexN);
+  for (let i = 0; i < hexN; i++) {
+    // rings of them round the axis, fattest amidships
+    const ring = Math.floor(i / 9), k = i % 9;
+    const zz = BOW_Z + (ring - 2.5) * 30;
+    const rad = 44 + 34 * Math.sin(((ring + 0.5) / 6) * Math.PI);
+    const a = (k / 9) * Math.PI * 2 + ring * 0.35;
+    dummy.position.set(Math.cos(a) * rad, Math.sin(a) * rad, zz);
+    // each one's axis points out from the spine
+    dummy.rotation.set(0, 0, a - Math.PI / 2);
+    dummy.scale.set(29, 26, 29);
+    dummy.updateMatrix();
+    hexes.setMatrixAt(i, dummy.matrix);
+    hseeds[i] = r();
+  }
+  hexes.geometry.setAttribute('aSeed', new THREE.InstancedBufferAttribute(hseeds, 1));
+  hexes.frustumCulled = false;
+  root.add(hexes);
+
+  // --- the structure: spine, drive, and the yard it floats over ---
+  const lit = [], glow = [];
+  const STEEL = 0x2a3038, DARK = 0x14181e, BRASS = 0x8a6a34;
+  // the spine: four longerons from the block out to the bow, ringed every bay
+  for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+    lit.push(tint(box(5, 5, BOW_Z - BZ0 + 40, sx * 20, sy * 20, (BOW_Z + BZ0) / 2), STEEL));
+  }
+  for (let z = BZ0 + 10; z < BOW_Z + 30; z += 30) {
+    lit.push(tint(box(48, 3, 3, 0, -20, z), DARK), tint(box(48, 3, 3, 0, 20, z), DARK));
+    lit.push(tint(box(3, 48, 3, -20, 0, z), DARK), tint(box(3, 48, 3, 20, 0, z), DARK));
+    glow.push(tint(box(2, 2, 2, 20, 20, z), 0x9fe8ff, 1.6));
+  }
+  // a core of light down the middle of it
+  glow.push(tint(cyl(3.2, 3.2, BOW_Z - BZ0 + 20, 0, 0, 0, 10).rotateX(Math.PI / 2).translate(0, 0, (BOW_Z + BZ0) / 2), 0xfff0c8, 1.5));
+  // the drive, aft of the block: a hub, a bell, and two great rings on spokes
+  const AFT = BZ0 - NZ * CELL;
+  const hubZ = AFT - 70;
+  lit.push(tint(cyl(46, 60, 120, 0, 0, 0, 20).rotateX(Math.PI / 2).translate(0, 0, hubZ), STEEL));
+  lit.push(tint(cyl(70, 44, 60, 0, 0, 0, 20).rotateX(Math.PI / 2).translate(0, 0, hubZ - 80), DARK));
+  glow.push(tint(cyl(40, 40, 3, 0, 0, 0, 24).rotateX(Math.PI / 2).translate(0, 0, hubZ - 112), 0xffb060, 1.8));
+  glow.push(tint(cyl(18, 18, 4, 0, 0, 0, 24).rotateX(Math.PI / 2).translate(0, 0, hubZ - 114), 0xfff4d8, 2.2));
+  for (const [rr, zz, tube] of [[168, hubZ + 10, 9], [128, hubZ - 44, 7]]) {
+    lit.push(tint(new THREE.TorusGeometry(rr, tube, 10, 64).translate(0, 0, zz), STEEL));
+    lit.push(tint(new THREE.TorusGeometry(rr - tube * 2.2, tube * 0.45, 8, 64).translate(0, 0, zz), BRASS));
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + (rr > 150 ? 0 : 0.39);
+      lit.push(tint(box(4, rr - 40, 4, 0, (rr + 40) / 2, zz).rotateZ(a), DARK));
+      glow.push(tint(box(3, 3, 3, 0, rr, zz + tube + 1).rotateZ(a), 0x9fe8ff, 1.8));
+    }
+  }
+  // the yard below: a deck of plates with work going on along its lines
+  const YARD_Y = -230;
+  lit.push(tint(box(420, 10, 980, 0, YARD_Y - 5, -70), DARK));
+  for (let z = -520; z <= 380; z += 60) glow.push(tint(box(400, 0.6, 1.4, 0, YARD_Y + 0.4, z), 0x7fd8ff, 1.1));
+  for (let x = -180; x <= 180; x += 60) glow.push(tint(box(1.4, 0.6, 960, x, YARD_Y + 0.4, -70), 0xffd890, 1.0));
+  for (let i = 0; i < 46; i++) {
+    const bx = (r() - 0.5) * 380, bz = -70 + (r() - 0.5) * 920, bh = 6 + r() * 26;
+    lit.push(tint(box(14 + r() * 30, bh, 14 + r() * 30, bx, YARD_Y + bh / 2, bz), r() < 0.5 ? STEEL : DARK));
+  }
+  // four gantries standing up from the yard to the hull, with lamps at their heads
+  for (const [gx, gz] of [[-190, 200], [190, 200], [-190, -380], [190, -380]]) {
+    lit.push(tint(box(8, 250, 8, gx, YARD_Y + 125, gz), STEEL));
+    lit.push(tint(box(Math.abs(gx) - 80, 5, 5, gx * 0.72, YARD_Y + 246, gz), STEEL));
+    glow.push(tint(box(6, 6, 6, gx, YARD_Y + 254, gz), 0xfff0c8, 2.0));
+  }
+  // the roof frame over it all
+  const ROOF_Y = 300;
+  for (const z of [-620, -320, -20, 280, 520]) lit.push(tint(box(700, 14, 22, 0, ROOF_Y, z), DARK));
+  for (const x of [-340, 340]) lit.push(tint(box(22, 14, 1160, x, ROOF_Y, -50), DARK));
+  for (let x = -280; x <= 280; x += 70) lit.push(tint(box(3, 3, 1150, x, ROOF_Y + 8, -50), STEEL));
+
+  const litMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x161a20 });
+  const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });
+  root.add(mergedMesh(lit.map((g) => (g.index ? g.toNonIndexed() : g)), litMat));
+  root.add(mergedMesh(glow.map((g) => (g.index ? g.toNonIndexed() : g)), glowMat));
+
+  // --- the hangar's glass: tall leaning blades down each side, from the yard
+  // to the roof, the near row framing the view from the gallery ---
+  const blades = [];
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 6; i++) {
+      const z = -600 + i * 224 + (side > 0 ? 60 : 0);
+      const g = new THREE.BoxGeometry(16, ROOF_Y - YARD_Y + 30, 58);
+      g.rotateZ(side * 0.11).rotateY(0.25 * side);
+      g.translate(side * 330, (ROOF_Y + YARD_Y) / 2, z);
+      blades.push(g);
+    }
+  }
+  const glass = mergedMesh(blades, new THREE.ShaderMaterial({
+    vertexShader: GLASS_VERT, fragmentShader: GLASS_FRAG, uniforms,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false,
+  }));
+  glass.renderOrder = 2;
+  root.add(glass);
+
+  return {
+    cells: list.length + hexN,
+    tick(t) {
+      uniforms.uTime.value = t;
+    },
+  };
+}

@@ -100,8 +100,15 @@ export function setNebulaVisible(v) {
   if (mesh) mesh.visible = v;
 }
 
+// How much of the sky shell shows, 0..1. The far side (src/farside.js) is
+// another sky: this system's nebula is all but gone from it.
+let dim = 1;
+export function setNebulaDim(k) {
+  dim = k;
+}
+
 export function updateNebula(camera) {
   mesh.position.copy(camera.position);
-  mesh.material.uniforms.uIntensity.value = C.NEBULA_INTENSITY;
+  mesh.material.uniforms.uIntensity.value = C.NEBULA_INTENSITY * dim;
   if (C.ACCENT !== bakedAccent) bake(); // dev tuning panel changed the accent
 }

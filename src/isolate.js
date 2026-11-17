@@ -131,6 +131,11 @@ const WORLD_RENDER = {
   // midmorning garden into dusk — this world's Sky, sun elevation and
   // environment intensity were all balanced against the brighter stop.
   cottage: { exposure: 0.8, bloomThreshold: 2.6, bloomStrength: 0.4, soleLight: true },
+  // The City of Light (world/lightcity.js): everything in view is bright, so
+  // the threshold sits above the sky and only the white hole, the crowns and
+  // the lamps bloom. Not soleLight: the place borrows the game's own sun and
+  // ambient for the stay and puts them back itself.
+  lightcity: { exposure: 0.62, bloomThreshold: 1.4, bloomStrength: 0.3 },
   terra: GENERIC_RENDER,
   rustia: GENERIC_RENDER,
   neptunia: GENERIC_RENDER,

@@ -9,7 +9,9 @@
 // period, so fp32 never has to hold more than a few hundred thousand and the
 // pattern does not jump when the wrap rolls over.
 //
-// CAGE_GLSL (world/megaworld.js) is prepended: uS and cage().
+// CAGE_GLSL (world/megaworld.js) is prepended: uS and cage(). So is
+// `#define DETAIL` above the low tier: the circuit traces and the relief
+// shading, the two things here that are look and not structure.
 
 varying vec2 vP;
 varying float vD;
@@ -84,18 +86,43 @@ void main() {
   col *= 1.0 - 0.5 * plt.y * plt.z;
   col *= 1.0 - 0.9 * dist3.y * dist3.z;
 
+  vec3 green = vec3(0.16, 1.0, 0.48), cyan = vec3(0.28, 0.72, 1.0), amber = vec3(1.0, 0.62, 0.20);
+#ifdef DETAIL
+  // --- relief: a block is a building. One flank catches the light from the
+  // hole, the other is in its own shade, the more the taller it is ---
+  vec2 fb = fract((vP + uOffBlock) / uBlock);
+  float tall = blk.x * blk.x;
+  col *= 1.0 + blk.z * tall * (0.9 * (1.0 - smoothstep(0.07, 0.2, fb.x)) - 0.55 * smoothstep(0.8, 0.93, fb.x)
+                              + 0.5 * (1.0 - smoothstep(0.07, 0.2, fb.y)) - 0.35 * smoothstep(0.8, 0.93, fb.y));
+  // --- circuit traces: each half-block carries one run, across or along,
+  // and a few of them are live ---
+  vec2 tuv = (vP + uOffBlock) / (uBlock * 0.5);
+  vec2 tc = floor(tuv), tf = fract(tuv);
+  float th = h21(tc + 71.0);
+  float along = th < 0.5 ? tf.y : tf.x;
+  float tw = max(fwidth(tuv.x), fwidth(tuv.y));
+  float trace = (1.0 - smoothstep(0.035, 0.035 + tw * 1.5, abs(along - 0.5))) * (1.0 - smoothstep(0.1, 0.45, tw));
+  float live = step(0.80, h21(tc + 13.0));
+  vec3 tcol = mix(amber, cyan, step(0.6, h21(tc + 29.0)));
+  col = mix(col, col * 1.9 + 0.006, trace * (1.0 - live));
+  col += tcol * trace * live * uHdr * 0.5 * (0.7 + 0.3 * sin(uTime * 2.0 + th * 40.0 + (th < 0.5 ? tuv.x : tuv.y) * 3.0));
+#endif
+  // the hole's own light, from overhead: faint, the colour of its fire
+  col += col * vec3(0.9, 0.42, 0.16) * 0.4;
+
   // --- its own light: sparse, so the dark stays dark ---
-  vec3 green = vec3(0.16, 1.0, 0.48), cyan = vec3(0.28, 0.72, 1.0);
-  // windows: a few plates in the lit blocks, breathing
+  // windows: a few plates in the lit blocks, breathing; amber in some districts
   float lit = step(0.93, plt.x) * step(0.55, blk.x) * plt.z * (1.0 - plt.y);
-  vec3 wcol = mix(green, cyan, step(0.975, plt.x));
+  vec3 wcol = mix(mix(green, amber, step(0.55, dist3.x)), cyan, step(0.975, plt.x));
   col += wcol * lit * uHdr * 0.7 * (0.55 + 0.45 * sin(uTime * 1.1 + plt.x * 60.0));
   // one block in a dozen is lit along its roof line
-  col += green * step(0.92, blk.x) * blk.y * blk.z * uHdr * 0.22;
+  col += green * step(0.94, blk.x) * blk.y * blk.z * uHdr * 0.09;
   // one district in three has light in its trench
-  col += green * step(0.66, dist3.x) * dist3.y * dist3.z * dist3.z * uHdr * 0.2 * (0.6 + 0.4 * sin(uTime * 0.7 + dist3.x * 40.0));
-  // beyond where a plate can be seen, the lit ones still add up to a faint glow
-  col += green * (1.0 - plt.z) * (0.004 + 0.012 * blk.x * blk.z + 0.006 * dist3.x * dist3.z);
+  col += green * step(0.66, dist3.x) * dist3.y * dist3.z * dist3.z * uHdr * 0.07 * (0.6 + 0.4 * sin(uTime * 0.7 + dist3.x * 40.0));
+  // beyond where a plate can be seen, the lit ones still add up to a faint
+  // glow: a block's worth while blocks can be told apart, then a district's
+  vec3 farCol = mix(green, amber, step(0.55, dist3.x));
+  col += farCol * (1.0 - plt.z) * (0.004 + 0.030 * step(0.55, blk.x) * blk.x * blk.z + 0.010 * dist3.x * dist3.z);
 
   // --- the caged stars ---
   vec2 L = vP + uOffCage;
@@ -109,19 +136,21 @@ void main() {
   vec3 padCol = vec3(0.05, 0.047, 0.044) * (0.7 + 0.5 * step(0.5, rings));
   col = mix(col, padCol, pad);
   float rim = (1.0 - smoothstep(0.0, 90.0 + px, abs(cd - uPad))) * own.z;
-  col += green * rim * uHdr * 0.22;
+  // a row of fire-coloured lamps round its edge
+  float lamps = step(0.5, fract(atan(L.y - own.y, L.x - own.x) * 28.0 / 6.2832));
+  col += vec3(1.0, 0.50, 0.14) * rim * lamps * uHdr * 0.7;
   // the star's light on everything round it: the hull lit warm, falling off
   // with distance and gone at a quarter of the way to the next star
   vec3 warm = vec3(1.0, 0.56, 0.20);
   float pool = max(1.0 - cd / (uS * 0.25), 0.0);
   float lightK = pool * pool / (1.0 + cd * cd / 3.0e7);
-  col += (col * 70.0 + 0.012) * warm * lightK * own.z;
+  col += (col * 110.0 + 0.02) * warm * lightK * own.z;
   // conduits to and from the four neighbours
   float c = conduit(L, own, cage(cell + vec2(1.0, 0.0)), px)
           + conduit(L, cage(cell - vec2(1.0, 0.0)), own, px)
           + conduit(L, own, cage(cell + vec2(0.0, 1.0)), px)
           + conduit(L, cage(cell - vec2(0.0, 1.0)), own, px);
-  col += green * c * uHdr * 0.9 * (1.0 - pad);
+  col += vec3(1.0, 0.42, 0.10) * c * uHdr * 0.34 * (1.0 - pad);
 
   // --- the distance: haze, and a lit line where the world ends ---
   float fr = clamp(vD / uHorizon, 0.0, 1.0);

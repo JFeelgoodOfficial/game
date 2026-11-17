@@ -489,7 +489,7 @@ export const C = {
   FAR_DISTRICT: 2048.0, // the big panels the blocks sit in
   FAR_TOWER_MIN: 110.0,
   FAR_TOWER_MAX: 700.0,
-  FAR_CAGE_SPACING: 60000.0, // the caged stars' lattice
+  FAR_CAGE_SPACING: 40000.0, // the caged stars' lattice
   FAR_CAGE_STAR_R: 2200.0,
   FAR_CAGE_RING_R: 3600.0, // the ring frames round a star
   FAR_CAGE_TUBE: 300.0,
@@ -500,7 +500,7 @@ export const C = {
   FAR_CAGE_POINTS: 256,
   FAR_CAGE_REACH: 8, // lattice cells out from the camera that are drawn at all
   FAR_STAR_HDR: 1.25,
-  FAR_HAZE: 0x061a14,
+  FAR_HAZE: 0x0b0e12,
   FAR_EXIT_SPEED: 300.0, // out of the mouth, units/sec
   FAR_ARRIVE_DX: 9000.0, // the first caged star is this far to port...
   FAR_ARRIVE_DZ: 24000.0, // ...and this far ahead of the arrival point
@@ -509,6 +509,29 @@ export const C = {
   FAR_FADE_IN: 1.5, // the megaworld fading up on a load or a world reset
   FAR_WORM_BACK: 2600.0, // the mouth, behind the arrival point
   FAR_WORM_CLOSE: 6.0, // seconds it takes to close
+  // The black hole over the megaworld (world/farhole.js): the thing it is there
+  // to mine. A sky object: a fixed direction, no parallax.
+  FAR_HOLE_ELEV: 0.47, // rad above the horizon...
+  FAR_HOLE_AZ: 0.2, // ...and to starboard of the arrival heading
+  FAR_HOLE_SIZE: 0.18, // angular radius of the shadow, rad
+  FAR_HOLE_DISC: 5.0, // the disc's outer edge, in shadow radii
+  FAR_HOLE_TILT: 1.3, // the disc's inclination from face-on, rad (near edge-on)
+  FAR_HOLE_ROLL: 0.24, // ...and how far it is canted from level, rad (port side low)
+  FAR_HOLE_HDR: 1.0, // emissive scale of the disc
+  FAR_HOLE_DIST: 500000.0, // where it is drawn (its quad's corners must stay inside the far plane)
+  // The megastructures: kilometre-scale spires on a wide tile, for a skyline.
+  FAR_SPIRE_TILE: 65536.0,
+  FAR_SPIRE_MAX: 2600.0,
+  // The landing (world/farlanding.js): the one place the pilot can put down.
+  FAR_LAND_OUT: 6400.0, // from the first caged star, toward the arrival point
+  FAR_LAND_ALT: 1200.0, // pad above the plane: clear of the canopy floor and its drag
+  FAR_LAND_CAPTURE: 640.0, // the dock's stand-in radius (captures at 1.25 of this)
+  FAR_LAND_HOLD: 1400.0, // inside this the fleet goes to its station overhead
+  FAR_LAND_RING_R: 3200.0, // the station ring...
+  FAR_LAND_RING_H: 2600.0, // ...and its height over the pad
+  // The door (src/game.js): the white between the landing and the City of Light.
+  FAR_DOOR_FLASH: 0.45, // seconds to full white
+  FAR_DOOR_FADE: 1.3, // ...and to clear
 };
 
 // --- quality tiers (src/quality.js) ---

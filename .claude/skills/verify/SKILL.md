@@ -449,3 +449,29 @@ megaworld and puts the ship back where it was. Seed `end: 'far'` (with
 SwiftShader starts at LOW: `quality.set('medium')` before judging the look
 (towers follow the tier live). Screenshots at medium take a minute.
 
+The landing and the City of Light: `far().state()` adds `landing {abs, dist}`,
+`station`, `inCity`. `__debug.farLanding` → `approach()` (puts the ship over
+the pad; the dock then flies it down: wait for `skyState().landState ===
+'landed'` with `dock: 'landing'`), `dock()` (parks on the pad at once),
+`stepOut()`, `door('city' | 'pad')` (runs the door's white without the walk),
+`state()` → `{doorT, doorTo, dock, platform, isolated, far}`. On foot it is
+`walkSite().capital` again (`place(x, y, z)`, `cWalk.yaw`; set
+`localStorage['sf-walk-view'] = 'tp'` before load to skip the view chooser).
+Landing frame: pad (0, 0.14, 70), door plane z = -64, facing -z is yaw π. City
+frame: door plane z = 10 behind the arrival, balcony about (0, 0, -15), terrace
+(0, 0, -77), greeter at (0, 0, -82). To walk a door for real, `place` 5 short
+of its plane facing it and set `input.forward = true`; the flag is raised from
+the per-frame visuals, so wait real time, not `walkStep`. Checks: landed, the
+fleet is `stationed()` on a ring ~3,200 out and ~2,600 up with none lost; on
+the platform `isolated.active` is false; in the city it is true with
+`camera.far` 4000 and every fleet hull hidden; E at the greeter opens
+`#dlgPanel`, saves `fgsf.tenretni.met` and adds the codex entry (an open
+dialogue holds the walker still: X closes it); back through the door restores
+`camera.far` 1e6, `sun.light.intensity` 2.4 and `sun.ambient.intensity` 0.8;
+`launch()` from inside the city must restore the same. More of the city
+frame: gallery (-112, 0, -77), Pavilion centre (92, 0, -77), its lift pad
+(115, 0, -77), the suite's floor (176, 300, -176) with its pad at (176, 300,
+-167). E on a lift pad moves `cWalk.pos` to the other floor
+(`walkSite().capital.prompt()` reads the pad's prompt; `.floor` reads 300 in
+the suite). Walking pace in the city is 10 u/s (twice the usual 5).
+

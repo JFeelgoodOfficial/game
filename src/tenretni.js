@@ -464,6 +464,7 @@ function loadSaved() {
     if (raw?.comms && typeof raw.comms === 'object') for (const k of Object.keys(raw.comms)) if (raw.comms[k]) comms[k] = true;
     if (Number.isFinite(raw?.size) && raw.size >= 1) size = raw.size;
     if (typeof raw?.eating === 'string') eating = raw.eating;
+    if (raw?.met) met = true;
   } catch {
     // unreadable save: whatever is missing is recomputed
   }
@@ -484,6 +485,7 @@ function save() {
       calling: endgame && endgame.active() ? true : undefined,
       lost: lost.size ? [...lost] : undefined,
       comms: Object.keys(comms).length ? comms : undefined,
+      met: met || undefined,
     }));
   } catch {
     // storage full or blocked: the world still changes for this session
@@ -1003,12 +1005,22 @@ export const wormholeCapture = (pos) => !!endgame && endgame.through(pos);
 let far = null; // src/farside.js createFarside(), built the first time it is wanted
 let farBroken = false;
 let farFirst = false; // this session's arrival: the wormhole is still closing behind
+let met = false; // the pilot has been greeted in the City of Light (saved)
 
 // Build the megaworld (hidden, weightless until applied). Once.
 function loadFar() {
   if (far || farBroken) return;
   try {
-    far = createFarside({ scene, camera, sunWorld });
+    far = createFarside({
+      scene, camera, sunWorld,
+      fleets: () => fleets,
+      onMet: () => {
+        if (met) return;
+        met = true;
+        save();
+        addCodex('The City of Light');
+      },
+    });
   } catch (err) {
     farBroken = true;
     console.warn('[tenretni] the far side could not be built', err);
@@ -1020,6 +1032,13 @@ export function farGate() {
   loadFar();
   return far ? 'ready' : 'failed';
 }
+
+// The places on the far side that are walked (src/farside.js site()): 'pad',
+// the landing game.js docks on, and 'city', through its door. Null until the
+// pilot is on the far side.
+export const farSite = (kind) => (ended === 'far' && far ? far.site(kind) : null);
+// A door there has been walked through: 'city' | 'pad' | null (clears on asking).
+export const farDoor = () => (ended === 'far' && far ? far.door() : null);
 
 // The pilot is through. Saved at once: a reload from here is the far side.
 export function enterFar() {
@@ -1744,6 +1763,7 @@ function report() {
     exiting: exit ? exit.t : null,
     ended,
     far: far ? far.state() : null,
+    met,
     size,
     radius: terra.radius,
     eatingNow: assim ? assim.state() : null,
