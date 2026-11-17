@@ -61,7 +61,7 @@ import { addShiftable } from './origin.js';
 import { createCapital } from '../world/capital.js';
 import coreFrag from './shaders/tenretniCore.frag?raw';
 import shellFrag from './shaders/tenretniShell.frag?raw';
-import { showNavToast, hideNavToast, setNavHidden } from './nav.js';
+import { showNavToast, hideNavToast, setNavHidden, addNavBody } from './nav.js';
 import { showViewToast } from './walkview.js';
 import { setEventRumble, uiSound } from './sfx.js';
 import commonVert from './shaders/tenretni.vert?raw';
@@ -953,10 +953,32 @@ function startWar() {
       setNavHidden(terra.group.position, true);
       addCodex('The New Star');
     },
+    openWormhole,
     save,
   });
   if (ended === 'star') endgame.restore(starSaved || fallbackStar());
 }
+
+// The wormhole as somewhere to go (the ending's last act): wide open, bright,
+// and on the navigation chart for the session. Returns its nav body.
+const wormPos = new THREE.Vector3();
+let wormOpen = null;
+function openWormhole() {
+  if (wormOpen) return wormOpen;
+  worm.visible = true;
+  worm.scale.setScalar(C.TENRETNI_WORM_RADIUS * C.TENRETNI_WORM_REST);
+  wormU.uPower.value = 1.25;
+  worm.getWorldPosition(wormPos);
+  const radius = C.TENRETNI_WORM_RADIUS * C.TENRETNI_WORM_REST;
+  wormOpen = {
+    id: 'wormhole', label: 'THE WORMHOLE', pos: wormPos, dot: 8,
+    radius, logDist: radius * 2.2, color: '#9fe8ff', kind: 'anomaly',
+  };
+  addNavBody(wormOpen);
+  return wormOpen;
+}
+// True once the pilot, leading the fleet, is in the wormhole's mouth.
+export const wormholeCapture = (pos) => !!endgame && endgame.through(pos);
 
 // A save that says the call was made but not where the star is (it was written
 // before the volley): where the worldship is now will do.
@@ -1471,6 +1493,10 @@ export function update(delta, t, onDeck, flying, aboard) {
     plumeU.uTime.value = t;
   }
   if (worm.visible) worm.lookAt(camera.position);
+  if (wormOpen) {
+    worm.getWorldPosition(wormPos); // live: it rides the floating origin
+    wormU.uPower.value = 1.25 + 0.2 * Math.sin(t * 2.2);
+  }
   swarmU.uScale.value = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((camera.fov * Math.PI) / 360);
 
   if (state === 'wait') {

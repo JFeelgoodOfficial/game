@@ -97,6 +97,14 @@ export function setQuestStage(cityId, stage) {
   save();
 }
 
+// A new cycle (src/newCycle.js): the story's own quests go back to never
+// having been offered. Everything else — the codex, tours walked, rewards
+// claimed — is the pilot's and is kept.
+export function resetStory(ids) {
+  for (const id of ids) delete quests[id];
+  save();
+}
+
 // Debug/inspection hook (__debug.journal()).
 export function journalState() {
   return { codex: [...codex], outcomes: [...outcomes], waypoint, quests: { ...quests } };

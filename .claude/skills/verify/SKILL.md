@@ -394,3 +394,16 @@ missing, star}` reads `ready: true` and the CALL THE FLEETS button shows; key
 is at the sun's position, and a reload or `launch()` must come back the same.
 The run is destructive to the save: use a fresh browser context.
 
+The rally and the new cycle: after 74 `end().state()` adds `rally`
+(`'cheer'` → `'offer'` → `'go'`), `rallyT` and `worm` (the wormhole's position
+once opened). `end().skipRally()` jumps the cheer's lines (about 40 s, and the
+clock only runs while flying); at `'offer'` the second button shows and key
+`h` (or `end().together()`) starts the last act: `navMenu.rows('planets')`
+gains THE WORMHOLE, every surviving ship (freighters too) forms on the pilot
+(`fleets().following()`), and the autopilot stops about 4100 from the mouth.
+Hold `w` to fly in: `skyState().phase` goes `'collapse'` and the page reloads
+(src/newCycle.js). After the reload, with no click: phase `'fly'`, ship at the
+origin, no planet `removed`, `fgsf.tenretni` absent, `fgsf.journal` missing
+only the quests `tenretni` and `neptunia-charge`, `fgsf.inventory` unchanged,
+`fgsf.navlog` kept. Seed all four keys before the run to check what survives.
+

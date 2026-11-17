@@ -21,6 +21,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { C } from './constants.js';
 import { initInput, input, setPointerLockGate, throttleAxis } from './input.js';
+import { beginNewCycle, takeNewCycle } from './newCycle.js';
 import { ship, stepShip } from './ship.js';
 import { altitudeAboveFloor } from './gravity.js';
 import { updateOrigin, originOffset, snapshotShiftables, restoreShiftables } from './origin.js';
@@ -52,7 +53,7 @@ import { initHoloPanel, openHoloPanel, closeHoloPanel, isHoloPanelOpen, holoPane
 import {
   initTenretni, updateTenretni, tenretniHolding, stepTenretniHold, resetTenretni,
   tenretniFx, tenretniDebug, capitalDock, tenretniSailVelocity, holoPrograms, holoWorld,
-  nearestVessel, vesselSite, holdVessel, placeFleets,
+  nearestVessel, vesselSite, holdVessel, placeFleets, wormholeCapture,
 } from './tenretniLazy.js';
 import {
   interiorScene,
@@ -1093,6 +1094,7 @@ let accumulator = 0;
 // still goes to 'explode' and still ends the run — only the sun opens the door.
 let phase = 'menu';
 let warpT = 0;
+let cycling = false; // true once the pilot is in the wormhole; 'leaving' while the new cycle loads
 let warp = 0; // collapse pass progress, 0..1
 let heat = 0; // hull heat, 0..1
 let deathReason = ''; // set when the burn wins; shown on the menu
@@ -2075,14 +2077,18 @@ function loadOwnerArt() {
   else setTimeout(go, 1500);
 }
 
-initMenu(() => {
+// Into the seat, in front of terra. `gesture`: called from a click (LAUNCH),
+// which is what lets the music start and the pointer lock; a new cycle arrives
+// here with no click behind it and picks both up on the pilot's first input.
+function launchFlight(gesture = true) {
   resetToStart();
   accumulator = 0;
   phase = 'fly';
   setPaused(false);
   hideMenu();
-  startMusic(); // user's track, from the LAUNCH click gesture
   loadOwnerArt();
+  if (!gesture) return;
+  startMusic(); // user's track, from the LAUNCH click gesture
   renderer.domElement.requestPointerLock?.();
   // One-time first-launch nudge: Terra sits dead ahead of the spawn point,
   // but the nav chart is deliberately blank until bodies are discovered —
@@ -2097,7 +2103,25 @@ initMenu(() => {
   } catch {
     // no storage — skip the nudge rather than repeat it forever
   }
-});
+}
+initMenu(() => launchFlight(true));
+
+// The far side of the wormhole (src/newCycle.js): no menu. The game begins
+// again where it first began, unwinding out of the same stretch it left by.
+if (takeNewCycle()) {
+  launchFlight(false);
+  phase = 'respawn';
+  warpT = 0;
+  warp = 1;
+  setTimeout(() => showNavToast('THE SAME SKY. TERRA, DEAD AHEAD.', 10), 2600);
+  const wake = () => {
+    window.removeEventListener('pointerdown', wake);
+    window.removeEventListener('keydown', wake);
+    startMusic();
+  };
+  window.addEventListener('pointerdown', wake);
+  window.addEventListener('keydown', wake);
+}
 
 function frame(now) {
   if (contextLost) return; // don't re-arm: every draw into a lost context throws
@@ -2233,6 +2257,12 @@ function frame(now) {
     if (ship.position.distanceTo(blackhole.group.position) < C.HORIZON_CAPTURE) {
       phase = 'collapse';
       warpT = 0;
+    } else if (wormholeCapture(ship.position)) {
+      // The ending's last act: the pilot has led the fleet into the wormhole.
+      // The same collapse, but what is on the far side is a new cycle.
+      phase = 'collapse';
+      warpT = 0;
+      cycling = true;
     }
     // hull heat: builds while pressed against a planet's floor, and much
     // faster near the sun; cools when clear (user mechanic — death overrides
@@ -2436,7 +2466,13 @@ function frame(now) {
   } else if (phase === 'collapse') {
     warpT += delta;
     warp = Math.min(warpT / C.COLLAPSE_TIME, 1);
-    if (warpT >= C.COLLAPSE_TIME) {
+    if (cycling) {
+      // hold the stretch; src/newCycle.js whites out and reloads into the start
+      if (cycling === true && warpT >= C.COLLAPSE_TIME) {
+        cycling = 'leaving';
+        beginNewCycle();
+      }
+    } else if (warpT >= C.COLLAPSE_TIME) {
       resetToStart();
       phase = 'respawn';
       warpT = 0;

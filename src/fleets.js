@@ -94,6 +94,7 @@ export function createFleets(ctx) {
   const _b = new THREE.Vector3();
   const _d = new THREE.Vector3();
   const _m = new THREE.Matrix4();
+  const _q = new THREE.Quaternion();
   const UP = new THREE.Vector3(0, 1, 0);
   const r = rng(77);
 
@@ -200,6 +201,16 @@ export function createFleets(ctx) {
   // `k` 0 on their orbits .. 1 on the ring; `adrift` once their worlds are
   // gone and the ring is all the home they have.
   const muster = { on: false, center: null, r: 0, k: 0, adrift: false };
+  // The last of the ending: every ship left forms on the pilot and goes where
+  // the pilot goes. `leader`: { position, quaternion } read live; `mouth`: the
+  // wormhole's position (live) and `mouthR`, where the formation closes up to
+  // go through together.
+  const follow = { on: false, leader: null, mouth: null, mouthR: 1, first: true };
+  let cheer = 0; // 0..1, lights pulsing along every hull
+  const _f = new THREE.Vector3();
+  const _r = new THREE.Vector3();
+  const _u = new THREE.Vector3();
+  let lastT = 0;
 
   // one of the crew: an alien rig (world/aliens.js) standing at its post
   const people = (seed) => {
@@ -243,6 +254,44 @@ export function createFleets(ctx) {
   // after the camera: a deck one frame ahead of the eye standing on it.)
   function place(t) {
     let slot = 0;
+    const dt = Math.min(Math.max(t - lastT, 0), 0.1);
+    lastT = t;
+    if (follow.on) {
+      // a chevron in the leader's own frame: the first pairs a little ahead and
+      // out to either side, where they show through the canopy, the rest
+      // stepping back and outward behind
+      const L = follow.leader;
+      _f.set(0, 0, -1).applyQuaternion(L.quaternion);
+      _r.set(1, 0, 0).applyQuaternion(L.quaternion);
+      _u.set(0, 1, 0).applyQuaternion(L.quaternion);
+      const near = L.position.distanceTo(follow.mouth);
+      const close = 1 - 0.8 * Math.min(Math.max(1 - (near - follow.mouthR) / (follow.mouthR * 2.5), 0), 1);
+      const k = 1 - Math.exp(-0.55 * dt);
+      for (const s of ships) {
+        if (!s.alive) continue;
+        const row = (slot >> 1) + 1, side = slot & 1 ? 1 : -1;
+        slot++;
+        _a.copy(L.position)
+          .addScaledVector(_r, side * (650 + row * 520) * close)
+          .addScaledVector(_u, (((slot * 37) % 5) - 2) * 110 * close)
+          .addScaledVector(_f, (1500 - row * 700) * close);
+        // Held as an offset FROM the leader and eased toward its slot, so the
+        // formation keeps station at any speed (warp included) and rides a
+        // floating-origin rebase, which moves the leader and nothing here.
+        _a.sub(L.position);
+        if (!s.rel) s.rel = new THREE.Vector3();
+        if (follow.first) s.rel.subVectors(s.group.position, L.position); // from wherever it was
+        else s.rel.lerp(_a, k);
+        s.group.position.copy(L.position).add(s.rel);
+        s.group.visible = true;
+        _d.copy(_f);
+        _m.lookAt(s.group.position, _b.copy(s.group.position).sub(_d), _u);
+        _q.setFromRotationMatrix(_m);
+        s.group.quaternion.slerp(_q, follow.first ? 0 : Math.min(k * 2, 1));
+      }
+      follow.first = false;
+      return;
+    }
     for (const s of ships) {
       if (!s.alive) continue;
       if (muster.adrift) {
@@ -305,6 +354,12 @@ export function createFleets(ctx) {
     update(dt, t, siege) {
       // Wavemall's lights turn through the colours
       mats['wavemall prime'].glow.color.setHSL((t * 0.08) % 1, 0.45, 0.62).multiplyScalar(1.9);
+      // cheering: every hull's lights beat together, each fleet to its own time
+      if (cheer > 0) {
+        mats.rustia.glow.color.setScalar(1.15 + cheer * 1.6 * (0.5 + 0.5 * Math.sin(t * 9)));
+        mats.saturnia.glow.color.setScalar(1.15 + cheer * 1.6 * (0.5 + 0.5 * Math.sin(t * 7 + 2)));
+        mats['wavemall prime'].glow.color.multiplyScalar(1 + cheer * (0.5 + 0.5 * Math.sin(t * 11 + 4)));
+      }
       for (const s of ships) {
         if (!s.alive) continue;
         if (s.site && s.id === held) s.site.update(dt, t);
@@ -361,6 +416,23 @@ export function createFleets(ctx) {
       muster.r = r;
       muster.k = k;
       muster.adrift = adrift;
+    },
+    // The ending's last act (src/endgame.js): form on `leader` and stay there.
+    follow(leader, mouth, mouthR) {
+      follow.on = true;
+      follow.first = true;
+      follow.leader = leader;
+      follow.mouth = mouth;
+      follow.mouthR = mouthR;
+    },
+    following: () => follow.on,
+    // 0..1: how hard every hull's lights are beating
+    cheer(k) {
+      cheer = k;
+      if (k <= 0) {
+        mats.rustia.glow.color.setScalar(1.15);
+        mats.saturnia.glow.color.setScalar(1.15);
+      }
     },
     // Destroy one by id (the guns). Returns true if it was alive.
     destroy(id) {

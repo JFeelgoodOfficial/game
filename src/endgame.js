@@ -11,8 +11,18 @@
 //   38–62  what planets remain fall into the old sun, one after another
 //   62–74  the black hole crosses to the sun and swallows it
 //
+// Then the rally, on its own clock:
+//
+//   cheer   every channel is open at once: the three fleets celebrate, and with
+//           no worlds left to go home to they put themselves under the pilot
+//   offer   a second control: WE GO INTO THE WORMHOLE, TOGETHER
+//   go      the fleet forms on the pilot's ship, the autopilot flies to the
+//           wormhole's mouth and hands back the helm, and the pilot takes
+//           everyone in. Through it is a new cycle (src/newCycle.js): the game
+//           begins again in front of terra.
+//
 // What is left — the new star, the wormhole, the ships that survived — is the
-// system from then on. The star's place is kept in absolute coordinates, so
+// system until then. The star's place is kept in absolute coordinates, so
 // the end state is rebuilt the same on every load and after every world reset.
 
 import * as THREE from 'three';
@@ -24,10 +34,23 @@ import { removePlanet, planets } from './planet.js';
 import { setNavHidden, addNavBody, showNavToast } from './nav.js';
 import { makeGlowSprite, makeStarburstSprite } from './starburst.js';
 import { uiSound } from './sfx.js';
+import { startAutoWarp } from './autopilot.js';
+import { isTouch } from './touchText.js';
 
 const T_JUMP = 20, T_FIRE = 30, T_KILL = 34, T_FALL = 38, T_BH = 62, T_END = 74;
 const CALL_RANGE = 9000; // how close to the worldship's surface the pilot must be
 const STAR_R = 1500;
+
+// The rally's lines, by second. `cheer`: the roar goes up with this one.
+const RALLY = [
+  [1, 'A NEW STAR, A WORMHOLE, AND WHOEVER IS LEFT.'],
+  [7, 'RUSTIA — IT IS DEAD! EVERY HAND ON EVERY DECK IS CHEERING!', true],
+  [13, 'WAVEMALL — BEST. CLOSING. EVENT. EVER. THE WHOLE FLEET IS DANCING!', true],
+  [19, 'SATURNIA — EVERY BELL ON EVERY HALO IS RINGING!', true],
+  [26, 'OUR WORLDS ARE GONE. THREE PEOPLES, NO HOME, ONE FLEET.'],
+  [33, 'YOU CALLED AND WE CAME. WE ARE YOURS NOW. LEAD US, PILOT.', true],
+];
+const RALLY_END = 40;
 
 const clamp01 = (x) => Math.min(Math.max(x, 0), 1);
 const seg = (u, a, b) => clamp01((u - a) / (b - a));
@@ -37,6 +60,7 @@ const ease = (x) => x * x * (3 - 2 * x);
 //        explode(pos, scale), comms: {faction: true}, worldshipAlive() -> bool,
 //        extra — worlds that are not planets (the coin),
 //        killWorldship() — take the worldship out of space,
+//        openWormhole() -> its nav body { pos (live), radius, ... },
 //        save() }
 export function createEndgame(ctx) {
   const { terra, fx } = ctx;
@@ -50,6 +74,9 @@ export function createEndgame(ctx) {
   const _s = new THREE.Vector3();
   const _m = new THREE.Matrix4();
   const Z = new THREE.Vector3(0, 0, 1);
+  let rally = null; // null | 'cheer' | 'offer' | 'go'
+  let rallyT = 0, rallyLast = 0;
+  let wormBody = null; // the wormhole's nav body, once it has been opened
   const falls = []; // planets on their way into the sun: { p, from: Vector3 (rel. to sun), t0 }
   const bhFrom = new THREE.Vector3();
 
@@ -89,6 +116,41 @@ export function createEndgame(ctx) {
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyH' && btn.style.display !== 'none') call();
   });
+
+  // the second control: the pilot's answer to "lead us"
+  const btn2 = btn.cloneNode(false);
+  btn2.textContent = (isTouch ? '' : 'H — ') + 'WE GO INTO THE WORMHOLE, TOGETHER';
+  btn2.style.borderColor = '#9fe8ff';
+  btn2.style.color = '#e6fbff';
+  btn2.style.background = 'rgba(6,24,40,0.82)';
+  btn2.style.boxShadow = '0 0 24px rgba(120,220,255,0.45)';
+  document.body.appendChild(btn2);
+  btn2.addEventListener('click', (e) => {
+    e.stopPropagation();
+    together();
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyH' && btn2.style.display !== 'none') together();
+  });
+
+  function together() {
+    if (rally !== 'offer') return false;
+    rally = 'go';
+    rallyT = rallyLast = 0;
+    btn2.style.display = 'none';
+    uiSound('engage');
+    uiSound('cheer');
+    showNavToast('WE GO INTO THE WORMHOLE. TOGETHER.', 7);
+    wormBody = ctx.openWormhole();
+    const F = ctx.fleets();
+    if (F) {
+      F.cheer(0.6);
+      F.follow(ship, wormBody.pos, wormBody.radius);
+    }
+    // the autopilot takes the fleet to the mouth, then the helm is the pilot's
+    startAutoWarp(wormBody, () => showNavToast('THE WORMHOLE. THROTTLE UP AND TAKE US IN.', 12));
+    return true;
+  }
 
   // every world still in space: the planets, and the coin (ctx.extra)
   const worlds = () => planets.concat(ctx.extra || []).filter((w) => w && !w.removed);
@@ -242,13 +304,35 @@ export function createEndgame(ctx) {
     // Rebuild the finished state (load / world reset). `abs`: the star's place.
     restore(abs) {
       if (abs) starAbs = abs;
-      if (starAbs) applyEnd();
+      if (starAbs) {
+        applyEnd();
+        // a save from after the star: the fleets have had their cheer and are
+        // waiting on the pilot. (A rally already under way is left alone.)
+        if (!rally) rally = 'offer';
+      }
     },
+    together,
+    // The pilot has led the fleet to the wormhole and is in its mouth.
+    through: (pos) => rally === 'go' && !!wormBody && pos.distanceTo(wormBody.pos) < wormBody.radius * 0.4,
     update(dt, t, flying) {
       if (done) {
         // light the ship from the new star
         if (sun.light) sun.light.position.copy(star.position).sub(ship.position).normalize();
         burst.material.rotation = t * 0.02;
+        const F = ctx.fleets();
+        if (rally === 'cheer' && flying) {
+          rallyT += dt;
+          for (const [at, text, roar] of RALLY) {
+            if (rallyLast < at && rallyT >= at) {
+              showNavToast(text, 6);
+              if (roar) uiSound('cheer');
+            }
+          }
+          if (F) F.cheer(clamp01(seg(rallyT, 6, 9)) * (1 - 0.5 * seg(rallyT, RALLY_END - 6, RALLY_END)));
+          rallyLast = rallyT;
+          if (rallyT >= RALLY_END) rally = 'offer';
+        }
+        btn2.style.display = rally === 'offer' && flying && F && F.alive(null, 'warship').length ? 'block' : 'none';
         return;
       }
       if (v < 0) {
@@ -265,12 +349,17 @@ export function createEndgame(ctx) {
         ctx.setRumble(0);
         applyEnd();
         ctx.save();
-        showNavToast('A NEW STAR, A WORMHOLE, AND WHOEVER IS LEFT.', 12);
+        rally = 'cheer';
+        rallyT = rallyLast = 0;
       }
     },
     seek(u) {
       if (v >= 0) v = lastV = u;
     },
-    state: () => ({ v, done, ready: ready(), missing: missing(), star: starAbs }),
+    state: () => ({ v, done, ready: ready(), missing: missing(), star: starAbs, rally, rallyT, worm: wormBody ? wormBody.pos.toArray() : null }),
+    // skip the rally's lines (verification)
+    skipRally() {
+      if (rally === 'cheer') rallyT = RALLY_END - 0.01;
+    },
   };
 }
