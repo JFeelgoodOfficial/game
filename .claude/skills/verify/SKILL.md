@@ -422,16 +422,30 @@ missing, star}` reads `ready: true` and the CALL THE FLEETS button shows; key
 is at the sun's position, and a reload or `launch()` must come back the same.
 The run is destructive to the save: use a fresh browser context.
 
-The rally and the new cycle: after 74 `end().state()` adds `rally`
+The rally and the far side: after 74 `end().state()` adds `rally`
 (`'cheer'` → `'offer'` → `'go'`), `rallyT` and `worm` (the wormhole's position
 once opened). `end().skipRally()` jumps the cheer's lines (about 40 s, and the
 clock only runs while flying); at `'offer'` the second button shows and key
 `h` (or `end().together()`) starts the last act: `navMenu.rows('planets')`
 gains THE WORMHOLE, every surviving ship (freighters too) forms on the pilot
 (`fleets().following()`), and the autopilot stops about 4100 from the mouth.
-Hold `w` to fly in: `skyState().phase` goes `'collapse'` and the page reloads
-(src/newCycle.js). After the reload, with no click: phase `'fly'`, ship at the
-origin, no planet `removed`, `fgsf.tenretni` absent, `fgsf.journal` missing
-only the quests `tenretni` and `neptunia-charge`, `fgsf.inventory` unchanged,
-`fgsf.navlog` kept. Seed all four keys before the run to check what survives.
+Hold `w` to fly in, or put `ship.position` on `end().state().worm`
+(`__debug.farArrive()` skips the flight): `skyState().phase` goes `'collapse'`
+→ `'respawn'` → `'fly'` with NO page reload (set a `window.__sentinel` first
+and count `framenavigated`). Then `tenretni.state().ended === 'far'`, the saved
+`fgsf.tenretni.end` is `'far'`, `blackhole.gone` is true, and
+`navMenu.rows('planets')` is only CAGED STAR.
+
+`tenretni.far().state()` → `{active, fade, altitude, groundY, cell, cages:
+[{cell, abs, dist}], points, towers, wormhole, bodyRadius}`. `tenretni` is a
+snapshot object: read `tenretni.state().loaded`, not `tenretni.loaded`. Checks
+that must hold: `launch()` and `page.reload()` both come back to the far side
+at the arrival point with the fleet in formation and no ending button; a cage's
+`abs` does not change across a floating-origin rebase; idle flight settles at
+`FAR_CANOPY` + ~50 with heat 0; a warp dive never goes under; a climb stops by
+`FAR_CEIL`; the old mouth position does nothing; a holodeck program hides the
+megaworld and puts the ship back where it was. Seed `end: 'far'` (with
+`quests.tenretni: 'ship'` and a non-empty `eaten`) to boot straight into it.
+SwiftShader starts at LOW: `quality.set('medium')` before judging the look
+(towers follow the tier live). Screenshots at medium take a minute.
 

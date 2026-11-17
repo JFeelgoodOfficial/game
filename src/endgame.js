@@ -18,8 +18,9 @@
 //   offer   a second control: WE GO INTO THE WORMHOLE, TOGETHER
 //   go      the fleet forms on the pilot's ship, the autopilot flies to the
 //           wormhole's mouth and hands back the helm, and the pilot takes
-//           everyone in. Through it is a new cycle (src/newCycle.js): the game
-//           begins again in front of terra.
+//           everyone in. Through it is the far side (src/farside.js): the
+//           Tenretni megaworld, and no way back. From then on this module is
+//           `far`: it keeps the old system removed and shows nothing of its own.
 //
 // What is left — the new star, the wormhole, the ships that survived — is the
 // system until then. The star's place is kept in absolute coordinates, so
@@ -77,6 +78,7 @@ export function createEndgame(ctx) {
   let rally = null; // null | 'cheer' | 'offer' | 'go'
   let rallyT = 0, rallyLast = 0;
   let wormBody = null; // the wormhole's nav body, once it has been opened
+  let far = false; // the pilot has gone through: nothing here is shown again
   const falls = []; // planets on their way into the sun: { p, from: Vector3 (rel. to sun), t0 }
   const bhFrom = new THREE.Vector3();
 
@@ -187,7 +189,7 @@ export function createEndgame(ctx) {
 
   function placeStar() {
     star.position.set(starAbs[0] - originOffset.x, starAbs[1] - originOffset.y, starAbs[2] - originOffset.z);
-    star.visible = true;
+    star.visible = !far;
   }
 
   // The system as the ending leaves it. Idempotent: load, world reset.
@@ -205,12 +207,27 @@ export function createEndgame(ctx) {
     setNavHidden(sun.group.position, true);
     placeStar();
     core.scale.setScalar(STAR_R);
-    addNavBody({
-      id: 'newstar', label: 'THE NEW STAR', pos: star.position, dot: 9,
-      radius: STAR_R, logDist: STAR_R * 5, color: '#fff0c0', star: true, kind: 'star',
-    });
+    // (and its floor goes with it: an 8,000 u ball of drag nobody can see is
+    // not a thing to leave in space)
+    if (sun.body) sun.body.radius = 0;
+    if (!far) {
+      addNavBody({
+        id: 'newstar', label: 'THE NEW STAR', pos: star.position, dot: 9,
+        radius: STAR_R, logDist: STAR_R * 5, color: '#fff0c0', star: true, kind: 'star',
+      });
+    }
     const F = ctx.fleets();
     if (F) F.muster(star.position, STAR_R * 3 + 2500, 1, true);
+  }
+
+  // The far side (src/tenretni.js enterFar / hideOldSystem). Idempotent.
+  function setFar() {
+    far = true;
+    rally = null;
+    star.visible = false;
+    setNavHidden(star.position, true);
+    btn.style.display = 'none';
+    btn2.style.display = 'none';
   }
 
   function pose(u) {
@@ -308,13 +325,16 @@ export function createEndgame(ctx) {
         applyEnd();
         // a save from after the star: the fleets have had their cheer and are
         // waiting on the pilot. (A rally already under way is left alone.)
-        if (!rally) rally = 'offer';
+        if (!rally && !far) rally = 'offer';
       }
     },
     together,
+    setFar,
+    far: () => far,
     // The pilot has led the fleet to the wormhole and is in its mouth.
-    through: (pos) => rally === 'go' && !!wormBody && pos.distanceTo(wormBody.pos) < wormBody.radius * 0.4,
+    through: (pos) => !far && rally === 'go' && !!wormBody && pos.distanceTo(wormBody.pos) < wormBody.radius * 0.4,
     update(dt, t, flying) {
+      if (far) return; // the far side lights the ship and owns the fleet
       if (done) {
         // light the ship from the new star
         if (sun.light) sun.light.position.copy(star.position).sub(ship.position).normalize();
@@ -356,7 +376,7 @@ export function createEndgame(ctx) {
     seek(u) {
       if (v >= 0) v = lastV = u;
     },
-    state: () => ({ v, done, ready: ready(), missing: missing(), star: starAbs, rally, rallyT, worm: wormBody ? wormBody.pos.toArray() : null }),
+    state: () => ({ v, done, far, ready: ready(), missing: missing(), star: starAbs, rally, rallyT, worm: wormBody ? wormBody.pos.toArray() : null }),
     // skip the rally's lines (verification)
     skipRally() {
       if (rally === 'cheer') rallyT = RALLY_END - 0.01;

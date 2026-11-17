@@ -157,9 +157,18 @@ function setFarFieldVisible(v, keep) {
   for (const p of planets) if (p !== keep) p.group.visible = v && !p.removed;
   // The painting nebulae push their records into deepNebulae too, so this one
   // loop covers both fields.
-  for (const d of deepNebulae) if (d.group) d.group.visible = v;
-  for (const s of stations) if (s.group) s.group.visible = v;
+  // (`gone`: the far side, src/tenretni.js, has left these behind for good)
+  for (const d of deepNebulae) if (d.group) d.group.visible = v && !d.gone;
+  for (const s of stations) if (s.group) s.group.visible = v && !s.gone;
+  for (const o of farExtra) o.visible = v;
   setNebulaVisible(v);
+}
+
+// Anything else that belongs to the far field and is built after boot (the
+// megaworld, src/farside.js): hidden and shown with the rest of it.
+const farExtra = [];
+export function setFarFieldExtra(obj) {
+  if (!farExtra.includes(obj)) farExtra.push(obj);
 }
 
 // Everything that reads as SKY. This waits for the surface stage: pull it at
@@ -176,7 +185,7 @@ function setSkyVisible(v, keep) {
     if (keep.clouds) keep.clouds.visible = v;
   }
   if (sun.group) sun.group.visible = v && !sun.gone; // (the ending leaves no sun to bring back)
-  if (blackhole.group) blackhole.group.visible = v;
+  if (blackhole.group) blackhole.group.visible = v && !blackhole.gone;
   setStarfieldVisible(v);
 }
 

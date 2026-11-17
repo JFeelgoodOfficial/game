@@ -949,7 +949,7 @@ export function setPlanetMelt(p, k) {
 // for doing nothing over it).
 export function drainedWorldBelow(pos, maxAlt) {
   for (const p of planets) {
-    if ((p.drain || 0) < 1) continue;
+    if (p.removed || (p.drain || 0) < 1) continue; // (a world taken out of space is not below anything)
     if (pos.distanceTo(p.group.position) - p.radius < maxAlt) return p;
   }
   return null;
@@ -962,6 +962,7 @@ export function atmosphereAt(pos, out) {
   out.atmo = 0;
   out.altitude = Infinity;
   for (const p of planets) {
+    if (p.removed) continue; // no air where a world used to be
     _tmp.subVectors(pos, p.group.position);
     const alt = _tmp.length() - p.radius;
     const atmoHeight = p.radius * (C.ATMO_SHELL - 1);

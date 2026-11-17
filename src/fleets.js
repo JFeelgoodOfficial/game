@@ -205,7 +205,10 @@ export function createFleets(ctx) {
   // the pilot goes. `leader`: { position, quaternion } read live; `mouth`: the
   // wormhole's position (live) and `mouthR`, where the formation closes up to
   // go through together.
-  const follow = { on: false, leader: null, mouth: null, mouthR: 1, first: true };
+  // `snap`: take station at once (a load into the far side, where the ships
+  // were last seen a system away). `floorY`: a live { y } the hulls never go
+  // under (the megaworld's canopy, src/farside.js), or null.
+  const follow = { on: false, leader: null, mouth: null, mouthR: 1, first: true, snap: false, floorY: null };
   let cheer = 0; // 0..1, lights pulsing along every hull
   const _f = new THREE.Vector3();
   const _r = new THREE.Vector3();
@@ -264,8 +267,12 @@ export function createFleets(ctx) {
       _f.set(0, 0, -1).applyQuaternion(L.quaternion);
       _r.set(1, 0, 0).applyQuaternion(L.quaternion);
       _u.set(0, 1, 0).applyQuaternion(L.quaternion);
-      const near = L.position.distanceTo(follow.mouth);
-      const close = 1 - 0.8 * Math.min(Math.max(1 - (near - follow.mouthR) / (follow.mouthR * 2.5), 0), 1);
+      // (no mouth: nothing to close up for, the formation flies open)
+      const near = follow.mouth ? L.position.distanceTo(follow.mouth) : Infinity;
+      const close = follow.mouth
+        ? 1 - 0.8 * Math.min(Math.max(1 - (near - follow.mouthR) / (follow.mouthR * 2.5), 0), 1)
+        : 1;
+      const floor = follow.floorY ? follow.floorY.y : -Infinity;
       const k = 1 - Math.exp(-0.55 * dt);
       for (const s of ships) {
         if (!s.alive) continue;
@@ -280,14 +287,17 @@ export function createFleets(ctx) {
         // floating-origin rebase, which moves the leader and nothing here.
         _a.sub(L.position);
         if (!s.rel) s.rel = new THREE.Vector3();
-        if (follow.first) s.rel.subVectors(s.group.position, L.position); // from wherever it was
+        if (follow.first && follow.snap) s.rel.copy(_a);
+        else if (follow.first) s.rel.subVectors(s.group.position, L.position); // from wherever it was
         else s.rel.lerp(_a, k);
         s.group.position.copy(L.position).add(s.rel);
+        // a slot that falls under the ground rides along the top of it instead
+        if (s.group.position.y < floor + s.cls.radius) s.group.position.y = floor + s.cls.radius;
         s.group.visible = true;
         _d.copy(_f);
         _m.lookAt(s.group.position, _b.copy(s.group.position).sub(_d), _u);
         _q.setFromRotationMatrix(_m);
-        s.group.quaternion.slerp(_q, follow.first ? 0 : Math.min(k * 2, 1));
+        s.group.quaternion.slerp(_q, follow.first ? (follow.snap ? 1 : 0) : Math.min(k * 2, 1));
       }
       follow.first = false;
       return;
@@ -418,12 +428,16 @@ export function createFleets(ctx) {
       muster.adrift = adrift;
     },
     // The ending's last act (src/endgame.js): form on `leader` and stay there.
-    follow(leader, mouth, mouthR) {
+    // `mouth` null: no wormhole ahead, the formation stays open. `opts`:
+    // { snap, floorY } (see `follow` above).
+    follow(leader, mouth, mouthR, opts) {
       follow.on = true;
       follow.first = true;
       follow.leader = leader;
-      follow.mouth = mouth;
-      follow.mouthR = mouthR;
+      follow.mouth = mouth || null;
+      follow.mouthR = mouthR || 1;
+      follow.snap = !!(opts && opts.snap);
+      follow.floorY = (opts && opts.floorY) || null;
     },
     following: () => follow.on,
     // 0..1: how hard every hull's lights are beating

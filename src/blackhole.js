@@ -25,6 +25,9 @@ export const blackhole = {
   group: null,
   body: null,
   diskMat: null,
+  // Set once the story has left this system (src/tenretni.js, the far side):
+  // no pull, no lensing, no horizon to fall through, and nothing to show again.
+  gone: false,
 };
 
 export function initBlackHole(scene) {
@@ -77,6 +80,12 @@ const _ndc = new THREE.Vector3();
 // Per-frame: animate the disk, keep the mass panel-tunable, and feed the
 // lensing pass the BH's screen position and apparent horizon size.
 export function updateBlackHole(camera, lensUniforms, time) {
+  if (blackhole.gone) {
+    blackhole.body.mass = 0;
+    blackhole.group.visible = false;
+    lensUniforms.uEnabled.value = 0;
+    return;
+  }
   blackhole.body.mass = C.BH_MASS;
 
   const u = blackhole.diskMat.uniforms;
