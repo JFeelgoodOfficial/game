@@ -27,6 +27,7 @@ import { tint, box, cyl, mergedMesh, floorOf, buildRobot, trackRobot } from './c
 import { doorFrame, doorLight, DOOR } from './farlanding.js';
 import { holeDirection } from './farhole.js';
 import { buildHangar, HANGAR_BOX } from './lightvessel.js';
+import { buildPavilion } from './lightpavilion.js';
 
 const SNAP = 1.2;
 const DOOR_Z = 10; // the way back
@@ -40,7 +41,7 @@ const SPEED = 2; // everyone here moves at twice a walk
 const TRAIL = 96; // samples of the walker's path kept for the light behind them
 const TRAIL_LIFE = 2.6; // seconds a sample glows
 const GROUND_Y = -420;
-const SKY_R = 3600;
+const SKY_R = 3700;
 const HAZE = new THREE.Color(0.42, 0.64, 0.96); // what distance fades to: the horizon's pale blue
 const TOWERS = { low: 700, medium: 1400, high: 2200, ultra: 2600 };
 const CRAFT = { low: 120, medium: 320, high: 520, ultra: 700 };
@@ -191,7 +192,7 @@ const FLOOR_VERT = /* glsl */ `
 const FLOOR_FRAG = /* glsl */ `
   uniform float uTime;
   uniform vec3 uDir;
-  uniform vec2 uA, uB, uC; // the round floors' centres (xz): prow, terrace, gallery
+  uniform vec2 uA, uB, uC, uD, uE; // the round floors' centres (xz): prow, terrace, gallery, Pavilion, suite
   varying vec3 vWorld;
   ${SKY_GLSL}
   float hash(vec2 p) {
@@ -225,7 +226,7 @@ const FLOOR_FRAG = /* glsl */ `
     float fres = 0.16 + 0.84 * pow(1.0 - max(V.y, 0.0), 3.0);
     vec3 col = plate + skyBase(normalize(R)) * fres * 0.5;
     // the inlay
-    float d1 = dial(p - uA, 9.0), d2 = max(dial(p - uB, 19.0), dial(p - uC, 15.0));
+    float d1 = max(dial(p - uA, 9.0), dial(p - uE, 14.0)), d2 = max(max(dial(p - uB, 19.0), dial(p - uC, 15.0)), dial(p - uD, 28.0));
     float runs = line(p.x / 1.6, 0.02) * step(abs(p.x), 2.6) * step(-21.0, p.y) + line(p.x / 6.4 + 0.5, 0.006) * 0.6;
     float pulse = 0.75 + 0.25 * sin(uTime * 1.4 - length(p - uA) * 0.5);
     vec3 cyan = vec3(0.45, 0.90, 1.0), gold = vec3(1.0, 0.80, 0.42);
@@ -450,7 +451,7 @@ function buildSky(group, lightDir) {
   dome.renderOrder = -999;
   dome.frustumCulled = false;
   group.add(dome);
-  return uniforms;
+  return { uniforms, dome };
 }
 
 // ctx: { scene, hideFleet(), greet() -> the dialogue payload the greeter speaks }
@@ -527,7 +528,7 @@ export function createLightCity(ctx) {
     const a0 = (i / 40) * Math.PI * 2, a1 = ((i + 1) / 40) * Math.PI * 2;
     const x0 = Math.cos(a0) * TERR_R, z0 = TERR_Z + Math.sin(a0) * TERR_R, x1 = Math.cos(a1) * TERR_R, z1 = TERR_Z + Math.sin(a1) * TERR_R;
     if (Math.abs((x0 + x1) / 2) < BRIDGE_HW + 0.8 && (z0 + z1) / 2 > TERR_Z) continue; // where the bridge arrives
-    if (Math.abs((z0 + z1) / 2 - TERR_Z) < BRIDGE_HW + 0.8 && (x0 + x1) / 2 < 0) continue; // ...and the one to the gallery leaves
+    if (Math.abs((z0 + z1) / 2 - TERR_Z) < BRIDGE_HW + 0.8) continue; // ...and the ones to the gallery and the Pavilion leave
     rail(x0, z0, x1, z1);
   }
   // four slender lamps round it
@@ -560,18 +561,25 @@ export function createLightCity(ctx) {
 
   const litMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x2c2b28 });
   const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });
+  // --- the Pavilion, the lift and the pilot's suite (world/lightpavilion.js) ---
+  const npcs = [], consoles = [];
+  const pavilion = buildPavilion({ group, lit, glow, glass, surfaces, colliders, rail, npcs, consoles, glowMat });
+  // (geometry from more than one module: unindexed, so it all merges)
+  const flatList = (list) => list.map((g) => (g.index ? g.toNonIndexed() : g));
   const glassMat = new THREE.MeshBasicMaterial({
     vertexColors: true, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide, fog: false,
   });
-  group.add(mergedMesh(lit, litMat));
-  group.add(mergedMesh(glow, glowMat));
-  group.add(mergedMesh(glass, glassMat));
+  group.add(mergedMesh(flatList(lit), litMat));
+  group.add(mergedMesh(flatList(glow), glowMat));
+  group.add(mergedMesh(flatList(glass), glassMat));
 
   // the polished floor laid over all of it (FLOOR_FRAG)
   const floorU = {
     uTime: { value: 0 }, uDir: { value: lightDir },
     uA: { value: new THREE.Vector2(0, -12) }, uB: { value: new THREE.Vector2(0, TERR_Z) },
     uC: { value: new THREE.Vector2(GALL_X, TERR_Z) },
+    uD: { value: new THREE.Vector2(pavilion.floors[1][1], pavilion.floors[1][3]) },
+    uE: { value: new THREE.Vector2(pavilion.floors[2][1], pavilion.floors[2][3]) },
   };
   const flat = (g, x, y, z) => g.rotateX(-Math.PI / 2).translate(x, y, z);
   const floorGeo = [
@@ -581,6 +589,8 @@ export function createLightCity(ctx) {
     flat(new THREE.CircleGeometry(TERR_R, 64), 0, 0.010, TERR_Z),
     flat(new THREE.PlaneGeometry(-TERR_R + 2 - (GALL_X + GALL_R - 2) + 4, BRIDGE_HW * 2), (GALL_X + GALL_R - TERR_R) / 2, 0.014, TERR_Z),
     flat(new THREE.CircleGeometry(GALL_R, 48), GALL_X, 0.010, TERR_Z),
+    ...pavilion.floors.map(([kind, x, y, z, a, b]) =>
+      flat(kind === 'disc' ? new THREE.CircleGeometry(a, 56) : new THREE.PlaneGeometry(a, b), x, y, z)),
   ];
   const floor = mergedMesh(floorGeo, new THREE.ShaderMaterial({ vertexShader: FLOOR_VERT, fragmentShader: FLOOR_FRAG, uniforms: floorU, fog: false }));
   group.add(floor);
@@ -686,7 +696,8 @@ export function createLightCity(ctx) {
     trailAge.needsUpdate = true;
     trailU.uScale.value = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((C.FOV * Math.PI) / 360);
   }
-  const skyU = buildSky(group, lightDir);
+  const sky = buildSky(group, lightDir);
+  const skyU = sky.uniforms;
 
   // what this place changes in the scene, kept to put back
   let inside = false;
@@ -708,16 +719,18 @@ export function createLightCity(ctx) {
     pad: new THREE.Vector3(0, 0, DOOR_Z),
     spawn: new THREE.Vector3(0, 0, DOOR_Z - 5),
     spawnYaw: Math.PI, // facing -z: the view
-    npcs: [{ x: GREET.x, y: 0, z: GREET.z, role: 'greeter', talk: () => ctx.greet() }],
-    consoles: [],
+    npcs: [{ x: GREET.x, y: 0, z: GREET.z, role: 'greeter', talk: () => ctx.greet() }, ...npcs],
+    consoles,
+    rooms: pavilion.rooms,
     onChoice: () => null,
     portal: null, // 'pad' once the walker has gone back through the door
     setWalker(p) {
+      pavilion.setWalker(p);
       if (!p) {
         walker = null;
         return;
       }
-      if (walker && lastZ <= DOOR_Z && p.z > DOOR_Z && Math.abs(p.x) < DOOR.hw) site.portal = 'pad';
+      if (walker && lastZ <= DOOR_Z && p.z > DOOR_Z && Math.abs(p.x) < DOOR.hw && p.y < 5) site.portal = 'pad';
       lastZ = p.z;
       walker = p;
     },
@@ -762,6 +775,10 @@ export function createLightCity(ctx) {
       city.craftU.uScale.value = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((C.FOV * Math.PI) / 360);
       floorU.uTime.value = t;
       hangar.tick(t);
+      pavilion.tick(dt, t);
+      // the sky goes where the eye goes: from the suite, half a kilometre up, it
+      // would otherwise be cut by the far plane on the far side of the city
+      if (walker) sky.dome.position.copy(walker);
       stepTrail(t);
       skyU.uTime.value = t;
       sheet.uniforms.uTime.value = t;
@@ -774,6 +791,7 @@ export function createLightCity(ctx) {
     places: {
       door: [0, 0, DOOR_Z - 2], back: [0, 0, DOOR_Z + 2], balcony: [0, 0, -16], bridge: [0, 0, -40],
       terrace: [0, 0, TERR_Z + 8], greeter: [0, 0, GREET.z + 2.6], gallery: [GALL_X, 0, TERR_Z],
+      ...pavilion.places,
     },
     info: () => ({ towers: city.towers, cells: hangar.cells }),
   };

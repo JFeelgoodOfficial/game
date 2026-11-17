@@ -329,7 +329,7 @@ export function buildFarHole() {
     side: THREE.DoubleSide,
   });
   const conduitGeo = (seed) => {
-    const ALONG = 72, ROUND = 20;
+    const ALONG = 96, ROUND = 28;
     const g = new THREE.PlaneGeometry(1, 1, ALONG, ROUND).translate(0.5, 0.5, 0);
     g.setAttribute('aSeed', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count).fill(seed), 1));
     return g;

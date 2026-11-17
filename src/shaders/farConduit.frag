@@ -29,15 +29,17 @@ void main() {
   float fres = pow(1.0 - facing, 2.0);
 
   // the film: its colour turns with the angle it is seen at, and drifts
-  float flow = vnoise(vec2(t * 26.0 + uTime * 0.05 + vSeed * 9.0, th * 1.3)) * 0.6
-             + vnoise(vec2(t * 70.0 - uTime * 0.08, th * 2.6 + vSeed * 4.0)) * 0.4;
+  // (it runs: the film slides down the sheet, never the same twice)
+  float flow = vnoise(vec2(t * 26.0 + uTime * 0.22 + vSeed * 9.0, th * 1.3)) * 0.6
+             + vnoise(vec2(t * 70.0 + uTime * 0.35, th * 2.6 + vSeed * 4.0)) * 0.4;
   float film = facing * 1.4 + flow * 0.9 + vSeed;
   vec3 irid = 0.5 + 0.5 * cos(6.2832 * (film + vec3(0.0, 0.33, 0.67)));
   // mostly the blue-violet of cold glass, with the rainbow coming through
   vec3 glass = mix(vec3(0.30, 0.40, 1.0), irid, 0.8);
-  vec3 col = glass * (0.016 + 0.34 * fres) * (0.55 + 0.75 * flow);
+  // a sheet shows its face as well as its edge: more body than a pipe has
+  vec3 col = glass * (0.030 + 0.24 * fres) * (0.5 + 0.8 * flow);
   // the film itself, banded where it thickens and thins
-  col += irid * pow(0.5 + 0.5 * sin(film * 9.0), 3.0) * 0.07 * (0.3 + fres);
+  col += irid * pow(0.5 + 0.5 * sin(film * 9.0), 3.0) * 0.10 * (0.4 + fres);
   // a hard highlight right on the silhouette
   col += mix(vec3(0.85, 0.90, 1.0), irid, 0.5) * pow(1.0 - facing, 6.0) * 0.28;
 
@@ -53,6 +55,6 @@ void main() {
 
   // out of the disc it comes from nothing: a dozen of these cross the same
   // patch of sky up there, and adding them all would white the hole out
-  col *= 1.0 - smoothstep(0.26, 0.70, t);
+  col *= 1.0 - smoothstep(0.30, 0.76, t);
   gl_FragColor = vec4(col * uFade, 1.0);
 }

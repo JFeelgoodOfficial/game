@@ -468,5 +468,10 @@ the platform `isolated.active` is false; in the city it is true with
 `#dlgPanel`, saves `fgsf.tenretni.met` and adds the codex entry (an open
 dialogue holds the walker still: X closes it); back through the door restores
 `camera.far` 1e6, `sun.light.intensity` 2.4 and `sun.ambient.intensity` 0.8;
-`launch()` from inside the city must restore the same.
+`launch()` from inside the city must restore the same. More of the city
+frame: gallery (-112, 0, -77), Pavilion centre (92, 0, -77), its lift pad
+(115, 0, -77), the suite's floor (176, 300, -176) with its pad at (176, 300,
+-167). E on a lift pad moves `cWalk.pos` to the other floor
+(`walkSite().capital.prompt()` reads the pad's prompt; `.floor` reads 300 in
+the suite). Walking pace in the city is 10 u/s (twice the usual 5).
 

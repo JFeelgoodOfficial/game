@@ -568,12 +568,15 @@ saturated orange at full strength is well under the threshold. Two merged
 One merged ribbon mesh (`farStream.frag`) hangs from it: the wisps, faint
 embers looping off the ends of the disc. (An earlier fan of fire tethers from
 the rim to the horizon was removed at the owner's request.) The mining itself is
-the conduits (`farConduit.vert/.frag`): tubes of iridescent glass from two
-collectors on each full-detail cage's gantry up and over into the disc, with
-gold light falling down the inside. Their shape is made in the vertex shader
-each frame from the mesh's own place (the collector, fixed in the world) and
-the hole's (a direction in the sky); they fade out well short of the hole,
-because eight of them crossing the same patch of sky add up to white. Nine spiral galaxies (one mesh) stand in
+the conduits (`farConduit.vert/.frag`): broad draped sheets of iridescent glass
+that hang from the disc, twist as they fall and are gathered into a funnel
+over two collectors on each full-detail cage's gantry, with gold light falling
+down them. Each is a flattened tube (a fifth as thick as it is wide) whose
+whole shape is made in the vertex shader every frame from the mesh's own place
+(the collector, fixed in the world) and the hole's (a direction in the sky),
+and it moves: the drape sways, folds travel down it, its twist turns and its
+face ripples. They fade out short of the hole, because eight of them crossing
+the same patch of sky add up to white. Nine spiral galaxies (one mesh) stand in
 the far sky and the old system's nebula is dimmed to a tenth
 (`setNebulaDim`): this is not the sky the pilot left. The game's screen-space
 lens pass is not used: it assumes a hole a few degrees across, blacks out
@@ -642,6 +645,20 @@ every cell (`CELL_FRAG` draws colour, frame, glass, figures and motes per
 fragment from one seed per instance, so the hull is two draw calls). A truss
 spine runs forward to a bulb of hexagonal cells; aft is the drive, a hub in two
 great rings. The upper forward corner is unbuilt. Its purpose is not stated.
+
+**The Pavilion and the pilot's home** (`world/lightpavilion.js`). East of the
+terrace a third bridge runs to the Pavilion: a round floor under a glass canopy
+on twelve columns, where a captain from each of the three fleets stands round a
+table (the fleets' own crew rigs, `world/aliens.js`), each with a few lines
+about the rooms their people have been given. A Tenretni steward stands by the
+lift and says the same of the pilot's. The lift is a ring of light in the
+floor: E moves the walker (the platform walker hands a site its position
+vector, and the site may write to it). It goes to the pilot's suite at the top
+of a tower beside the Pavilion, 300 u above the balcony: glass from floor to
+ceiling all the way round, with a bed, a curved seat, a desk and lamps. The
+city, the white hole, the Pavilion and the hangar with its vessel can all be
+seen from it. The sky dome follows the walker so the far plane does not cut it
+from up there. The captains' and the steward's words are first drafts.
 
 **How the pilot moves there.** Anywhere in the City of Light the pilot walks
 and runs at twice the usual pace (`site.speed`), and leaves a trail of light:
