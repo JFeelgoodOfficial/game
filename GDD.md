@@ -567,8 +567,13 @@ threshold in luminance, a ring this size blooming fogs the shadow grey, and
 saturated orange at full strength is well under the threshold. Two merged
 ribbon meshes (`farStream.frag`) hang from it: the tethers, streaks of fire
 from the hole's lower rim fanning down to the world all along the horizon, and
-the wisps, faint embers looping off the ends of the disc. Each full-detail cage
-has a strip of the same from its mast. Nine spiral galaxies (one mesh) stand in
+the wisps, faint embers looping off the ends of the disc. The mining itself is
+the conduits (`farConduit.vert/.frag`): tubes of iridescent glass from two
+collectors on each full-detail cage's gantry up and over into the disc, with
+gold light falling down the inside. Their shape is made in the vertex shader
+each frame from the mesh's own place (the collector, fixed in the world) and
+the hole's (a direction in the sky); they fade out well short of the hole,
+because eight of them crossing the same patch of sky add up to white. Nine spiral galaxies (one mesh) stand in
 the far sky and the old system's nebula is dimmed to a tenth
 (`setNebulaDim`): this is not the sky the pilot left. The game's screen-space
 lens pass is not used: it assumes a hole a few degrees across, blacks out
@@ -619,7 +624,14 @@ from this side, and walking back through it returns the pilot to the landing.
 The city itself is seen, never walked: two instanced tower meshes, a lit
 plane, three rings and a sky dome, all unlit shaders. In the sky is the white
 hole: the black hole outside in the same place, inside out, a white core where
-the shadow was, the disc dark, light pouring outward.
+the shadow was, rings of sparks where the disc of fire is, light pouring
+outward, on a deep blue sky with stars by day. The towers are dark glass with
+curtain walls of cyan and gold panes; the floor underfoot is polished plate
+that mirrors the sky (it shares `SKY_GLSL` with the dome) inlaid with rings and
+runs of light; points of air traffic move on lanes between the towers. The
+look depends on restraint: the `lightcity` preset's exposure and bloom, and
+every glare term in the sky, are set low, because the scene is bright
+everywhere and washes to white otherwise.
 
 `src/capitalWalk.js` gained what a place with no ship needs, all optional:
 entry options (`spawn`, `yaw`, `quiet`), `site.noShip`, `site.exit`,

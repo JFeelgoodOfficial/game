@@ -135,7 +135,7 @@ const WORLD_RENDER = {
   // the threshold sits above the sky and only the white hole, the crowns and
   // the lamps bloom. Not soleLight: the place borrows the game's own sun and
   // ambient for the stay and puts them back itself.
-  lightcity: { exposure: 0.72, bloomThreshold: 1.3, bloomStrength: 0.42 },
+  lightcity: { exposure: 0.62, bloomThreshold: 1.4, bloomStrength: 0.3 },
   terra: GENERIC_RENDER,
   rustia: GENERIC_RENDER,
   neptunia: GENERIC_RENDER,

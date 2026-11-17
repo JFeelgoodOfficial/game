@@ -25,6 +25,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { C } from '../src/constants.js';
 import { Q, onQualityChange } from '../src/quality.js';
 import { makeGlowSprite } from '../src/starburst.js';
+import { holeDirection } from './farhole.js';
 import groundVert from '../src/shaders/megaGround.vert?raw';
 import groundFrag from '../src/shaders/megaGround.frag?raw';
 import towerVert from '../src/shaders/megaTower.vert?raw';
@@ -294,6 +295,17 @@ const FRAME_VERT = /* glsl */ `
   }
 `;
 
+// Where the time conduits land on a cage (world/farhole.js conduit()): two
+// collectors on its gantry ring, either side of the bearing to the hole. Cage-
+// local, y = 0 on the ground.
+const GANTRY_H = 1500;
+function collectorSpots() {
+  const d = holeDirection(new THREE.Vector3());
+  const az = Math.atan2(d.z, d.x);
+  const R = C.FAR_CAGE_PAD * 0.9;
+  return [-1.05, 1.05].map((off) => new THREE.Vector3(Math.cos(az + off) * R, GANTRY_H + 620, Math.sin(az + off) * R));
+}
+
 function frameGeometry() {
   const H = C.FAR_CAGE_HEIGHT, R = C.FAR_CAGE_RING_R, T = C.FAR_CAGE_TUBE;
   const parts = [];
@@ -315,7 +327,7 @@ function frameGeometry() {
     add(new THREE.CylinderGeometry(T * 0.8, T * 1.5, H, 8).translate(Math.cos(a) * (R + T * 1.2), H / 2, Math.sin(a) * (R + T * 1.2)));
   }
   // a gantry ring round the foot of it all, on eight legs, over the roofs
-  const GR = C.FAR_CAGE_PAD * 0.9, GH = 1500;
+  const GR = C.FAR_CAGE_PAD * 0.9, GH = GANTRY_H;
   add(new THREE.TorusGeometry(GR, T * 0.7, 8, 72).rotateX(Math.PI / 2).translate(0, GH, 0));
   add(new THREE.TorusGeometry(GR * 0.78, T * 0.4, 6, 64).rotateX(Math.PI / 2).translate(0, GH * 0.62, 0));
   for (let i = 0; i < 8; i++) {
@@ -323,6 +335,12 @@ function frameGeometry() {
     add(new THREE.CylinderGeometry(T * 0.45, T * 0.8, GH, 6).translate(Math.cos(a) * GR, GH / 2, Math.sin(a) * GR));
     // a spar from each leg in to the pedestal
     add(new THREE.BoxGeometry(GR - R * 1.1, T * 0.35, T * 0.35).translate((GR + R * 1.1) / 2, GH * 0.62, 0).rotateY(-a));
+  }
+  // the collectors: a drum on the ring with a throat for what comes down
+  for (const p of collectorSpots()) {
+    add(new THREE.CylinderGeometry(560, 760, 420, 16).translate(p.x, GH + 210, p.z));
+    add(new THREE.CylinderGeometry(300, 520, 260, 16).translate(p.x, GH + 520, p.z));
+    add(new THREE.TorusGeometry(640, T * 0.3, 6, 28).rotateX(Math.PI / 2).translate(p.x, GH + 430, p.z));
   }
   // the spire on the north pole, with two yards
   const top = H + R;
@@ -448,5 +466,5 @@ export function buildMegaworld(sunDir) {
   const stars = buildPoints();
   root.add(ground.mesh, towers.mesh, spires.mesh, stars.points);
   for (const c of cage.cages) root.add(c.group);
-  return { root, ground, towers, spires, cage, stars };
+  return { root, ground, towers, spires, cage, stars, collectors: collectorSpots() };
 }

@@ -19,6 +19,11 @@
 //   galaxies  a handful of spirals in the far sky, one mesh: this is not the
 //             sky the pilot left
 //
+// And the mining itself, which is not sky: the conduits (conduit(), below;
+// src/shaders/farConduit.vert/.frag). Each is a tube of iridescent glass from
+// a collector on a cage, fixed in the world, up and over into the disc, with
+// gold light falling down the inside of it.
+//
 // The game's screen-space lens pass is not used: it assumes a hole a few
 // degrees across, blacks out whatever is drawn in front of it, and switches
 // off when the centre leaves the view, with the disc still on screen.
@@ -28,6 +33,8 @@ import { C } from '../src/constants.js';
 import commonVert from '../src/shaders/tenretni.vert?raw';
 import holeFrag from '../src/shaders/farHole.frag?raw';
 import streamFrag from '../src/shaders/farStream.frag?raw';
+import conduitVert from '../src/shaders/farConduit.vert?raw';
+import conduitFrag from '../src/shaders/farConduit.frag?raw';
 
 const STREAM_VERT = /* glsl */ `
   attribute float aSeed;
@@ -40,28 +47,6 @@ const STREAM_VERT = /* glsl */ `
     vSeed = aSeed;
     vAng = acos(clamp(dot(normalize(position), uDir), -1.0, 1.0));
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-
-// A cage's own stream: a strip that stands along uAxis and turns about it to
-// face the camera. position.x is across (-1..1), position.y along (0..1).
-const BEAM_VERT = /* glsl */ `
-  uniform vec3 uAxis;
-  uniform float uLength;
-  uniform float uWidth;
-  varying vec2 vUv;
-  varying float vSeed;
-  varying float vAng;
-  void main() {
-    vUv = vec2(position.x * 0.5 + 0.5, position.y);
-    vSeed = 0.37;
-    vAng = 1.0;
-    vec3 base = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-    vec3 at = base + uAxis * (position.y * uLength);
-    vec3 right = normalize(cross(uAxis, cameraPosition - at));
-    // wider where it leaves the star, drawn to a thread on the way up
-    at += right * (position.x * uWidth * mix(1.0, 0.25, position.y));
-    gl_Position = projectionMatrix * viewMatrix * vec4(at, 1.0);
   }
 `;
 
@@ -271,7 +256,7 @@ function galaxyGeometry(dir) {
   return geo;
 }
 
-// Returns { group, dir, update(camera, t, fade), beam() }. `group` is to be a
+// Returns { group, dir, update(camera, t, fade), conduit(variant) }. `group` is to be a
 // child of something at the scene's origin with no rotation.
 export function buildFarHole() {
   const group = new THREE.Group();
@@ -359,34 +344,41 @@ export function buildFarHole() {
 
   group.add(galaxies, shadow, light, streams, wisps);
 
-  // One material for every cage's own stream: a strip leaning from the mast
-  // toward the hole. beam() makes a mesh of it for a cage group.
-  const beamU = {
-    uTime: time,
-    uHdr: { value: 1.0 },
-    uFade: fadeU,
-    uKind: { value: 0 },
-    uShadow: { value: 0 },
-    uAxis: { value: new THREE.Vector3(0, 1, 0).lerp(dir, 0.55).normalize() },
-    uLength: { value: 90000 },
-    uWidth: { value: 900 },
-  };
-  const beamMat = new THREE.ShaderMaterial({
-    vertexShader: BEAM_VERT,
-    fragmentShader: streamFrag,
-    uniforms: beamU,
+  // --- the conduits: the mining itself ---
+  // One material for all of them; the shape is made in its vertex shader from
+  // the mesh's own place (a collector, on a cage) and the hole's (in the sky).
+  // A handful of geometries differ only in the seed baked into them, which
+  // says where on the disc each one comes from and which way it is thrown.
+  const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
+  const upv = new THREE.Vector3().crossVectors(right, dir).normalize();
+  const conduitMat = new THREE.ShaderMaterial({
+    vertexShader: conduitVert,
+    fragmentShader: conduitFrag,
+    uniforms: {
+      uTime: time, uFade: fadeU,
+      uHoleDir: { value: dir }, uHoleRight: { value: right }, uHoleUp: { value: upv },
+      uHoleDist: { value: D }, uHoleR: { value: shadowR },
+    },
     transparent: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     side: THREE.DoubleSide,
   });
-  const beamGeo = new THREE.PlaneGeometry(2, 1, 1, 24).translate(0, 0.5, 0);
+  const conduitGeo = (seed) => {
+    const ALONG = 72, ROUND = 20;
+    const g = new THREE.PlaneGeometry(1, 1, ALONG, ROUND).translate(0.5, 0.5, 0);
+    g.setAttribute('aSeed', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count).fill(seed), 1));
+    return g;
+  };
+  const conduitGeos = [0.12, 0.88, 0.5, 0.3, 0.7].map(conduitGeo);
 
   return {
     group,
     dir,
-    beam() {
-      const m = new THREE.Mesh(beamGeo, beamMat);
+    // A conduit, to be placed where it lands (its origin is its foot).
+    // `variant` picks its place on the disc and the side it is thrown to.
+    conduit(variant) {
+      const m = new THREE.Mesh(conduitGeos[variant % conduitGeos.length], conduitMat);
       m.frustumCulled = false;
       m.renderOrder = 1;
       return m;

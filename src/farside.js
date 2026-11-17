@@ -86,11 +86,15 @@ export function createFarside(ctx) {
   // the black hole it is here to mine, and what it draws up out of it
   const hole = buildFarHole();
   mega.root.add(hole.group);
-  for (const c of mega.cage.cages) {
-    const beam = hole.beam();
-    beam.position.y = C.FAR_CAGE_HEIGHT + C.FAR_CAGE_RING_R + 4200; // from the mast's tip
-    c.group.add(beam);
-  }
+  // ...the mining: conduits from the disc down to the collectors on each cage's
+  // gantry (world/megaworld.js collectorSpots)
+  mega.cage.cages.forEach((c, i) => {
+    mega.collectors.forEach((spot, k) => {
+      const tube = hole.conduit(i * 2 + k);
+      tube.position.copy(spot);
+      c.group.add(tube);
+    });
+  });
 
   // SHIFT: the first present cell out from the lattice's middle holds the
   // star the pilot arrives beside.
