@@ -69,6 +69,18 @@ array. `__debug.coach()` → `{step, total, visible, text}`; set
 `localStorage['nova7.coach'] = '6'` before load to skip the first-flight
 coaching in screenshots.
 
+## Landing
+Every landable world captures the ship like the Sky City: crossing inside
+`radius * 1.25` starts the auto-land to the town pad (or flat ground where
+there is no town) with no key. Put the ship at `radius * 1.25 + 40` above a
+planet moving in and wait for `skyState().landState` `'auto'` then `'landed'`;
+the ship's direction from the planet must match `cityInfo(world)[0].padWorldDir`.
+`planet.landArmed` is the latch: false from capture until the ship is 300
+clear of the air, so holding `w` to lift off must reach free flight without
+being recaptured. Set `planet.landArmed = true` before a second test on the
+same world. The autopilot stops at 4 radii, outside the air, so NAV alone
+does not land.
+
 ## The dash
 Wheel on the right, throttle lever on the left, one row of six buttons and no
 others. `__debug.cockpit` → `buttonNames()` (must be exactly WARP, RADIO,

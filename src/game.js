@@ -1521,6 +1521,42 @@ function checkSkyCapture() {
   }
 }
 
+// --- every landable world takes the helm (owner's call) -----------------------
+// What the Sky City does, everywhere: cross into a world's air and the
+// autopilot flies the ship round to the landing pad and sets it down
+// (beginAutoLand: the town's pad where the world has a town, the flattest
+// ground under the ship where it does not). No button and no speed limit; LAND
+// still waves an approach off, and still starts one by hand lower down.
+//
+// `landArmed` on the planet is the latch: taken off when its air captures the
+// ship, or whenever the ship is down on it or the pilot is walking it, and put
+// back once the ship has climbed SKY_REARM_MARGIN clear of the air. So lifting
+// off, or waving off, does not hand the helm straight back.
+function checkPlanetCapture() {
+  const floor = nearestTerraFloor(ship.position);
+  if (!floor || floor.planet.removed) return;
+  const p = floor.planet;
+  const r = ship.position.distanceTo(p.body.position);
+  const shell = p.radius * C.ATMO_SHELL;
+  if (p.landArmed === false) {
+    if (r > shell + C.SKY_REARM_MARGIN) p.landArmed = true;
+    return;
+  }
+  if (r >= shell) return;
+  p.landArmed = false;
+  cancelAutopilot();
+  input.throttle = 0;
+  beginAutoLand(floor);
+  showNavToast(`${p.cfg.name.toUpperCase()} — WE HAVE YOUR HELM`, 5);
+}
+// Down on a world, or on foot on one: its air does not re-capture on the way up.
+function disarmPlanetBelow() {
+  const floor = nearestTerraFloor(ship.position);
+  if (!floor) return;
+  const p = floor.planet;
+  if (ship.position.distanceTo(p.body.position) < p.radius * C.ATMO_SHELL + C.SKY_REARM_MARGIN) p.landArmed = false;
+}
+
 // --- stevenlacey landing (world/coinworld.js) ---------------------------------
 // The coin has no ground and no gravity, so like the Sky City it captures the
 // ship: come inside its capture radius and the tumble runs down while the
@@ -2137,6 +2173,7 @@ function frame(now) {
   // The war fleets are posed first: a pilot parked on one, or walking its
   // deck, is carried by a pose the physics, the camera and the render share.
   if (!isolated.active) placeFleets(now / 1000);
+  if (phase === 'walk' || landState !== null) disarmPlanetBelow();
   if (debug) {
     debug.recordFrame(delta);
     if (debug.paused) delta = 0;
@@ -2250,6 +2287,7 @@ function frame(now) {
         stepShip(DT, piloted);
         if (piloted && !autopilotActive()) checkTouchdown();
         if (landState === null) checkSkyCapture();
+        if (landState === null && piloted && !autopilotActive()) checkPlanetCapture();
         if (landState === null) checkCoinCapture();
       }
       accumulator -= DT;

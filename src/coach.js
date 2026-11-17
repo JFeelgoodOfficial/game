@@ -54,7 +54,7 @@ const STEPS = [
   { key: touch ? 'WARP' : 'F', text: 'HOLD TO WARP — AIM AT THE PLANET AHEAD', need: 1.5, done: () => input.warp },
   { key: touch ? 'THROTTLE' : 'S', text: touch ? 'PULL THE THROTTLE DOWN TO SLOW AND REVERSE' : 'HOLD TO SLOW DOWN AND REVERSE', need: 0.5, done: () => throttleAxis() < -0.3 },
   { key: touch ? 'NAV' : 'N', text: 'OPEN THE NAV CHART', need: 0, done: (s) => s.navOpen },
-  { key: touch ? 'LAND' : 'G', text: 'FLY LOW AND SLOW OVER A WORLD, THEN LAND', need: 0, done: (s) => s.landed },
+  { key: touch ? 'LAND' : 'G', text: "FLY INTO A WORLD'S AIR AND IT LANDS YOU", need: 0, done: (s) => s.landed },
 ];
 
 let el = null;
