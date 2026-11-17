@@ -8,7 +8,7 @@
 
 import * as THREE from 'three';
 import { C } from './constants.js';
-import { input } from './input.js';
+import { input, throttleAxis } from './input.js';
 import { accelAt, applyAltitudeFloor } from './gravity.js';
 
 export const ship = {
@@ -25,7 +25,6 @@ export const ship = {
 const _grav = new THREE.Vector3();
 const _thrust = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
-const _brake = new THREE.Vector3();
 const _warpTarget = new THREE.Vector3();
 const _euler = new THREE.Euler();
 const _dq = new THREE.Quaternion();
@@ -47,8 +46,6 @@ export function stepShip(dt, piloted = true) {
     av.x -= input.mouseY * C.TORQUE_SCALE;
     input.mouseX = 0;
     input.mouseY = 0;
-    const roll = (input.rollLeft ? 1 : 0) - (input.rollRight ? 1 : 0);
-    av.z += roll * C.ROLL_TORQUE;
   } else {
     av.multiplyScalar(C.INTERIOR_SPIN_CALM); // attitude hold
     // station-keeping: the autopilot bleeds speed off so the ship does not
@@ -83,22 +80,26 @@ export function stepShip(dt, piloted = true) {
     }
 
     // --- thrust along local forward (GDD 3.1) ---
-    // W/S belong to the walk controller while unpiloted.
-    const throttle = piloted ? (input.forward ? 1 : 0) - (input.reverse ? 1 : 0) : 0;
-    // W IS the boost (owner's call — there is no separate boost key any more).
-    // Reverse stays on base thrust: S is for backing off, not for going fast.
-    const boosting = piloted && input.forward;
-    const thrustMag = C.THRUST * (boosting ? C.BOOST_MULTIPLIER : 1);
+    // One control: the throttle (the dash lever, or W/S as its full throw).
+    // The walk controller owns W/S while unpiloted.
+    const throttle = piloted ? throttleAxis() : 0;
     if (throttle !== 0) {
       _fwd.set(0, 0, -1).applyQuaternion(ship.quaternion);
+      // Forward is the boost, scaled by how far the lever is pushed. Pulled
+      // back, the engine gives the same authority only while it is SLOWING the
+      // ship — there is no brake any more, so the lever has to be one — and
+      // base thrust once it is actually backing up: reverse is for backing
+      // off, not for going fast.
+      const along = ship.velocity.dot(_fwd);
+      const strong = throttle > 0 || along > 0;
+      const thrustMag = C.THRUST * (strong ? C.BOOST_MULTIPLIER : 1);
       _thrust.copy(_fwd).multiplyScalar(throttle * thrustMag);
       // Soft speed cap (GDD 3.2): above the cap, thrust that would increase
       // speed fades smoothly to zero by 1.5× the cap. Decelerating thrust
-      // keeps full authority — the engine tops out, it doesn't wall. Holding W
-      // doubles the cap too, so "twice as fast" holds for top speed, not
-      // just acceleration; releasing W doesn't brake you, the falloff
+      // keeps full authority — the engine tops out, it doesn't wall. A full
+      // push doubles the cap too; easing off doesn't brake you, the falloff
       // just stops adding speed while you coast back down.
-      const cap = C.SOFT_CAP_SPEED * (boosting ? 2 : 1);
+      const cap = C.SOFT_CAP_SPEED * (1 + Math.max(throttle, 0));
       const speed = ship.velocity.length();
       if (speed > cap && _thrust.dot(ship.velocity) > 0) {
         const t = Math.min((speed - cap) / (cap * 0.5), 1);
@@ -106,25 +107,6 @@ export function stepShip(dt, piloted = true) {
       }
       ship.properAccel.add(_thrust);
       ship.velocity.addScaledVector(_thrust, dt);
-    }
-
-    // --- counter-thrust (GDD 3.3): kill velocity, held ---
-    // Same engine authority as thrust, aimed against the velocity vector,
-    // clamped so it never pushes through zero. No cap falloff — it only
-    // ever decreases speed.
-    if (input.brake && piloted) {
-      const speed = ship.velocity.length();
-      if (speed > 0) {
-        const dv = thrustMag * dt;
-        if (dv >= speed) {
-          ship.properAccel.addScaledVector(ship.velocity, -1 / dt);
-          ship.velocity.set(0, 0, 0);
-        } else {
-          _brake.copy(ship.velocity).multiplyScalar(-thrustMag / speed);
-          ship.properAccel.add(_brake);
-          ship.velocity.addScaledVector(_brake, dt);
-        }
-      }
     }
   }
 

@@ -231,7 +231,7 @@ export function initMenu(launchCallback) {
 // The controls, as labelled key caps in a grid rather than two run-on lines.
 // Built once and re-attached each time the start menu shows.
 const KEYS = [
-  ['MOUSE', 'STEER'], ['W', 'THRUST'], ['S', 'REVERSE'], ['F', 'WARP'], ['SPACE', 'BRAKE'],
+  ['MOUSE', 'STEER'], ['W', 'THRUST'], ['S', 'SLOW / REVERSE'], ['F', 'WARP'],
   ['N', 'NAV CHART'], ['G', 'LAND / WALK'], ['C', 'WALK SHIP'], [', .', 'RADIO'], ['⌫', 'PAUSE'],
 ];
 let keyGridEl = null;
@@ -262,7 +262,7 @@ export function showMenu(mode, reason) {
     // A phone has none of these keys: the first-flight coach walks a touch
     // pilot through the dash instead.
     if (sub2) {
-      if (isTouch) sub2.textContent = 'DRAG THE VIEW TO STEER · THE DASH FLIES THE SHIP';
+      if (isTouch) sub2.textContent = 'WHEEL ON THE RIGHT STEERS · THROTTLE ON THE LEFT · SIX BUTTONS DO THE REST';
       else sub2.replaceChildren(keyGrid());
     }
     button.textContent = 'LAUNCH';

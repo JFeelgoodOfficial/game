@@ -111,6 +111,9 @@ export const holoWorld = (id, on) => (mod ? mod.holoWorld(id, on) : null);
 export const nearestVessel = (pos) => (mod ? mod.nearestVessel(pos) : null);
 export const vesselSite = (ship) => (mod ? mod.vesselSite(ship) : null);
 export const holdVessel = (id) => mod && mod.holdVessel(id);
+export const placeFleets = (t) => mod && mod.placeFleets(t);
+// The ending's last act: the pilot has flown the fleet into the wormhole.
+export const wormholeCapture = (pos) => (mod ? mod.wormholeCapture(pos) : false);
 
 // dev/verification handle (__debug.tenretni)
 export const tenretniDebug = () => ({

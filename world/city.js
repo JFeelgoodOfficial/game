@@ -136,6 +136,9 @@ const DEFAULT_BUILD = {
 // plus its build recipe (registry material families + tints). One code path,
 // seven distinct worlds.
 // ---------------------------------------------------------------------------
+import { buildMetro, METRO_THEMES } from './cityMetro.js';
+import { createTraffic } from './cityTraffic.js';
+
 export const CITY_STYLES = [
   {
     name: 'neonMetropolis', // terra capital — steel-and-concrete under loud neon
@@ -651,6 +654,10 @@ export function createCity(planet, worldUp, opts = {}) {
   // -------------------------------------------------------------------------
   // Ground: draped street disc + plaza paving + walkway strip
   // -------------------------------------------------------------------------
+  // The city round the town (world/cityMetro.js): only where the registry
+  // gives a metro radius and the style has a theme for one.
+  const metroTheme = opts.metro?.radius ? METRO_THEMES[style?.name] ?? null : null;
+  const metroRadius = metroTheme ? opts.metro.radius : 0;
   const streetMat = fam(build.walkFam, { repeat: 10, color: palette.street, roughness: 0.95 });
   const plazaMat = fam(build.plazaFam, { repeat: 6, color: build.plazaColor });
   const walkMat = fam(build.walkFam, { repeat: 8, color: build.walkColor });
@@ -668,7 +675,7 @@ export function createCity(planet, worldUp, opts = {}) {
   };
   {
     const streetGeos = [];
-    const ringGeo = new THREE.RingGeometry(2, radius, 64, 20);
+    const ringGeo = new THREE.RingGeometry(2, Math.max(radius, metroRadius), metroTheme ? 96 : 64, metroTheme ? 30 : 20);
     ringGeo.rotateX(-Math.PI / 2);
     drapeInto(ringGeo, streetGeos, -0.05);
     const capGeo = new THREE.CircleGeometry(2.05, 16);
@@ -1361,6 +1368,51 @@ export function createCity(planet, worldUp, opts = {}) {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // The city: ring roads, spokes and blocks of buildings round the old town
+  // (world/cityMetro.js), and what drives and walks on them (cityTraffic.js).
+  // -------------------------------------------------------------------------
+  let metro = null, traffic = null;
+  const metroEmissives = [];
+  if (metroTheme) {
+    let townEdge = towerDist + C.TOWER_HALF + 6;
+    for (const s of houseSlots) {
+      const c = s.citizen;
+      const half = (ROLE_KITS[c.build ?? c.role] ?? ROLE_KITS.resident).half * C.HOUSE_SCALE;
+      townEdge = Math.max(townEdge, Math.hypot(s.x, s.z) + half * 1.42 + 4);
+    }
+    // the levelled ground is one sphere: its radius, from the deck's centre
+    const groundRadius = sampleGroundLocalY(0, 0) + baseRadius + C.SINK;
+    metro = buildMetro({
+      rng, theme: metroTheme, palette, metroRadius, townEdge, gateBearing,
+      pad: { x: padCenter.x, z: padCenter.y }, gate: gateSpot,
+      groundRadius, baseRadius, sink: C.SINK, isWet: isWetLocal,
+      buckets: { wall: wallGeos, roof: roofGeos, warm: warmGeos, trim: trimGeos },
+      collidersLocal, low: opts.quality === 'low',
+    });
+    const roadMat = fam(metroTheme.roadFam, { repeat: 1, color: metroTheme.road, roughness: metroTheme.vehicle === 'sedan' ? 0.55 : 0.95 });
+    const markMat = own(new THREE.MeshStandardMaterial({
+      color: 0x100c08, emissive: new THREE.Color(metroTheme.paint === 'lines' ? palette.neonSecondaryA : palette.neonPrimary),
+      emissiveIntensity: C.NEON_BLOOM_INTENSITY * 0.7, roughness: 0.5,
+    }));
+    metroEmissives.push(markMat);
+    for (const [geos, mat] of [[metro.roadGeos, roadMat], [metro.markGeos, markMat], [metro.sideGeos, walkMat], [metro.rutGeos, streetMat]]) {
+      if (!geos.length) continue;
+      const mesh = new THREE.Mesh(mergeGeometries(geos), mat);
+      mesh.frustumCulled = false;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+      for (const g of geos) g.dispose();
+    }
+    traffic = createTraffic({
+      metro, theme: metroTheme, quality: opts.quality, rng, baseRadius,
+      bodyMat: own(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.35 })),
+      lightMat: own(new THREE.MeshBasicMaterial({ vertexColors: true })),
+      pedMat: own(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 })),
+    });
+    group.add(traffic.group);
+  }
+
   // Emit the shared building meshes (one draw per material family).
   const bucketMeshes = [
     [wallGeos, wallMat], [floorGeos, floorMat], [roofGeos, roofMat],
@@ -1585,7 +1637,7 @@ export function createCity(planet, worldUp, opts = {}) {
   // -------------------------------------------------------------------------
   // update(t, sunDot) — day/night neon, motes, traffic, and the elevator ride.
   // -------------------------------------------------------------------------
-  const emissives = [ringMat, lightHeadMat, moteMat, trafficMat, trimMat, warmMat];
+  const emissives = [ringMat, lightHeadMat, moteMat, trafficMat, trimMat, warmMat, ...metroEmissives];
   const baseEmissive = emissives.map((m) => m.emissiveIntensity);
   let prevT = null;
 
@@ -1642,6 +1694,7 @@ export function createCity(planet, worldUp, opts = {}) {
       if (obj.geometry) obj.geometry.dispose();
       if (obj.isInstancedMesh && obj.dispose) obj.dispose();
     });
+    if (traffic) traffic.dispose();
     for (const m of ownedMaterials) m.dispose();
     for (const t of ownedTextures) t.dispose();
     ownedMaterials.length = 0;
@@ -1663,6 +1716,14 @@ export function createCity(planet, worldUp, opts = {}) {
     outerRadius, // pad sits outside `radius`; collision/ground gates use this
     gateSpot, // {x,z} town gate on the pad bearing
     structures, // every enterable building (houses + tower) — walk.js collision
+    // the city round the town (null where there is none): its streets and
+    // what is on them. roadDist(x, z) is the distance to the nearest road's
+    // centre line; traffic.update(dt, t, playerLocal, hazards) is stepped by
+    // walk.js, and traffic.colliders are the vehicles near the walker.
+    metroRadius,
+    metro,
+    roadDist: metro ? metro.roadDist : null,
+    traffic,
     homes, // per-citizen manifests {idx,role,kind,x,z,floorY,half,anchor,...}
     elevator, // interaction module + {state,cabY} (see walk.js scan)
   };

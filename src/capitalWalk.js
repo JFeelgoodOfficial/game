@@ -417,6 +417,15 @@ export function updateCapitalCamera(camera, delta = 0) {
     _target.copy(cWalk.pos);
     _target.y += C.WALK_TP_EYE;
     _desired.copy(_target).addScaledVector(_look, -cWalk.camDist);
+    // Indoors (a site with `rooms`): the boom shortens until the camera is
+    // under the same roof as the walker, or in the next room through a door.
+    if (site.rooms && roomAt(cWalk.pos.x, cWalk.pos.z, cWalk.pos.y + 0.5, 0)) {
+      let d = cWalk.camDist;
+      while (d > 0.6 && !roomAt(_desired.x, _desired.z, _desired.y, 0.35)) {
+        d -= 0.4;
+        _desired.copy(_target).addScaledVector(_look, -d);
+      }
+    }
     const floor = site.floorYAt(_desired.x, _desired.z, cWalk.pos.y + 0.5);
     if (floor > -Infinity && _desired.y < floor + 0.4) _desired.y = floor + 0.4;
     _desired.sub(cWalk.pos);
@@ -438,6 +447,17 @@ export function updateCapitalCamera(camera, delta = 0) {
   }
 }
 
+// The roofed room (site.rooms) holding a platform-local point, `m` inside its
+// walls and ceiling; null in the open.
+function roomAt(x, z, y, m) {
+  const rs = site.rooms;
+  for (let i = 0; i < rs.length; i++) {
+    const r = rs[i];
+    if (x > r.x0 + m && x < r.x1 - m && z > r.z0 + m && z < r.z1 - m && y < r.ceil - m) return r;
+  }
+  return null;
+}
+
 // dev/verification handle (__debug via walk.js walkSite)
 export function capitalSite() {
   if (!cWalk.active || !site) return null;
@@ -450,6 +470,8 @@ export function capitalSite() {
     floor: site.floorYAt(cWalk.pos.x, cWalk.pos.z, cWalk.pos.y),
     npcs: site.npcs.length,
     consoles: site.consoles.map((c) => ({ x: c.x, y: c.y, z: c.z, prompt: c.prompt })),
+    rooms: site.rooms || null,
+    places: site.places || null,
     place(x, y, z) {
       cWalk.pos.set(x, y, z);
       cWalk.vel.set(0, 0, 0);

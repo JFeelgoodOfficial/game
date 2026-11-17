@@ -227,6 +227,7 @@ function note(voice, f0, f1, peak, tau, at) {
 //   shutter  photo taken: a noise snap
 //   toggle   a cockpit switch thrown: a lower, rounder click
 //   impact   the Tenretni tunnel striking terra: a falling boom
+//   cheer    three fleets on an open channel: a rising chord and a wash of voices
 export function uiSound(kind) {
   if (!ctx || ctx.state !== 'running' || settings.muted) return;
   const t = ctx.currentTime;
@@ -246,6 +247,13 @@ export function uiSound(kind) {
     tick.gain.cancelScheduledValues(t);
     tick.gain.setValueAtTime(0.5, t);
     tick.gain.setTargetAtTime(0, t + 0.02, 0.25);
+  } else if (kind === 'cheer') {
+    note(tone[0], 392, 587, 0.2, 0.5, t);
+    note(tone[1], 494, 784, 0.16, 0.6, t + 0.12);
+    tick.gain.cancelScheduledValues(t);
+    tick.gain.setValueAtTime(0.0, t);
+    tick.gain.linearRampToValueAtTime(0.35, t + 0.35);
+    tick.gain.setTargetAtTime(0, t + 0.6, 0.5);
   } else note(tone[0], 1500, 1100, 0.14, 0.018, t);
 }
 

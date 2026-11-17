@@ -54,8 +54,8 @@ export function stepAutopilot(dt, heat) {
   // suppress the pilot — the ship flies itself until arrival
   input.mouseX = 0;
   input.mouseY = 0;
-  input.forward = input.reverse = input.brake = false;
-  input.rollLeft = input.rollRight = false;
+  input.forward = input.reverse = false;
+  input.throttle = 0;
   input.warp = false;
   ship.angularVelocity.set(0, 0, 0);
 

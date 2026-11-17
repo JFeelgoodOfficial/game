@@ -20,10 +20,8 @@ export const isTouch =
 
 // The flight dash (cockpit3d.js), key -> button name.
 const DASH = {
-  W: 'THRUST',
-  S: 'REVERSE',
-  Q: 'ROLL L',
-  E: 'ROLL R',
+  W: 'THROTTLE UP',
+  S: 'THROTTLE DOWN',
   F: 'WARP',
   G: 'LAND',
   C: 'STAND',

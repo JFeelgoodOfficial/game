@@ -31,6 +31,22 @@ a beacon, yield real time (`waitForTimeout`) and re-check `journal().quests`.
 Headless rAF can throttle to ~1 frame/sec under swiftshader: wait on state
 with `waitForFunction`, never fixed short timeouts.
 
+The city round the town (terra, rustia, wyattmattoe; world/cityMetro.js and
+cityTraffic.js): `walkSite().city` adds `metroRadius`, `metro` (`rA`, `rB`,
+`buildings`, `routes`, `roads`), `roadDist(x, z)` and `traffic`
+(`info()` → `{vehicles, peds, routes, routeLengths, list: [{x, z, v, route, s}]}`,
+`colliders`, `colliderCount`). Counts by tier, vehicles/pedestrians: low 10/0,
+medium 18/16, high 28/24, ultra 36/32 (SwiftShader is low: call
+`quality.set('medium')` BEFORE landing to see pedestrians). Every vehicle must
+have `roadDist < 2.6` and move between frames. To test braking, wait on
+`requestAnimationFrame` until a vehicle has moved (so you know its heading),
+put the walker 7 ahead of it (`city.group.localToWorld` a city-local point
+into `ship.position`, then `walkStep(2)`), wait 40 frames: its `v` reads 0.
+Buildings are circles at the tail of `city.collidersLocal`; standing inside
+one must be pushed out. Screenshots at medium take over 30 s here: pass
+`timeout: 150000`. For a view the walker cannot reach, wrap
+`renderer.render` and set `camera` from city-local points just before it.
+
 Land on a specific planet: set `ship.position` to
 `planet.body.position + dir * (planet.radius + 20)` for any unit `dir`, zero
 `ship.velocity`, call `walkHere()`. Press key `3` once to dismiss the
@@ -52,6 +68,33 @@ terminator, 2 night. Set `__debug.hideCockpit = true` for a clear view and
 array. `__debug.coach()` → `{step, total, visible, text}`; set
 `localStorage['nova7.coach'] = '6'` before load to skip the first-flight
 coaching in screenshots.
+
+## Landing
+Every landable world captures the ship like the Sky City: crossing inside
+`radius * 1.25` starts the auto-land to the town pad (or flat ground where
+there is no town) with no key. Put the ship at `radius * 1.25 + 40` above a
+planet moving in and wait for `skyState().landState` `'auto'` then `'landed'`;
+the ship's direction from the planet must match `cityInfo(world)[0].padWorldDir`.
+`planet.landArmed` is the latch: false from capture until the ship is 300
+clear of the air, so holding `w` to lift off must reach free flight without
+being recaptured. Set `planet.landArmed = true` before a second test on the
+same world. The autopilot stops at 4 radii, outside the air, so NAV alone
+does not land.
+
+## The dash
+Wheel on the right, throttle lever on the left, one row of six buttons and no
+others. `__debug.cockpit` → `buttonNames()` (must be exactly WARP, RADIO,
+CAMERA, STAND, LAND, NAV in that order), `press(name, on)`, `litOf(name)`,
+`wheelRot()`, `screenPos(name)` (also `'LEVER'` and `'WHEEL'`), `lever()` →
+`{value, held, shown}`, `setLever(v)` holds the throttle at v (-1..1) as a
+finger would and `setLever(null)` lets go (it must read 0 on the next frame).
+The throttle is `input.throttle`; W and S are the same lever at full throw.
+There is no roll and no flight brake: Q, E and Space must leave
+`ship.angularVelocity.z` and the speed alone in flight, and Space must still
+jump on foot. Lift-off from a pad is throttle up (`setLever(1)` or W). Touch:
+a context with `hasTouch: true`, then CDP `Input.dispatchTouchEvent` at
+`screenPos('LEVER')` and a touchMove 80 px up or down; check the wheel is
+still on screen while the lever is held. Look at 16:9, 4:3 and a phone shape.
 
 ## Flight audio and lighting
 `__debug.sfx.state()` → `{built, running, active, warpLevel, uiCount, duck, uiGain}`; the context only
@@ -361,6 +404,15 @@ seats you (`capital.gun.active`), set `gun.yaw/aimYaw/pitch/aimPitch` to the
 target's bearing in the ship's own frame, `e` fires; the target's `alive`
 goes false and its id is in `fgsf.tenretni.lost`. `g` stands down.
 
+The boarding kit is a pad, a glazed companionway and an enclosed bridge:
+`walkSite().capital.rooms` → `[{x0,x1,z0,z1,ceil}]` (companionway, bridge) and
+`.places` in the ship's own frame. Holding `input.forward` from `places.bridge`
+at any yaw must leave `cWalk.pos` inside a room (no wall colliders: the floor
+rects stop short of the glass). Fleet poses are set by `fleets().place(t)` at
+the top of the frame, so `camera.position` taken into `ship.group` local space
+must not move while standing still. Flicker check: two screenshots 0.7 s apart
+from `places.pad` in first person, lower half identical.
+
 The ending: `tenretni.setComms(true)` opens all three channels; put the ship
 within 9000 of terra's surface and `tenretni.end().state()` → `{v, done, ready,
 missing, star}` reads `ready: true` and the CALL THE FLEETS button shows; key
@@ -369,4 +421,17 @@ missing, star}` reads `ready: true` and the CALL THE FLEETS button shows; key
 `planets.every(p => p.removed)`, `sun.group.visible === false`, the black hole
 is at the sun's position, and a reload or `launch()` must come back the same.
 The run is destructive to the save: use a fresh browser context.
+
+The rally and the new cycle: after 74 `end().state()` adds `rally`
+(`'cheer'` → `'offer'` → `'go'`), `rallyT` and `worm` (the wormhole's position
+once opened). `end().skipRally()` jumps the cheer's lines (about 40 s, and the
+clock only runs while flying); at `'offer'` the second button shows and key
+`h` (or `end().together()`) starts the last act: `navMenu.rows('planets')`
+gains THE WORMHOLE, every surviving ship (freighters too) forms on the pilot
+(`fleets().following()`), and the autopilot stops about 4100 from the mouth.
+Hold `w` to fly in: `skyState().phase` goes `'collapse'` and the page reloads
+(src/newCycle.js). After the reload, with no click: phase `'fly'`, ship at the
+origin, no planet `removed`, `fgsf.tenretni` absent, `fgsf.journal` missing
+only the quests `tenretni` and `neptunia-charge`, `fgsf.inventory` unchanged,
+`fgsf.navlog` kept. Seed all four keys before the run to check what survives.
 

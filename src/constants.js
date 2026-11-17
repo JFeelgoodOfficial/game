@@ -24,7 +24,6 @@ export const C = {
   SOFT_CAP_SPEED: 800.0, // thrust falls off above this
 
   // --- flight model, additions ---
-  ROLL_TORQUE: 0.03, // rad/s of angular velocity added per tick while Q/E held
 
   // --- floating origin (GDD 5.3) ---
   ORIGIN_SHIFT_THRESHOLD: 5000.0, // rebase the world when the ship drifts this far
@@ -50,6 +49,15 @@ export const C = {
   WHEEL_HOLD_SPAN: 0.22, // fraction of the min viewport dim = full deflection
   WHEEL_HOLD_RATE: 3000, // px/s of mouse-equivalent steer travel at full deflection
   WHEEL_HOLD_DEADZONE: 0.08,
+  // The throttle lever (left of the dash): drag up for thrust, down for
+  // reverse, by offset from where it was grabbed; it springs back on release.
+  LEVER_SPAN: 0.16, // fraction of the min viewport dim = full throw
+  LEVER_DEADZONE: 0.1,
+  LEVER_THROW: 0.5, // radians the handle swings each way
+  // A burn held on the lever leans the camera only this far toward the
+  // full-window view, so the wheel and the lever stay in frame for the hands
+  // that are on them. W on a keyboard still goes all the way.
+  COCKPIT_LEVER_LEAN: 0.15,
 
   // --- on-foot touch sticks (touchControls.js) ---
   TOUCH_STICK_SPAN: 52, // px from the grab point to full stick deflection

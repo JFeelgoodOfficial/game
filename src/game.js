@@ -20,7 +20,8 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { C } from './constants.js';
-import { initInput, input, setPointerLockGate } from './input.js';
+import { initInput, input, setPointerLockGate, throttleAxis } from './input.js';
+import { beginNewCycle, takeNewCycle } from './newCycle.js';
 import { ship, stepShip } from './ship.js';
 import { altitudeAboveFloor } from './gravity.js';
 import { updateOrigin, originOffset, snapshotShiftables, restoreShiftables } from './origin.js';
@@ -52,7 +53,7 @@ import { initHoloPanel, openHoloPanel, closeHoloPanel, isHoloPanelOpen, holoPane
 import {
   initTenretni, updateTenretni, tenretniHolding, stepTenretniHold, resetTenretni,
   tenretniFx, tenretniDebug, capitalDock, tenretniSailVelocity, holoPrograms, holoWorld,
-  nearestVessel, vesselSite, holdVessel,
+  nearestVessel, vesselSite, holdVessel, placeFleets, wormholeCapture,
 } from './tenretniLazy.js';
 import {
   interiorScene,
@@ -1093,6 +1094,7 @@ let accumulator = 0;
 // still goes to 'explode' and still ends the run — only the sun opens the door.
 let phase = 'menu';
 let warpT = 0;
+let cycling = false; // true once the pilot is in the wormhole; 'leaving' while the new cycle loads
 let warp = 0; // collapse pass progress, 0..1
 let heat = 0; // hull heat, 0..1
 let deathReason = ''; // set when the burn wins; shown on the menu
@@ -1338,6 +1340,7 @@ const DOCKS = [
     pose() {
       const v = this.vessel;
       const g = v.group;
+      vesselSite(v); // the pad, companionway and bridge exist before the skids touch
       _skyUp.set(0, 1, 0).applyQuaternion(g.quaternion);
       _skyPad.copy(v.cls.pad).applyQuaternion(g.quaternion).addScaledVector(_skyUp, C.PARK_LIFT);
       _skyHover.copy(_skyPad).addScaledVector(_skyUp, 160);
@@ -1452,7 +1455,7 @@ function stepSkyLanded(dt, piloted) {
     ship.position.copy(dock.planet.body.position).add(_skyPadLive);
     ship.quaternion.copy(_skyQuatLive);
     ship.velocity.set(0, 0, 0);
-    if (piloted && (input.forward || input.brake)) skyLiftT = 0;
+    if (piloted && throttleAxis() > 0.3) skyLiftT = 0;
     return;
   }
   skyLiftT = Math.min(skyLiftT + dt / SKY_LIFT_TIME, 1);
@@ -1516,6 +1519,42 @@ function checkSkyCapture() {
       return;
     }
   }
+}
+
+// --- every landable world takes the helm (owner's call) -----------------------
+// What the Sky City does, everywhere: cross into a world's air and the
+// autopilot flies the ship round to the landing pad and sets it down
+// (beginAutoLand: the town's pad where the world has a town, the flattest
+// ground under the ship where it does not). No button and no speed limit; LAND
+// still waves an approach off, and still starts one by hand lower down.
+//
+// `landArmed` on the planet is the latch: taken off when its air captures the
+// ship, or whenever the ship is down on it or the pilot is walking it, and put
+// back once the ship has climbed SKY_REARM_MARGIN clear of the air. So lifting
+// off, or waving off, does not hand the helm straight back.
+function checkPlanetCapture() {
+  const floor = nearestTerraFloor(ship.position);
+  if (!floor || floor.planet.removed) return;
+  const p = floor.planet;
+  const r = ship.position.distanceTo(p.body.position);
+  const shell = p.radius * C.ATMO_SHELL;
+  if (p.landArmed === false) {
+    if (r > shell + C.SKY_REARM_MARGIN) p.landArmed = true;
+    return;
+  }
+  if (r >= shell) return;
+  p.landArmed = false;
+  cancelAutopilot();
+  input.throttle = 0;
+  beginAutoLand(floor);
+  showNavToast(`${p.cfg.name.toUpperCase()} — WE HAVE YOUR HELM`, 5);
+}
+// Down on a world, or on foot on one: its air does not re-capture on the way up.
+function disarmPlanetBelow() {
+  const floor = nearestTerraFloor(ship.position);
+  if (!floor) return;
+  const p = floor.planet;
+  if (ship.position.distanceTo(p.body.position) < p.radius * C.ATMO_SHELL + C.SKY_REARM_MARGIN) p.landArmed = false;
 }
 
 // --- stevenlacey landing (world/coinworld.js) ---------------------------------
@@ -1611,7 +1650,7 @@ function stepCoinLanded(dt, piloted) {
     ship.position.copy(coin.group.position).add(_coinPad);
     ship.quaternion.copy(_landUprightQuat);
     ship.velocity.set(0, 0, 0);
-    if (piloted && (input.forward || input.brake)) coinLiftT = 0;
+    if (piloted && throttleAxis() > 0.3) coinLiftT = 0;
     return;
   }
   coinLiftT = Math.min(coinLiftT + dt / C.COIN_LIFT_TIME, 1);
@@ -1830,7 +1869,7 @@ function stepLanded(dt, piloted) {
     const k = settleT * settleT * (3 - 2 * settleT);
     ship.quaternion.slerpQuaternions(_landStartQuat, _landUprightQuat, k);
   }
-  if (piloted && (input.forward || input.brake)) {
+  if (piloted && throttleAxis() > 0.3) {
     thawLandedPlanet(); // the day resumes the moment the skids leave
     landState = null;
     landedPlanet = null;
@@ -2017,6 +2056,7 @@ function resetToStart() {
   // solar system. Both stages, and a no-op when neither is held.
   releaseIsolation(renderer, aoPass, camera, bloomPass);
   thawLandedPlanet(); // a reset from the pad must not strand a frozen day
+  input.throttle = 0;
   ship.position.set(0, 0, 0);
   ship.velocity.set(0, 0, 0);
   ship.quaternion.identity();
@@ -2073,14 +2113,18 @@ function loadOwnerArt() {
   else setTimeout(go, 1500);
 }
 
-initMenu(() => {
+// Into the seat, in front of terra. `gesture`: called from a click (LAUNCH),
+// which is what lets the music start and the pointer lock; a new cycle arrives
+// here with no click behind it and picks both up on the pilot's first input.
+function launchFlight(gesture = true) {
   resetToStart();
   accumulator = 0;
   phase = 'fly';
   setPaused(false);
   hideMenu();
-  startMusic(); // user's track, from the LAUNCH click gesture
   loadOwnerArt();
+  if (!gesture) return;
+  startMusic(); // user's track, from the LAUNCH click gesture
   renderer.domElement.requestPointerLock?.();
   // One-time first-launch nudge: Terra sits dead ahead of the spawn point,
   // but the nav chart is deliberately blank until bodies are discovered —
@@ -2095,7 +2139,25 @@ initMenu(() => {
   } catch {
     // no storage — skip the nudge rather than repeat it forever
   }
-});
+}
+initMenu(() => launchFlight(true));
+
+// The far side of the wormhole (src/newCycle.js): no menu. The game begins
+// again where it first began, unwinding out of the same stretch it left by.
+if (takeNewCycle()) {
+  launchFlight(false);
+  phase = 'respawn';
+  warpT = 0;
+  warp = 1;
+  setTimeout(() => showNavToast('THE SAME SKY. TERRA, DEAD AHEAD.', 10), 2600);
+  const wake = () => {
+    window.removeEventListener('pointerdown', wake);
+    window.removeEventListener('keydown', wake);
+    startMusic();
+  };
+  window.addEventListener('pointerdown', wake);
+  window.addEventListener('keydown', wake);
+}
 
 function frame(now) {
   if (contextLost) return; // don't re-arm: every draw into a lost context throws
@@ -2108,6 +2170,10 @@ function frame(now) {
   // not until every planet has swapped to baked terrain: the bake runs in
   // main-thread slices that would read as a slow GPU.
   governFrame(rawDelta, !paused && !isRecording() && terrainBaked());
+  // The war fleets are posed first: a pilot parked on one, or walking its
+  // deck, is carried by a pose the physics, the camera and the render share.
+  if (!isolated.active) placeFleets(now / 1000);
+  if (phase === 'walk' || landState !== null) disarmPlanetBelow();
   if (debug) {
     debug.recordFrame(delta);
     if (debug.paused) delta = 0;
@@ -2221,6 +2287,7 @@ function frame(now) {
         stepShip(DT, piloted);
         if (piloted && !autopilotActive()) checkTouchdown();
         if (landState === null) checkSkyCapture();
+        if (landState === null && piloted && !autopilotActive()) checkPlanetCapture();
         if (landState === null) checkCoinCapture();
       }
       accumulator -= DT;
@@ -2228,6 +2295,12 @@ function frame(now) {
     if (ship.position.distanceTo(blackhole.group.position) < C.HORIZON_CAPTURE) {
       phase = 'collapse';
       warpT = 0;
+    } else if (wormholeCapture(ship.position)) {
+      // The ending's last act: the pilot has led the fleet into the wormhole.
+      // The same collapse, but what is on the far side is a new cycle.
+      phase = 'collapse';
+      warpT = 0;
+      cycling = true;
     }
     // hull heat: builds while pressed against a planet's floor, and much
     // faster near the sun; cools when clear (user mechanic — death overrides
@@ -2431,7 +2504,13 @@ function frame(now) {
   } else if (phase === 'collapse') {
     warpT += delta;
     warp = Math.min(warpT / C.COLLAPSE_TIME, 1);
-    if (warpT >= C.COLLAPSE_TIME) {
+    if (cycling) {
+      // hold the stretch; src/newCycle.js whites out and reloads into the start
+      if (cycling === true && warpT >= C.COLLAPSE_TIME) {
+        cycling = 'leaving';
+        beginNewCycle();
+      }
+    } else if (warpT >= C.COLLAPSE_TIME) {
       resetToStart();
       phase = 'respawn';
       warpT = 0;
@@ -2562,7 +2641,12 @@ function frame(now) {
         : null;
   updateHeatUI(heatShown, C.CRACK_AT, flash, countdownLeft);
 
-  updateOrigin(ship);
+  if (updateOrigin(ship)) {
+    // a rebase moved every world; the fleets follow their worlds, and a
+    // walker on a deck is re-stood on it where it now is
+    if (!isolated.active) placeFleets(now / 1000);
+    if (phase === 'walk' && capitalActive()) updateWalkVisuals(0, now / 1000);
+  }
   if (phase === 'walk') {
     // On foot on a planet — the walker owns the camera (walk.js).
     updateWalkCamera(camera, delta);
@@ -2743,8 +2827,9 @@ function frame(now) {
   // this haze is the only thing drawing one through the canopy.
   // flight sound: engine with thrust, the warp drive, air and hull heat
   _sfx.active = phase === 'fly' && !paused;
-  _sfx.thrust = input.forward ? 1 : input.reverse ? 0.5 : 0;
-  _sfx.boost = input.forward;
+  const thr = throttleAxis();
+  _sfx.thrust = thr > 0 ? thr : thr < 0 ? -0.5 * thr : 0;
+  _sfx.boost = thr > 0.5;
   _sfx.warp = input.warp && !standing && landState === null;
   _sfx.atmo = _atmo.atmo;
   _sfx.speed = Math.min(ship.velocity.length() / C.SOFT_CAP_SPEED, 1);

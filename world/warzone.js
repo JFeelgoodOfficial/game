@@ -439,6 +439,7 @@ export function createWarzone(city, def, opts = {}) {
   function freeSpot(x, z, rad) {
     if (Math.hypot(x, z) > radius - rad - 6) return false;
     if (corridorDist(x, z) < rad + 3.5) return false;
+    if (city.roadDist && city.roadDist(x, z) < rad + 5.5) return false; // not in a street
     for (const c of keepOut) {
       if (Math.hypot(x - c.x, z - c.z) < c.radius + rad + 2.4) return false;
     }
@@ -794,6 +795,8 @@ export function createWarzone(city, def, opts = {}) {
   // =========================================================================
   const kit = createMonsterKit(skin);
   const monsters = []; // the rigged ones: brute, spitter, stalker, titan
+  const HAZ_MAX = 48;
+  const hazards = { n: 0, x: new Float32Array(HAZ_MAX), z: new Float32Array(HAZ_MAX), r: new Float32Array(HAZ_MAX) };
   let monsterSeed = 0;
 
   // ---- shared world queries ------------------------------------------------
@@ -2485,6 +2488,21 @@ export function createWarzone(city, def, opts = {}) {
     // 0..1 camera trauma for walk.js's first-person shake.
     shake() { return trauma; },
     get playerDead() { return player.dead; },
+    // What is standing about on the ground, for the traffic to stop for
+    // (world/cityTraffic.js): { n, x, z, r }, refilled in place on each read.
+    get hazards() {
+      let n = 0;
+      for (let i = 0; i < monsters.length && n < HAZ_MAX; i++) {
+        const m = monsters[i];
+        if (m.air) continue;
+        hazards.x[n] = m.x;
+        hazards.z[n] = m.z;
+        hazards.r[n] = m.A.radius;
+        n++;
+      }
+      hazards.n = n;
+      return hazards;
+    },
     // Headless verification (walkSite().warzone.debug()).
     debug() {
       return {

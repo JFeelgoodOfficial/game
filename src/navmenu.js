@@ -191,8 +191,10 @@ export function initNavMenu(shell) {
   root = new THREE.Group();
   // Above the NAV button and clear of the top button row, so the dash stays
   // fully tappable while the menu is up.
-  root.position.set(1.34, 1.24, -0.12);
-  root.rotation.set(-0.12, -0.34, 0);
+  // On the LEFT now: the wheel is on the right, and an open list hanging over
+  // it took the wheel away. Over the throttle it only covers an idle lever.
+  root.position.set(-1.34, 1.24, -0.12);
+  root.rotation.set(-0.12, 0.34, 0);
   root.scale.setScalar(1.5);
   root.visible = false;
   shell.add(root);
