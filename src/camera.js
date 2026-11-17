@@ -50,7 +50,9 @@ export function dashBlend() {
 }
 
 export function updateCamera(ship) {
-  const full = input.warp || input.forward || input.reverse ? 1 : 0;
+  // Keys push all the way to the full-window view; the lever, which a hand
+  // is holding, only part of the way (see C.COCKPIT_LEVER_LEAN).
+  const full = input.warp || input.forward || input.reverse ? 1 : Math.abs(input.throttle) * C.COCKPIT_LEVER_LEAN;
   boostBlend += (full - boostBlend) * 0.06;
 
   // warp gets a bigger FOV kick than thrust — the speed rush
@@ -77,7 +79,7 @@ export function updateCamera(ship) {
   // back), smoothed with the same lag factor. Cut the instant a burn begins —
   // otherwise the backward burn (huge at full thrust) fights the forward zoom
   // and reveals more cabin exactly when the window should fill the frame.
-  const driftLean = full ? 1 : 0;
+  const driftLean = full > 0 ? 1 : 0;
   _driftTarget.copy(ship.properAccel).multiplyScalar(-C.CAMERA_DRIFT * (1 - driftLean));
   const m = _driftTarget.length();
   if (m > MAX_DRIFT) _driftTarget.multiplyScalar(MAX_DRIFT / m);

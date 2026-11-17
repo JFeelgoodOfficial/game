@@ -8,7 +8,7 @@
 // element, text written only when the step changes; the per-frame cost after
 // the last step is a single comparison.
 
-import { input } from './input.js';
+import { input, throttleAxis } from './input.js';
 import { isTouch as touch } from './touchText.js';
 
 const KEY = 'nova7.coach';
@@ -45,14 +45,14 @@ const CSS = `
 // `need` seconds of the condition holding completes a step (0 = on first true).
 const STEPS = [
   {
-    key: touch ? 'DRAG' : 'MOUSE',
-    text: touch ? 'DRAG THE VIEW TO STEER' : 'CLICK THE VIEW, THEN MOVE TO STEER',
+    key: touch ? 'WHEEL' : 'MOUSE',
+    text: touch ? 'DRAG THE WHEEL, RIGHT OF THE DASH, TO STEER' : 'CLICK THE VIEW, THEN MOVE TO STEER',
     need: 0.6,
     done: (s) => s.turning,
   },
-  { key: touch ? 'THRUST' : 'W', text: touch ? 'HOLD THRUST, TOP LEFT OF THE DASH' : 'HOLD TO THRUST', need: 1.0, done: () => input.forward },
+  { key: touch ? 'THROTTLE' : 'W', text: touch ? 'PUSH THE THROTTLE UP, LEFT OF THE DASH' : 'HOLD TO THRUST', need: 1.0, done: () => throttleAxis() > 0.3 },
   { key: touch ? 'WARP' : 'F', text: 'HOLD TO WARP — AIM AT THE PLANET AHEAD', need: 1.5, done: () => input.warp },
-  { key: touch ? 'REVERSE' : 'S', text: 'HOLD TO REVERSE AND SLOW DOWN', need: 0.5, done: () => input.reverse },
+  { key: touch ? 'THROTTLE' : 'S', text: touch ? 'PULL THE THROTTLE DOWN TO SLOW AND REVERSE' : 'HOLD TO SLOW DOWN AND REVERSE', need: 0.5, done: () => throttleAxis() < -0.3 },
   { key: touch ? 'NAV' : 'N', text: 'OPEN THE NAV CHART', need: 0, done: (s) => s.navOpen },
   { key: touch ? 'LAND' : 'G', text: 'FLY LOW AND SLOW OVER A WORLD, THEN LAND', need: 0, done: (s) => s.landed },
 ];

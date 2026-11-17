@@ -20,7 +20,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { C } from './constants.js';
-import { initInput, input, setPointerLockGate } from './input.js';
+import { initInput, input, setPointerLockGate, throttleAxis } from './input.js';
 import { ship, stepShip } from './ship.js';
 import { altitudeAboveFloor } from './gravity.js';
 import { updateOrigin, originOffset, snapshotShiftables, restoreShiftables } from './origin.js';
@@ -1453,7 +1453,7 @@ function stepSkyLanded(dt, piloted) {
     ship.position.copy(dock.planet.body.position).add(_skyPadLive);
     ship.quaternion.copy(_skyQuatLive);
     ship.velocity.set(0, 0, 0);
-    if (piloted && (input.forward || input.brake)) skyLiftT = 0;
+    if (piloted && throttleAxis() > 0.3) skyLiftT = 0;
     return;
   }
   skyLiftT = Math.min(skyLiftT + dt / SKY_LIFT_TIME, 1);
@@ -1612,7 +1612,7 @@ function stepCoinLanded(dt, piloted) {
     ship.position.copy(coin.group.position).add(_coinPad);
     ship.quaternion.copy(_landUprightQuat);
     ship.velocity.set(0, 0, 0);
-    if (piloted && (input.forward || input.brake)) coinLiftT = 0;
+    if (piloted && throttleAxis() > 0.3) coinLiftT = 0;
     return;
   }
   coinLiftT = Math.min(coinLiftT + dt / C.COIN_LIFT_TIME, 1);
@@ -1831,7 +1831,7 @@ function stepLanded(dt, piloted) {
     const k = settleT * settleT * (3 - 2 * settleT);
     ship.quaternion.slerpQuaternions(_landStartQuat, _landUprightQuat, k);
   }
-  if (piloted && (input.forward || input.brake)) {
+  if (piloted && throttleAxis() > 0.3) {
     thawLandedPlanet(); // the day resumes the moment the skids leave
     landState = null;
     landedPlanet = null;
@@ -2018,6 +2018,7 @@ function resetToStart() {
   // solar system. Both stages, and a no-op when neither is held.
   releaseIsolation(renderer, aoPass, camera, bloomPass);
   thawLandedPlanet(); // a reset from the pad must not strand a frozen day
+  input.throttle = 0;
   ship.position.set(0, 0, 0);
   ship.velocity.set(0, 0, 0);
   ship.quaternion.identity();
@@ -2752,8 +2753,9 @@ function frame(now) {
   // this haze is the only thing drawing one through the canopy.
   // flight sound: engine with thrust, the warp drive, air and hull heat
   _sfx.active = phase === 'fly' && !paused;
-  _sfx.thrust = input.forward ? 1 : input.reverse ? 0.5 : 0;
-  _sfx.boost = input.forward;
+  const thr = throttleAxis();
+  _sfx.thrust = thr > 0 ? thr : thr < 0 ? -0.5 * thr : 0;
+  _sfx.boost = thr > 0.5;
   _sfx.warp = input.warp && !standing && landState === null;
   _sfx.atmo = _atmo.atmo;
   _sfx.speed = Math.min(ship.velocity.length() / C.SOFT_CAP_SPEED, 1);

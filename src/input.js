@@ -10,14 +10,16 @@ export const input = {
   locked: false,
   forward: false, // W
   reverse: false, // S
-  rollLeft: false, // Q
-  rollRight: false, // E
+  // The throttle lever on the dash (cockpit3d.js), -1 full reverse .. +1 full
+  // thrust. Analog, written only by the lever; W and S are the same lever at
+  // full deflection. Read through throttleAxis().
+  throttle: 0,
   left: false, // A — strafe left, walk modes only (planet on-foot + ship interior; unused in flight)
   right: false, // D — strafe right, walk modes only (planet on-foot + ship interior; unused in flight)
   sprint: false, // Shift — run on foot only. Flight has no separate boost key:
                  // W is full thrust (see ship.js), so nothing in the cockpit
                  // reads this.
-  brake: false, // Space — counter-thrust in flight; jump on foot
+  brake: false, // Space — jump on foot (nothing in flight: the throttle is the only way to slow)
   warp: false, // F (or the on-screen WARP button) — thrust x100, stops dead on release
   lookUp: false, // V, held — glance up through the overhead window
   toggleWalk: false, // G edge-trigger: disembark onto a planet / board. main.js reads and zeroes it.
@@ -49,6 +51,12 @@ export const input = {
   adsTouch: false, // AIM touch toggle (touchControls.js)
   coinDash: false, // DASH touch button on stevenlacey; src/coinWalk.js consumes it
 };
+
+// The flight throttle, -1..1: the lever's deflection plus W/S as full throw.
+export function throttleAxis() {
+  const v = (input.forward ? 1 : 0) - (input.reverse ? 1 : 0) + input.throttle;
+  return v > 1 ? 1 : v < -1 ? -1 : v;
+}
 
 // Every walker resolves its movement axes the same way, so they share this:
 // the analog touch stick when it is pushed, the WASD booleans otherwise. `mag`
@@ -131,8 +139,7 @@ function setKey(e, down) {
   switch (e.code) {
     case 'KeyW': input.forward = down; break;
     case 'KeyS': input.reverse = down; break;
-    case 'KeyQ': input.rollLeft = down; break;
-    case 'KeyE': input.rollRight = down; if (down) input.interact = true; break;
+    case 'KeyE': if (down) input.interact = true; break;
     case 'KeyA': input.left = down; break;
     case 'KeyD': input.right = down; break;
     case 'ShiftLeft':

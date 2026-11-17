@@ -53,6 +53,21 @@ array. `__debug.coach()` → `{step, total, visible, text}`; set
 `localStorage['nova7.coach'] = '6'` before load to skip the first-flight
 coaching in screenshots.
 
+## The dash
+Wheel on the right, throttle lever on the left, one row of six buttons and no
+others. `__debug.cockpit` → `buttonNames()` (must be exactly WARP, RADIO,
+CAMERA, STAND, LAND, NAV in that order), `press(name, on)`, `litOf(name)`,
+`wheelRot()`, `screenPos(name)` (also `'LEVER'` and `'WHEEL'`), `lever()` →
+`{value, held, shown}`, `setLever(v)` holds the throttle at v (-1..1) as a
+finger would and `setLever(null)` lets go (it must read 0 on the next frame).
+The throttle is `input.throttle`; W and S are the same lever at full throw.
+There is no roll and no flight brake: Q, E and Space must leave
+`ship.angularVelocity.z` and the speed alone in flight, and Space must still
+jump on foot. Lift-off from a pad is throttle up (`setLever(1)` or W). Touch:
+a context with `hasTouch: true`, then CDP `Input.dispatchTouchEvent` at
+`screenPos('LEVER')` and a touchMove 80 px up or down; check the wheel is
+still on screen while the lever is held. Look at 16:9, 4:3 and a phone shape.
+
 ## Flight audio and lighting
 `__debug.sfx.state()` → `{built, running, active, warpLevel, uiCount, duck, uiGain}`; the context only
 exists after a real key or pointer press (`page.mouse.click` / `keyboard.down`).

@@ -1,15 +1,21 @@
-// The flyable 3D cockpit (user redesign). Replaces the old 2D instrument
-// image (cockpitFrame.js) and the minimal canopy struts (cockpit.js): a
-// bigger window, a metal console whose dashboard buttons map to REAL
-// controls, and a steering wheel that mirrors the ship's turn and can be
-// grabbed and dragged to fly (touch). Built into cockpitScene and composited
-// by CockpitOverlayPass, posed every frame from the ship transform so the
-// camera-lag gap makes it read as a vehicle you sit inside.
+// The flyable 3D cockpit (user redesign). A metal console under a big window,
+// laid out the way the owner drew it (Nov 2026):
 //
-// Dashboard buttons feed the same `input` flags the keyboard does (the WARP
-// button in menu.js is the template): a held button sets a level flag while
-// pressed, an edge button pulses it once, a function button calls straight
-// into the subsystem. Pressing the real key lights the matching button.
+//   left     the THROTTLE lever — push up for thrust, pull down to slow and
+//            reverse; it springs back to the middle when let go
+//   centre   one row of six buttons: WARP, RADIO, CAMERA, STAND, LAND, NAV
+//   right    the steering WHEEL, which mirrors the ship's turn and can be
+//            grabbed and dragged to fly (touch)
+//
+// and nothing else: those are the whole of the flight controls. Built into
+// cockpitScene and composited by CockpitOverlayPass, posed every frame from
+// the ship transform so the camera-lag gap makes it read as a vehicle you sit
+// inside.
+//
+// Dashboard buttons feed the same `input` flags the keyboard does: a held
+// button sets a level flag while pressed, an edge button pulses it once, a
+// function button calls straight into the subsystem. Pressing the real key
+// lights the matching button. The lever writes `input.throttle`.
 //
 // Camera zoom (idle / forward / full-window) lives in camera.js; the dash
 // visibility signal it exposes is dashBlend(), which the DOM panels ride the
@@ -17,7 +23,7 @@
 
 import * as THREE from 'three';
 import { C } from './constants.js';
-import { input } from './input.js';
+import { input, throttleAxis } from './input.js';
 import { settings } from './settings.js';
 import { uiSound } from './sfx.js';
 import { camera } from './camera.js';
@@ -43,6 +49,9 @@ cockpitRig.add(cockpitShell);
 cockpitScene.add(cockpitRig);
 
 let wheel, stick, coreLight, holoGlow;
+let lever, leverArm, leverGlowMat; // the throttle: its base group, the swinging arm, the grip's light
+let leverDrag = null; // { id, y, oy } — a pointer holding the throttle
+let leverShown = 0; // eased handle position, -1..1
 let buttons = [];
 const flashByCode = new Map(); // KeyG/etc -> button, for keyboard flashes
 let curPhase = 'menu';
@@ -127,20 +136,8 @@ function buildConsole() {
     pod.position.set(x, 0.5, -0.15);
     pod.rotation.x = -0.28;
     g.add(pod);
-    const scr = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.5, 0.26),
-      new THREE.MeshBasicMaterial({ color: 0x0a2a33 })
-    );
-    scr.position.set(x, 0.62, 0.05);
-    scr.rotation.x = -0.9;
-    g.add(scr);
-    const grid = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.5, 0.26),
-      new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, opacity: 0.25, wireframe: true })
-    );
-    grid.position.copy(scr.position);
-    grid.rotation.copy(scr.rotation);
-    g.add(grid);
+    // (the pods used to carry dummy screens: the throttle stands on the left
+    // one now and the wheel rises from the right)
   });
 
   // holo projector disc + ring + faint emitter cone at the console centre
@@ -160,9 +157,67 @@ function buildConsole() {
   return g;
 }
 
+const WHEEL_X = 1.42;
+const LEVER_X = -1.42;
+
+// The throttle: a gated quadrant on the left pod and a T-handled lever
+// standing in it. `leverArm` swings about X at the gate; the handle forward
+// (up the screen) is thrust.
+function buildLever() {
+  lever = new THREE.Group();
+  lever.position.set(LEVER_X, 0.6, 0.52);
+  lever.rotation.x = -0.32; // the rake of the dash
+  const metal = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.42, metalness: 0.9 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x0c1016, roughness: 0.6, metalness: 0.5 });
+  const gripMat = new THREE.MeshStandardMaterial({ color: 0x16191e, roughness: 0.85, metalness: 0.3 });
+  leverGlowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(CYAN).multiplyScalar(0.5) });
+
+  // the gate: a plate with a slot down it, two rails, and a detent at neutral
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.03, 0.62), metal);
+  lever.add(plate);
+  const slot = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.012, 0.5), dark);
+  slot.position.y = 0.016;
+  lever.add(slot);
+  [-1, 1].forEach(function (s) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.05, 0.56), metal);
+    rail.position.set(s * 0.085, 0.03, 0);
+    lever.add(rail);
+  });
+  const notch = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.008, 0.012), leverGlowMat);
+  notch.position.y = 0.02;
+  lever.add(notch);
+
+  leverArm = new THREE.Group();
+  leverArm.position.y = -0.04; // pivot just under the plate
+  lever.add(leverArm);
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.42, 14), metal);
+  shaft.position.y = 0.23;
+  leverArm.add(shaft);
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.05, 16), gripMat);
+  collar.position.y = 0.08;
+  leverArm.add(collar);
+  const bar = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.3, 8, 16), gripMat);
+  bar.rotation.z = Math.PI / 2;
+  bar.position.y = 0.46;
+  leverArm.add(bar);
+  [-1, 1].forEach(function (s) {
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.012, 16), leverGlowMat);
+    cap.rotation.z = Math.PI / 2;
+    cap.position.set(s * 0.2, 0.46, 0);
+    leverArm.add(cap);
+  });
+
+  // fat touch target: the whole throw of the handle, facing the camera
+  const hit = new THREE.Sprite(new THREE.SpriteMaterial({ visible: false, depthTest: false }));
+  hit.position.set(0, 0.3, 0);
+  hit.scale.set(0.62, 0.9, 1);
+  lever.add(hit);
+  return lever;
+}
+
 function buildWheel() {
   stick = new THREE.Group();
-  stick.position.set(0, 0.6, 0.78);
+  stick.position.set(WHEEL_X, 0.6, 0.78); // right of the dash
   stick.rotation.x = -0.6; // laid back to face the pilot
   wheel = new THREE.Group();
   stick.add(wheel);
@@ -299,36 +354,7 @@ function drawIcon(g, name) {
     g.closePath();
     g.fill();
   };
-  // an arc over the top with an arrowhead at its end; dir +1 clockwise
-  // (rolls right), -1 counter-clockwise (rolls left)
-  const curl = (dir) => {
-    const R = 22, cy = 8;
-    const a0 = dir > 0 ? Math.PI * 1.0 : 0;
-    const a1 = dir > 0 ? Math.PI * 1.78 : Math.PI * 1.22;
-    g.beginPath();
-    g.arc(0, cy, R, a0, a1, dir < 0);
-    g.stroke();
-    const ex = Math.cos(a1) * R, ey = cy + Math.sin(a1) * R;
-    // travel direction at the end of the arc
-    const tx = -Math.sin(a1) * dir, ty = Math.cos(a1) * dir;
-    const nx = -ty, ny = tx;
-    tri([ex + tx * 24, ey + ty * 24, ex + nx * 17, ey + ny * 17, ex - nx * 17, ey - ny * 17]);
-  };
   switch (name) {
-    case 'thrust': // solid arrow up
-      tri([0, -30, 24, -2, -24, -2]);
-      g.fillRect(-9, -4, 18, 30);
-      break;
-    case 'reverse': // solid arrow down
-      tri([0, 30, 24, 2, -24, 2]);
-      g.fillRect(-9, -26, 18, 30);
-      break;
-    case 'rollL':
-      curl(-1);
-      break;
-    case 'rollR':
-      curl(1);
-      break;
     case 'warp': // double chevron, forward
       g.beginPath();
       g.moveTo(-22, 2); g.lineTo(0, -20); g.lineTo(22, 2);
@@ -501,9 +527,7 @@ function makeButton(def) {
   // consistent, fat-finger-friendly tap area regardless of the dash angle.
   // onPointerDown raycasts the whole group, so this is picked up automatically.
   const hit = new THREE.Sprite(new THREE.SpriteMaterial({ visible: false, depthTest: false }));
-  // THRUST is held for most of a flight: give it a much fatter target.
-  const grow = def.big ? 1.6 : 1;
-  hit.scale.set((W + 0.12) * grow, (H + 0.12) * grow, 1);
+  hit.scale.set(W + 0.1, H + 0.12, 1);
   hit.userData.hit = true;
   g.add(hit);
 
@@ -512,38 +536,27 @@ function makeButton(def) {
 }
 
 function buildButtons() {
-  // Owner's layout (sketch, Nov 2026): two low strips framing the wheel and
-  // nothing on top, so the upper dash is window. Left strip, outside in:
-  // ROLL L, ROLL R, WARP, RADIO; right strip, inside out: STAND, REVERSE,
-  // CAMERA, LAND. THRUST and NAV, the two most-pressed, sit raised on the
-  // outer corners, right under the thumbs of a phone held sideways.
-  // REVERSE replaced BRAKE on the dash (Space still brakes on a keyboard).
-  // `icon` is the keycap picture on touch, where key letters mean nothing.
-  const L = 0.5, Z = 0.16; // strip row
-  const UP = 0.82, UZ = 0.05; // raised tier
-  const X = [0.74, 1.07, 1.4, 1.73]; // inner -> outer slots
-  const main = [
-    { name: 'THRUST', key: 'W', icon: 'thrust', color: 0xff9ad5, mode: 'hold', flag: 'forward', code: 'KeyW', x: -X[3], y: UP, z: UZ, big: true },
-    { name: 'NAV', key: 'N', icon: 'nav', color: 0x7dffc8, mode: 'nav', x: X[3], y: UP, z: UZ },
+  // Owner's layout (reference image, Nov 2026): ONE row across the middle of
+  // the dash, between the throttle and the wheel, and these six are every
+  // button there is. THRUST and REVERSE became the lever; ROLL and BRAKE are
+  // gone from the game. `icon` is the keycap picture on touch, where key
+  // letters mean nothing.
+  const Y = 0.5, Z = 0.17, PITCH = 0.39, SCALE = 1.2;
+  const defs = [
+    { name: 'WARP', key: 'F', icon: 'warp', color: 0xff9ad5, mode: 'hold', flag: 'warp', code: 'KeyF' },
+    { name: 'RADIO', key: ', .', icon: 'radio', color: 0x8cffd1, mode: 'fn', fn: toggleRadioPopup },
+    { name: 'CAMERA', key: 'P', icon: 'camera', color: 0xa9f7ff, mode: 'fn', fn: toggleCameraBar, lit: isCameraBarOpen },
+    { name: 'STAND', key: 'C', icon: 'stand', color: 0xcfe6ff, mode: 'edge', flag: 'toggleInterior', code: 'KeyC' },
+    { name: 'LAND', key: 'G', icon: 'land', color: 0xffc9ec, mode: 'edge', flag: 'toggleWalk', code: 'KeyG' },
+    { name: 'NAV', key: 'N', icon: 'nav', color: 0xffd75a, mode: 'nav' },
   ];
-  const aux = [
-    { name: 'ROLL L', key: 'Q', icon: 'rollL', color: 0xb98cff, mode: 'hold', flag: 'rollLeft', code: 'KeyQ', x: -X[3] },
-    { name: 'ROLL R', key: 'E', icon: 'rollR', color: 0x8cffd1, mode: 'hold', flag: 'rollRight', code: 'KeyE', x: -X[2] },
-    { name: 'WARP', key: 'F', icon: 'warp', color: 0x82f7ff, mode: 'hold', flag: 'warp', code: 'KeyF', x: -X[1] },
-    { name: 'RADIO', key: ', .', icon: 'radio', color: 0x9fd8e8, mode: 'fn', fn: toggleRadioPopup, x: -X[0] },
-    { name: 'STAND', key: 'C', icon: 'stand', color: 0xcfe6ff, mode: 'edge', flag: 'toggleInterior', code: 'KeyC', x: X[0] },
-    { name: 'REVERSE', key: 'S', icon: 'reverse', color: 0xa9f7ff, mode: 'hold', flag: 'reverse', code: 'KeyS', x: X[1] },
-    { name: 'CAMERA', key: '', icon: 'camera', color: 0xffc9ec, mode: 'fn', fn: toggleCameraBar, lit: isCameraBarOpen, x: X[2] },
-    { name: 'LAND', key: 'G', icon: 'land', color: 0xffd75a, mode: 'edge', flag: 'toggleWalk', code: 'KeyG', x: X[3] },
-  ];
-  aux.forEach(function (d) {
-    d.y = L;
-    d.z = Z;
-  });
-
   buttons = [];
-  main.concat(aux).forEach(function (d) {
+  defs.forEach(function (d, i) {
+    d.x = (i - (defs.length - 1) / 2) * PITCH;
+    d.y = Y;
+    d.z = Z;
     const b = makeButton(d);
+    b.scale.setScalar(SCALE);
     buttons.push(b);
     cockpitShell.add(b);
     if (d.code) flashByCode.set(d.code, b);
@@ -587,7 +600,16 @@ const hasTouchEvents = typeof window !== 'undefined' && 'ontouchstart' in window
 let standingAway = false;
 export function setCockpitStanding(v) {
   standingAway = v;
-  if (v) wheelDrag = null;
+  if (v) {
+    wheelDrag = null;
+    dropLever();
+  }
+}
+
+// Let go of the throttle: it springs back, and the engine with it.
+function dropLever() {
+  leverDrag = null;
+  input.throttle = 0;
 }
 
 function interactive(isTouch) {
@@ -627,6 +649,14 @@ function beginAt(id, cx, cy, type) {
     return true;
   }
 
+  // throttle: grab it and hold it off-centre. `oy` is where it was grabbed.
+  if (raycaster.intersectObject(lever, true).length) {
+    leverDrag = { id, y: cy, oy: cy };
+    uiSound('toggle');
+    lastConsumed = true;
+    return true;
+  }
+
   // steering wheel: grab and drag to fly. `ox/oy` is the grab point, kept so a
   // held finger can steer by offset (see updateCockpit3d); mouse still steers
   // by delta off `x/y`.
@@ -653,6 +683,10 @@ function beginAt(id, cx, cy, type) {
 }
 
 function moveAt(id, cx, cy) {
+  if (leverDrag && id === leverDrag.id) {
+    leverDrag.y = cy;
+    return true;
+  }
   if (!wheelDrag || id !== wheelDrag.id) return false;
   // Touch only records where the finger IS — updateCockpit3d turns the offset
   // from the grab point into a continuous steer rate, so holding the wheel over
@@ -673,6 +707,7 @@ function moveAt(id, cx, cy) {
 }
 
 function endAt(id) {
+  if (leverDrag && id === leverDrag.id) dropLever();
   if (wheelDrag && id === wheelDrag.id) wheelDrag = null;
   const b = pointerButtons.get(id);
   if (b) {
@@ -743,6 +778,7 @@ export function initCockpit3d(domElement) {
   cockpitShell.add(buildWindow());
   cockpitShell.add(buildConsole());
   cockpitShell.add(buildWheel());
+  cockpitShell.add(buildLever());
   buildButtons();
   initNavMenu(cockpitShell);
 
@@ -779,6 +815,7 @@ export function initCockpit3d(domElement) {
     if (e.repeat) return;
     const b = flashByCode.get(e.code);
     if (b) flash(b);
+    else if (e.code === 'KeyP') flash(buttons[2]); // P takes the photo the CAMERA bar offers
   });
 }
 
@@ -814,6 +851,29 @@ export function updateCockpit3d(ship, delta, phase) {
         holdAxis((wheelDrag.y - wheelDrag.oy) / span) * rate * (settings.invertY ? -1 : 1);
     }
   }
+
+  // On a squarer screen (a tablet) the two hand controls sit at the very edges
+  // of the frame: draw them in a little so there is something to take hold of.
+  const narrow = Math.max(0, Math.min(1, (1.65 - window.innerWidth / window.innerHeight) / 0.35));
+  stick.position.x = WHEEL_X - 0.12 * narrow;
+  lever.position.x = LEVER_X + 0.1 * narrow;
+
+  // The throttle. A held pointer sets it by how far it is from where it took
+  // hold (up the screen is thrust), every frame, so a parked finger keeps the
+  // burn going; anything that ends flight lets go of it.
+  if (leverDrag) {
+    if (curPhase !== 'fly') dropLever();
+    else {
+      const span = Math.min(window.innerWidth, window.innerHeight) * C.LEVER_SPAN;
+      const v = Math.max(-1, Math.min(1, (leverDrag.oy - leverDrag.y) / span));
+      input.throttle = Math.abs(v) < C.LEVER_DEADZONE ? 0 : v;
+    }
+  }
+  // the handle shows the throttle whoever set it: the lever, or W and S
+  const thr = curPhase === 'fly' && !standingAway ? throttleAxis() : 0;
+  leverShown += (thr - leverShown) * Math.min(dt * 14, 1);
+  leverArm.rotation.x = -leverShown * C.LEVER_THROW;
+  leverGlowMat.color.set(thr < 0 ? 0xffb05a : CYAN).multiplyScalar(0.45 + Math.abs(leverShown) * 0.75);
 
   // wheel mirrors the ship's actual turn: rotate with yaw+roll, rock with
   // pitch (same smoothing the old yoke used)
@@ -865,9 +925,19 @@ export function cockpitDebug() {
       return b ? b.userData.screenMat.opacity : null;
     },
     wheelRot: () => (wheel ? wheel.rotation.z : 0),
-    // screen-space centre of a button, for touch-hit verification
+    // the throttle: what it is set to, whether a pointer holds it, where the
+    // handle is drawn; setLever(v) holds it at v as a finger would (null lets go)
+    lever: () => ({ value: input.throttle, held: !!leverDrag, shown: leverShown }),
+    setLever(v) {
+      if (v === null || v === undefined) return dropLever();
+      const span = Math.min(window.innerWidth, window.innerHeight) * C.LEVER_SPAN;
+      leverDrag = { id: 'debug', oy: 0, y: -v * span };
+    },
+    // screen-space centre of a button ('LEVER' and 'WHEEL' too), for touch-hit
+    // verification
     screenPos(name) {
-      const b = buttons.find((x) => x.userData.def.name === name);
+      const b =
+        name === 'LEVER' ? leverArm.children[2] : name === 'WHEEL' ? wheel : buttons.find((x) => x.userData.def.name === name);
       if (!b || !dom) return null;
       const v = b.getWorldPosition(new THREE.Vector3()).project(camera);
       const r = dom.getBoundingClientRect();
