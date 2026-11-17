@@ -26,6 +26,7 @@ import { sun } from '../src/sun.js';
 import { tint, box, cyl, mergedMesh, floorOf, buildRobot, trackRobot } from './capital.js';
 import { doorFrame, doorLight, DOOR } from './farlanding.js';
 import { holeDirection } from './farhole.js';
+import { buildHangar, HANGAR_BOX } from './lightvessel.js';
 
 const SNAP = 1.2;
 const DOOR_Z = 10; // the way back
@@ -33,6 +34,11 @@ const BALC_HW = 10;
 const BRIDGE_HW = 3;
 const BRIDGE_Z0 = -21, BRIDGE_Z1 = -58;
 const TERR_Z = -77, TERR_R = 20;
+// the gallery over the hangar: west of the terrace, along a second bridge
+const GALL_X = -112, GALL_R = 16;
+const SPEED = 2; // everyone here moves at twice a walk
+const TRAIL = 96; // samples of the walker's path kept for the light behind them
+const TRAIL_LIFE = 2.6; // seconds a sample glows
 const GROUND_Y = -420;
 const SKY_R = 3600;
 const HAZE = new THREE.Color(0.42, 0.64, 0.96); // what distance fades to: the horizon's pale blue
@@ -185,7 +191,7 @@ const FLOOR_VERT = /* glsl */ `
 const FLOOR_FRAG = /* glsl */ `
   uniform float uTime;
   uniform vec3 uDir;
-  uniform vec2 uA, uB; // the two round floors' centres (xz): prow, terrace
+  uniform vec2 uA, uB, uC; // the round floors' centres (xz): prow, terrace, gallery
   varying vec3 vWorld;
   ${SKY_GLSL}
   float hash(vec2 p) {
@@ -219,8 +225,8 @@ const FLOOR_FRAG = /* glsl */ `
     float fres = 0.16 + 0.84 * pow(1.0 - max(V.y, 0.0), 3.0);
     vec3 col = plate + skyBase(normalize(R)) * fres * 0.5;
     // the inlay
-    float d1 = dial(p - uA, 9.0), d2 = dial(p - uB, 19.0);
-    float runs = line(p.x / 1.6, 0.02) * step(abs(p.x), 2.6) + line(p.x / 6.4 + 0.5, 0.006) * 0.6;
+    float d1 = dial(p - uA, 9.0), d2 = max(dial(p - uB, 19.0), dial(p - uC, 15.0));
+    float runs = line(p.x / 1.6, 0.02) * step(abs(p.x), 2.6) * step(-21.0, p.y) + line(p.x / 6.4 + 0.5, 0.006) * 0.6;
     float pulse = 0.75 + 0.25 * sin(uTime * 1.4 - length(p - uA) * 0.5);
     vec3 cyan = vec3(0.45, 0.90, 1.0), gold = vec3(1.0, 0.80, 0.42);
     col += cyan * (d1 + d2) * 0.8 * pulse + gold * runs * 0.7;
@@ -349,8 +355,11 @@ function buildCity(group, lightDir) {
       x = Math.cos(a) * rad;
       z = Math.sin(a) * rad - 40;
       dh = Math.hypot(x - heart.x, z - heart.y);
+      // (and none in the hangar, where something else stands)
+      if (x > HANGAR_BOX[0] && x < HANGAR_BOX[1] && z > HANGAR_BOX[2] && z < HANGAR_BOX[3]) continue;
       if (r() < 0.25 + 0.75 * Math.exp(-dh / 1100)) break;
     }
+    if (x > HANGAR_BOX[0] && x < HANGAR_BOX[1] && z > HANGAR_BOX[2] && z < HANGAR_BOX[3]) x = HANGAR_BOX[1] + 400 + r() * 900;
     const tall = Math.exp(-dh / 900);
     const h = (120 + 620 * r() * r()) * (0.55 + 1.5 * tall) * (slab ? 0.7 : 1);
     const w = slab ? 26 + r() * 46 : 16 + r() * 30;
@@ -518,6 +527,7 @@ export function createLightCity(ctx) {
     const a0 = (i / 40) * Math.PI * 2, a1 = ((i + 1) / 40) * Math.PI * 2;
     const x0 = Math.cos(a0) * TERR_R, z0 = TERR_Z + Math.sin(a0) * TERR_R, x1 = Math.cos(a1) * TERR_R, z1 = TERR_Z + Math.sin(a1) * TERR_R;
     if (Math.abs((x0 + x1) / 2) < BRIDGE_HW + 0.8 && (z0 + z1) / 2 > TERR_Z) continue; // where the bridge arrives
+    if (Math.abs((z0 + z1) / 2 - TERR_Z) < BRIDGE_HW + 0.8 && (x0 + x1) / 2 < 0) continue; // ...and the one to the gallery leaves
     rail(x0, z0, x1, z1);
   }
   // four slender lamps round it
@@ -527,6 +537,25 @@ export function createLightCity(ctx) {
     lit.push(tint(cyl(0.12, 0.2, 5, x, 2.5, z, 8), COL.gold));
     glow.push(tint(cyl(0.5, 0.5, 0.5, x, 5.2, z, 12), GLOW.white, 1.8));
     colliders.push({ x, z, r: 0.4, top: Infinity });
+  }
+
+  // --- the gallery: a second bridge west from the terrace to a round floor
+  // hung out over the hangar (world/lightvessel.js) ---
+  const gx0 = GALL_X + GALL_R - 2, gx1 = -TERR_R + 2; // the bridge's two ends
+  lit.push(tint(box(gx1 - gx0, 0.7, BRIDGE_HW * 2 + 0.6, (gx0 + gx1) / 2, -0.35, TERR_Z), COL.stone));
+  surfaces.push({ kind: 'rect', cx: (gx0 + gx1) / 2, cz: TERR_Z, ux: 1, uz: 0, hl: (gx1 - gx0) / 2 + 2, hw: BRIDGE_HW, yA: 0, yB: 0 });
+  rail(gx0, TERR_Z - BRIDGE_HW, gx1, TERR_Z - BRIDGE_HW);
+  rail(gx0, TERR_Z + BRIDGE_HW, gx1, TERR_Z + BRIDGE_HW);
+  glow.push(tint(box(gx1 - gx0, 0.05, 0.3, (gx0 + gx1) / 2, 0.03, TERR_Z), GLOW.gold, 0.9));
+  lit.push(tint(cyl(GALL_R + 0.6, GALL_R + 0.6, 1.2, GALL_X, -0.6, TERR_Z, 40), COL.stone));
+  lit.push(tint(cyl(GALL_R - 4, 2.5, 18, GALL_X, -10.2, TERR_Z, 20), COL.stoneDark));
+  surfaces.push({ kind: 'disc', cx: GALL_X, cz: TERR_Z, r: GALL_R, y: 0 });
+  for (let i = 0; i < 32; i++) {
+    const a0 = (i / 32) * Math.PI * 2, a1 = ((i + 1) / 32) * Math.PI * 2;
+    const x0 = GALL_X + Math.cos(a0) * GALL_R, z0 = TERR_Z + Math.sin(a0) * GALL_R;
+    const x1 = GALL_X + Math.cos(a1) * GALL_R, z1 = TERR_Z + Math.sin(a1) * GALL_R;
+    if (Math.abs((z0 + z1) / 2 - TERR_Z) < BRIDGE_HW + 0.8 && (x0 + x1) / 2 > GALL_X) continue; // the bridge
+    rail(x0, z0, x1, z1);
   }
 
   const litMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x2c2b28 });
@@ -542,6 +571,7 @@ export function createLightCity(ctx) {
   const floorU = {
     uTime: { value: 0 }, uDir: { value: lightDir },
     uA: { value: new THREE.Vector2(0, -12) }, uB: { value: new THREE.Vector2(0, TERR_Z) },
+    uC: { value: new THREE.Vector2(GALL_X, TERR_Z) },
   };
   const flat = (g, x, y, z) => g.rotateX(-Math.PI / 2).translate(x, y, z);
   const floorGeo = [
@@ -549,6 +579,8 @@ export function createLightCity(ctx) {
     flat(new THREE.CircleGeometry(B, 48), 0, 0.010, -12),
     flat(new THREE.PlaneGeometry(BRIDGE_HW * 2, BRIDGE_Z0 - BRIDGE_Z1 + 4), 0, 0.014, (BRIDGE_Z0 + BRIDGE_Z1) / 2),
     flat(new THREE.CircleGeometry(TERR_R, 64), 0, 0.010, TERR_Z),
+    flat(new THREE.PlaneGeometry(-TERR_R + 2 - (GALL_X + GALL_R - 2) + 4, BRIDGE_HW * 2), (GALL_X + GALL_R - TERR_R) / 2, 0.014, TERR_Z),
+    flat(new THREE.CircleGeometry(GALL_R, 48), GALL_X, 0.010, TERR_Z),
   ];
   const floor = mergedMesh(floorGeo, new THREE.ShaderMaterial({ vertexShader: FLOOR_VERT, fragmentShader: FLOOR_FRAG, uniforms: floorU, fog: false }));
   group.add(floor);
@@ -569,6 +601,91 @@ export function createLightCity(ctx) {
   colliders.push({ x: GREET.x, z: GREET.z, r: 0.9, top: Infinity });
 
   const city = buildCity(group, lightDir);
+  const hangar = buildHangar(group);
+
+  // --- the light the walker leaves behind: sparks wound round the path just
+  // walked, three strands of them, fading as they open out ---
+  const hist = []; // a ring of { x, y, z, dx, dz, t }
+  for (let i = 0; i < TRAIL; i++) hist.push({ x: 0, y: 0, z: 0, dx: 0, dz: 1, t: -1e9 });
+  let histAt = 0;
+  const STRANDS = 4;
+  const trailPos = new THREE.BufferAttribute(new Float32Array(TRAIL * STRANDS * 3), 3);
+  const trailAge = new THREE.BufferAttribute(new Float32Array(TRAIL * STRANDS), 1);
+  trailPos.setUsage(THREE.DynamicDrawUsage);
+  trailAge.setUsage(THREE.DynamicDrawUsage);
+  const trailGeo = new THREE.BufferGeometry();
+  trailGeo.setAttribute('position', trailPos);
+  trailGeo.setAttribute('aAge', trailAge);
+  const trailU = { uScale: { value: 600 } };
+  const trail = new THREE.Points(trailGeo, new THREE.ShaderMaterial({
+    uniforms: trailU,
+    vertexShader: /* glsl */ `
+      attribute float aAge; // 0 new .. 1 gone
+      uniform float uScale;
+      varying float vAge;
+      void main() {
+        vAge = aAge;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = aAge >= 1.0 ? 0.0 : clamp(uScale * (0.42 - 0.2 * aAge) / max(-mv.z, 0.5), 1.5, 60.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying float vAge;
+      void main() {
+        float r = length(gl_PointCoord * 2.0 - 1.0);
+        if (r > 1.0 || vAge >= 1.0) discard;
+        // white where it is new, through gold, to the blue of the sky as it goes
+        vec3 c = mix(vec3(1.0, 0.90, 0.62), vec3(1.0, 0.62, 0.18), smoothstep(0.0, 0.35, vAge));
+        c = mix(c, vec3(0.35, 0.70, 1.0), smoothstep(0.4, 1.0, vAge));
+        gl_FragColor = vec4(c * pow(1.0 - r, 2.2) * (1.0 - vAge) * 2.0, 1.0);
+      }
+    `,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+  }));
+  trail.frustumCulled = false;
+  group.add(trail);
+  function stepTrail(t) {
+    if (walker) {
+      const last = hist[(histAt + TRAIL - 1) % TRAIL];
+      const dx = walker.x - last.x, dz = walker.z - last.z;
+      const d = Math.hypot(dx, dz);
+      // a new sample every short step; standing still leaves nothing
+      if (d > 0.5) {
+        const h = hist[histAt];
+        h.x = walker.x;
+        h.y = walker.y;
+        h.z = walker.z;
+        h.dx = d < 20 ? dx / d : 0; // (a jump through a door is not a stride)
+        h.dz = d < 20 ? dz / d : 1;
+        h.t = d < 20 ? t : -1e9;
+        histAt = (histAt + 1) % TRAIL;
+      }
+    }
+    const P = trailPos.array, A = trailAge.array;
+    for (let i = 0; i < TRAIL; i++) {
+      const h = hist[i];
+      const age = (t - h.t) / TRAIL_LIFE;
+      for (let k = 0; k < STRANDS; k++) {
+        const o = i * STRANDS + k;
+        if (age >= 1 || age < 0) {
+          A[o] = 1;
+          continue;
+        }
+        // round the line of the stride, opening out and turning as it ages
+        const ang = age * 8 + (k * Math.PI * 2) / STRANDS + h.t * 5;
+        const rad = 0.45 + age * 1.5;
+        const side = Math.cos(ang) * rad, up = Math.sin(ang) * rad;
+        P[o * 3] = h.x - h.dz * side;
+        P[o * 3 + 1] = h.y + 1.1 + up * 0.8 + age * 0.9;
+        P[o * 3 + 2] = h.z + h.dx * side;
+        A[o] = age;
+      }
+    }
+    trailPos.needsUpdate = true;
+    trailAge.needsUpdate = true;
+    trailU.uScale.value = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((C.FOV * Math.PI) / 360);
+  }
   const skyU = buildSky(group, lightDir);
 
   // what this place changes in the scene, kept to put back
@@ -581,6 +698,7 @@ export function createLightCity(ctx) {
     group,
     planet: { group: { position: ZERO }, sunDir: lightDir },
     noShip: true,
+    speed: SPEED,
     exit: { x: 0, z: DOOR_Z },
     leaveHint: 'THE DOOR BEHIND YOU LEADS BACK TO THE LANDING',
     surfaces,
@@ -643,6 +761,8 @@ export function createLightCity(ctx) {
       city.craftU.uTime.value = t;
       city.craftU.uScale.value = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((C.FOV * Math.PI) / 360);
       floorU.uTime.value = t;
+      hangar.tick(t);
+      stepTrail(t);
       skyU.uTime.value = t;
       sheet.uniforms.uTime.value = t;
       for (let i = 0; i < city.rings.length; i++) {
@@ -653,9 +773,9 @@ export function createLightCity(ctx) {
     inside: () => inside,
     places: {
       door: [0, 0, DOOR_Z - 2], back: [0, 0, DOOR_Z + 2], balcony: [0, 0, -16], bridge: [0, 0, -40],
-      terrace: [0, 0, TERR_Z + 8], greeter: [0, 0, GREET.z + 2.6],
+      terrace: [0, 0, TERR_Z + 8], greeter: [0, 0, GREET.z + 2.6], gallery: [GALL_X, 0, TERR_Z],
     },
-    info: () => ({ towers: city.towers }),
+    info: () => ({ towers: city.towers, cells: hangar.cells }),
   };
   return site;
 }

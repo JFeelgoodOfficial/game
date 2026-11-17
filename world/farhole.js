@@ -12,10 +12,8 @@
 //             depth-tested, so anything nearer stands in front of it
 //   light     one additive quad: disc, lensed arc, photon ring, glow
 //             (src/shaders/farHole.frag)
-//   tethers   streaks of fire from the hole's lower rim down to the world all
-//             along the horizon, one merged mesh: what the megaworld draws out
-//   wisps     gas off the ends of the disc, looping down either side, another
-//             (both: ribbonGeometry below, src/shaders/farStream.frag)
+//   wisps     gas off the ends of the disc, looping down either side: ribbons,
+//             one merged mesh (ribbonGeometry below, src/shaders/farStream.frag)
 //   galaxies  a handful of spirals in the far sky, one mesh: this is not the
 //             sky the pilot left
 //
@@ -161,37 +159,6 @@ function ribbonGeometry(specs) {
   return geo;
 }
 
-// The tethers: streaks of fire from the lower rim of the hole, fanning down
-// to the world all along the horizon under it. Their feet are farther off than
-// the horizon ever is, so the ground hides them where the world's own curve
-// says it should.
-function tetherSpecs(dir) {
-  const r = rng(0x71e5);
-  const N = C.FAR_STREAMS;
-  const holeAz = Math.atan2(dir.x, -dir.z);
-  const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
-  const up = new THREE.Vector3().crossVectors(right, dir).normalize();
-  const D = C.FAR_HOLE_DIST;
-  const rs = Math.tan(C.FAR_HOLE_SIZE) * D;
-  const specs = [];
-  for (let i = 0; i < N; i++) {
-    const f = (i + 0.5) / N - 0.5; // -0.5 port .. 0.5 starboard
-    // each leaves the rim at its own place round the lower half...
-    const ra = -Math.PI / 2 + f * 2.5 + (r() - 0.5) * 0.1;
-    const top = dir.clone().multiplyScalar(D * 0.985)
-      .addScaledVector(right, Math.cos(ra) * rs * 1.22).addScaledVector(up, Math.sin(ra) * rs * 1.22);
-    // ...and comes down on that side of the horizon
-    const az = holeAz + f * 2.3 + (r() - 0.5) * 0.08;
-    const fd = 840000 + r() * 60000;
-    const foot = new THREE.Vector3(Math.sin(az) * fd, -fd * (0.03 + r() * 0.02), -Math.cos(az) * fd);
-    // thrown outward from the rim before it falls: a fountain's arc
-    const mid = foot.clone().multiplyScalar(0.42).add(top.clone().multiplyScalar(0.56))
-      .addScaledVector(right, Math.cos(ra) * rs * 2.0).addScaledVector(up, rs * (0.5 + Math.sin(ra) * 0.8));
-    specs.push({ foot, mid, top, w0: 5200 + r() * 3800, w1: 6200 + r() * 3000, wave: 1500 + r() * 2500, turns: 0.4 + r() * 0.5, seed: r() });
-  }
-  return specs;
-}
-
 // The wisps: gas pulled off the ends of the disc, looping out and down either
 // side of the hole to the horizon, pale as smoke.
 function wispSpecs(dir) {
@@ -322,9 +289,6 @@ export function buildFarHole() {
     depthWrite: false,
     side: THREE.DoubleSide,
   });
-  const streams = new THREE.Mesh(ribbonGeometry(tetherSpecs(dir)), ribbonMat(0, 1.0));
-  streams.frustumCulled = false;
-  streams.renderOrder = 1;
   const wisps = new THREE.Mesh(ribbonGeometry(wispSpecs(dir)), ribbonMat(1, 1.0));
   wisps.frustumCulled = false;
   wisps.renderOrder = 1;
@@ -342,7 +306,7 @@ export function buildFarHole() {
   galaxies.frustumCulled = false;
   galaxies.renderOrder = -4.5; // with the stars, before the shadow
 
-  group.add(galaxies, shadow, light, streams, wisps);
+  group.add(galaxies, shadow, light, wisps);
 
   // --- the conduits: the mining itself ---
   // One material for all of them; the shape is made in its vertex shader from

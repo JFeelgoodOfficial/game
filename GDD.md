@@ -565,9 +565,9 @@ the photon ring. The palette is fire, white-gold only in the hottest streaks,
 and that is structural as well as a look: bloom takes what is over its
 threshold in luminance, a ring this size blooming fogs the shadow grey, and
 saturated orange at full strength is well under the threshold. Two merged
-ribbon meshes (`farStream.frag`) hang from it: the tethers, streaks of fire
-from the hole's lower rim fanning down to the world all along the horizon, and
-the wisps, faint embers looping off the ends of the disc. The mining itself is
+One merged ribbon mesh (`farStream.frag`) hangs from it: the wisps, faint
+embers looping off the ends of the disc. (An earlier fan of fire tethers from
+the rim to the horizon was removed at the owner's request.) The mining itself is
 the conduits (`farConduit.vert/.frag`): tubes of iridescent glass from two
 collectors on each full-detail cage's gantry up and over into the disc, with
 gold light falling down the inside. Their shape is made in the vertex shader
@@ -633,9 +633,25 @@ look depends on restraint: the `lightcity` preset's exposure and bloom, and
 every glare term in the sky, are set low, because the scene is bright
 everywhere and washes to white otherwise.
 
+**The hangar** (`world/lightvessel.js`). West of the terrace a second bridge
+runs to a gallery hung over a hangar, where a vessel is being built: behemoth,
+floating over its yard inside a frame of iridescent glass blades. Its body is
+some five hundred cells, cubes and prisms two cells long or tall, each turning
+through the whole spectrum at its own pace and each lived in: figures dance in
+every cell (`CELL_FRAG` draws colour, frame, glass, figures and motes per
+fragment from one seed per instance, so the hull is two draw calls). A truss
+spine runs forward to a bulb of hexagonal cells; aft is the drive, a hub in two
+great rings. The upper forward corner is unbuilt. Its purpose is not stated.
+
+**How the pilot moves there.** Anywhere in the City of Light the pilot walks
+and runs at twice the usual pace (`site.speed`), and leaves a trail of light:
+sparks wound in four strands round the path just walked, opening out and
+fading over `TRAIL_LIFE` seconds.
+
 `src/capitalWalk.js` gained what a place with no ship needs, all optional:
 entry options (`spawn`, `yaw`, `quiet`), `site.noShip`, `site.exit`,
-`site.leaveHint`, `site.onEnter` / `onLeave`, and `site.tick(dt, t)`.
+`site.leaveHint`, `site.onEnter` / `onLeave`, `site.tick(dt, t)` and
+`site.speed`.
 The greeting's words are a first draft (`GREETING` in `src/farside.js`).
 
 ### 5.8 The Sky City (Saturnia)

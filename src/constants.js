@@ -519,7 +519,6 @@ export const C = {
   FAR_HOLE_ROLL: 0.24, // ...and how far it is canted from level, rad (port side low)
   FAR_HOLE_HDR: 1.0, // emissive scale of the disc
   FAR_HOLE_DIST: 500000.0, // where it is drawn (its quad's corners must stay inside the far plane)
-  FAR_STREAMS: 17, // time-streams rising to it from the horizon
   // The megastructures: kilometre-scale spires on a wide tile, for a skyline.
   FAR_SPIRE_TILE: 65536.0,
   FAR_SPIRE_MAX: 2600.0,

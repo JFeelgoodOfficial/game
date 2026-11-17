@@ -25,6 +25,7 @@
 //   platform.onEnter() / onLeave()   the walker has arrived / is gone, however
 //                        it left (a door, the menu, a world reset)
 //   platform.tick(dt, t) every rendered frame while walked, isolated or not
+//   platform.speed       a multiple of the usual walking and running pace
 //
 // walk.js dispatches its public surface here whenever capitalActive().
 
@@ -194,7 +195,7 @@ export function stepCapitalWalk(dt) {
   const cosY = Math.cos(cWalk.yaw);
   const axes = moveAxes();
   _wish.set(sinY * axes.fwd + -cosY * axes.strafe, 0, cosY * axes.fwd + sinY * axes.strafe);
-  const targetSpeed = input.sprint ? C.SKY_RUN_SPEED : C.SKY_WALK_SPEED;
+  const targetSpeed = (input.sprint ? C.SKY_RUN_SPEED : C.SKY_WALK_SPEED) * (site.speed || 1);
   if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(targetSpeed * axes.mag);
   if (isDialogueOpen()) _wish.set(0, 0, 0); // stand still while spoken to
 

@@ -30,16 +30,18 @@ void main() {
 
   vec3 foot = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
   // each conduit leaves the disc at its own place under the hole
-  float ra = -1.5708 + (aSeed - 0.5) * 2.4;
+  // (out along the disc to one side or the other, never across the shadow)
+  float sgn = aSeed < 0.5 ? -1.0 : 1.0;
+  float out1 = 1.7 + 2.2 * abs(aSeed - 0.5) * 2.0;
   vec3 head = cameraPosition + uHoleDir * uHoleDist * 0.96
-            + (uHoleRight * cos(ra) * 1.9 + uHoleUp * sin(ra) * 0.7) * uHoleR;
+            + (uHoleRight * sgn * out1 - uHoleUp * (0.25 + 0.5 * fract(aSeed * 7.0))) * uHoleR;
   vec3 span = head - foot;
   float len = length(span);
   // straight up out of the collector first, then thrown over toward the hole,
   // each to its own side
   vec3 side = normalize(cross(span, vec3(0.0, 1.0, 0.0)));
-  vec3 mid = foot + span * 0.10 + vec3(0.0, 1.0, 0.0) * len * (0.11 + 0.05 * aSeed)
-           + side * len * 0.07 * (aSeed * 2.0 - 1.0);
+  vec3 mid = foot + span * 0.12 + vec3(0.0, 1.0, 0.0) * len * (0.16 + 0.07 * fract(aSeed * 5.0))
+           + side * len * 0.14 * (aSeed * 2.0 - 1.0);
 
   vec3 c = curve(foot, mid, head, t);
   vec3 tan = normalize(curve(foot, mid, head, min(t + 0.004, 1.0)) - curve(foot, mid, head, max(t - 0.004, 0.0)));
@@ -50,10 +52,12 @@ void main() {
   // as it is far away, so it holds its size against the sky; slow swells
   // travelling down it; drawn to nothing as it enters the disc
   float away = length(c - cameraPosition);
-  float wide = away * (0.022 + 0.008 * aSeed);
-  float r = mix(190.0, wide, smoothstep(0.0, 0.22, t));
-  r += 520.0 * exp(-t * 900.0);
-  r *= 1.0 + 0.22 * sin(t * 24.0 + aSeed * 40.0 + uTime * 0.25) + 0.12 * sin(th * 2.0 + t * 31.0 - uTime * 0.17);
+  float wide = away * (0.030 + 0.012 * fract(aSeed * 3.0));
+  float r = mix(260.0, wide, smoothstep(0.0, 0.24, t));
+  // where it lands it spreads into a bell of spray over the collector
+  r += 1150.0 * exp(-t * 520.0);
+  // slow swells down it, and folds along it like cloth: it is not round
+  r *= 1.0 + 0.24 * sin(t * 24.0 + aSeed * 40.0 + uTime * 0.25) + 0.30 * sin(th * 2.0 + t * 19.0 - uTime * 0.12) + 0.12 * sin(th * 5.0 - t * 43.0);
   r *= 1.0 - 0.75 * smoothstep(0.82, 1.0, t);
 
   vec3 radial = n1 * cos(th) + n2 * sin(th);
