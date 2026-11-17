@@ -31,7 +31,9 @@ import towerVert from '../src/shaders/megaTower.vert?raw';
 import hullFrag from '../src/shaders/tenretniHull.frag?raw';
 
 // Towers by quality tier (medium is the Iris Xe target, GDD 2.1).
-const TOWERS = { low: 2500, medium: 6000, high: 12000, ultra: 20000 };
+const TOWERS = { low: 4000, medium: 11000, high: 17000, ultra: 24000 };
+// The megastructures: kilometre-scale spires on a wider tile, for a skyline.
+const SPIRES = { low: 90, medium: 220, high: 360, ultra: 520 };
 export const CAGE_PERIOD = 64; // the lattice repeats every this many cells
 export const PATTERN_PERIOD = 1024; // ...and each ground pattern every this many of its own
 
@@ -118,11 +120,22 @@ function buildGround() {
     uFade: { value: 0 },
     uHaze: { value: new THREE.Color(C.FAR_HAZE) },
   };
-  const mesh = new THREE.Mesh(geo, new THREE.ShaderMaterial({
+  const material = new THREE.ShaderMaterial({
     vertexShader: groundVert,
     fragmentShader: CAGE_GLSL + groundFrag,
     uniforms,
-  }));
+  });
+  // the traces and the relief are look, not structure: above the low tier only
+  const detail = () => {
+    const on = Q.tier !== 'low';
+    if (!!material.defines.DETAIL === on) return;
+    if (on) material.defines.DETAIL = '';
+    else delete material.defines.DETAIL;
+    material.needsUpdate = true;
+  };
+  detail();
+  onQualityChange(detail);
+  const mesh = new THREE.Mesh(geo, material);
   mesh.frustumCulled = false;
   mesh.renderOrder = -4; // the first opaque thing down: everything stands on it
   return { mesh, uniforms };
@@ -130,15 +143,16 @@ function buildGround() {
 
 // --- the towers ---
 
-function buildTowers(sunDir) {
+// One layer of towers. `o`: { counts by tier, tile, lot, hMin, hMax, wide (of
+// the lot), win, taper, seed }.
+function buildTowers(sunDir, o) {
   // Every tier's towers are laid out once; the tier only says how many of
   // them are drawn, so a change of quality in flight costs one number.
-  const count = Math.max(...Object.values(TOWERS));
-  // half-block lots: two towers can share a block's frontage
-  const LOT = C.FAR_BLOCK / 2;
-  const side = Math.round(C.FAR_TILE / LOT);
+  const count = Math.max(...Object.values(o.counts));
+  const LOT = o.lot;
+  const side = Math.round(o.tile / LOT);
   const lots = side * side;
-  const r = rng(0x7e17e7);
+  const r = rng(o.seed);
   // pick `count` distinct lots (a partial shuffle)
   const order = new Uint32Array(lots);
   for (let i = 0; i < lots; i++) order[i] = i;
@@ -163,14 +177,14 @@ function buildTowers(sunDir) {
       lx = order[i] % side;
       lz = Math.floor(order[i] / side);
       k = built(lx, lz);
-      if (r() < 0.12 + 0.88 * k * k) break;
+      if (r() < 0.4 + 0.6 * k * k) break; // built up everywhere, more so downtown
     }
     base[i * 2] = (lx + 0.5) * LOT;
     base[i * 2 + 1] = (lz + 0.5) * LOT;
     const h = r();
-    dim[i * 3] = LOT * (0.45 + 0.45 * r());
-    dim[i * 3 + 1] = C.FAR_TOWER_MIN + (C.FAR_TOWER_MAX - C.FAR_TOWER_MIN) * h * h * (0.25 + 0.75 * k) + (r() > 0.985 ? 160 : 0);
-    dim[i * 3 + 2] = LOT * (0.45 + 0.45 * r());
+    dim[i * 3] = LOT * (o.wide + 0.45 * r());
+    dim[i * 3 + 1] = o.hMin + (o.hMax - o.hMin) * h * h * (0.25 + 0.75 * k) + (r() > 0.985 ? o.hMin * 1.4 : 0);
+    dim[i * 3 + 2] = LOT * (o.wide + 0.45 * r());
     seed[i] = r();
   }
   const box = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
@@ -181,7 +195,7 @@ function buildTowers(sunDir) {
   geo.setAttribute('aBase', new THREE.InstancedBufferAttribute(base, 2));
   geo.setAttribute('aDim', new THREE.InstancedBufferAttribute(dim, 3));
   geo.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seed, 1));
-  const drawn = () => Math.min(TOWERS[Q.tier] || TOWERS.medium, n);
+  const drawn = () => Math.min(o.counts[Q.tier] || o.counts.medium, n);
   geo.instanceCount = drawn();
   onQualityChange(() => {
     geo.instanceCount = drawn();
@@ -189,13 +203,15 @@ function buildTowers(sunDir) {
   const uniforms = {
     uSun: { value: sunDir },
     uHdr: { value: C.TENRETNI_HDR },
-    uWin: { value: 0.032 },
+    uWin: { value: o.win },
     uTime: { value: 0 },
     uCore: { value: new THREE.Vector4(0, 0, 0, 0) },
     uS: { value: C.FAR_CAGE_SPACING },
     uTileOff: { value: new THREE.Vector2() },
     uOffCage: { value: new THREE.Vector2() },
-    uTile: { value: C.FAR_TILE },
+    uTaper: { value: o.taper },
+    uLand: { value: new THREE.Vector3(0, 0, 0) },
+    uTile: { value: o.tile },
     uPad: { value: C.FAR_CAGE_PAD },
     uR: { value: C.FAR_RADIUS },
     uFade: { value: 0 },
@@ -206,7 +222,7 @@ function buildTowers(sunDir) {
     uniforms,
   }));
   mesh.frustumCulled = false;
-  return { mesh, uniforms, count: () => geo.instanceCount };
+  return { mesh, uniforms, tile: o.tile, count: () => geo.instanceCount };
 }
 
 // --- a caged star ---
@@ -297,6 +313,16 @@ function frameGeometry() {
   for (let i = 0; i < 4; i++) {
     const a = (i * Math.PI) / 2 + Math.PI / 4;
     add(new THREE.CylinderGeometry(T * 0.8, T * 1.5, H, 8).translate(Math.cos(a) * (R + T * 1.2), H / 2, Math.sin(a) * (R + T * 1.2)));
+  }
+  // a gantry ring round the foot of it all, on eight legs, over the roofs
+  const GR = C.FAR_CAGE_PAD * 0.9, GH = 1500;
+  add(new THREE.TorusGeometry(GR, T * 0.7, 8, 72).rotateX(Math.PI / 2).translate(0, GH, 0));
+  add(new THREE.TorusGeometry(GR * 0.78, T * 0.4, 6, 64).rotateX(Math.PI / 2).translate(0, GH * 0.62, 0));
+  for (let i = 0; i < 8; i++) {
+    const a = (i * Math.PI) / 4 + Math.PI / 8;
+    add(new THREE.CylinderGeometry(T * 0.45, T * 0.8, GH, 6).translate(Math.cos(a) * GR, GH / 2, Math.sin(a) * GR));
+    // a spar from each leg in to the pedestal
+    add(new THREE.BoxGeometry(GR - R * 1.1, T * 0.35, T * 0.35).translate((GR + R * 1.1) / 2, GH * 0.62, 0).rotateY(-a));
   }
   // the spire on the north pole, with two yards
   const top = H + R;
@@ -408,10 +434,19 @@ export function buildMegaworld(sunDir) {
   const root = new THREE.Group();
   root.visible = false;
   const ground = buildGround();
-  const towers = buildTowers(sunDir);
+  // half-block lots: two towers can share a block's frontage
+  const towers = buildTowers(sunDir, {
+    counts: TOWERS, tile: C.FAR_TILE, lot: C.FAR_BLOCK / 2, hMin: C.FAR_TOWER_MIN, hMax: C.FAR_TOWER_MAX,
+    wide: 0.45, win: 0.032, taper: 0, seed: 0x7e17e7,
+  });
+  // one to a district, and far fewer than there are districts
+  const spires = buildTowers(sunDir, {
+    counts: SPIRES, tile: C.FAR_SPIRE_TILE, lot: C.FAR_DISTRICT, hMin: 800, hMax: C.FAR_SPIRE_MAX,
+    wide: 0.16, win: 0.0075, taper: 0.62, seed: 0x5e17a,
+  });
   const cage = buildCages(sunDir);
   const stars = buildPoints();
-  root.add(ground.mesh, towers.mesh, stars.points);
+  root.add(ground.mesh, towers.mesh, spires.mesh, stars.points);
   for (const c of cage.cages) root.add(c.group);
-  return { root, ground, towers, cage, stars };
+  return { root, ground, towers, spires, cage, stars };
 }

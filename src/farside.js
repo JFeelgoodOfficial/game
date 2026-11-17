@@ -37,8 +37,12 @@ import { Q } from './quality.js';
 import { originOffset, addShiftable } from './origin.js';
 import { addBody } from './gravity.js';
 import { setFarFieldExtra } from './isolate.js';
+import { setNebulaDim } from './nebula.js';
 import { addNavBody, setNavHidden, showNavToast } from './nav.js';
 import { buildMegaworld, cageAt, CAGE_PERIOD, PATTERN_PERIOD } from '../world/megaworld.js';
+import { buildFarHole } from '../world/farhole.js';
+import { createFarLanding } from '../world/farlanding.js';
+import { createLightCity } from '../world/lightcity.js';
 import commonVert from './shaders/tenretni.vert?raw';
 import wormFrag from './shaders/wormhole.frag?raw';
 
@@ -49,12 +53,28 @@ const ARRIVAL = [
   [11, 'THERE IS NO PLANET UNDER US. IT DOES NOT CURVE. IT IS ALL MACHINE.'],
   [20, 'THE WORMHOLE HAS CLOSED BEHIND US.'],
   [29, 'THOSE ARE STARS. IT KEEPS THEM IN CAGES.'],
+  [38, 'AND THAT IS A BLACK HOLE. THE LINES RUN UP INTO IT.'],
 ];
+
+// What the pilot is told on the terrace of the City of Light (the owner's
+// words to change: this is a first draft from the story so far).
+const GREETING = {
+  speaker: { name: 'The Keeper', species: 'Tenretni', cityId: 'The City of Light' },
+  lines: [
+    'You carried it through. Every world we took is in the room behind your seat, and now it is here.',
+    'What you flew over is the works. This is what the works are for.',
+    'The hole above us holds more time than any star holds light. We draw a little of it up, and we spend it here.',
+    'We took your worlds to learn them. We did not know another way to keep a thing.',
+    'You came to see where it all went. We counted on that. We are not certain it was fair.',
+    'Stand on the balcony as long as you like. The door stays open.',
+  ],
+};
 
 const wrap = (v, p) => ((v % p) + p) % p;
 
 // ctx: { scene, camera, sunWorld — tenretni's live unit vector toward the
-//        light, shared by its hull materials and the fleets' decks }
+//        light, shared by its hull materials and the fleets' decks,
+//        fleets() -> src/fleets.js | null, onMet() — the pilot has been greeted }
 export function createFarside(ctx) {
   const { scene, camera, sunWorld } = ctx;
   const S = C.FAR_CAGE_SPACING;
@@ -63,17 +83,61 @@ export function createFarside(ctx) {
 
   const mega = buildMegaworld(sunWorld);
   scene.add(mega.root);
+  // the black hole it is here to mine, and what it draws up out of it
+  const hole = buildFarHole();
+  mega.root.add(hole.group);
+  for (const c of mega.cage.cages) {
+    const beam = hole.beam();
+    beam.position.y = C.FAR_CAGE_HEIGHT + C.FAR_CAGE_RING_R + 4200; // from the mast's tip
+    c.group.add(beam);
+  }
 
   // SHIFT: the first present cell out from the lattice's middle holds the
   // star the pilot arrives beside.
   const _c = { x: 0, z: 0 };
   let sx = 0, sz = 0;
+  // ...and the landing stands between that star and the arrival point
+  let landX = 0, landZ = 0;
   for (let i = 20; i < CAGE_PERIOD; i++) {
     if (cageAt(i, i, _c)) {
       sx = _c.x + C.FAR_ARRIVE_DX;
       sz = _c.z + C.FAR_ARRIVE_DZ;
+      const k = C.FAR_LAND_OUT / Math.hypot(C.FAR_ARRIVE_DX, C.FAR_ARRIVE_DZ);
+      landX = _c.x + C.FAR_ARRIVE_DX * k;
+      landZ = _c.z + C.FAR_ARRIVE_DZ * k;
       break;
     }
+  }
+
+  // --- the landing, and the city through its door ---
+  // The landing is its own thing in the scene (not under the megaworld's
+  // root): game.js docks on it and src/capitalWalk.js walks it, both through
+  // its group's position, which is kept placed below and also rides rebases.
+  const landing = createFarLanding(sunWorld);
+  scene.add(landing.group);
+  addShiftable(landing.group);
+  const landNav = {
+    id: 'farlanding', label: 'THE LANDING', pos: landing.group.position, dot: 6,
+    radius: 60, logDist: C.FAR_LAND_CAPTURE * C.ATMO_SHELL + 600, color: '#8fffd0', station: true, kind: 'station',
+  };
+  let city = null; // world/lightcity.js, built the first time the door is used
+  let cityBroken = false;
+  function buildCity() {
+    if (city || cityBroken) return city;
+    try {
+      city = createLightCity({
+        scene,
+        hideFleet: () => ctx.fleets()?.show(false),
+        greet: () => {
+          ctx.onMet();
+          return GREETING;
+        },
+      });
+    } catch (err) {
+      cityBroken = true;
+      console.warn('[farside] the City of Light could not be built', err);
+    }
+    return city;
   }
 
   // --- physics ---
@@ -270,6 +334,15 @@ export function createFarside(ctx) {
     tw.uniforms.uOffCage.value.copy(gu.uOffCage.value);
     tw.uniforms.uTime.value = t;
     tw.uniforms.uFade.value = fade;
+    // ...and the megastructures, the same way on their wider tile; none of
+    // them stands where it would come up through the landing
+    const sp = mega.spires;
+    sp.mesh.position.set(cam.x, gy, cam.z);
+    sp.uniforms.uTileOff.value.set(wrap(lx, sp.tile), wrap(lz, sp.tile));
+    sp.uniforms.uOffCage.value.copy(gu.uOffCage.value);
+    sp.uniforms.uTime.value = t;
+    sp.uniforms.uFade.value = fade;
+    sp.uniforms.uLand.value.set(landX - lx, landZ - lz, 2600);
 
     // the cages
     if (Math.floor(lx / S) !== cellX || Math.floor(lz / S) !== cellZ || slotT >= RESLOT) {
@@ -307,6 +380,16 @@ export function createFarside(ctx) {
     st.uniforms.uCamAlt.value = alt;
     st.uniforms.uFade.value = fade;
 
+    hole.update(camera, t, fade);
+
+    // the landing: fixed in the world, on the curve the ground is drawn with
+    // (but not while the pilot is on or near it: a deck must not move)
+    {
+      const rx = landX - lx, rz = landZ - lz;
+      const far = Math.max(Math.hypot(rx, rz) - 1500, 0);
+      landing.group.position.set(cam.x + rx, gy + C.FAR_LAND_ALT - (far * far) / (2 * C.FAR_RADIUS), cam.z + rz);
+    }
+
     // the mouth they came out of, closing
     if (worm.visible) {
       worm.position.set(-originOffset.x, -originOffset.y, C.FAR_WORM_BACK - originOffset.z);
@@ -322,10 +405,20 @@ export function createFarside(ctx) {
     apply(first) {
       if (!registered) {
         registered = true;
-        setFarFieldExtra(mega.root); // on foot in a holodeck program, it is not out there
+        // on foot in a holodeck program, or in the City of Light, none of
+        // this is out there
+        setFarFieldExtra(mega.root);
+        setFarFieldExtra(landing.group);
+        addNavBody(landNav);
       }
       active = true;
+      setNebulaDim(0.1); // another sky: almost nothing of the old nebula in it
       mega.root.visible = true;
+      landing.group.visible = true;
+      landing.portal = null;
+      // the fleet is on the pilot again (src/tenretni.js re-issues the follow)
+      const F = ctx.fleets();
+      if (F) F.station(null);
       body.mass = mass;
       body.radius = C.FAR_RADIUS;
       placeBody();
@@ -357,6 +450,16 @@ export function createFarside(ctx) {
           worm.visible = false;
         }
       }
+      // The fleet cannot follow the pilot down: near the landing every ship
+      // takes a ring high over it, and forms up again once the pilot is clear.
+      const F = ctx.fleets();
+      if (F) {
+        const d = ship.position.distanceTo(landing.group.position);
+        if (!F.stationed() && d < C.FAR_LAND_HOLD) {
+          F.station(landing.group.position, C.FAR_LAND_RING_R, C.FAR_LAND_RING_H);
+        } else if (F.stationed() && d > C.FAR_LAND_HOLD * 1.3) F.station(null);
+      }
+      landing.update(dt, t, camera.position);
       if (sayT >= 0 && flying) {
         sayT += dt;
         for (const [at, text] of ARRIVAL) if (sayLast < at && sayT >= at) showNavToast(text, 7);
@@ -365,8 +468,29 @@ export function createFarside(ctx) {
       }
       place(t);
     },
+    // The places that are walked: 'pad' (the landing) and 'city' (through its
+    // door; built on first asking). Null if there is nothing to walk.
+    site(kind) {
+      if (!active) return null;
+      return kind === 'city' ? buildCity() : landing;
+    },
+    // A door has been walked through since this was last asked: 'city' (into
+    // the City of Light), 'pad' (back out of it), or null. Asking clears it.
+    door() {
+      const s = city && city.inside() ? city : landing;
+      const to = s.portal;
+      s.portal = null;
+      return to;
+    },
     state: () => ({
       active,
+      landing: {
+        abs: [landing.group.position.x + originOffset.x, landing.group.position.y + originOffset.y, landing.group.position.z + originOffset.z].map(Math.round),
+        dist: Math.round(landing.group.position.distanceTo(ship.position)),
+      },
+      station: !!ctx.fleets()?.stationed(),
+      inCity: !!(city && city.inside()),
+      cityTowers: city ? city.info().towers : null,
       fade,
       altitude: alt,
       groundY: groundY(),

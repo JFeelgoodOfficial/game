@@ -52,7 +52,7 @@ import { initHoloPanel, openHoloPanel, closeHoloPanel, isHoloPanelOpen, holoPane
 import {
   initTenretni, updateTenretni, tenretniHolding, stepTenretniHold, resetTenretni,
   tenretniFx, tenretniDebug, capitalDock, tenretniSailVelocity, holoPrograms, holoWorld,
-  nearestVessel, vesselSite, holdVessel, placeFleets, wormholeCapture, farGate, enterFar,
+  nearestVessel, vesselSite, holdVessel, placeFleets, wormholeCapture, farGate, enterFar, farSite, farDoor,
 } from './tenretniLazy.js';
 import {
   interiorScene,
@@ -586,6 +586,40 @@ if (import.meta.env.DEV) {
       VESSEL_DOCK.planet.radius = v.cls.radius * 0.8;
       setOnSkyPad(VESSEL_DOCK);
       return true;
+    },
+    // The far side's landing (src/farside.js): fly the approach / park on the
+    // pad / step out / go through a door ('city' in, 'pad' back out).
+    farLanding: {
+      approach() {
+        if (!aimLandingDock()) return false;
+        const g = farSite('pad').group;
+        ship.position.copy(g.position);
+        ship.position.y += 700;
+        ship.position.z += 70;
+        ship.velocity.set(0, -60, 0);
+        return true;
+      },
+      dock() {
+        if (!aimLandingDock()) return false;
+        setOnSkyPad(LANDING_DOCK);
+        return true;
+      },
+      stepOut() {
+        if (dock !== LANDING_DOCK || !LANDING_DOCK.stepOut()) return false;
+        platformDock = LANDING_DOCK;
+        landState = null;
+        landedPlanet = null;
+        skyLanding = false;
+        phase = 'walk';
+        return true;
+      },
+      door(to) {
+        if (phase !== 'walk' || doorT >= 0) return false;
+        doorTo = to;
+        doorT = 0;
+        return true;
+      },
+      state: () => ({ doorT, doorTo, dock: dock.id, platform: platformDock ? platformDock.id : null, isolated: { active: isolated.active, surface: isolated.surface }, far: camera.far }),
     },
     vesselStepOut() {
       if (dock !== VESSEL_DOCK || !VESSEL_DOCK.stepOut()) return false;
@@ -1359,9 +1393,44 @@ const DOCKS = [
     },
     stepOut() { return enterCapitalWalk(vesselSite(this.vessel)); },
   },
+  {
+    // The landing on the Tenretni megaworld (src/farside.js,
+    // world/farlanding.js): the far side's one pad. Like a fleet ship it is
+    // not on a world, so `planet` is a stand-in centred on the platform
+    // itself; checkSkyCapture points it there, and skips it until the pilot
+    // is on the far side (farSite('pad') is null before that).
+    id: 'landing', armed: true, freeze: false,
+    planet: { body: { position: new THREE.Vector3() }, radius: C.FAR_LAND_CAPTURE, cfg: { name: 'landing' } },
+    approach: 'THE LANDING — IT HAS YOUR HELM',
+    welcome: 'THE LANDING — A DOOR IS OPEN',
+    label: 'AUTO-LANDING · THE LANDING',
+    pose() {
+      const s = farSite('pad');
+      const g = s.group;
+      _skyUp.set(0, 1, 0).applyQuaternion(g.quaternion);
+      _skyPad.copy(s.pad).applyQuaternion(g.quaternion).addScaledVector(_skyUp, C.PARK_LIFT);
+      _skyHover.copy(_skyPad).addScaledVector(_skyUp, C.SKY_HOVER);
+      _landUprightQuat.copy(g.quaternion);
+      _skyPadLive.copy(_skyPad);
+      _skyQuatLive.copy(_landUprightQuat);
+    },
+    stepOut: () => enterCapitalWalk(farSite('pad')),
+  },
 ];
 const CAPITAL_DOCK = DOCKS[2];
 const VESSEL_DOCK = DOCKS[3];
+const LANDING_DOCK = DOCKS[4];
+// Point the landing's stand-in at the platform. False while there is none.
+function aimLandingDock() {
+  const s = farSite('pad');
+  if (!s) return false;
+  LANDING_DOCK.planet.body.position = s.group.position; // live: it rides the origin
+  return true;
+}
+// The door on the landing (and the one back): seconds into the white, -1 when
+// nobody is in a doorway; and where it leads, 'city' | 'pad'.
+let doorT = -1;
+let doorTo = null;
 let platformDock = null; // the dock whose platform the pilot is walking (capital or a ship)
 let dock = DOCKS[0]; // the dock in play while skyLanding is set
 let walkDock = null; // the dock the current walk stepped out of, if it will be boarded back onto its pad
@@ -1517,6 +1586,7 @@ function checkSkyCapture() {
       d.planet.body.position = v.group.position; // live: the ship is under way
       d.planet.radius = v.cls.radius * 0.8;
     }
+    if (d === LANDING_DOCK && !aimLandingDock()) continue; // not on the far side
     if (d.planet.removed) continue; // the worldship has eaten it
     const r = ship.position.distanceTo(d.planet.body.position);
     if (!d.armed) {
@@ -2059,6 +2129,10 @@ function endHolo(resetting = false) {
 
 function resetToStart() {
   endHolo(true); // a program running when the world resets is simply over
+  // A platform still being walked (the far side's landing, or the City of Light
+  // through its door) is left properly: the city has borrowed the scene's light
+  // and must hand it back however the pilot goes.
+  if (capitalActive()) exitWalk(camera);
   // Safety net for every path that bypasses both liftoff and boarding: the
   // collapse/respawn reset, the menu launch, debug.launch(), and the actuality
   // finale's game reset. A stranded pause would hand the flight sim an invisible
@@ -2087,6 +2161,8 @@ function resetToStart() {
   reachShip.tube.reset();
   skyFallT = -1;
   skyLiftT = -1;
+  doorT = -1;
+  doorTo = null;
   coinLanding = false;
   coinArmed = true;
   coinLiftT = -1;
@@ -2436,6 +2512,33 @@ function frame(now) {
         warpT = C.EXPLODE_TIME * 0.35; // already at full white
         accumulator = 0;
       }
+    } else if (doorT >= 0 || (doorTo = farDoor())) {
+      // A door on the far side (world/farlanding.js, world/lightcity.js): the
+      // walker has gone through it. White up; under the white one place is
+      // put away and the other stood in; the white clears on the far side of
+      // the door. Into the City of Light the universe is paused round it, as
+      // it is for the cottage; back out, it is let go again.
+      doorT = Math.max(doorT, 0) + delta;
+      flash = Math.min(doorT / C.FAR_DOOR_FLASH, 1);
+      if (flash >= 1) {
+        doorT = -1;
+        if (doorTo === 'city') {
+          const city = farSite('city');
+          if (city) {
+            acquireUniverse(null);
+            enterCapitalWalk(city, { spawn: city.spawn, yaw: city.spawnYaw, quiet: true });
+            acquireSurface('lightcity', renderer, aoPass, camera, bloomPass);
+          }
+        } else {
+          const pad = farSite('pad');
+          releaseIsolation(renderer, aoPass, camera, bloomPass);
+          if (pad) enterCapitalWalk(pad, { spawn: pad.doorOut, yaw: pad.doorYaw, quiet: true });
+        }
+        doorTo = null;
+        flash = 1;
+        flashFade = C.FAR_DOOR_FADE;
+        accumulator = 0;
+      }
     } else if (skyFallT >= 0 || skyFell()) {
       // Off the edge of the Sky City. The walker is still falling under the
       // rising white; at full white the run ends and starts over, in the ship,
@@ -2620,7 +2723,7 @@ function frame(now) {
     tenretniFx.flash = 0;
   }
   // Every other phase: let whatever the last transition left on screen fade.
-  if (phase !== 'explode' && phase !== 'ascend' && phase !== 'depart' && cycling !== 'white' && skyFallT < 0 && flash > 0) {
+  if (phase !== 'explode' && phase !== 'ascend' && phase !== 'depart' && cycling !== 'white' && doorT < 0 && skyFallT < 0 && flash > 0) {
     flash = flashFade > 0 ? Math.max(0, flash - delta / flashFade) : 0;
     if (flash === 0) flashFade = 0;
   }

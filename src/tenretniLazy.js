@@ -122,6 +122,10 @@ export const wormholeCapture = (pos) => (mod ? mod.wormholeCapture(pos) : false)
 // asked while game.js holds the collapse; enterFar: the pilot is through.
 export const farGate = () => (mod ? mod.farGate() : 'failed');
 export const enterFar = () => mod && mod.enterFar();
+// The far side's walked places ('pad': the landing game.js docks on; 'city':
+// through its door), and whether a door there has just been walked through.
+export const farSite = (kind) => (mod ? mod.farSite(kind) : null);
+export const farDoor = () => (mod ? mod.farDoor() : null);
 
 // dev/verification handle (__debug.tenretni)
 export const tenretniDebug = () => ({

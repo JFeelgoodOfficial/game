@@ -209,6 +209,12 @@ export function createFleets(ctx) {
   // were last seen a system away). `floorY`: a live { y } the hulls never go
   // under (the megaworld's canopy, src/farside.js), or null.
   const follow = { on: false, leader: null, mouth: null, mouthR: 1, first: true, snap: false, floorY: null };
+  // While following, the pilot may put down somewhere the fleet cannot (the
+  // far side's landing, src/farside.js): every ship then holds a ring over
+  // `center` (live), radius `r`, `h` above it, until the pilot is up again.
+  // Follow stays on underneath: without it these ships have no worlds and
+  // update() would count them lost.
+  const station = { on: false, center: null, r: 0, h: 0, first: true };
   let cheer = 0; // 0..1, lights pulsing along every hull
   const _f = new THREE.Vector3();
   const _r = new THREE.Vector3();
@@ -259,6 +265,31 @@ export function createFleets(ctx) {
     let slot = 0;
     const dt = Math.min(Math.max(t - lastT, 0), 0.1);
     lastT = t;
+    if (follow.on && station.on) {
+      let n = 0;
+      for (const s of ships) if (s.alive) n++;
+      const k = 1 - Math.exp(-0.45 * dt);
+      let i = 0;
+      for (const s of ships) {
+        if (!s.alive) continue;
+        const a = (i / n) * 6.2832 + t * 0.012;
+        _a.set(Math.cos(a) * station.r, station.h + (((i * 37) % 5) - 2) * 90, Math.sin(a) * station.r);
+        i++;
+        // held as an offset from the centre and eased, as the chevron is from
+        // the leader: it comes up from wherever it was, and rides a rebase
+        if (!s.hold) s.hold = new THREE.Vector3();
+        if (station.first) s.hold.subVectors(s.group.position, station.center);
+        else s.hold.lerp(_a, k);
+        s.group.position.copy(station.center).add(s.hold);
+        s.group.visible = true;
+        _d.set(-Math.sin(a), 0, Math.cos(a)); // bow along the ring
+        _m.lookAt(s.group.position, _b.copy(s.group.position).sub(_d), UP);
+        _q.setFromRotationMatrix(_m);
+        s.group.quaternion.slerp(_q, station.first ? 0 : Math.min(k * 2, 1));
+      }
+      station.first = false;
+      return;
+    }
     if (follow.on) {
       // a chevron in the leader's own frame: the first pairs a little ahead and
       // out to either side, where they show through the canopy, the rest
@@ -440,6 +471,29 @@ export function createFleets(ctx) {
       follow.floorY = (opts && opts.floorY) || null;
     },
     following: () => follow.on,
+    // Hold a ring over `center` (a live Vector3) while following; null goes
+    // back to the chevron, eased from wherever the ring left each ship.
+    station(center, r, h) {
+      if (!center) {
+        if (station.on) {
+          follow.first = true;
+          follow.snap = false;
+        }
+        station.on = false;
+        return;
+      }
+      if (!station.on) station.first = true;
+      station.on = true;
+      station.center = center;
+      station.r = r;
+      station.h = h;
+    },
+    stationed: () => station.on,
+    // Every hull, shown or not (a place the pilot walks into that has no
+    // fleet in its sky; place() shows them again the next time it runs).
+    show(v) {
+      for (const s of ships) if (s.alive) s.group.visible = v;
+    },
     // 0..1: how hard every hull's lights are beating
     cheer(k) {
       cheer = k;

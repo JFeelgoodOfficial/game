@@ -17,6 +17,15 @@
 //   platform.gun         { pivot, targets(), onHit(id) } on a warship: a console
 //                        with `gun: true` seats the walker at it (src/turretGun.js)
 //
+// and, optionally (the far side's landing and the City of Light, src/farside.js):
+//
+//   platform.noShip      nothing is parked here and nothing is boarded: a place
+//                        reached on foot, left by platform.exit { x, z }
+//   platform.leaveHint   what G says there instead of "return to the pad"
+//   platform.onEnter() / onLeave()   the walker has arrived / is gone, however
+//                        it left (a door, the menu, a world reset)
+//   platform.tick(dt, t) every rendered frame while walked, isolated or not
+//
 // walk.js dispatches its public surface here whenever capitalActive().
 
 import * as THREE from 'three';
@@ -94,13 +103,15 @@ function toWorld(local, out) {
 // Enter / leave
 // ---------------------------------------------------------------------------
 
-export function enterCapitalWalk(siteRef) {
+// `opts`: { spawn: Vector3 (platform-local), yaw, quiet } — arriving somewhere
+// other than off the ship (through a door), with no view prompt.
+export function enterCapitalWalk(siteRef, opts = {}) {
   if (!astronaut || !siteRef) return false;
   if (cWalk.active) teardown();
   site = siteRef;
 
   cWalk.active = true;
-  cWalk.pos.copy(site.spawn);
+  cWalk.pos.copy(opts.spawn || site.spawn);
   cWalk.vel.set(0, 0, 0);
   cWalk.vUp = 0;
   cWalk.jumpHeld = false;
@@ -108,7 +119,7 @@ export function enterCapitalWalk(siteRef) {
   cWalk.mode = 'idle';
   cWalk.speed01 = 0;
   cWalk.pitch = 0;
-  cWalk.yaw = Math.PI; // the plaza is at -Z from the pad
+  cWalk.yaw = opts.yaw ?? Math.PI; // the plaza is at -Z from the pad
   cWalk.facingYaw = cWalk.yaw;
   cWalk.camDist = 7;
   camSnap = true;
@@ -118,15 +129,18 @@ export function enterCapitalWalk(siteRef) {
   ship.properAccel.set(0, 0, 0);
   toWorld(cWalk.pos, ship.position);
 
-  parked = createParkedShip(site.group, {});
-  parked.group.position.copy(site.pad);
-  parked.group.position.y += C.PARK_LIFT;
-  parked.group.rotation.y = Math.PI;
+  if (!site.noShip) {
+    parked = createParkedShip(site.group, {});
+    parked.group.position.copy(site.pad);
+    parked.group.position.y += C.PARK_LIFT;
+    parked.group.rotation.y = Math.PI;
+  }
+  if (site.onEnter) site.onEnter();
 
   const pref = getViewPref();
   if (pref) {
     cWalk.view = pref;
-    showViewToast('T — TOGGLE VIEW');
+    if (!opts.quiet) showViewToast('T — TOGGLE VIEW');
   } else {
     cWalk.view = 'tp';
     showViewChooser((v) => {
@@ -144,7 +158,10 @@ function teardown() {
     parked.dispose();
     parked = null;
   }
-  if (site) site.setWalker(null);
+  if (site) {
+    site.setWalker(null);
+    if (site.onLeave) site.onLeave();
+  }
   if (astronaut) astronaut.group.visible = false;
   hideViewUI();
   cWalk.active = false;
@@ -283,6 +300,7 @@ export function updateCapitalVisuals(dt, t) {
   astronaut.group.visible = cWalk.view === 'tp' && !gun.active;
   updateGunVisuals(dt, toWorld);
   site.setWalker(cWalk.pos);
+  if (site.tick) site.tick(dt, t);
   if (parked) {
     _up.set(0, 1, 0).applyQuaternion(site.group.quaternion);
     parked.update(dt, t, Math.max(_up.dot(site.planet.sunDir), 0.2));
@@ -355,7 +373,7 @@ export function capitalPromptText() {
 }
 
 export function nearPad() {
-  if (!site || !cWalk.grounded || gun.active) return false;
+  if (!site || site.noShip || !cWalk.grounded || gun.active) return false;
   const dx = cWalk.pos.x - site.pad.x;
   const dz = cWalk.pos.z - site.pad.z;
   return dx * dx + dz * dz < C.SKY_BOARD_RADIUS * C.SKY_BOARD_RADIUS;
@@ -363,7 +381,7 @@ export function nearPad() {
 
 export function promptReturnToPad() {
   if (gun.active) return leaveGun();
-  showViewToast('RETURN TO THE LANDING PAD TO LEAVE');
+  showViewToast(site?.leaveHint || 'RETURN TO THE LANDING PAD TO LEAVE');
 }
 
 export function toggleCapitalView() {
@@ -374,11 +392,13 @@ export function toggleCapitalView() {
 
 export function padBearing() {
   if (!cWalk.active || !site) return null;
-  const dx = site.pad.x - cWalk.pos.x;
-  const dz = site.pad.z - cWalk.pos.z;
+  // (where there is no ship, the compass points at the way out)
+  const to = site.noShip ? site.exit : site.pad;
+  const dx = to.x - cWalk.pos.x;
+  const dz = to.z - cWalk.pos.z;
   const len = Math.hypot(dx, dz);
   _bearingOut.dist = len;
-  _bearingOut.label = 'SHIP';
+  _bearingOut.label = site.noShip ? 'DOOR' : 'SHIP';
   if (len < 1e-6) {
     _bearingOut.angle = 0;
     return _bearingOut;

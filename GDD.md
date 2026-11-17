@@ -504,7 +504,8 @@ the other side, in the same page, over a Tenretni machine world so large its
 surface is flat to the horizon, with captive stars held above it in cages of
 ring frames. The wormhole closes behind them. There is no way back, nothing
 resets, and a save that has been through stays there (`end: 'far'`). Version
-one is arrival and free flight: no landing, nothing on foot, no story.
+one was arrival and free flight; the black hole, the landing, the door and the
+City of Light (below) came next.
 
 **It is not a sphere.** The camera is 0.1..1e6 with no logarithmic depth and
 planets have no LOD, so a world of this size cannot be drawn as one. It is a
@@ -517,11 +518,11 @@ camera is, so rebases and resets need no handling of their own. `FAR_RADIUS`
 | Layer | What it is |
 |---|---|
 | Ground | One polar disc under the camera (`megaGround.vert/.frag`). The city is its fragment shader: districts, blocks and plating at three scales, each handed the camera's place wrapped to its own period in doubles, so fp32 never holds a large number. The rim is dropped by d²/2R. |
-| Towers | One instanced box on a 24,576 u tile that wraps round the camera in the vertex shader (`megaTower.vert`, with `tenretniHull.frag`). Counts by tier 2,500 / 6,000 / 12,000 / 20,000; they sink to nothing at the tile's edge. |
+| Towers | One instanced box on a 24,576 u tile that wraps round the camera in the vertex shader (`megaTower.vert`, with `tenretniHull.frag`). Counts by tier 4,000 / 11,000 / 17,000 / 24,000; they sink to nothing at the tile's edge. |
 | Caged stars, near | Up to `FAR_CAGE_FULL` (4) within `FAR_CAGE_LOD` (45,000): a star, one merged frame (three meridian rings, an equator, two lighter rings, pedestal, pylons, spire) and a glow each. On the chart as CAGED STAR. |
 | Caged stars, far | Every other one out to 8 lattice cells, one additive point each, culled by the world's own curve. |
 
-The cages stand on a jittered 60,000 u lattice. Which cells hold one, and where,
+The cages stand on a jittered lattice (`FAR_CAGE_SPACING`). Which cells hold one, and where,
 is an integer hash exact in fp32, written once in GLSL (`CAGE_GLSL`) and once in
 JS (`cageAt`, `world/megaworld.js`): the ground shader lays the plate, the light
 and the conduits under a cage from the same numbers the cage stands on. Change
@@ -550,6 +551,80 @@ Feel constants: `FAR_ARRIVE_ALT` (how much of the first cage towers over the
 pilot), `FAR_SURFACE_G` (14, under the planets' ~30, so an idle pilot is not on
 the roofs in seconds), `FAR_CEIL`, `FAR_STAR_HDR`. Not measured: frame rate on
 the Iris Xe reference machine. The ground shader covers half the screen.
+
+**The black hole** (`world/farhole.js`). The megaworld is there to mine time
+from a black hole, and the hole fills the sky ahead of the arrival heading. It
+is a sky object: its group is re-centred on the camera every frame, so it has
+one direction and no parallax. A black disc drawn straight after the starfield
+paints the stars out (at 500,000 u the depth buffer cannot tell it from them)
+and is still depth-tested, so a cage's mast or a hull stands in front of it.
+One additive quad (`farHole.frag`) is everything that gives light: the disc
+(inclined, canted by `FAR_HOLE_ROLL`, torn lanes of fire in differential
+rotation), its far side lensed into a thick ring right round the shadow, and
+the photon ring. The palette is fire, white-gold only in the hottest streaks,
+and that is structural as well as a look: bloom takes what is over its
+threshold in luminance, a ring this size blooming fogs the shadow grey, and
+saturated orange at full strength is well under the threshold. Two merged
+ribbon meshes (`farStream.frag`) hang from it: the tethers, streaks of fire
+from the hole's lower rim fanning down to the world all along the horizon, and
+the wisps, faint embers looping off the ends of the disc. Each full-detail cage
+has a strip of the same from its mast. Nine spiral galaxies (one mesh) stand in
+the far sky and the old system's nebula is dimmed to a tenth
+(`setNebulaDim`): this is not the sky the pilot left. The game's screen-space
+lens pass is not used: it assumes a hole a few degrees across, blacks out
+whatever is in front of it, and switches off when the centre leaves the view.
+
+**Surface detail.** `megaGround.frag` gained, above the low tier (`#define
+DETAIL`), a circuit-trace layer (one run per half-block, a fifth of them live in
+amber or cyan) and relief shading that reads each block as a building; amber
+districts beside the green; and block-scale light that holds past the range a
+plate can be seen. The green grid lines of version one are turned well down,
+the conduits between cages and the lamps round each cage's plate are the
+colour of the fire overhead, and the towers are denser (11,000 at medium, on
+every district and thickest downtown). The cage lattice is 40,000 u, so a
+second and third cage are usually in full detail. A second tower layer, the megastructures (220 at medium, up
+to `FAR_SPIRE_MAX` tall, tapered, on a 65,536 u tile), gives the middle
+distance a skyline. They stand higher than the altitude floor and are flown
+through, as the cage frames are; none stands on a cage's plate or under the
+landing. Each cage's merged frame carries a gantry ring on eight legs.
+
+**The landing** (`world/farlanding.js`). One pad on a mast, 6,400 u from the
+first caged star and `FAR_LAND_ALT` above the plane (clear of the canopy floor
+and its drag), fixed in absolute coordinates and on the chart as THE LANDING.
+It is a fifth `DOCKS` entry in `src/game.js`, built like the fleet's: a
+stand-in planet centred on the platform, so the Sky City's capture, arc,
+descent, G to step out, G to board and W to lift off all serve it unchanged.
+It answers the platform contract of `src/capitalWalk.js`. The universe is not
+paused on it: the megaworld, the star and the hole are in view from the deck.
+The fleet cannot follow the pilot down. `src/fleets.js` has a station mode
+inside follow: within `FAR_LAND_HOLD` of the landing every ship takes a ring
+`FAR_LAND_RING_H` over it, and the chevron re-forms once the pilot is 1.3
+times that clear. (Follow itself stays on: without it the fleet code counts
+ships whose worlds are gone as lost.)
+
+**The door and the City of Light** (`world/lightcity.js`). A causeway runs from
+the pad to a door full of light. It is not pressed: walking through its plane
+raises a flag, game.js whites out (`FAR_DOOR_FLASH`), and under the white the
+platform walker is handed the other site. The city is self-contained, in the
+cottage's manner: its group at the scene's origin, the universe paused round it
+(`acquireUniverse(null)`, the `lightcity` render preset, far plane 4,000), and
+everything it changes in the scene restored in its `onLeave`, which every exit
+reaches (the door, the menu, a world reset). It borrows the game's one sun and
+ambient for the stay, so no light is added and no lit material is rebuilt at
+the door. The pilot arrives on a railed balcony over the view, crosses a bridge
+to a terrace, and is met there by a Tenretni (the capital's robot in pale
+metal, `buildRobot` with a palette) who speaks a short greeting; the first
+meeting saves `met` and adds a codex entry. The door stays open behind, dark
+from this side, and walking back through it returns the pilot to the landing.
+The city itself is seen, never walked: two instanced tower meshes, a lit
+plane, three rings and a sky dome, all unlit shaders. In the sky is the white
+hole: the black hole outside in the same place, inside out, a white core where
+the shadow was, the disc dark, light pouring outward.
+
+`src/capitalWalk.js` gained what a place with no ship needs, all optional:
+entry options (`spawn`, `yaw`, `quiet`), `site.noShip`, `site.exit`,
+`site.leaveHint`, `site.onEnter` / `onLeave`, and `site.tick(dt, t)`.
+The greeting's words are a first draft (`GREETING` in `src/farside.js`).
 
 ### 5.8 The Sky City (Saturnia)
 

@@ -50,7 +50,7 @@ const COL = {
 const GLOW = { green: 0x35ff8a, cyan: 0x5fd8ff, white: 0xd8ffe8, amber: 0xffb347 };
 
 const _c = new THREE.Color();
-function tint(geo, hex, gain = 1) {
+export function tint(geo, hex, gain = 1) {
   const n = geo.attributes.position.count;
   const col = new Float32Array(n * 3);
   _c.set(hex);
@@ -62,14 +62,14 @@ function tint(geo, hex, gain = 1) {
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return geo;
 }
-const box = (w, h, d, x, y, z, rotY = 0) => {
+export const box = (w, h, d, x, y, z, rotY = 0) => {
   const g = new THREE.BoxGeometry(w, h, d);
   if (rotY) g.rotateY(rotY);
   return g.translate(x, y, z);
 };
-const cyl = (rt, rb, h, x, y, z, seg = 24) => new THREE.CylinderGeometry(rt, rb, h, seg).translate(x, y, z);
+export const cyl = (rt, rb, h, x, y, z, seg = 24) => new THREE.CylinderGeometry(rt, rb, h, seg).translate(x, y, z);
 
-function mergedMesh(list, material) {
+export function mergedMesh(list, material) {
   // every primitive here is indexed with position/normal/uv/color, so they merge
   const geo = mergeGeometries(list, false);
   for (const g of list) g.dispose();
@@ -77,44 +77,97 @@ function mergedMesh(list, material) {
 }
 
 // One robot: a body mesh and a head that turns. Feet at the group's origin.
-function buildRobot(litMat, glowMat) {
+// `pal`: { body, dark, glow } hex colours; the capital's green by default (the
+// far side's greeter, world/lightcity.js, is the same figure in another metal).
+const GREEN = { body: COL.robot, dark: COL.robotDark, glow: GLOW.green };
+export function buildRobot(litMat, glowMat, pal = GREEN) {
   const g = new THREE.Group();
   const b = [];
   // legs: long and thin, a knee block each
   for (const s of [-1, 1]) {
-    b.push(tint(box(0.16, 1.45, 0.2, s * 0.24, 0.73, 0), COL.robotDark));
-    b.push(tint(box(0.24, 0.2, 0.3, s * 0.24, 0.85, 0.02), COL.robot));
-    b.push(tint(box(0.26, 0.1, 0.5, s * 0.24, 0.05, 0.08), COL.robotDark));
+    b.push(tint(box(0.16, 1.45, 0.2, s * 0.24, 0.73, 0), pal.dark));
+    b.push(tint(box(0.24, 0.2, 0.3, s * 0.24, 0.85, 0.02), pal.body));
+    b.push(tint(box(0.26, 0.1, 0.5, s * 0.24, 0.05, 0.08), pal.dark));
   }
   // hips, a narrow waist, a chest that widens to the shoulders
-  b.push(tint(box(0.66, 0.24, 0.34, 0, 1.56, 0), COL.robot));
-  b.push(tint(box(0.26, 0.42, 0.22, 0, 1.87, 0), COL.robotDark));
-  b.push(tint(cyl(0.52, 0.3, 0.72, 0, 2.42, 0, 6), COL.robot));
-  b.push(tint(box(1.3, 0.16, 0.36, 0, 2.78, 0), COL.robot));
+  b.push(tint(box(0.66, 0.24, 0.34, 0, 1.56, 0), pal.body));
+  b.push(tint(box(0.26, 0.42, 0.22, 0, 1.87, 0), pal.dark));
+  b.push(tint(cyl(0.52, 0.3, 0.72, 0, 2.42, 0, 6), pal.body));
+  b.push(tint(box(1.3, 0.16, 0.36, 0, 2.78, 0), pal.body));
   // arms that hang to the knee, ending in three blades
   for (const s of [-1, 1]) {
-    b.push(tint(box(0.13, 0.95, 0.15, s * 0.66, 2.26, 0), COL.robotDark));
-    b.push(tint(box(0.11, 0.95, 0.13, s * 0.66, 1.3, 0.05), COL.robot));
-    for (let k = -1; k <= 1; k++) b.push(tint(box(0.035, 0.42, 0.05, s * 0.66 + k * 0.06, 0.63, 0.08), COL.robotDark));
+    b.push(tint(box(0.13, 0.95, 0.15, s * 0.66, 2.26, 0), pal.dark));
+    b.push(tint(box(0.11, 0.95, 0.13, s * 0.66, 1.3, 0.05), pal.body));
+    for (let k = -1; k <= 1; k++) b.push(tint(box(0.035, 0.42, 0.05, s * 0.66 + k * 0.06, 0.63, 0.08), pal.dark));
   }
   // neck
-  b.push(tint(cyl(0.07, 0.09, 0.26, 0, 2.97, 0, 8), COL.robotDark));
+  b.push(tint(cyl(0.07, 0.09, 0.26, 0, 2.97, 0, 8), pal.dark));
   g.add(mergedMesh(b, litMat));
 
   // chest light
-  g.add(mergedMesh([tint(box(0.2, 0.06, 0.02, 0, 2.5, 0.27), GLOW.green, 1.4)], glowMat));
+  g.add(mergedMesh([tint(box(0.2, 0.06, 0.02, 0, 2.5, 0.27), pal.glow, 1.4)], glowMat));
 
   const head = new THREE.Group();
   head.position.y = 3.1;
   head.add(mergedMesh([
-    tint(box(0.44, 0.34, 0.4, 0, 0.06, 0), COL.robot),
-    tint(box(0.5, 0.06, 0.46, 0, 0.25, 0), COL.robotDark),
-    tint(box(0.03, 0.5, 0.03, 0.17, 0.5, -0.1), COL.robotDark), // aerial
+    tint(box(0.44, 0.34, 0.4, 0, 0.06, 0), pal.body),
+    tint(box(0.5, 0.06, 0.46, 0, 0.25, 0), pal.dark),
+    tint(box(0.03, 0.5, 0.03, 0.17, 0.5, -0.1), pal.dark), // aerial
   ], litMat));
-  const eye = mergedMesh([tint(box(0.36, 0.055, 0.02, 0, 0.08, 0.21), GLOW.green, 1.8)], glowMat.clone());
+  const eye = mergedMesh([tint(box(0.36, 0.055, 0.02, 0, 0.08, 0.21), pal.glow, 1.8)], glowMat.clone());
   head.add(eye);
   g.add(head);
   return { group: g, head, eye };
+}
+
+// A robot at rest and watching: a slow lean, and the head coming round to the
+// walker as far as a neck goes. `r`: a buildRobot() result with { x, z, face,
+// seed, look }; `walker`: a position in the same frame as x/z, or null.
+export function trackRobot(r, walker, dt, t) {
+  r.group.rotation.z = Math.sin(t * 0.45 + r.seed) * 0.012;
+  let want = Math.sin(t * 0.21 + r.seed * 3) * 0.3;
+  let lit = 1;
+  if (walker) {
+    const dx = walker.x - r.x, dz = walker.z - r.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 60) {
+      let a = Math.atan2(dx, dz) - r.face;
+      while (a > Math.PI) a -= Math.PI * 2;
+      while (a < -Math.PI) a += Math.PI * 2;
+      want = Math.max(-2.4, Math.min(2.4, a));
+      lit = d < 8 ? 2.4 : 1.4;
+    }
+  }
+  r.look += (want - r.look) * Math.min(1, dt * 2.2);
+  r.head.rotation.y = r.look;
+  r.eye.material.color.setScalar(0.9 * lit * (0.85 + 0.15 * Math.sin(t * 7 + r.seed)));
+}
+
+// A walkable floor from a list of surfaces (the site contract's floorYAt):
+//   { kind: 'disc', cx, cz, r, y }
+//   { kind: 'rect', cx, cz, ux, uz, hl, hw, yA, yB }   a strip, ramped A to B
+// The highest surface within `snap` of the feet, or -Infinity for none.
+export function floorOf(surfaces, snap) {
+  return (x, z, feetY) => {
+    let best = -Infinity;
+    for (let i = 0; i < surfaces.length; i++) {
+      const s = surfaces[i];
+      let y;
+      if (s.kind === 'disc') {
+        const dx = x - s.cx, dz = z - s.cz;
+        if (dx * dx + dz * dz > s.r * s.r) continue;
+        y = s.y;
+      } else {
+        const dx = x - s.cx, dz = z - s.cz;
+        const u = dx * s.ux + dz * s.uz;
+        const v = -dx * s.uz + dz * s.ux;
+        if (Math.abs(u) > s.hl || Math.abs(v) > s.hw) continue;
+        y = s.yA + (s.yB - s.yA) * ((u + s.hl) / (2 * s.hl));
+      }
+      if (y <= feetY + snap && y > best) best = y;
+    }
+    return best;
+  };
 }
 
 // `cityDir`: the strike point in terra.surface's own frame. `rotY`: the angle
@@ -318,27 +371,7 @@ export function createCapital(planet, cityDir, rotY, story) {
 
   planet.group.add(group);
 
-  // Highest walkable surface within reach of the feet, or -Infinity for none.
-  function floorYAt(x, z, feetY) {
-    let best = -Infinity;
-    for (let i = 0; i < surfaces.length; i++) {
-      const s = surfaces[i];
-      let y;
-      if (s.kind === 'disc') {
-        const dx = x - s.cx, dz = z - s.cz;
-        if (dx * dx + dz * dz > s.r * s.r) continue;
-        y = s.y;
-      } else {
-        const dx = x - s.cx, dz = z - s.cz;
-        const u = dx * s.ux + dz * s.uz;
-        const v = -dx * s.uz + dz * s.ux;
-        if (Math.abs(u) > s.hl || Math.abs(v) > s.hw) continue;
-        y = s.yA + (s.yB - s.yA) * ((u + s.hl) / (2 * s.hl));
-      }
-      if (y <= feetY + SNAP && y > best) best = y;
-    }
-    return best;
-  }
+  const floorYAt = floorOf(surfaces, SNAP);
 
   let walker = null; // platform-local position of the player, or null
   const _w = new THREE.Vector3();
@@ -354,27 +387,7 @@ export function createCapital(planet, cityDir, rotY, story) {
     band.position.y = 1 + ((t * (0.35 + sail * 1.5)) % 1) * 20;
     chart.rotation.y = t * 0.15;
     for (let i = 0; i < orbits.length; i++) orbits[i].rotation.y = t * (0.5 / (i + 1)) + i * 1.3;
-    for (const r of robots) {
-      // rest pose: a slow lean, never quite still
-      r.group.rotation.z = Math.sin(t * 0.45 + r.seed) * 0.012;
-      let want = Math.sin(t * 0.21 + r.seed * 3) * 0.3;
-      let lit = 1;
-      if (walker) {
-        // the head comes round to the player, as far as a neck goes and a bit
-        const dx = walker.x - r.x, dz = walker.z - r.z;
-        const d = Math.hypot(dx, dz);
-        if (d < 60) {
-          let a = Math.atan2(dx, dz) - r.face;
-          while (a > Math.PI) a -= Math.PI * 2;
-          while (a < -Math.PI) a += Math.PI * 2;
-          want = Math.max(-2.4, Math.min(2.4, a));
-          lit = d < 8 ? 2.4 : 1.4;
-        }
-      }
-      r.look += (want - r.look) * Math.min(1, dt * 2.2);
-      r.head.rotation.y = r.look;
-      r.eye.material.color.setScalar(0.9 * lit * (0.85 + 0.15 * Math.sin(t * 7 + r.seed)));
-    }
+    for (const r of robots) trackRobot(r, walker, dt, t);
   }
 
   return {
