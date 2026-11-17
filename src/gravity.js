@@ -16,6 +16,12 @@ const _up = new THREE.Vector3();
 
 // body: { position: THREE.Vector3, mass: number, radius?: number }
 // A radius opts the body into the altitude floor (see applyAltitudeFloor).
+// Optional, for a body with a radius:
+//   noHeat             its floor never heats the hull (altitudeAboveFloor
+//                      skips it): somewhere meant to be skimmed at speed
+//   ceiling, ceilSoft  altitudes above its base radius; climbing is eased off
+//                      from ceilSoft and stopped at ceiling (the megaworld,
+//                      src/farside.js, whose horizon has to stay in view)
 export function addBody(body) {
   bodies.push(body);
   return body;
@@ -56,6 +62,24 @@ export function applyAltitudeFloor(pos, vel, dt) {
     if (!b.radius) continue;
     _up.subVectors(pos, b.position);
     const r = _up.length();
+    if (b.ceiling && r - b.radius > b.ceilSoft) {
+      // The mirror of the floor: only the outward component is touched, so
+      // descending is never impeded. Soft through the band, and a per-tick cap
+      // at the top that even a warp climb cannot overrun.
+      const alt = r - b.radius;
+      _up.multiplyScalar(1 / r);
+      let vOut = vel.dot(_up);
+      if (vOut > 0) {
+        const k = Math.min((alt - b.ceilSoft) / (b.ceiling - b.ceilSoft), 1);
+        vel.addScaledVector(_up, -vOut * k * k);
+        vOut *= 1 - k * k;
+        if (dt) {
+          const maxOut = Math.max(b.ceiling - alt, 0) / dt;
+          if (vOut > maxOut) vel.addScaledVector(_up, maxOut - vOut);
+        }
+      }
+      continue;
+    }
     // Far from this body nothing below can fire: the drag band tops out at
     // ATMOS_TOP, the tallest terrain is a few hundred units, and one warp tick
     // covers under 200. Skipping here saves a terrain-noise evaluation per
@@ -110,7 +134,7 @@ export function altitudeAboveFloor(pos) {
   let best = Infinity;
   for (let i = 0; i < bodies.length; i++) {
     const b = bodies[i];
-    if (!b.radius) continue;
+    if (!b.radius || b.noHeat) continue;
     _up.subVectors(pos, b.position);
     const r = _up.length();
     _up.normalize();

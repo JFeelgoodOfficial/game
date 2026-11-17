@@ -489,6 +489,68 @@ was, THE NEW STAR on the chart, the warships on a ring round it, freighters
 adrift, the wormhole. The other ending is `end: 'gone'` (the clock ran out).
 Neither can be undone.
 
+**The rally.** After the star the three fleets cheer (40 s of lines, on the
+clock only while flying), put themselves under the pilot, and a second control
+appears: WE GO INTO THE WORMHOLE, TOGETHER. Every ship left forms a chevron on
+the pilot's ship (`fleets.follow`), the wormhole opens wide and goes on the
+chart, the autopilot flies to its mouth and hands back the helm, and the pilot
+takes them in. What is through it is 5.7.3.
+
+### 5.7.3 The far side: the megaworld (owner exception to 5.4, 5.7 and the cycle)
+
+Owner addition. The wormhole used to reload the game onto a save with the story
+taken out (a "new cycle"). It no longer does: the pilot and the fleet come out
+the other side, in the same page, over a Tenretni machine world so large its
+surface is flat to the horizon, with captive stars held above it in cages of
+ring frames. The wormhole closes behind them. There is no way back, nothing
+resets, and a save that has been through stays there (`end: 'far'`). Version
+one is arrival and free flight: no landing, nothing on foot, no story.
+
+**It is not a sphere.** The camera is 0.1..1e6 with no logarithmic depth and
+planets have no LOD, so a world of this size cannot be drawn as one. It is a
+plane in the game's absolute frame (`originOffset + local`): the arrival point
+is absolute (0,0,0), where every world reset puts the ship, and the surface is
+absolute y = -`FAR_ARRIVE_ALT`. Everything is placed each frame from where the
+camera is, so rebases and resets need no handling of their own. `FAR_RADIUS`
+(8e6) only bends the horizon and sets the pull.
+
+| Layer | What it is |
+|---|---|
+| Ground | One polar disc under the camera (`megaGround.vert/.frag`). The city is its fragment shader: districts, blocks and plating at three scales, each handed the camera's place wrapped to its own period in doubles, so fp32 never holds a large number. The rim is dropped by d²/2R. |
+| Towers | One instanced box on a 24,576 u tile that wraps round the camera in the vertex shader (`megaTower.vert`, with `tenretniHull.frag`). Counts by tier 2,500 / 6,000 / 12,000 / 20,000; they sink to nothing at the tile's edge. |
+| Caged stars, near | Up to `FAR_CAGE_FULL` (4) within `FAR_CAGE_LOD` (45,000): a star, one merged frame (three meridian rings, an equator, two lighter rings, pedestal, pylons, spire) and a glow each. On the chart as CAGED STAR. |
+| Caged stars, far | Every other one out to 8 lattice cells, one additive point each, culled by the world's own curve. |
+
+The cages stand on a jittered 60,000 u lattice. Which cells hold one, and where,
+is an integer hash exact in fp32, written once in GLSL (`CAGE_GLSL`) and once in
+JS (`cageAt`, `world/megaworld.js`): the ground shader lays the plate, the light
+and the conduits under a cage from the same numbers the cage stands on. Change
+one and you must change the other.
+
+**Physics** is the game's own. The megaworld is one gravity body, a sphere of
+radius `FAR_RADIUS` whose centre is kept straight under the ship, so up is
+always +y and the altitude floor (5.1) holds the ship off the roofs by drag.
+Three additions to `src/gravity.js`, all opt-in per body: `noHeat` (its floor
+never heats the hull: this is a place to skim at speed), `ceiling`/`ceilSoft`
+(climbing eases off and stops, so the horizon stays inside the disc and the far
+plane), and a constant `groundAt` (the canopy). Each caged star in view has a
+floor and no pull.
+
+**The hand-off** (`src/game.js`, the `collapse` phase). The stretch holds, the
+screen whites out over `FAR_WHITE_IN`, and under the white `enterFar()` saves
+`end: 'far'` and a world reset runs. `tenretni.abort()` then lays the far side
+out through `applyFar()`, the same path every later reset and load takes:
+`hideOldSystem()` (the wormhole, the new star, the black hole, the nebulae and
+the stations, off screen and off the chart for good) and `far.apply()`. The
+fleet keeps station on the pilot with a floor under it. `src/farside.js` is
+part of the Tenretni chunk, not one of its own: a chunk fetch that fails at the
+mouth is one the browser will not retry without a reload.
+
+Feel constants: `FAR_ARRIVE_ALT` (how much of the first cage towers over the
+pilot), `FAR_SURFACE_G` (14, under the planets' ~30, so an idle pilot is not on
+the roofs in seconds), `FAR_CEIL`, `FAR_STAR_HDR`. Not measured: frame rate on
+the Iris Xe reference machine. The ground shader covers half the screen.
+
 ### 5.8 The Sky City (Saturnia)
 
 Saturnia has no surface, so it gets a place instead: a floating city 320 units

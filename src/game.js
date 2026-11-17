@@ -21,7 +21,6 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { C } from './constants.js';
 import { initInput, input, setPointerLockGate, throttleAxis } from './input.js';
-import { beginNewCycle, takeNewCycle } from './newCycle.js';
 import { ship, stepShip } from './ship.js';
 import { altitudeAboveFloor } from './gravity.js';
 import { updateOrigin, originOffset, snapshotShiftables, restoreShiftables } from './origin.js';
@@ -53,7 +52,7 @@ import { initHoloPanel, openHoloPanel, closeHoloPanel, isHoloPanelOpen, holoPane
 import {
   initTenretni, updateTenretni, tenretniHolding, stepTenretniHold, resetTenretni,
   tenretniFx, tenretniDebug, capitalDock, tenretniSailVelocity, holoPrograms, holoWorld,
-  nearestVessel, vesselSite, holdVessel, placeFleets, wormholeCapture,
+  nearestVessel, vesselSite, holdVessel, placeFleets, wormholeCapture, farGate, enterFar,
 } from './tenretniLazy.js';
 import {
   interiorScene,
@@ -728,6 +727,12 @@ if (import.meta.env.DEV) {
       start: (id) => startAutoWarp(getBodies().find((b) => b.id === id)),
       cancel: cancelAutopilot,
     },
+    // As if the pilot had just flown into the wormhole's mouth (the ending).
+    farArrive: () => {
+      phase = 'collapse';
+      warpT = 0;
+      cycling = true;
+    },
     launch: () => {
       resetToStart();
       accumulator = 0;
@@ -1094,7 +1099,11 @@ let accumulator = 0;
 // still goes to 'explode' and still ends the run — only the sun opens the door.
 let phase = 'menu';
 let warpT = 0;
-let cycling = false; // true once the pilot is in the wormhole; 'leaving' while the new cycle loads
+// The wormhole (src/tenretniLazy.js farGate/enterFar): true once the pilot is
+// in its mouth and the stretch is held; 'white' while the screen whites out
+// over the swap. False again on the far side.
+let cycling = false;
+let farT = 0; // seconds into the white
 let warp = 0; // collapse pass progress, 0..1
 let heat = 0; // hull heat, 0..1
 let deathReason = ''; // set when the burn wins; shown on the menu
@@ -2113,9 +2122,10 @@ function loadOwnerArt() {
   else setTimeout(go, 1500);
 }
 
-// Into the seat, in front of terra. `gesture`: called from a click (LAUNCH),
-// which is what lets the music start and the pointer lock; a new cycle arrives
-// here with no click behind it and picks both up on the pilot's first input.
+// Into the seat, in front of terra (or, on a save that has been through the
+// wormhole, at the arrival point over the megaworld: the reset lays out
+// whichever it is). `gesture`: called from a click (LAUNCH), which is what
+// lets the music start and the pointer lock.
 function launchFlight(gesture = true) {
   resetToStart();
   accumulator = 0;
@@ -2141,23 +2151,6 @@ function launchFlight(gesture = true) {
   }
 }
 initMenu(() => launchFlight(true));
-
-// The far side of the wormhole (src/newCycle.js): no menu. The game begins
-// again where it first began, unwinding out of the same stretch it left by.
-if (takeNewCycle()) {
-  launchFlight(false);
-  phase = 'respawn';
-  warpT = 0;
-  warp = 1;
-  setTimeout(() => showNavToast('THE SAME SKY. TERRA, DEAD AHEAD.', 10), 2600);
-  const wake = () => {
-    window.removeEventListener('pointerdown', wake);
-    window.removeEventListener('keydown', wake);
-    startMusic();
-  };
-  window.addEventListener('pointerdown', wake);
-  window.addEventListener('keydown', wake);
-}
 
 function frame(now) {
   if (contextLost) return; // don't re-arm: every draw into a lost context throws
@@ -2292,12 +2285,12 @@ function frame(now) {
       }
       accumulator -= DT;
     }
-    if (ship.position.distanceTo(blackhole.group.position) < C.HORIZON_CAPTURE) {
+    if (!blackhole.gone && ship.position.distanceTo(blackhole.group.position) < C.HORIZON_CAPTURE) {
       phase = 'collapse';
       warpT = 0;
     } else if (wormholeCapture(ship.position)) {
       // The ending's last act: the pilot has led the fleet into the wormhole.
-      // The same collapse, but what is on the far side is a new cycle.
+      // The same collapse, but it comes out on the far side (src/farside.js).
       phase = 'collapse';
       warpT = 0;
       cycling = true;
@@ -2504,11 +2497,39 @@ function frame(now) {
   } else if (phase === 'collapse') {
     warpT += delta;
     warp = Math.min(warpT / C.COLLAPSE_TIME, 1);
-    if (cycling) {
-      // hold the stretch; src/newCycle.js whites out and reloads into the start
-      if (cycling === true && warpT >= C.COLLAPSE_TIME) {
-        cycling = 'leaving';
-        beginNewCycle();
+    if (cycling === true) {
+      // The stretch is held; the white only rises once the far side is there
+      // to be stood in. If it cannot be built the wormhole throws the ship
+      // back, with the fleet, the rally and the mouth as they were: never a
+      // blank screen with nothing behind it.
+      if (warpT >= C.COLLAPSE_TIME) {
+        if (farGate() === 'ready') {
+          cycling = 'white';
+          farT = 0;
+        } else {
+          cycling = false;
+          resetToStart();
+          phase = 'respawn';
+          warpT = 0;
+          accumulator = 0;
+          showNavToast('THE WORMHOLE WOULD NOT HOLD.', 9);
+        }
+      }
+    } else if (cycling === 'white') {
+      farT += delta;
+      flash = Math.min(farT / C.FAR_WHITE_IN, 1);
+      if (flash >= 1) {
+        // Under the white: the story moves to the far side, and the world
+        // reset lays it out exactly as every later reset and load will.
+        enterFar();
+        resetToStart();
+        ship.velocity.set(0, 0, -C.FAR_EXIT_SPEED); // still moving, out of the mouth
+        flash = 1;
+        flashFade = C.FAR_WHITE_OUT;
+        cycling = false;
+        phase = 'respawn';
+        warpT = 0;
+        accumulator = 0;
       }
     } else if (warpT >= C.COLLAPSE_TIME) {
       resetToStart();
@@ -2599,7 +2620,7 @@ function frame(now) {
     tenretniFx.flash = 0;
   }
   // Every other phase: let whatever the last transition left on screen fade.
-  if (phase !== 'explode' && phase !== 'ascend' && phase !== 'depart' && skyFallT < 0 && flash > 0) {
+  if (phase !== 'explode' && phase !== 'ascend' && phase !== 'depart' && cycling !== 'white' && skyFallT < 0 && flash > 0) {
     flash = flashFade > 0 ? Math.max(0, flash - delta / flashFade) : 0;
     if (flash === 0) flashFade = 0;
   }
@@ -2808,6 +2829,7 @@ function frame(now) {
   // position frozen in the uniforms while the player walks away from it.
   if (isolated.active) lensPass.uniforms.uEnabled.value = 0;
   else updateBlackHole(camera, lensPass.uniforms, now / 1000);
+  lensPass.enabled = !blackhole.gone; // (the far side has no black hole: no pass at all)
 
   // atmospheric entry: fade the frame to the sky of whichever planet's air
   // the ship is deepest inside

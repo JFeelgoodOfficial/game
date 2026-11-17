@@ -20,6 +20,10 @@
 //   stepTenretniHold   ...and calls this each physics tick instead
 //   updateTenretni     once a frame, in space
 //   tenretniFx         shake and flash the event asks game.js for
+//
+// The story it starts runs a long way past that: the worldship, the war, the
+// ending, and through the wormhole to the far side (src/farside.js). All of it
+// is in the one chunk.
 
 import { startAutoWarp } from './autopilot.js';
 import { questStage } from './journal.js';
@@ -114,6 +118,10 @@ export const holdVessel = (id) => mod && mod.holdVessel(id);
 export const placeFleets = (t) => mod && mod.placeFleets(t);
 // The ending's last act: the pilot has flown the fleet into the wormhole.
 export const wormholeCapture = (pos) => (mod ? mod.wormholeCapture(pos) : false);
+// ...and what is through it (src/farside.js). farGate: 'ready' | 'failed',
+// asked while game.js holds the collapse; enterFar: the pilot is through.
+export const farGate = () => (mod ? mod.farGate() : 'failed');
+export const enterFar = () => mod && mod.enterFar();
 
 // dev/verification handle (__debug.tenretni)
 export const tenretniDebug = () => ({
@@ -129,6 +137,7 @@ export const tenretniDebug = () => ({
   comms: () => (mod ? mod.commState() : {}),
   setComms: (on) => mod && mod.debugComms(on),
   end: () => mod && mod.debugEnd(),
+  far: () => mod && mod.debugFar(),
   story: () => mod && mod.debugStory(),
   state: () => (mod ? mod.state() : { loaded: false, stage: questStage(SECRET) }),
 });

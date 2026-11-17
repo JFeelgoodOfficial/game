@@ -624,7 +624,7 @@ export function updateStations(t, shipPos) {
     if (s.spin && animate) s.group.rotation.y = t * s.spin;
     // a station whose world has been taken out of space goes with it
     const host = planets[s.orbit ? s.orbit.planetIndex : s.planetIndex];
-    if (host && host.removed) {
+    if (s.gone || (host && host.removed)) {
       s.group.visible = false;
       continue;
     }

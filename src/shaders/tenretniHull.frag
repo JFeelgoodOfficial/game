@@ -9,6 +9,9 @@ uniform vec3 uSun;
 uniform float uHdr;
 uniform float uWin; // window lattice density (per parent unit)
 uniform float uTime;
+// A light inside the frame (the megaworld's caged stars, world/megaworld.js):
+// xyz its place in vPos's space, w its strength. Unset (0) everywhere else.
+uniform vec4 uCore;
 
 float hash(vec3 p) {
   p = fract(p * 0.3183099 + 0.1);
@@ -23,6 +26,11 @@ void main() {
   float plate = hash(cell);
   vec3 base = vec3(0.07, 0.08, 0.08) * (0.6 + 0.8 * plate);
   vec3 lit = base * (0.06 + 1.2 * day);
+  if (uCore.w > 0.0) {
+    vec3 toCore = uCore.xyz - vPos;
+    float cd = length(toCore);
+    lit += base * vec3(1.0, 0.62, 0.28) * uCore.w * max(dot(N, toCore / cd), 0.0) / (1.0 + cd * cd * 2.0e-8);
+  }
 
   vec3 wc = floor(vPos * uWin);
   float wh = hash(wc + 3.7);

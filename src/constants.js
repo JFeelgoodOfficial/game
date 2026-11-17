@@ -472,6 +472,43 @@ export const C = {
   TENRETNI_SIEGE_WAIT: 240.0, // ...and before each of the last three planets
   TENRETNI_STRIKE_BIAS: 0.55, // 0 strikes terra facing the sphere, 1 facing the patio
   TENRETNI_HDR: 1.5, // emissive scale of the lights, beams and swarm
+  // --- the far side: the Tenretni megaworld (src/farside.js, GDD 5.7.3) ---
+  // Through the wormhole. The world is too big to be a sphere here: it is a
+  // plane in the game's absolute frame, the arrival point is absolute (0,0,0),
+  // and FAR_RADIUS only bends the horizon and sets the pull.
+  FAR_ARRIVE_ALT: 2800.0, // the surface is absolute y = -this
+  FAR_RADIUS: 8.0e6, // nominal radius: the horizon's dip, and the gravity body
+  FAR_SURFACE_G: 14.0, // pull at any height (planets are ~30 at the ground: at that an idle pilot is on the roofs in seconds)
+  FAR_CANOPY: 760.0, // the altitude floor rides this far above the plane: over the tallest tower
+  FAR_CEIL_SOFT: 22000.0, // climbing eases off from here...
+  FAR_CEIL: 30000.0, // ...and stops here, so the horizon stays inside the disc and the far plane
+  FAR_DISC_RADIUS: 900000.0, // the ground mesh, under the 1e6 far plane
+  FAR_TILE: 24576.0, // the towers wrap round the camera on a tile this wide (96 blocks)
+  FAR_BLOCK: 256.0, // a city block (the ground shader and the tower grid share it)
+  FAR_PLATE: 32.0, // hull plating, the finest pattern
+  FAR_DISTRICT: 2048.0, // the big panels the blocks sit in
+  FAR_TOWER_MIN: 110.0,
+  FAR_TOWER_MAX: 700.0,
+  FAR_CAGE_SPACING: 60000.0, // the caged stars' lattice
+  FAR_CAGE_STAR_R: 2200.0,
+  FAR_CAGE_RING_R: 3600.0, // the ring frames round a star
+  FAR_CAGE_TUBE: 300.0,
+  FAR_CAGE_HEIGHT: 7000.0, // star centre above the plane
+  FAR_CAGE_PAD: 5200.0, // radius of the cleared plate a cage stands on
+  FAR_CAGE_FULL: 4, // cages built in full at once...
+  FAR_CAGE_LOD: 45000.0, // ...inside this range; beyond it a star is one point
+  FAR_CAGE_POINTS: 256,
+  FAR_CAGE_REACH: 8, // lattice cells out from the camera that are drawn at all
+  FAR_STAR_HDR: 1.25,
+  FAR_HAZE: 0x061a14,
+  FAR_EXIT_SPEED: 300.0, // out of the mouth, units/sec
+  FAR_ARRIVE_DX: 9000.0, // the first caged star is this far to port...
+  FAR_ARRIVE_DZ: 24000.0, // ...and this far ahead of the arrival point
+  FAR_WHITE_IN: 0.5, // seconds the white takes to cover the swap
+  FAR_WHITE_OUT: 2.4, // ...and to clear on the far side
+  FAR_FADE_IN: 1.5, // the megaworld fading up on a load or a world reset
+  FAR_WORM_BACK: 2600.0, // the mouth, behind the arrival point
+  FAR_WORM_CLOSE: 6.0, // seconds it takes to close
 };
 
 // --- quality tiers (src/quality.js) ---

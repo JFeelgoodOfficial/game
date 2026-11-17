@@ -55,8 +55,12 @@ import { createAssimilator } from './assimilate.js';
 import { createFleets } from './fleets.js';
 import { createExplosions } from './explosion.js';
 import { createEndgame } from './endgame.js';
+import { createFarside } from './farside.js';
 import { grantUpgrade, hasUpgrade } from './inventory.js';
 import { sun } from './sun.js';
+import { blackhole } from './blackhole.js';
+import { deepNebulae } from './deepnebula.js';
+import { stations } from './stations.js';
 import { addShiftable } from './origin.js';
 import { createCapital } from '../world/capital.js';
 import coreFrag from './shaders/tenretniCore.frag?raw';
@@ -141,7 +145,10 @@ let shieldU = null;
 let coin = null; // stevenlacey (world/coinworld.js): a world, but not a planet
 let clockT = 0; // seconds idle since the last meal
 let exit = null; // { t, rel: Vector3 } while leaving through the wormhole
-let ended = null; // 'gone' once it has left; 'star' once the fleets have killed it
+let ended = null; // 'gone' once it has left; 'star' once the fleets have killed it; 'far' once the pilot has led them through the wormhole
+// The fleets killed it: the system is the ending's (a star, no worlds), whether
+// the pilot is still in it or has gone through.
+const killed = () => ended === 'star' || ended === 'far';
 let endgame = null; // src/endgame.js, built with the fleets
 let starSaved = null; // the new star's absolute position (saved)
 // The war (src/fleets.js): begins with the worldship's first meal.
@@ -450,9 +457,9 @@ function loadSaved() {
     if (Number.isFinite(raw?.rotY)) rotLock = raw.rotY;
     if (raw?.at && LABELS[raw.at]) at = raw.at;
     if (Array.isArray(raw?.eaten)) eaten = raw.eaten.filter((n) => !!LABELS[n]);
-    if (raw?.end === 'gone' || raw?.end === 'star') ended = raw.end;
+    if (raw?.end === 'gone' || raw?.end === 'star' || raw?.end === 'far') ended = raw.end;
     if (Array.isArray(raw?.star) && raw.star.length === 3 && raw.star.every(Number.isFinite)) starSaved = raw.star;
-    if (raw?.calling) ended = 'star'; // the call was made: it finished
+    if (raw?.calling && !ended) ended = 'star'; // the call was made: it finished
     if (Array.isArray(raw?.lost)) for (const id of raw.lost) if (typeof id === 'string') lost.add(id);
     if (raw?.comms && typeof raw.comms === 'object') for (const k of Object.keys(raw.comms)) if (raw.comms[k]) comms[k] = true;
     if (Number.isFinite(raw?.size) && raw.size >= 1) size = raw.size;
@@ -956,7 +963,8 @@ function startWar() {
     openWormhole,
     save,
   });
-  if (ended === 'star') endgame.restore(starSaved || fallbackStar());
+  if (killed()) endgame.restore(starSaved || fallbackStar());
+  if (ended === 'far') applyFar();
 }
 
 // The wormhole as somewhere to go (the ending's last act): wide open, bright,
@@ -964,6 +972,7 @@ function startWar() {
 const wormPos = new THREE.Vector3();
 let wormOpen = null;
 function openWormhole() {
+  loadFar(); // what is on the other side: built now, on the way to the mouth, not in it
   if (wormOpen) return wormOpen;
   worm.visible = true;
   worm.scale.setScalar(C.TENRETNI_WORM_RADIUS * C.TENRETNI_WORM_REST);
@@ -979,6 +988,81 @@ function openWormhole() {
 }
 // True once the pilot, leading the fleet, is in the wormhole's mouth.
 export const wormholeCapture = (pos) => !!endgame && endgame.through(pos);
+
+// --- the far side: the megaworld (src/farside.js) ---
+//
+// Through the wormhole is somewhere else. game.js holds the collapse, asks
+// farGate(), whites out, and calls enterFar(); the world reset that follows
+// (abort, below) lays the far side out the same way every later reset and
+// load does. Nothing comes back from it: `ended` stays 'far'.
+//
+// It is part of this chunk and not one of its own: by the time anyone can
+// reach the wormhole this chunk is long loaded, and a fetch that fails at the
+// mouth is one the browser will not make again without a reload.
+
+let far = null; // src/farside.js createFarside(), built the first time it is wanted
+let farBroken = false;
+let farFirst = false; // this session's arrival: the wormhole is still closing behind
+
+// Build the megaworld (hidden, weightless until applied). Once.
+function loadFar() {
+  if (far || farBroken) return;
+  try {
+    far = createFarside({ scene, camera, sunWorld });
+  } catch (err) {
+    farBroken = true;
+    console.warn('[tenretni] the far side could not be built', err);
+  }
+}
+
+// 'ready' | 'failed' — asked by game.js while it holds the collapse.
+export function farGate() {
+  loadFar();
+  return far ? 'ready' : 'failed';
+}
+
+// The pilot is through. Saved at once: a reload from here is the far side.
+export function enterFar() {
+  if (ended === 'far') return;
+  ended = 'far';
+  farFirst = true;
+  save();
+  addCodex('Through the Wormhole');
+}
+
+// Everything the old system still showed, taken away for good. Synchronous
+// and idempotent.
+function hideOldSystem() {
+  anchor.visible = false; // the wormhole, the loose ring frames
+  if (wormOpen) setNavHidden(wormPos, true);
+  if (endgame) endgame.setFar();
+  blackhole.gone = true;
+  blackhole.group.visible = false;
+  blackhole.body.mass = 0;
+  setNavHidden(blackhole.group.position, true);
+  for (const d of deepNebulae) {
+    d.gone = true;
+    if (!d.group) continue;
+    d.group.visible = false;
+    setNavHidden(d.group.position, true);
+  }
+  for (const st of stations) {
+    st.gone = true;
+    st.group.visible = false;
+    setNavHidden(st.group.position, true);
+  }
+}
+
+// The far side as it stands: load, world reset, and the arrival itself.
+function applyFar() {
+  hideOldSystem();
+  loadFar();
+  if (!far) return;
+  far.apply(farFirst);
+  farFirst = false;
+  // every ship that came through keeps station on the pilot, over the canopy
+  if (fleets) fleets.follow(ship, null, 1, { snap: true, floorY: far.floor });
+}
 
 // A save that says the call was made but not where the star is (it was written
 // before the volley): where the worldship is now will do.
@@ -1212,7 +1296,7 @@ function restoreEaten() {
   thank(); // a save from before the room existed
   if (ended === 'gone') gone();
   else {
-    if (ended === 'star') {
+    if (killed()) {
       removePlanet(terra, true);
       setNavHidden(terra.group.position, true);
     }
@@ -1543,6 +1627,7 @@ export function update(delta, t, onDeck, flying, aboard) {
       if (!endgame || !endgame.active()) stepClock(delta, aboard, flying);
     }
     if (endgame) endgame.update(delta, t, flying);
+    if (ended === 'far' && far) far.update(delta, t, flying);
     if (assim.active()) assim.update(delta, t, flying);
     if (fleets) {
       fleets.update(delta, t, ended || (endgame && endgame.active()) ? null : siege());
@@ -1598,9 +1683,10 @@ export function abort() {
     // the ending, re-laid on the freshly restored system
     if (endgame && (endgame.active() || endgame.done())) {
       if (endgame.active() && !endgame.starAbs()) starSaved = fallbackStar();
-      ended = 'star';
+      if (ended !== 'far') ended = 'star';
       removePlanet(terra, true);
       endgame.restore(endgame.starAbs() || starSaved);
+      if (ended === 'far') applyFar();
     }
     return;
   }
@@ -1631,6 +1717,7 @@ export const debugEat = (u) => assim.seek(u);
 export const debugClock = (sec) => { clockT = sec; };
 export const debugFleets = () => fleets;
 export const debugEnd = () => endgame;
+export const debugFar = () => far;
 export const debugComms = (on) => { for (const f of Object.keys(VOICE)) { if (on) comms[f] = true; else delete comms[f]; } };
 export const debugStory = () => STORY;
 
@@ -1656,6 +1743,7 @@ function report() {
     next: waterDone() ? nextMeal() : null,
     exiting: exit ? exit.t : null,
     ended,
+    far: far ? far.state() : null,
     size,
     radius: terra.radius,
     eatingNow: assim ? assim.state() : null,
