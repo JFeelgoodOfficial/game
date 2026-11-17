@@ -59,6 +59,7 @@ export const CITIES = [
     site: V(-0.671490, 0.721225, 0.170105),
     style: 'neonMetropolis',
     radius: 150,
+    metro: { radius: 215 }, // the city round the town (world/cityMetro.js); inside the levelled disc
     seed: 0x51a7c3e1,
     pad: { x: 116, z: -161 }, // outside the town edge (probed dry, scripts/probe-pads.mjs)
     voice: 'neon',
@@ -102,6 +103,7 @@ export const CITIES = [
     site: V(-0.936373, -0.264475, -0.230776),
     style: 'dustOutpost',
     radius: 110,
+    metro: { radius: 162 },
     seed: 0xd92f3b69,
     pad: { x: 69, z: 122 }, // probed dry (scripts/probe-pads.mjs)
     voice: 'frontier',
@@ -248,6 +250,7 @@ export const CITIES = [
     site: V(-0.162820, -0.210175, -0.964010),
     style: 'basecampNeon',
     radius: 110,
+    metro: { radius: 162 },
     seed: 0x0c626e9c,
     pad: { x: 121, z: -70 }, // probed dry (scripts/probe-pads.mjs)
     voice: 'alpine',

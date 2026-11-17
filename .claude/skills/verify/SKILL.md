@@ -31,6 +31,22 @@ a beacon, yield real time (`waitForTimeout`) and re-check `journal().quests`.
 Headless rAF can throttle to ~1 frame/sec under swiftshader: wait on state
 with `waitForFunction`, never fixed short timeouts.
 
+The city round the town (terra, rustia, wyattmattoe; world/cityMetro.js and
+cityTraffic.js): `walkSite().city` adds `metroRadius`, `metro` (`rA`, `rB`,
+`buildings`, `routes`, `roads`), `roadDist(x, z)` and `traffic`
+(`info()` → `{vehicles, peds, routes, routeLengths, list: [{x, z, v, route, s}]}`,
+`colliders`, `colliderCount`). Counts by tier, vehicles/pedestrians: low 10/0,
+medium 18/16, high 28/24, ultra 36/32 (SwiftShader is low: call
+`quality.set('medium')` BEFORE landing to see pedestrians). Every vehicle must
+have `roadDist < 2.6` and move between frames. To test braking, wait on
+`requestAnimationFrame` until a vehicle has moved (so you know its heading),
+put the walker 7 ahead of it (`city.group.localToWorld` a city-local point
+into `ship.position`, then `walkStep(2)`), wait 40 frames: its `v` reads 0.
+Buildings are circles at the tail of `city.collidersLocal`; standing inside
+one must be pushed out. Screenshots at medium take over 30 s here: pass
+`timeout: 150000`. For a view the walker cannot reach, wrap
+`renderer.render` and set `camera` from city-local points just before it.
+
 Land on a specific planet: set `ship.position` to
 `planet.body.position + dir * (planet.radius + 20)` for any unit `dir`, zero
 `ship.velocity`, call `walkHere()`. Press key `3` once to dismiss the

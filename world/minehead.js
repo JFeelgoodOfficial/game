@@ -79,6 +79,7 @@ export function createMineHead(city, opts = {}) {
     if (Math.hypot(x, z) > radius - R_FOOT - 3) return false;
     if (segDist(x, z, 0, 0, gate.x, gate.z) < R_FOOT + 3) return false;
     if (segDist(x, z, gate.x, gate.z, pad.x, pad.z) < R_FOOT + 3) return false;
+    if (city.roadDist && city.roadDist(x, z) < R_FOOT + 5) return false; // not across a street
     for (const s of city.structures) {
       if (Math.hypot(x - s.x, z - s.z) < s.halfExtent * 1.42 + R_FOOT + 1.5) return false;
     }

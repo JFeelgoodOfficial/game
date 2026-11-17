@@ -768,6 +768,8 @@ function spawnWorldEntities(planet) {
         seed: cityDef.seed,
         padLocal: cityDef.pad,
         citizens: cityDef.citizens,
+        metro: cityDef.metro,
+        quality: settings.quality,
         materials: surfaceMaterials, // shared PBR registry — city NEVER disposes it
       });
     city.def = cityDef;
@@ -1460,6 +1462,24 @@ export function stepWalk(dt) {
           pushed = true;
         }
       }
+      // Traffic near the walker (world/cityTraffic.js): vehicles stop for a
+      // pilot in the road, and a parked or passing one is solid.
+      if (city.traffic) {
+        const tc = city.traffic.colliders;
+        for (let i = 0; i < city.traffic.colliderCount; i++) {
+          const c = tc[i];
+          const dx = _cityLocal.x - c.x;
+          const dz = _cityLocal.z - c.z;
+          const rr = c.radius + PLAYER_RADIUS;
+          const dd = dx * dx + dz * dz;
+          if (dd < rr * rr && dd > 1e-6) {
+            const dist = Math.sqrt(dd);
+            _cityLocal.x += (dx / dist) * (rr - dist);
+            _cityLocal.z += (dz / dist) * (rr - dist);
+            pushed = true;
+          }
+        }
+      }
       // Enterable buildings (landmark tower + lobbies): real walls with a
       // doorway gap, so only the player can walk in.
       if (city.structures) {
@@ -1874,6 +1894,7 @@ export function updateWalkVisuals(dt, t) {
       mineHead.update(t);
       scanModule(mineHead.module, 1.9); // inside the cage
     }
+    if (city.traffic) city.traffic.update(dt, t, _playerLocal, warzone ? warzone.hazards : null);
     if (citizens) {
       citizens.update(dt, _playerLocal, sunDot);
       scanModule(citizens, TALK_DIST_VENDOR);
