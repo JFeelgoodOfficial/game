@@ -52,7 +52,7 @@ import { initHoloPanel, openHoloPanel, closeHoloPanel, isHoloPanelOpen, holoPane
 import {
   initTenretni, updateTenretni, tenretniHolding, stepTenretniHold, resetTenretni,
   tenretniFx, tenretniDebug, capitalDock, tenretniSailVelocity, holoPrograms, holoWorld,
-  nearestVessel, vesselSite, holdVessel,
+  nearestVessel, vesselSite, holdVessel, placeFleets,
 } from './tenretniLazy.js';
 import {
   interiorScene,
@@ -1338,6 +1338,7 @@ const DOCKS = [
     pose() {
       const v = this.vessel;
       const g = v.group;
+      vesselSite(v); // the pad, companionway and bridge exist before the skids touch
       _skyUp.set(0, 1, 0).applyQuaternion(g.quaternion);
       _skyPad.copy(v.cls.pad).applyQuaternion(g.quaternion).addScaledVector(_skyUp, C.PARK_LIFT);
       _skyHover.copy(_skyPad).addScaledVector(_skyUp, 160);
@@ -2108,6 +2109,9 @@ function frame(now) {
   // not until every planet has swapped to baked terrain: the bake runs in
   // main-thread slices that would read as a slow GPU.
   governFrame(rawDelta, !paused && !isRecording() && terrainBaked());
+  // The war fleets are posed first: a pilot parked on one, or walking its
+  // deck, is carried by a pose the physics, the camera and the render share.
+  if (!isolated.active) placeFleets(now / 1000);
   if (debug) {
     debug.recordFrame(delta);
     if (debug.paused) delta = 0;
@@ -2562,7 +2566,12 @@ function frame(now) {
         : null;
   updateHeatUI(heatShown, C.CRACK_AT, flash, countdownLeft);
 
-  updateOrigin(ship);
+  if (updateOrigin(ship)) {
+    // a rebase moved every world; the fleets follow their worlds, and a
+    // walker on a deck is re-stood on it where it now is
+    if (!isolated.active) placeFleets(now / 1000);
+    if (phase === 'walk' && capitalActive()) updateWalkVisuals(0, now / 1000);
+  }
   if (phase === 'walk') {
     // On foot on a planet — the walker owns the camera (walk.js).
     updateWalkCamera(camera, delta);

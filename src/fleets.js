@@ -103,6 +103,17 @@ export function createFleets(ctx) {
       glow: new THREE.MeshBasicMaterial({ vertexColors: true }),
     };
     mats[f].glow.color.setScalar(1.15);
+    // What a boarded deck is lit and glazed with. `deck` is the glow's twin
+    // but never animated: Wavemall's hull turns through the colours, and a
+    // room that did the same read as the floor flickering underfoot.
+    // `room` is the hull's plate with enough of its own light to read indoors,
+    // on the side of the ship the sun is not on.
+    mats[f].room = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x24262c });
+    mats[f].deck = new THREE.MeshBasicMaterial({ vertexColors: true });
+    mats[f].deck.color.setScalar(1.15);
+    mats[f].glass = new THREE.MeshBasicMaterial({
+      color: 0x9fd0e8, transparent: true, opacity: 0.14, depthWrite: false, side: THREE.DoubleSide,
+    });
   }
 
   const add = (ship) => {
@@ -222,58 +233,95 @@ export function createFleets(ctx) {
 
   const ease = (x) => x * x * (3 - 2 * x);
 
+  // Where the bow points: `_d` is the heading.
+  const aim = (s) => s.group.quaternion.setFromRotationMatrix(_m.lookAt(s.group.position, _b.copy(s.group.position).sub(_d), UP));
+
+  // Pose only: where every ship is at clock time `t`, from where its planet is
+  // right now. game.js calls this at the top of the frame and again after a
+  // floating-origin rebase, so the walker, the camera and the hull all read
+  // the same pose inside one frame. (It used to be set at the END of the frame,
+  // after the camera: a deck one frame ahead of the eye standing on it.)
+  function place(t) {
+    let slot = 0;
+    for (const s of ships) {
+      if (!s.alive) continue;
+      if (muster.adrift) {
+        // no worlds left: warships keep the ring, freighters lie where they were
+        if (s.kind === 'warship') {
+          const a = (slot++ / 9) * 6.283 + t * 0.004;
+          s.group.position.set(Math.cos(a) * muster.r, Math.sin(a * 3) * muster.r * 0.2, Math.sin(a) * muster.r).add(muster.center);
+          _d.subVectors(muster.center, s.group.position).normalize();
+          aim(s);
+        }
+        s.group.visible = true;
+        continue;
+      }
+      if (s.kind === 'warship') {
+        const p = ctx.find(s.faction);
+        if (!p || p.removed) continue; // update() loses it
+        const o = s.orbit;
+        const R = (p.baseRadius ?? p.radius) * o.k + 300;
+        const a = o.phase + t * o.rate;
+        const ci = Math.cos(o.incl), si = Math.sin(o.incl);
+        _a.set(Math.cos(a) * R, Math.sin(a) * R * si, Math.sin(a) * R * ci);
+        _d.set(-Math.sin(a), Math.cos(a) * si, Math.cos(a) * ci); // along the orbit
+        s.group.position.copy(p.group.position).add(_a);
+        aim(s);
+        if (muster.on) {
+          // called in: from the orbit to a place on the ring, bow to the centre
+          const ra = (slot++ / 9) * 6.283;
+          _b.set(Math.cos(ra) * muster.r, Math.sin(ra * 3) * muster.r * 0.2, Math.sin(ra) * muster.r).add(muster.center);
+          s.group.position.lerp(_b, muster.k);
+          if (muster.k > 0.5) {
+            _d.subVectors(muster.center, s.group.position).normalize();
+            aim(s);
+          }
+        }
+        s.group.visible = true;
+      } else {
+        const A = ctx.find(s.route.a), B = ctx.find(s.route.b);
+        if (!A || !B || A.removed || B.removed) continue;
+        // there and back, easing in and out of each end
+        const ph = (t / ROUTE_TIME + s.route.phase) % 2;
+        const back = ph > 1;
+        const k = ease(back ? 2 - ph : ph);
+        routeEnd(A, B, s.route.side, _a);
+        routeEnd(B, A, -s.route.side, _b);
+        _d.subVectors(_b, _a).normalize();
+        if (back) _d.negate();
+        s.group.position.lerpVectors(_a, _b, k);
+        aim(s);
+        s.group.visible = true;
+      }
+    }
+  }
+
   return {
     ships,
+    place,
+    // Everything that is not a pose: lights, the crew, dogfights, losses.
     // `siege`: { name, k } — the planet under attack and how far the attack has
     // got (0 the swarm has arrived .. 1 the planet is gone), or null.
     update(dt, t, siege) {
       // Wavemall's lights turn through the colours
       mats['wavemall prime'].glow.color.setHSL((t * 0.08) % 1, 0.45, 0.62).multiplyScalar(1.9);
-      let slot = 0;
       for (const s of ships) {
         if (!s.alive) continue;
         if (s.site && s.id === held) s.site.update(dt, t);
-        if (muster.adrift) {
-          // no worlds left: warships keep the ring, freighters lie where they were
-          if (s.kind === 'warship') {
-            const a = (slot++ / 9) * 6.283 + t * 0.004;
-            s.group.position.set(Math.cos(a) * muster.r, Math.sin(a * 3) * muster.r * 0.2, Math.sin(a) * muster.r).add(muster.center);
-            _d.subVectors(muster.center, s.group.position).normalize();
-            s.group.quaternion.setFromRotationMatrix(_m.lookAt(s.group.position, _b.copy(s.group.position).sub(_d), UP));
-          }
-          s.group.visible = true;
-          continue;
-        }
+        if (muster.adrift) continue;
         if (s.kind === 'warship') {
           const p = ctx.find(s.faction);
           if (!p || p.removed) {
             lose(s);
             continue;
           }
-          const o = s.orbit;
-          const R = (p.baseRadius ?? p.radius) * o.k + 300;
-          const a = o.phase + t * o.rate;
-          const ci = Math.cos(o.incl), si = Math.sin(o.incl);
-          _a.set(Math.cos(a) * R, Math.sin(a) * R * si, Math.sin(a) * R * ci);
-          _d.set(-Math.sin(a), Math.cos(a) * si, Math.cos(a) * ci); // along the orbit
-          s.group.position.copy(p.group.position).add(_a);
-          s.group.quaternion.setFromRotationMatrix(_m.lookAt(s.group.position, _b.copy(s.group.position).sub(_d), UP));
-          if (muster.on) {
-            // called in: from the orbit to a place on the ring, bow to the centre
-            const ra = (slot++ / 9) * 6.283;
-            _b.set(Math.cos(ra) * muster.r, Math.sin(ra * 3) * muster.r * 0.2, Math.sin(ra) * muster.r).add(muster.center);
-            s.group.position.lerp(_b, muster.k);
-            if (muster.k > 0.5) {
-              _d.subVectors(muster.center, s.group.position).normalize();
-              s.group.quaternion.setFromRotationMatrix(_m.lookAt(s.group.position, _b.copy(s.group.position).sub(_d), UP));
-            }
-          }
-          s.group.visible = true;
           // the siege takes them one at a time
           const mine = !!siege && siege.name === s.faction;
           if (mine && !s.fight) buildFight(s);
           if (s.fight) {
-            s.fight.group.visible = mine;
+            // not round the ship the pilot is standing on: tracers start
+            // inside the hull and strobe across the deck
+            s.fight.group.visible = mine && s.id !== held;
             s.fight.uTime.value = t;
           }
           if (mine && siege.k > (Number(s.id.slice(-1)) + 1) / 3.6) {
@@ -282,21 +330,7 @@ export function createFleets(ctx) {
           }
         } else {
           const A = ctx.find(s.route.a), B = ctx.find(s.route.b);
-          if (!A || !B || A.removed || B.removed) {
-            lose(s, !!siege);
-            continue;
-          }
-          // there and back, easing in and out of each end
-          const ph = (t / ROUTE_TIME + s.route.phase) % 2;
-          const back = ph > 1;
-          const k = ease(back ? 2 - ph : ph);
-          routeEnd(A, B, s.route.side, _a);
-          routeEnd(B, A, -s.route.side, _b);
-          _d.subVectors(_b, _a).normalize();
-          if (back) _d.negate();
-          s.group.position.lerpVectors(_a, _b, k);
-          s.group.quaternion.setFromRotationMatrix(_m.lookAt(s.group.position, _b.copy(s.group.position).sub(_d), UP));
-          s.group.visible = true;
+          if (!A || !B || A.removed || B.removed) lose(s, !!siege);
         }
       }
     },

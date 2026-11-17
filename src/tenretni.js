@@ -1062,6 +1062,9 @@ const _targets = [];
 export const nearestVessel = (pos) => (fleets && !ended ? fleets.nearest(pos) : null);
 export const vesselSite = (ship) => (fleets ? fleets.site(ship) : null);
 export const holdVessel = (id) => fleets && fleets.hold(id);
+// Pose the fleets for clock time `t` (see fleets.place): before anything in the
+// frame reads a ship's position.
+export const placeFleets = (t) => fleets && fleets.place(t);
 export const commState = () => ({ ...comms });
 
 // Which planet the swarm is fighting over, and how far gone it is: the one

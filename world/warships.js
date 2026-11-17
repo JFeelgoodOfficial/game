@@ -67,7 +67,8 @@ function rustiaWarship() {
   // citadel and bridge
   lit.push(box(70, 46, 130, 0, 92, -150, PLATE));
   lit.push(box(44, 26, 60, 0, 128, -170, IRON));
-  lit.push(box(120, 8, 150, 0, 70, -80, RUST)); // flight deck
+  // flight deck: runs forward of the citadel, so the pad stands clear of it
+  lit.push(box(120, 8, 200, 0, 70, -55, RUST));
   // keel fin, and the lance slung under the bow
   lit.push(box(8, 60, 220, 0, -70, -120, IRON));
   lit.push(tube(7, 11, 230, 0, -34, 240, 10, PLATE));
@@ -87,7 +88,7 @@ function rustiaWarship() {
   }
   glow.push(halo(98, 2.2, 0, 0, -262, EMBER, 1.2));
   return finish(lit, glow, {
-    radius: 380, pad: new THREE.Vector3(0, 74, -80), padR: 46,
+    radius: 380, pad: new THREE.Vector3(0, 74, -22), padR: 46,
     gun: new THREE.Vector3(0, -34, 300), bridge: new THREE.Vector3(0, 141, -170),
   });
 }
@@ -238,81 +239,142 @@ export function buildShip(cls, litMat, glowMat) {
 // ---------------------------------------------------------------------------
 //
 // Built the first time a pilot steps out on a given ship, onto that ship's
-// group: the pad on its flight deck, a gangway out to starboard, and a bridge
-// wing hung off the side — an open platform under a frame, with the captain,
-// two of the crew, a row of desks, and (on a warship) the gunnery console.
-// The same kit on every hull, in the faction's own materials.
+// group: the pad on its flight deck, a glazed companionway out to starboard,
+// and the bridge at the end of it — a closed room, windows on three sides,
+// with the captain, two of the crew, a row of desks, and (on a warship) the
+// gunnery console. The same kit on every hull, in the faction's own materials.
+//
+// Two rules keep it from shimmering:
+//   - nothing here shares a plane with the hull. The kit's floors stand LIFT
+//     above the class's flight deck (the pad sits exactly on that deck, and a
+//     pad disc flush with it z-fought across its whole face);
+//   - its lights are `mats.deck`, which the fleet never animates.
 //
 // Returns the `site` src/capitalWalk.js walks (see that file for the shape).
 // `people(seed)` makes a figure: { group, update(dt, t, talking) }.
 // `story`: { captain(ship), crew(ship, i), choice(tag), targets(), onHit(id) }.
 
 const ZERO = new THREE.Vector3();
+const LIFT = 0.15; // pad plating above the hull's flight deck
+const STEP = 0.04; // companionway and bridge floors above the pad plating
 
 export function buildDeck(ship, mats, people, story, sunDir) {
   const cls = ship.cls;
   const P = cls.pad, R = cls.padR;
-  const y = P.y;
+  const yP = P.y + LIFT; // pad plating
+  const y = yP + STEP; // the floor indoors
   const SNAP = 1.2;
+  const WALKER = 0.75; // keeps the walker's body off the inside of a wall
   const surfaces = [];
   const colliders = [];
-  const lit = [], glow = [];
-  const DECK = 0x2a2c30, TRIM = 0x55585f;
+  const rooms = [];
+  const lit = [], glow = [], glass = [];
+  const DECK = 0x2a2c30, TRIM = 0x55585f, WALL = 0x3a3d44, ROOF = 0x1f2125;
   const LIGHT = ship.faction === 'rustia' ? 0xff6a1e : ship.faction === 'saturnia' ? 0xfff0c0 : 0xff3fb4;
+  const T = 0.4; // wall thickness
+  const DADO = 1.0;
 
-  // pad
-  lit.push(tint(new THREE.CylinderGeometry(R + 4, R + 4, 2, 40).translate(P.x, y - 1, P.z), DECK));
-  glow.push(tint(new THREE.TorusGeometry(R - 2, 0.25, 6, 64).rotateX(Math.PI / 2).translate(P.x, y + 0.1, P.z), LIGHT, 1.1));
-  surfaces.push({ kind: 'disc', cx: P.x, cz: P.z, r: R + 4, y });
-  // gangway to starboard
-  const gx0 = P.x + R, gx1 = gx0 + 46;
-  lit.push(box(gx1 - gx0 + 8, 1.6, 10, (gx0 + gx1) / 2, y - 0.8, P.z, TRIM));
-  for (const s of [-1, 1]) glow.push(box(gx1 - gx0, 0.12, 0.25, (gx0 + gx1) / 2, y + 0.08, P.z + s * 4.6, LIGHT, 1.1));
-  surfaces.push({ kind: 'rect', cx: (gx0 + gx1) / 2, cz: P.z, ux: 1, uz: 0, hl: (gx1 - gx0) / 2 + 4, hw: 5, yA: y, yB: y });
-  // bridge wing
-  const bx = gx1 + 17, HL = 17, HW = 14;
-  lit.push(box(HL * 2, 2.4, HW * 2, bx, y - 1.2, P.z, DECK));
-  lit.push(box(6, 30, 6, bx, y - 17, P.z, TRIM)); // strut down to the hull
-  surfaces.push({ kind: 'rect', cx: bx, cz: P.z, ux: 1, uz: 0, hl: HL, hw: HW, yA: y, yB: y });
-  // frame: four posts and a roof ring, so it reads as a room
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      lit.push(box(0.7, 9, 0.7, bx + sx * (HL - 0.6), y + 4.5, P.z + sz * (HW - 0.6), TRIM));
-      colliders.push({ x: bx + sx * (HL - 0.6), z: P.z + sz * (HW - 0.6), r: 0.6, top: Infinity });
+  // A wall along X (`along` = 'x') or Z, from a to b at the fixed coordinate
+  // `at`: a solid dado, a glazed band with mullions, a header up to `ceil`.
+  // `solid` leaves the glass out and builds it as plate.
+  const wall = (along, a, b, at, ceil, head, solid) => {
+    const len = b - a, mid = (a + b) / 2;
+    const put = (list, h, yMid, hex, gain, thick = T, l = len, m = mid) =>
+      list.push(along === 'x' ? box(l, h, thick, m, yMid, at, hex, gain) : box(thick, h, l, at, yMid, m, hex, gain));
+    if (solid) {
+      put(lit, ceil, y + ceil / 2, WALL);
+      return;
     }
+    put(lit, DADO, y + DADO / 2, WALL);
+    put(lit, ceil - head, y + (head + ceil) / 2, WALL);
+    put(glass, head - DADO, y + (DADO + head) / 2, 0xffffff, 1, 0.06);
+    put(glow, 0.1, y + DADO + 0.05, LIGHT, 0.9, T + 0.06); // sill light
+    const n = Math.max(1, Math.round(len / 4.2));
+    for (let i = 0; i <= n; i++) put(lit, head - DADO, y + (DADO + head) / 2, TRIM, 1, T + 0.1, 0.28, a + (len * i) / n);
+  };
+
+  // --- pad: plating laid on the flight deck ---
+  lit.push(tint(new THREE.CylinderGeometry(R + 4, R + 4, 2, 40).translate(P.x, yP - 1, P.z), DECK));
+  glow.push(tint(new THREE.TorusGeometry(R - 2, 0.25, 6, 64).rotateX(Math.PI / 2).translate(P.x, yP + 0.12, P.z), LIGHT, 1.1));
+  surfaces.push({ kind: 'disc', cx: P.x, cz: P.z, r: R + 4, y: yP });
+
+  // --- companionway to starboard: floor, glazed walls, roof ---
+  const CW = 5, CCEIL = 4.8, CHEAD = 4.0; // half-width, ceiling, top of the glass
+  const gx0 = P.x + R + 2.5, gx1 = P.x + R + 46;
+  const wx0 = P.x + R + 4.6; // the walls begin where the pad plating ends
+  lit.push(box(gx1 - gx0, 1.6, CW * 2 + T * 2, (gx0 + gx1) / 2, y - 0.8, P.z, TRIM));
+  for (const s of [-1, 1]) {
+    wall('x', wx0, gx1, P.z + s * (CW + T / 2), CCEIL, CHEAD);
+    glow.push(box(gx1 - wx0, 0.1, 0.22, (wx0 + gx1) / 2, y + 0.05, P.z + s * (CW - 0.5), LIGHT, 1.1)); // floor guide
   }
-  glow.push(box(HL * 2, 0.3, 0.3, bx, y + 9, P.z - HW + 0.6, LIGHT, 1.0));
-  glow.push(box(HL * 2, 0.3, 0.3, bx, y + 9, P.z + HW - 0.6, LIGHT, 1.0));
-  glow.push(box(0.3, 0.3, HW * 2, bx + HL - 0.6, y + 9, P.z, LIGHT, 1.0));
-  // desks along the outboard edge
+  lit.push(box(gx1 - wx0, 0.4, CW * 2 + T * 2, (wx0 + gx1) / 2, y + CCEIL + 0.2, P.z, ROOF));
+  glow.push(box(gx1 - wx0 - 2, 0.1, 0.5, (wx0 + gx1) / 2, y + CCEIL - 0.07, P.z, LIGHT, 1.0));
+  // portal at the pad end
+  for (const s of [-1, 1]) lit.push(box(0.7, CCEIL, 0.7, wx0, y + CCEIL / 2, P.z + s * (CW + T / 2), TRIM));
+  surfaces.push({
+    kind: 'rect', cx: (P.x + R + gx1 + 2) / 2, cz: P.z, ux: 1, uz: 0,
+    hl: (gx1 + 2 - (P.x + R)) / 2, hw: CW - WALKER, yA: y, yB: y,
+  });
+  rooms.push({ x0: wx0, x1: gx1, z0: P.z - CW, z1: P.z + CW, ceil: y + CCEIL });
+
+  // --- the bridge ---
+  const HL = 17, HW = 14, CEIL = 6.4, HEAD = 5.0;
+  const bx = gx1 + HL;
+  const x0 = gx1, x1 = gx1 + HL * 2, z0 = P.z - HW, z1 = P.z + HW;
+  lit.push(box(HL * 2, 2.4, HW * 2, bx, y - 1.2, P.z, DECK));
+  // carried on a beam from the flight deck and a brace under the room
+  lit.push(box(x1 - P.x - 4, 3, 5, (P.x + x1 - 4) / 2, y - 3.9, P.z, TRIM));
+  lit.push(box(HL * 1.6, 2, HW * 1.4, bx, y - 3.4, P.z, WALL));
+  // outboard and the two ends: glass. Inboard: plate, with the doorway.
+  wall('z', z0, z1, x1 - T / 2, CEIL, HEAD);
+  wall('x', x0, x1, z0 + T / 2, CEIL, HEAD);
+  wall('x', x0, x1, z1 - T / 2, CEIL, HEAD);
+  wall('z', z0, P.z - CW - T, x0 + T / 2, CEIL, HEAD, true);
+  wall('z', P.z + CW + T, z1, x0 + T / 2, CEIL, HEAD, true);
+  lit.push(box(T, CEIL - CCEIL, CW * 2 + T * 2, x0 + T / 2, y + (CCEIL + CEIL) / 2, P.z, WALL)); // over the door
+  for (const s of [-1, 1]) glow.push(box(T + 0.1, CCEIL, 0.16, x0 + T / 2, y + CCEIL / 2, P.z + s * (CW + 0.1), LIGHT, 1.0));
+  // roof, and the lights under it
+  lit.push(box(HL * 2 + 0.6, 0.5, HW * 2 + 0.6, bx, y + CEIL + 0.25, P.z, ROOF));
+  for (const s of [-1, 0, 1]) glow.push(box(HL * 2 - 6, 0.1, 0.5, bx, y + CEIL - 0.07, P.z + s * 8, LIGHT, 1.0));
+  // an inlay on the floor: where the captain stands
+  glow.push(tint(new THREE.TorusGeometry(4.2, 0.08, 6, 48).rotateX(Math.PI / 2).translate(bx - 5, y + 0.06, P.z - 3), LIGHT, 0.9));
+  surfaces.push({ kind: 'rect', cx: bx, cz: P.z, ux: 1, uz: 0, hl: HL - T - WALKER, hw: HW - T - WALKER, yA: y, yB: y });
+  rooms.push({ x0: x0 + T, x1: x1 - T, z0: z0 + T, z1: z1 - T, ceil: y + CEIL });
+
+  // desks along the outboard glass
   const desks = [];
   for (let i = 0; i < 3; i++) {
     const dz = P.z + (i - 1) * 8;
     const dx = bx + HL - 3;
     lit.push(box(2, 1.2, 5, dx, y + 0.6, dz, TRIM));
-    glow.push(box(1.4, 0.08, 4.2, dx, y + 1.24, dz, LIGHT, 1.0));
+    glow.push(box(1.4, 0.08, 4.2, dx, y + 1.26, dz, LIGHT, 1.0));
     colliders.push({ x: dx, z: dz, r: 2.0, top: y + 1.2 + SNAP + 0.2 });
     desks.push({ x: dx - 2.6, z: dz });
   }
-  // gunnery console, forward edge (warships only)
+  // gunnery console, at the forward glass (warships only)
   const consoles = [];
   if (cls.gun) {
     const cx = bx - 4, cz = P.z + HW - 2.5;
     lit.push(box(5, 1.3, 1.6, cx, y + 0.65, cz, TRIM));
-    glow.push(box(4.4, 0.08, 1.1, cx, y + 1.34, cz, 0xff5a3a, 1.2));
+    glow.push(box(4.4, 0.08, 1.1, cx, y + 1.36, cz, 0xff5a3a, 1.2));
     colliders.push({ x: cx, z: cz, r: 1.9, top: y + 1.3 + SNAP + 0.2 });
     consoles.push({ x: cx, y, z: cz - 2.4, r: 2.8, prompt: 'E — MAN THE LANCE', gun: true, gunYaw: 0, use: () => null });
   }
 
   const g = new THREE.Group();
-  const litMesh = new THREE.Mesh(mergeGeometries(lit, false), mats.lit);
-  const glowMesh = new THREE.Mesh(mergeGeometries(glow, false), mats.glow);
-  for (const q of lit) q.dispose();
-  for (const q of glow) q.dispose();
-  g.add(litMesh, glowMesh);
+  const merged = (list, mat) => {
+    const m = new THREE.Mesh(mergeGeometries(list, false), mat);
+    for (const q of list) q.dispose();
+    g.add(m);
+    return m;
+  };
+  merged(lit, mats.room);
+  merged(glow, mats.deck);
+  // the glass draws after everything opaque, and after the hull's own lights
+  merged(glass, mats.glass).renderOrder = 3;
   ship.group.add(g);
 
-  // people: the captain mid-wing facing the gangway, two at the desks
+  // people: the captain mid-bridge facing the door, two at the desks
   const figures = [];
   const npcs = [];
   const place = (seed, x, z, face, talk) => {
@@ -329,6 +391,8 @@ export function buildDeck(ship, mats, people, story, sunDir) {
   place(seed + 11, desks[0].x, desks[0].z, Math.PI / 2, () => story.crew(ship, 0));
   place(seed + 23, desks[2].x, desks[2].z, Math.PI / 2, () => story.crew(ship, 1));
 
+  // No floor, no step: the rects stop short of the walls by the walker's own
+  // radius, so the glass holds without a wall collider.
   function floorYAt(x, z, feetY) {
     let best = -Infinity;
     for (let i = 0; i < surfaces.length; i++) {
@@ -348,19 +412,22 @@ export function buildDeck(ship, mats, people, story, sunDir) {
     planet: { group: { position: ZERO }, sunDir },
     pad: P.clone(),
     padR: R,
-    spawn: new THREE.Vector3(P.x + 13, y, P.z - 13),
+    spawn: new THREE.Vector3(P.x + 13, yP, P.z - 13),
     surfaces,
     colliders,
     floorYAt,
     snap: SNAP,
     npcs,
     consoles,
+    // roofed volumes, platform-local: the third-person camera stays inside
+    // whichever one the walker is in (src/capitalWalk.js)
+    rooms,
     onChoice: (tag) => story.choice(tag, ship),
     setWalker() {},
     gun: cls.gun ? { pivot: cls.gun, targets: () => story.targets(ship), onHit: (id) => story.onHit(id) } : null,
     update(dt, t) {
       for (const f of figures) f.update(dt, t);
     },
-    places: { pad: [P.x + 10, y, P.z - 9], bridge: [bx - 8, y, P.z - 3], gun: consoles[0] ? [consoles[0].x, y, consoles[0].z] : null },
+    places: { pad: [P.x + 10, yP, P.z - 9], bridge: [bx - 8, y, P.z - 3], gun: consoles[0] ? [consoles[0].x, y, consoles[0].z] : null },
   };
 }

@@ -361,6 +361,15 @@ seats you (`capital.gun.active`), set `gun.yaw/aimYaw/pitch/aimPitch` to the
 target's bearing in the ship's own frame, `e` fires; the target's `alive`
 goes false and its id is in `fgsf.tenretni.lost`. `g` stands down.
 
+The boarding kit is a pad, a glazed companionway and an enclosed bridge:
+`walkSite().capital.rooms` → `[{x0,x1,z0,z1,ceil}]` (companionway, bridge) and
+`.places` in the ship's own frame. Holding `input.forward` from `places.bridge`
+at any yaw must leave `cWalk.pos` inside a room (no wall colliders: the floor
+rects stop short of the glass). Fleet poses are set by `fleets().place(t)` at
+the top of the frame, so `camera.position` taken into `ship.group` local space
+must not move while standing still. Flicker check: two screenshots 0.7 s apart
+from `places.pad` in first person, lower half identical.
+
 The ending: `tenretni.setComms(true)` opens all three channels; put the ship
 within 9000 of terra's surface and `tenretni.end().state()` → `{v, done, ready,
 missing, star}` reads `ready: true` and the CALL THE FLEETS button shows; key
