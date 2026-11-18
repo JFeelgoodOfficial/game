@@ -212,7 +212,11 @@ function speciesForCity(cityId) {
 // ---------------------------------------------------------------------------
 // Procedural rig — Astronaut-style nested joint hierarchy
 // ---------------------------------------------------------------------------
-export function buildRig(seed, cityId) {
+// `opts.dress(ctx)`: called once the figure is built and before it is fused,
+// with { joints, dims }. Meshes it hangs on the joints (or on joints of its
+// own, which it may add to `joints`) are fused with the rest; a material of
+// its own costs one more draw. (world/captainDress.js)
+export function buildRig(seed, cityId, opts) {
   const rng = mulberry32(seed);
 
   const height = THREE.MathUtils.lerp(C.heightMin, C.heightMax, rng());
@@ -369,9 +373,11 @@ export function buildRig(seed, cityId) {
   // are untouched, so every pose, and anything a world hangs on a joint,
   // works as before; the materials are the same three objects, so a world
   // that recolours them still does. Three draws a figure.
+  const joints = { pelvis, torso, head, shoulders, armL, armR, legL, legR, tail };
+  if (opts && opts.dress) opts.dress({ joints, dims: { scaleY, limbScale, buildWidth, headScale } });
   root.updateMatrixWorld(true);
   const bones = [];
-  const parts = [[], [], []]; // skin, cloth, eye
+  const parts = [[], [], []]; // skin, cloth, eye (and then any a dress brought)
   const mats = [skinMat, clothMat, eyeMat];
   const fused = [];
   root.traverse((o) => {
@@ -391,7 +397,12 @@ export function buildRig(seed, cityId) {
     }
     g.setAttribute('skinIndex', new THREE.BufferAttribute(idx, 4));
     g.setAttribute('skinWeight', new THREE.BufferAttribute(wgt, 4));
-    parts[Math.max(mats.indexOf(o.material), 0)].push(g);
+    let mi = mats.indexOf(o.material);
+    if (mi < 0) {
+      mi = mats.push(o.material) - 1;
+      parts.push([]);
+    }
+    parts[mi].push(g);
     fused.push(o);
   });
   const seen = new Set();
@@ -403,7 +414,7 @@ export function buildRig(seed, cityId) {
     }
   }
   const byMat = [], matsUsed = [];
-  for (let m = 0; m < 3; m++) {
+  for (let m = 0; m < mats.length; m++) {
     if (!parts[m].length) continue;
     byMat.push(parts[m].length > 1 ? mergeGeometries(parts[m], false) : parts[m][0]);
     matsUsed.push(mats[m]);
@@ -426,7 +437,7 @@ export function buildRig(seed, cityId) {
 
   return {
     group: root,
-    joints: { pelvis, torso, head, shoulders, armL, armR, legL, legR, tail },
+    joints,
     materials: { skinMat, clothMat, eyeMat },
     body,
     params: {

@@ -19,7 +19,8 @@
 import * as THREE from 'three';
 import { tint, box, cyl, buildRobot, trackRobot } from './capital.js';
 import { buildRig, poseRig } from './aliens.js';
-import { measureRig, standRig } from './rigGround.js';
+import { standRig } from './rigGround.js';
+import { buildCaptain, liveCaptain } from './captainDress.js';
 import { C } from '../src/constants.js';
 import { Q } from '../src/quality.js';
 import { createLayerPlanet } from './layerplanet.js';
@@ -39,7 +40,7 @@ const GLOW = { gold: 0xffe2a0, white: 0xfff8ea, cyan: 0x9fe8ff };
 // (A first draft, like the Keeper's greeting: the owner's to rewrite.)
 const CAPTAINS = [
   {
-    name: 'Shift-Captain Orrin Vask', species: 'Rustia', seed: 0x51a, at: [-9, -8], face: 0.9,
+    id: 'vask', name: 'Shift-Captain Orrin Vask', species: 'Rustia', seed: 0x51a, at: [-9, -8], face: 0.9,
     lines: [
       'They gave every hand a room with a window. Thirty years below decks, and I have a window.',
       'I asked what it costs. The tall one said it had not thought of that.',
@@ -47,7 +48,7 @@ const CAPTAINS = [
     ],
   },
   {
-    name: 'Cantor Ilse Marrow', species: 'Saturnia', seed: 0x7c3, at: [9, -8], face: -0.9,
+    id: 'marrow', name: 'Cantor Ilse Marrow', species: 'Saturnia', seed: 0x7c3, at: [9, -8], face: -0.9,
     lines: [
       'We rang every bell when we were shown our halls. The sound carries differently here. Further.',
       'Our world is gone and we are housed. I do not yet know what to call that.',
@@ -55,7 +56,7 @@ const CAPTAINS = [
     ],
   },
   {
-    name: 'Floor Manager Brandi Lux', species: 'Wavemall Prime', seed: 0x2e9, at: [0, 10], face: Math.PI,
+    id: 'lux', name: 'Floor Manager Brandi Lux', species: 'Wavemall Prime', seed: 0x2e9, at: [0, 10], face: Math.PI,
     lines: [
       'Pilot! They comped the WHOLE fleet. Suites. Skyline views. No checkout time.',
       'I asked for the catch. There is always a catch. The concierge just looked at me.',
@@ -134,7 +135,7 @@ export function buildPavilion(k) {
   const rigs = [];
   const capSolids = [];
   for (const c of CAPTAINS) {
-    const rig = measureRig(buildRig(c.seed, 'fleet'));
+    const rig = buildCaptain(c.id);
     const x = P.x + c.at[0], z = P.z + c.at[1];
     rig.group.position.set(x, 0, z);
     standRig(rig, 0);
@@ -290,6 +291,9 @@ export function buildPavilion(k) {
       for (const r of rigs) {
         poseRig(r, dt, t, 'idle', 0);
         standRig(r, 0);
+        // they look up when someone comes to the table
+        const near = walker && walker.y < 5 && Math.hypot(walker.x - r.group.position.x, walker.z - r.group.position.z) < 9;
+        liveCaptain(r, dt, t, false, near ? Math.atan2(walker.x - r.group.position.x, walker.z - r.group.position.z) - r.group.rotation.y : 0);
       }
       trackRobot(steward, walker, dt, t);
       // the one in the suite watches whoever is in it with them, and nobody else
