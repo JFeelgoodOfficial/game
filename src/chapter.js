@@ -30,6 +30,7 @@ export function createChapter(ctx) {
   const picks = {};
   const seen = [];
   let assigned = false;
+  const clock = { ship: 0, world: 0 }; // what the two clocks read when the ship was down
 
   const at = (s) => STAGES.indexOf(s);
   function advance(to) {
@@ -104,10 +105,18 @@ export function createChapter(ctx) {
       return out;
     },
 
+    // --- the dive (world/divebridge.js) ---
+    setClocks(ship, world) {
+      clock.ship = ship;
+      clock.world = world;
+      ctx.onSave();
+    },
+    clocks: () => clock,
+
     // --- the save: one small object inside src/tenretni.js's ---
     serialize() {
       if (stage === 'suite' && !seen.length) return undefined;
-      return { stage, picks: { ...picks }, seen: seen.slice(), assigned: assigned || undefined };
+      return { stage, picks: { ...picks }, seen: seen.slice(), assigned: assigned || undefined, clock: clock.world ? [Math.round(clock.ship), Math.round(clock.world)] : undefined };
     },
     restore(raw) {
       if (!raw || typeof raw !== 'object') return;
@@ -117,6 +126,7 @@ export function createChapter(ctx) {
       }
       if (Array.isArray(raw.seen)) for (const w of WORLDS) if (raw.seen.includes(w.id) && !seen.includes(w.id)) seen.push(w.id);
       if (raw.assigned) assigned = true;
+      if (Array.isArray(raw.clock) && raw.clock.length === 2 && raw.clock.every(Number.isFinite)) [clock.ship, clock.world] = raw.clock;
     },
 
     // dev (__debug.tenretni.chapter()): jump the story to a stage, either way
@@ -126,6 +136,6 @@ export function createChapter(ctx) {
       ctx.onSave();
       return true;
     },
-    state: () => ({ stage, picks: { ...picks }, seen: seen.slice(), assigned }),
+    state: () => ({ stage, picks: { ...picks }, seen: seen.slice(), assigned, clock: { ...clock } }),
   };
 }

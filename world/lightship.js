@@ -42,7 +42,7 @@ const GLOW = { cyan: 0x9fe8ff, gold: 0xffe2a0, white: 0xfff8ea };
 
 // The hull from inside: the same cells as outside (world/lightvessel.js), as
 // walls of coloured light a long way off, each keeping its own time.
-const HULL_VERT = /* glsl */ `
+export const HULL_VERT = /* glsl */ `
   varying vec3 vP;
   varying vec3 vN;
   void main() {
@@ -51,7 +51,7 @@ const HULL_VERT = /* glsl */ `
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
-const HULL_FRAG = /* glsl */ `
+export const HULL_FRAG = /* glsl */ `
   uniform float uTime;
   uniform float uDim;
   varying vec3 vP;
@@ -194,6 +194,12 @@ export function createLightShip(ctx) {
   glow.push(tint(box(5.6, 0.2, 0.3, 0, 7.2, HALL_Z1 + 0.1), GLOW.gold, 1.4));
   for (const s of [-1, 1]) glow.push(tint(box(0.2, 7.2, 0.3, s * 2.7, 3.6, HALL_Z1 + 0.1), GLOW.gold, 1.4));
 
+  consoles.push({
+    x: 0, y: 0, z: HALL_Z1 + 2.2, r: 2.6, prompt: 'E — GO FORWARD TO THE BRIDGE',
+    off: () => !chapter.reached('dive'),
+    use: () => ((site.portal = 'bridge'), null),
+  });
+
   // --- aft: the way off ---
   glow.push(tint(new THREE.TorusGeometry(2.2, 0.1, 6, 40).rotateX(Math.PI / 2).translate(0, 0.06, HALL_Z0 - 2.6), GLOW.gold, 1.6));
   consoles.push({ x: 0, y: 0, z: HALL_Z0 - 2.6, r: 2.4, prompt: 'E — LEAVE THE SHIP', use: () => ((site.portal = 'gallery'), null) });
@@ -297,10 +303,12 @@ export function createLightShip(ctx) {
     pad: new THREE.Vector3(0, 0, HALL_Z0 - 2.6),
     spawn: new THREE.Vector3(0, 0, HALL_Z0 - 7),
     spawnYaw: Math.PI, // facing forward
+    fromBridge: new THREE.Vector3(0, 0, HALL_Z1 + 6), // coming back aft from the bridge
+    fromBridgeYaw: 0,
     npcs,
     consoles,
     onChoice: () => null,
-    portal: null, // 'gallery' once the pilot has asked to leave
+    portal: null, // 'gallery' once the pilot has asked to leave, 'bridge' to go forward
     setWalker(p) {
       walker = p || null;
     },

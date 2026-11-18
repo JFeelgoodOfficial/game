@@ -1429,6 +1429,13 @@ function aimLandingDock() {
 }
 // The door on the landing (and the one back): seconds into the white, -1 when
 // nobody is in a doorway; and where it leads, 'city' | 'pad'.
+// door -> [the site it leads to, where on it, facing, the render preset]
+const FAR_HOPS = {
+  ship: ['ship', 'spawn', 'spawnYaw', 'lightship'],
+  gallery: ['city', 'fromShip', 'fromShipYaw', 'lightcity'],
+  bridge: ['bridge', 'spawn', 'spawnYaw', 'dive'],
+  hall: ['ship', 'fromBridge', 'fromBridgeYaw', 'lightship'],
+};
 let doorT = -1;
 let doorTo = null;
 let platformDock = null; // the dock whose platform the pilot is walking (capital or a ship)
@@ -2529,15 +2536,16 @@ function frame(now) {
             enterCapitalWalk(city, { spawn: city.spawn, yaw: city.spawnYaw, quiet: true });
             acquireSurface('lightcity', renderer, aoPass, camera, bloomPass);
           }
-        } else if (doorTo === 'ship' || doorTo === 'gallery') {
-          // ...and between the city and the light ship in its hangar (GDD
-          // 5.7.4): both are inside the same pause, so only the look changes
-          const aboard = doorTo === 'ship';
-          const to = farSite(aboard ? 'ship' : 'city');
+        } else if (FAR_HOPS[doorTo]) {
+          // ...and between the city, the light ship in its hangar and the
+          // ship's bridge (GDD 5.7.4): all inside the same pause, so only the
+          // place and its look change
+          const [kind, spawn, yaw, look] = FAR_HOPS[doorTo];
+          const to = farSite(kind);
           if (to) {
-            enterCapitalWalk(to, { spawn: aboard ? to.spawn : to.fromShip, yaw: aboard ? to.spawnYaw : to.fromShipYaw, quiet: true });
+            enterCapitalWalk(to, { spawn: to[spawn], yaw: to[yaw], quiet: true });
             releaseSurface(renderer, aoPass, camera, bloomPass);
-            acquireSurface(aboard ? 'lightship' : 'lightcity', renderer, aoPass, camera, bloomPass);
+            acquireSurface(look, renderer, aoPass, camera, bloomPass);
           }
         } else {
           const pad = farSite('pad');
