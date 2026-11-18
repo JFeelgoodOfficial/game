@@ -131,6 +131,7 @@ export function buildPavilion(k) {
 
   // --- the captains: one from each fleet, round the table ---
   const rigs = [];
+  const capSolids = [];
   for (const c of CAPTAINS) {
     const rig = buildRig(c.seed, 'fleet');
     const x = P.x + c.at[0], z = P.z + c.at[1];
@@ -138,8 +139,10 @@ export function buildPavilion(k) {
     rig.group.rotation.y = c.face;
     k.group.add(rig.group);
     rigs.push(rig);
-    colliders.push({ x, z, r: 0.7, top: Infinity });
-    npcs.push({ x, y: 0, z, role: 'captain', talk: () => ({ speaker: { name: c.name, species: c.species, cityId: 'The Pavilion' }, lines: c.lines }) });
+    const solid = { x, z, r: 0.7, top: Infinity };
+    colliders.push(solid);
+    capSolids.push(solid);
+    npcs.push({ x, y: 0, z, role: 'captain', table: true, talk: () => ({ speaker: { name: c.name, species: c.species, cityId: 'The Pavilion' }, lines: c.lines }) });
   }
   // --- the steward, by the lift ---
   const LIFT = { x: P.x + P.r - 7, z: P.z }; // the Pavilion's east side
@@ -275,6 +278,12 @@ export function buildPavilion(k) {
       walker = p;
     },
     inSuite: () => !!walker && walker.y > S.y - 2,
+    // a thousand years on they are not at the table (world/lightepilogue.js)
+    hideCaptains() {
+      for (const r of rigs) r.group.visible = false;
+      for (const c of capSolids) c.x = c.z = 1e6;
+      for (const n of npcs) if (n.table) n.x = n.z = 1e6;
+    },
     tick(dt, t) {
       for (const r of rigs) poseRig(r, dt, t, 'idle', 0);
       trackRobot(steward, walker, dt, t);

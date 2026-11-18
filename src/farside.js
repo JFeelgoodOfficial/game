@@ -549,6 +549,7 @@ export function createFarside(ctx) {
       inCity: !!(city && city.inside()),
       cityTowers: city ? city.info().towers : null,
       demo: city ? city.info().demo : null,
+      epi: city ? city.info().epi : null,
       inShip: !!(lship && lship.inside()),
       ship: lship ? lship.info() : null,
       onBridge: !!(bridge && bridge.inside()),

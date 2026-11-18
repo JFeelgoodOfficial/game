@@ -30,6 +30,7 @@ export function createChapter(ctx) {
   const picks = {};
   const seen = [];
   let assigned = false;
+  let epilogue = false; // the captains have seen what was built, and the ship leave again
   let home = false; // the light ship is back in its hangar, a long time later
   const clock = { ship: 0, world: 0 }; // what the two clocks read when the ship was down
 
@@ -122,6 +123,13 @@ export function createChapter(ctx) {
       home = true;
       ctx.onSave();
     },
+    epilogue: () => epilogue,
+    setEpilogue() {
+      if (epilogue) return;
+      epilogue = true;
+      addCodex('A New Idea');
+      ctx.onSave();
+    },
     // what the two clocks came to, said once the pilot is back in the city
     returnLine() {
       const m = Math.max(1, Math.round(clock.ship / 60));
@@ -137,7 +145,7 @@ export function createChapter(ctx) {
     // --- the save: one small object inside src/tenretni.js's ---
     serialize() {
       if (stage === 'suite' && !seen.length) return undefined;
-      return { stage, picks: { ...picks }, seen: seen.slice(), assigned: assigned || undefined, home: home || undefined, clock: clock.world ? [Math.round(clock.ship), Math.round(clock.world)] : undefined };
+      return { stage, picks: { ...picks }, seen: seen.slice(), assigned: assigned || undefined, home: home || undefined, epilogue: epilogue || undefined, clock: clock.world ? [Math.round(clock.ship), Math.round(clock.world)] : undefined };
     },
     restore(raw) {
       if (!raw || typeof raw !== 'object') return;
@@ -148,6 +156,7 @@ export function createChapter(ctx) {
       if (Array.isArray(raw.seen)) for (const w of WORLDS) if (raw.seen.includes(w.id) && !seen.includes(w.id)) seen.push(w.id);
       if (raw.assigned) assigned = true;
       if (raw.home) home = true;
+      if (raw.epilogue) epilogue = true;
       if (Array.isArray(raw.clock) && raw.clock.length === 2 && raw.clock.every(Number.isFinite)) [clock.ship, clock.world] = raw.clock;
     },
 
@@ -158,6 +167,6 @@ export function createChapter(ctx) {
       ctx.onSave();
       return true;
     },
-    state: () => ({ stage, home, picks: { ...picks }, seen: seen.slice(), assigned, clock: { ...clock } }),
+    state: () => ({ stage, home, epilogue, picks: { ...picks }, seen: seen.slice(), assigned, clock: { ...clock } }),
   };
 }

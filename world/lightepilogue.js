@@ -1,0 +1,406 @@
+// A thousand years on, in the City of Light (GDD 5.7.4, the epilogue).
+//
+// The ships' companies that were left behind when the light ship dived were
+// taken into the city, and they stayed. Forty generations of Rustia's miners,
+// Saturnia's cantors and Wavemall Prime's floor staff have lived in it
+// together, and it is theirs now as much as anyone's: bells hung in the
+// Pavilion's canopy, braziers of ember on the terrace, signs in pink and cyan
+// along the bridges, banners in all three colours, and their descendants
+// walking about under them.
+//
+// And across the city from the pilot's suite stands something that was not
+// there before: a building as tall as anything the Tenretni ever made, in the
+// shape of what the pilot drew at the bottom of the tether (the monument).
+// Whatever was done in the light ship was done to everything here.
+//
+// The three captains are waiting in the suite. When the pilot comes up they
+// see it together, say what it means, and watch the light ship leave its
+// hangar again, for the hole, with a Tenretni at the helm. After that the
+// three of them go wherever the pilot goes.
+//
+// Built by world/lightcity.js the first time the city is entered with the
+// ship home. Every word is in world/chapter-dialogue.js (EPILOGUE).
+
+import * as THREE from 'three';
+import { MOTION_SCALE } from '../src/motion.js';
+import { uiSound, setEventRumble } from '../src/sfx.js';
+import { label } from '../src/holoLabel.js';
+import { chapterHud } from '../src/chapterHud.js';
+import { tint, box, cyl, mergedMesh } from './capital.js';
+import { buildRig, poseRig } from './aliens.js';
+import { SUITE, PAV } from './lightpavilion.js';
+import { loadFirstEntry, worldFrom } from './firstcreature.js';
+import { CAPTAINS, EPILOGUE } from './chapter-dialogue.js';
+
+const VIEW = -Math.PI / 2 + 0.5; // the way the suite's seat faces (world/lightpavilion.js)
+const FAR = 560; // the monument, this far from the suite
+const SPAN = 310; // half its width and height
+const SEEDS = { vask: 0x51a, marrow: 0x7c3, lux: 0x2e9 };
+const TERR = { x: 0, z: -77, r: 15 }, GALL = { x: -112, z: -77, r: 11 }; // world/lightcity.js
+const T_END = EPILOGUE.launchAt + 13;
+
+const MON_VERT = /* glsl */ `
+  attribute float aAlong;
+  varying vec3 vLocal;
+  varying vec3 vLN;
+  varying vec3 vSize;
+  varying vec3 vWorld;
+  varying vec3 vN;
+  varying float vAlong;
+  void main() {
+    vLocal = position;
+    vLN = normal;
+    vAlong = aAlong;
+    vSize = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
+    vec4 world = modelMatrix * instanceMatrix * vec4(position, 1.0);
+    vWorld = world.xyz;
+    vN = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
+    gl_Position = projectionMatrix * viewMatrix * world;
+  }
+`;
+const MON_FRAG = /* glsl */ `
+  uniform float uTime;
+  uniform vec3 uA, uB, uLight;
+  varying vec3 vLocal;
+  varying vec3 vLN;
+  varying vec3 vSize;
+  varying vec3 vWorld;
+  varying vec3 vN;
+  varying float vAlong;
+  float h2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  void main() {
+    vec3 an = abs(vLN);
+    vec2 uv = an.x > 0.5 ? vLocal.zy * vSize.zy : an.y > 0.5 ? vLocal.xz * vSize.xz : vLocal.xy * vSize.xy;
+    // floors and bays: it is lived in, all the way along
+    vec2 g = uv / vec2(5.0, 4.0);
+    vec2 id = floor(g), f = fract(g);
+    float pane = step(0.14, f.x) * step(0.2, f.y);
+    float on = step(0.45, h2(id + floor(vAlong * 40.0)));
+    vec3 body = mix(uA, uB, 0.5 + 0.5 * sin(vAlong * 6.2832 + uTime * 0.12));
+    vec3 N = normalize(vN), V = normalize(cameraPosition - vWorld);
+    float dif = 0.45 + 0.55 * max(dot(N, uLight), 0.0);
+    vec3 col = body * body * 0.75 * dif;
+    col = mix(col, body * 1.5 + 0.2, pane * on * (0.55 + 0.45 * sin(uTime * 0.6 + h2(id) * 40.0)));
+    // a line of light runs along it, the way the creature swims
+    col += body * 1.6 * pow(0.5 + 0.5 * sin(vAlong * 50.0 - uTime * 1.4), 12.0);
+    col += vec3(1.0) * pow(1.0 - max(dot(N, V), 0.0), 3.0) * 0.35;
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+// k: { group, chapter, hangar, lightDir, pavilion, floorYAt(), npcs (the site's own list), colliders }
+export function createEpilogue(k) {
+  const { group, chapter, hangar, lightDir } = k;
+  const S = SUITE;
+  const dir = new THREE.Vector3(Math.cos(VIEW), 0, Math.sin(VIEW));
+  const side = new THREE.Vector3(-dir.z, 0, dir.x);
+  const root = new THREE.Group();
+  group.add(root);
+
+  // --- the monument: the drawing, a third of a mile high ---
+  const center = new THREE.Vector3(S.x + dir.x * FAR, S.y + 40, S.z + dir.z * FAR);
+  const entry = loadFirstEntry();
+  const monU = { uTime: { value: 0 }, uA: { value: new THREE.Color(0.4, 0.9, 1) }, uB: { value: new THREE.Color(1, 0.7, 0.4) }, uLight: { value: lightDir } };
+  let monument = null;
+  if (entry) {
+    const w = worldFrom(entry);
+    monU.uA.value.copy(w.a);
+    monU.uB.value.copy(w.b);
+    // the strokes, stepped out into straight runs
+    const runs = [];
+    let total = 0;
+    for (const s of entry) for (let i = 1; i < s.length; i++) total += Math.hypot(s[i][0] - s[i - 1][0], s[i][1] - s[i - 1][1]);
+    let walked = 0;
+    for (const s of entry) {
+      let ax = s[0][0], ay = s[0][1], acc = 0;
+      for (let i = 1; i < s.length; i++) {
+        acc += Math.hypot(s[i][0] - s[i - 1][0], s[i][1] - s[i - 1][1]);
+        const last = i === s.length - 1;
+        if (acc >= 0.035 || last) {
+          const len = Math.hypot(s[i][0] - ax, s[i][1] - ay);
+          if (len > 1e-4) runs.push([ax, ay, s[i][0], s[i][1], (walked + acc * 0.5) / Math.max(total, 1e-4)]);
+          walked += acc;
+          acc = 0;
+          ax = s[i][0];
+          ay = s[i][1];
+        }
+      }
+    }
+    const n = Math.min(runs.length, 1200);
+    monument = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.ShaderMaterial({ vertexShader: MON_VERT, fragmentShader: MON_FRAG, uniforms: monU, fog: false }), Math.max(n, 1));
+    const along = new Float32Array(Math.max(n, 1));
+    const m4 = new THREE.Matrix4(), bx = new THREE.Vector3(), by = new THREE.Vector3(), pos = new THREE.Vector3(), scl = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
+    for (let i = 0; i < n; i++) {
+      const [x0, y0, x1, y1, a] = runs[i];
+      // the drawing's plane faces the suite: its x runs along `side`, its y up
+      bx.copy(side).multiplyScalar(x1 - x0).addScaledVector(up, y1 - y0);
+      const len = bx.length() * SPAN;
+      bx.normalize();
+      by.crossVectors(dir, bx).normalize();
+      m4.makeBasis(bx, by, dir);
+      q.setFromRotationMatrix(m4);
+      pos.copy(center).addScaledVector(side, ((x0 + x1) / 2) * SPAN).addScaledVector(up, ((y0 + y1) / 2) * SPAN);
+      scl.set(len + 16, 30, 46);
+      m4.compose(pos, q, scl);
+      monument.setMatrixAt(i, m4);
+      along[i] = a;
+    }
+    monument.geometry.setAttribute('aAlong', new THREE.InstancedBufferAttribute(along, 1));
+    monument.frustumCulled = false;
+    root.add(monument);
+  }
+
+  // --- what forty generations of three peoples have done with the place ---
+  const lit = [], glow = [];
+  const RUST = 0xb5532a, EMBER = 0xff8a3a, GOLD = 0xe9c46a, PINK = 0xff6fae, CYAN = 0x82f7ff;
+  // Saturnia: bells in the Pavilion's canopy, a ring of them
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const x = PAV.x + Math.cos(a) * 19, z = PAV.z + Math.sin(a) * 19, h = 11 + (i % 3) * 0.9;
+    lit.push(tint(cyl(0.03, 0.03, 15 - h, x, (15 + h) / 2, z, 4), GOLD));
+    lit.push(tint(cyl(0.35, 0.95, 1.3, x, h - 0.65, z, 14), GOLD));
+    glow.push(tint(cyl(0.16, 0.16, 0.16, x, h - 1.3, z, 8), 0xfff2b8, 1.6));
+  }
+  // Rustia: braziers of ember round the terrace, and ore set into its floor
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2 + 0.31;
+    const x = TERR.x + Math.cos(a) * 17.2, z = TERR.z + Math.sin(a) * 17.2;
+    if (Math.abs(z - TERR.z) < 4.5 || (Math.abs(x) < 4.5 && z > TERR.z)) continue; // the bridges
+    lit.push(tint(cyl(0.7, 0.35, 0.9, x, 0.45, z, 8), RUST));
+    glow.push(tint(cyl(0.55, 0.55, 0.12, x, 0.92, z, 8), EMBER, 2.0));
+    k.colliders.push({ x, z, r: 0.8, top: Infinity });
+  }
+  for (let i = 0; i < 16; i++) glow.push(tint(box(0.5, 0.04, 0.5, TERR.x + Math.cos(i * 2.4) * (4 + (i % 5) * 2.2), 0.035, TERR.z + Math.sin(i * 2.4) * (4 + (i % 5) * 2.2), i), EMBER, 0.9));
+  // Wavemall Prime: lines of light strung over the bridges, pink and cyan
+  for (const [x0, x1] of [[20, PAV.x - PAV.r], [GALL.x + GALL.r + 2, -20]]) {
+    for (let x = x0 + 2; x < x1; x += 2.2) {
+      const sag = 4.2 + 0.9 * Math.cos(((x - x0) / (x1 - x0)) * Math.PI * 2);
+      glow.push(tint(box(0.22, 0.22, 0.22, x, sag, TERR.z - 2.9), Math.round(x) % 2 ? PINK : CYAN, 1.8));
+      glow.push(tint(box(0.22, 0.22, 0.22, x, sag, TERR.z + 2.9), Math.round(x) % 2 ? CYAN : PINK, 1.8));
+    }
+  }
+  // banners in all three colours, on masts round the terrace and the Pavilion
+  const BAN = [RUST, GOLD, PINK];
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2 + 0.2;
+    for (const [c, r] of [[TERR, 18.6], [PAV, 28]]) {
+      const x = c.x + Math.cos(a) * r, z = c.z + Math.sin(a) * r;
+      if (Math.abs(z - c.z) < 5) continue;
+      lit.push(tint(cyl(0.07, 0.1, 9, x, 4.5, z, 6), 0xc9a455));
+      lit.push(tint(box(0.06, 4.6, 1.5, x, 6.3, z + 0.85, -a), BAN[i % 3]));
+    }
+  }
+  const flat = (list) => list.map((g) => (g.index ? g.toNonIndexed() : g));
+  root.add(mergedMesh(flat(lit), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x2a2620, side: THREE.DoubleSide })));
+  root.add(mergedMesh(flat(glow), new THREE.MeshBasicMaterial({ vertexColors: true, fog: false })));
+  // signs, in the names their ships had
+  EPILOGUE.signs.forEach((text, i) => {
+    const s = label(text, i % 2 ? '#ffc9ec' : '#a9f7ff', 9);
+    const onEast = i % 2 === 0;
+    s.position.set(onEast ? 26 + i * 7 : -30 - i * 9, 7.2 + (i % 3) * 0.5, TERR.z);
+    root.add(s);
+  });
+
+  // --- the people of the city: descendants of all three, about their day ---
+  const AREAS = [TERR, TERR, TERR, TERR, TERR, PAV, PAV, PAV, PAV, PAV, PAV, GALL, GALL];
+  let rs = 0x7e2a11;
+  const rnd = () => ((rs = (Math.imul(rs, 1664525) + 1013904223) >>> 0), rs / 4294967296);
+  const spot = (c, o) => {
+    const a = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * (c === PAV ? 24 : c.r) + (c === PAV ? 5 : 0);
+    o.x = c.x + Math.cos(a) * Math.min(r, c === PAV ? 25 : c.r);
+    o.z = c.z + Math.sin(a) * Math.min(r, c === PAV ? 25 : c.r);
+    return o;
+  };
+  const people = AREAS.map((area, i) => {
+    const rig = buildRig(0x1000 + i * 977, 'fleet');
+    const p = spot(area, { x: 0, z: 0 });
+    rig.group.position.set(p.x, rig.params.groundOffset || 0, p.z);
+    rig.group.scale.setScalar(0.85 + rnd() * 0.3);
+    root.add(rig.group);
+    return { rig, area, to: spot(area, { x: 0, z: 0 }), wait: rnd() * 5, speed: 1.6 + rnd() * 1.4 };
+  });
+
+  // --- the captains ---
+  k.pavilion.hideCaptains(); // they are not at the Pavilion's table any more
+  const WINDOW = [[-3.2, 0.2], [0.2, -0.4], [3.4, 0.3]]; // across the glass, a little apart
+  const crew = CAPTAINS.map((c, i) => {
+    const rig = buildRig(SEEDS[c.id] ?? 0x333 + i, 'fleet');
+    const x = S.x + dir.x * 11.5 + side.x * WINDOW[i][0] + dir.x * WINDOW[i][1];
+    const z = S.z + dir.z * 11.5 + side.z * WINDOW[i][0] + dir.z * WINDOW[i][1];
+    rig.group.position.set(x, S.y + (rig.params.groundOffset || 0), z);
+    root.add(rig.group);
+    const npc = { x, y: S.y, z, role: 'captain', talk: () => ({ speaker: { name: c.name, species: c.species, cityId: 'The City of Light' }, lines: EPILOGUE.talk[c.id] || [] }) };
+    k.npcs.push(npc);
+    return { c, rig, npc, yaw: Math.atan2(dir.x, dir.z), want: Math.atan2(dir.x, dir.z), slot: (i / CAPTAINS.length) * Math.PI * 2 + 0.6, moving: false };
+  });
+  const turn = (m, yaw, dt, rate = 3) => {
+    let d = yaw - m.yaw;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    m.yaw += d * Math.min(1, dt * rate);
+    m.rig.group.rotation.y = m.yaw;
+  };
+
+  // --- the light ship, leaving ---
+  const trail = new THREE.Mesh(
+    new THREE.CylinderGeometry(1, 1, 1, 10, 1, true).translate(0, 0.5, 0),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 1.5, 1.3), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })
+  );
+  trail.position.copy(hangar.root.position);
+  trail.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), lightDir);
+  trail.frustumCulled = false;
+  root.add(trail);
+  const qRest = new THREE.Quaternion(), qGo = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), lightDir);
+  function shipAt(x) {
+    // x: seconds since it let go (< 0: in its yard; gone for good once the story says so)
+    if (x < 0) {
+      const gone = chapter.epilogue();
+      hangar.vessel.visible = !gone;
+      hangar.vessel.position.set(0, 0, 0);
+      hangar.vessel.quaternion.copy(qRest);
+      hangar.uniforms.uFlight.value = 0;
+      trail.material.opacity = 0;
+      return;
+    }
+    const lift = Math.min(x / 4, 1), go = Math.max(x - 3.5, 0);
+    const far = 60 * lift * lift + go * go * go * 14; // slowly, and then not
+    hangar.vessel.visible = far < 3300;
+    hangar.vessel.position.copy(lightDir).multiplyScalar(far);
+    hangar.vessel.quaternion.slerpQuaternions(qRest, qGo, Math.min(x / 3.5, 1) ** 2);
+    hangar.uniforms.uFlight.value = Math.min(x / 2.5, 1);
+    trail.scale.set(8 + go * 5, Math.min(far, 3300), 8 + go * 5);
+    trail.material.opacity = Math.min(go * 0.5, 0.75) * Math.max(0, 1 - (x - 9) / 4);
+  }
+
+  let u = -1; // the scene's clock; < 0 when it is not playing
+  let said = -1;
+  const _a = new THREE.Vector3(), _b = new THREE.Vector3();
+  const ease = (a, b, x) => {
+    const t = Math.min(Math.max((x - a) / (b - a), 0), 1);
+    return t * t * (3 - 2 * t);
+  };
+
+  function finish() {
+    u = -1;
+    chapter.setEpilogue();
+    chapterHud.cine(false);
+    setEventRumble(0);
+    shipAt(-1);
+  }
+
+  return {
+    built: !!monument,
+    held: () => u >= 0,
+    // In the suite: over the pilot's shoulder at the three of them and what is
+    // beyond the glass; then round to the west for the ship.
+    camera(pos, target) {
+      if (u < 0) return false;
+      const turnTo = ease(EPILOGUE.launchAt - 2.5, EPILOGUE.launchAt + 1, u);
+      _a.set(S.x + dir.x * 3 + side.x * (4.5 - u * 0.1), S.y + 2.5, S.z + dir.z * 3 + side.z * (4.5 - u * 0.1));
+      _b.set(S.x - 10.5, S.y + 3.4, S.z + 2.5);
+      pos.lerpVectors(_a, _b, turnTo);
+      _a.copy(center).setY(S.y + 30);
+      _b.copy(hangar.root.position).add(hangar.vessel.position);
+      target.lerpVectors(_a, _b, turnTo);
+      return true;
+    },
+    stop() {
+      if (u >= 0) {
+        u = -1;
+        chapterHud.clear();
+        setEventRumble(0);
+      }
+      shipAt(-1);
+    },
+    tick(dt, t, walker) {
+      monU.uTime.value = t;
+      // the scene starts itself when the pilot comes up into the suite
+      if (u < 0 && !chapter.epilogue() && walker && walker.y > S.y - 2 && Math.hypot(walker.x - S.x, walker.z - S.z) < S.r) {
+        u = 0;
+        said = -1;
+        chapterHud.cine(true);
+        uiSound('select');
+      }
+      if (u >= 0) {
+        u += dt;
+        for (let i = 0; i < EPILOGUE.lines.length; i++) {
+          if (i > said && u >= EPILOGUE.lines[i][0]) {
+            said = i;
+            const who = CAPTAINS.find((c) => c.id === EPILOGUE.lines[i][1]);
+            chapterHud.say(who ? `${who.short} — ${EPILOGUE.lines[i][2]}` : EPILOGUE.lines[i][2], 6);
+          }
+        }
+        const since = u - EPILOGUE.launchAt;
+        if (since >= 0 && since - dt < 0) uiSound('engage');
+        shipAt(since);
+        setEventRumble(since > 0 ? Math.min(since / 4, 1) * Math.max(0, 1 - (since - 6) / 5) * 0.6 * (0.4 + 0.6 * MOTION_SCALE) : 0);
+        if (u >= T_END) finish();
+      }
+
+      // the captains: at the glass until it is over, then wherever the pilot goes
+      const looking = u >= EPILOGUE.lookAt[0] && u < EPILOGUE.lookAt[1];
+      const west = u >= EPILOGUE.launchAt - 1;
+      crew.forEach((m, i) => {
+        const g = m.rig.group.position;
+        m.moving = false;
+        if (!chapter.epilogue()) {
+          // at each other, in the pause; at the ship, when it goes; else out at the thing
+          const other = crew[(i + 1) % crew.length].rig.group.position;
+          m.want = looking ? Math.atan2(other.x - g.x, other.z - g.z)
+            : west && u >= 0 ? Math.atan2(hangar.root.position.x - g.x, hangar.root.position.z - g.z)
+            : Math.atan2(dir.x, dir.z);
+          turn(m, m.want, dt, 2.2);
+        } else if (walker) {
+          // a place of their own round the pilot, a few steps off
+          const a = m.slot + t * 0.05;
+          let tx = walker.x + Math.cos(a) * (2.6 + i * 0.7), tz = walker.z + Math.sin(a) * (2.6 + i * 0.7);
+          let ty = k.floorYAt(tx, tz, walker.y + 0.6);
+          if (ty === -Infinity) {
+            // no floor there (a bridge is narrow): fall in behind instead
+            tx = walker.x;
+            tz = walker.z;
+            ty = walker.y;
+          }
+          const dx = tx - g.x, dz = tz - g.z, d = Math.hypot(dx, dz);
+          const base = m.rig.params.groundOffset || 0;
+          if (d > 70 || Math.abs(ty + base - g.y) > 6) g.set(tx, ty + base, tz); // (the lift)
+          else if (d > 0.9) {
+            const step = Math.min(d - 0.6, (d > 6 ? 13 : 7) * dt);
+            g.x += (dx / d) * step;
+            g.z += (dz / d) * step;
+            g.y = ty + base;
+            m.moving = true;
+            turn(m, Math.atan2(dx, dz), dt, 8);
+          } else turn(m, Math.atan2(walker.x - g.x, walker.z - g.z), dt, 2);
+        }
+        m.npc.x = g.x;
+        m.npc.z = g.z;
+        m.npc.y = g.y - (m.rig.params.groundOffset || 0);
+        poseRig(m.rig, dt, t, m.moving ? 'walk' : 'idle', m.moving ? 1 : 0);
+      });
+
+      // the people of the city, about their day
+      for (const p of people) {
+        const g = p.rig.group.position;
+        let walking = false;
+        if (p.wait > 0) p.wait -= dt;
+        else {
+          const dx = p.to.x - g.x, dz = p.to.z - g.z, d = Math.hypot(dx, dz);
+          if (d < 0.4) {
+            spot(p.area, p.to);
+            p.wait = 1.5 + ((p.to.x * 7.3) % 1 + 1) * 3;
+          } else {
+            g.x += (dx / d) * p.speed * dt;
+            g.z += (dz / d) * p.speed * dt;
+            p.rig.group.rotation.y = Math.atan2(dx, dz);
+            walking = true;
+          }
+        }
+        poseRig(p.rig, dt, t, walking ? 'walk' : 'idle', walking ? 0.6 : 0);
+      }
+    },
+    state: () => ({ u, end: T_END, runs: monument ? monument.count : 0, people: people.length, crew: crew.map((m) => m.rig.group.position.toArray().map(Math.round)), ship: hangar.vessel.visible }),
+  };
+}

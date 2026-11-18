@@ -241,3 +241,36 @@ export const RETURN = {
   },
   codex: 'The First Entry',
 };
+
+// --- 6. a thousand years on -----------------------------------------------------
+// In the suite, with the three captains, looking out at what was built in the
+// shape of the pilot's drawing; then the light ship leaves again.
+export const EPILOGUE = {
+  // [seconds into the scene, captain id (see CAPTAINS), line]
+  lines: [
+    [5, 'lux', 'SO ANYTHING SOMEONE DOES IN THE LIGHT SHIP... PROFOUNDLY IMPACTS EVERYTHING HERE? WHO HAS IT NOW?'],
+    [13, 'vask', 'TENRETNI DO.'],
+    // (they all look at each other: lookAt, below)
+    [22, 'marrow', 'IS THAT WHY THEY WERE MINING TIME? I THOUGHT THEY HAD JUST RUN OUT OF IDEAS.'],
+    [30, 'vask', 'I THINK WE MAY HAVE GIVEN THEM A NEW ONE.'],
+  ],
+  lookAt: [15.5, 21], // seconds: from, to
+  launchAt: 35, // the light ship lets go of its yard
+  // what each of them says afterwards, walking the city with the pilot
+  talk: {
+    vask: [
+      'Forty generations. I counted the names on the wall by the terrace. Some of them are mine.',
+      'They kept the braziers. Nobody here has seen a mine, and they still bank the embers at night.',
+    ],
+    marrow: [
+      'They ring the bells in the Pavilion at the hour we left. They do not know why. I do.',
+      'Three peoples came off those ships. I cannot find the joins any more.',
+    ],
+    lux: [
+      'They named a bridge after my ship. SATURDAY FOREVER. In lights. I may cry.',
+      'A thousand years and the place never closed. Best run floor I ever saw.',
+    ],
+  },
+  // signs over the bridges: the names the ships had
+  signs: ['SATURDAY FOREVER', 'NINTH BELL', 'LAST SEAM', 'HALO OF MORNING', 'EMBERWRIGHT', 'BUY ONE GET ONE'],
+};
