@@ -120,31 +120,51 @@ export function createCourse(group, via) {
 
   const colNext = new THREE.Color(2.2, 1.9, 0.9), colSoon = new THREE.Color(0.5, 1.3, 1.6), colDone = new THREE.Color(0.12, 0.2, 0.26);
   let shown = -2;
-  // The towers make way: any that stands in the course is cut down to pass
-  // under it. `meshes`: the city's instanced towers (feet at their own y).
+  // The towers make way, but only just: any that stands in the middle of the
+  // course (where the gates are) is cut down to pass under it. One that
+  // stands at the course's edge is left, and is there to be flown round.
+  // `meshes`: the city's instanced towers, spires first then slabs (feet at
+  // their own y). Those near enough to matter are remembered for hitTower().
+  const near = []; // x, z, radius at the foot, foot y, top y, taper (how much narrower at the top, 0..1)
   function makeWay(meshes) {
     const m = new THREE.Matrix4(), p = new THREE.Vector3(), qq = new THREE.Quaternion(), sc = new THREE.Vector3();
     let cut = 0;
-    for (const mesh of meshes) {
+    near.length = 0;
+    meshes.forEach((mesh, mi) => {
+      const spire = mi === 0; // a spire is a cone of radius 1 at the foot and 0.34 at the top; a slab is a unit box
       for (let i = 0; i < mesh.count; i++) {
         mesh.getMatrixAt(i, m);
         m.decompose(p, qq, sc);
-        const reach = LANE + Math.max(sc.x, sc.z) * 0.6 + 12;
-        let top = p.y + sc.y;
+        const rad = spire ? Math.max(sc.x, sc.z) : Math.max(sc.x, sc.z) * 0.55;
+        const clear = 20 + rad, far = LANE + rad + 10;
+        let top = p.y + sc.y, close = false;
         for (let k = 0; k < FRAMES; k += 2) {
-          const c = P[k], dx = c.x - p.x, dz = c.z - p.z;
-          if (dx * dx + dz * dz > reach * reach) continue;
-          top = Math.min(top, c.y - LANE * 0.8 - 14);
+          const c = P[k], dx = c.x - p.x, dz = c.z - p.z, d2 = dx * dx + dz * dz;
+          if (d2 > far * far) continue;
+          close = true;
+          if (d2 < clear * clear) top = Math.min(top, c.y - 22);
         }
         if (top < p.y + sc.y - 0.5) {
           sc.y = Math.max(top - p.y, 12);
           mesh.setMatrixAt(i, m.compose(p, qq, sc));
           cut++;
         }
+        if (close) near.push(p.x, p.z, rad, p.y, p.y + sc.y, spire ? 0.66 : 0);
       }
       mesh.instanceMatrix.needsUpdate = true;
-    }
+    });
     return cut;
+  }
+  // Is a world of radius `rad` at `p` in a tower?
+  function hitTower(p, rad) {
+    for (let i = 0; i < near.length; i += 6) {
+      if (p.y - rad > near[i + 4]) continue;
+      const dx = p.x - near[i], dz = p.z - near[i + 1];
+      const up01 = Math.min(Math.max((p.y - near[i + 3]) / Math.max(near[i + 4] - near[i + 3], 1), 0), 1);
+      const r = near[i + 2] * (1 - near[i + 5] * up01) + rad * 0.8;
+      if (dx * dx + dz * dz < r * r) return true;
+    }
+    return false;
   }
 
   return {
@@ -152,6 +172,8 @@ export function createCourse(group, via) {
     gates,
     sVia,
     makeWay,
+    hitTower,
+    towersNear: () => near.length / 6,
     at,
     ahead: (s, out) => lerp(T, s, out).normalize(),
     across: (s, out) => lerp(X, s, out).normalize(),

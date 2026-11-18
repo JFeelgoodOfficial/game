@@ -27,6 +27,7 @@ import { SEAM, BELL, SAT } from './lightdistricts.js';
 import { PAV } from './lightpavilion.js';
 
 const RACERS = 8; // most worlds on a grid
+const _white = new THREE.Color(1, 1, 1);
 const WAKE_LIFE = 7.5; // seconds a wake hangs
 const WAKE_STEP = 9; // a new light every this far along
 const TERR = { x: 0, z: -77 };
@@ -183,7 +184,7 @@ export function createRaceFx(group) {
   const _d = new THREE.Vector3(), _aim = new THREE.Vector3(0, 300, 0);
 
   // --- fireworks ---
-  const F_PER = 90, F_N = 6;
+  const F_PER = 90, F_N = 14;
   const fSeed = new Float32Array(F_N * F_PER * 3);
   for (let i = 0; i < fSeed.length; i++) fSeed[i] = rnd();
   const fAt = new Float32Array(F_N * F_PER * 3), fCol = new Float32Array(F_N * F_PER * 3), fT0 = new Float32Array(F_N * F_PER).fill(-100);
@@ -231,6 +232,20 @@ export function createRaceFx(group) {
   root.add(fire);
   let nextBurst = 0, now = 0;
 
+  // --- a world going up: a ball of light that swells and thins, and a ring thrown out across the sky ---
+  const BLASTS = 4;
+  const blasts = [];
+  for (let i = 0; i < BLASTS; i++) {
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false }));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.035, 6, 64), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false }));
+    ball.visible = ring.visible = false;
+    ball.frustumCulled = ring.frustumCulled = false;
+    root.add(ball, ring);
+    blasts.push({ ball, ring, t: -1, color: new THREE.Color() });
+  }
+  let nextBlast = 0;
+  const _b = new THREE.Vector3();
+
   return {
     begin() {
       root.visible = true;
@@ -240,6 +255,10 @@ export function createRaceFx(group) {
       lastX.fill(1e9);
       fT0.fill(-100);
       fGeo.attributes.aT0.needsUpdate = true;
+      for (const b of blasts) {
+        b.t = -1;
+        b.ball.visible = b.ring.visible = false;
+      }
     },
     end() {
       root.visible = false;
@@ -263,6 +282,19 @@ export function createRaceFx(group) {
       wAge.array[o] = 0;
       wPos.needsUpdate = wCol.needsUpdate = true;
     },
+    // a world destroyed at `pos`
+    explode(pos, color) {
+      const b = blasts[nextBlast];
+      nextBlast = (nextBlast + 1) % BLASTS;
+      b.t = 0;
+      b.color.copy(color);
+      b.ball.position.copy(pos);
+      b.ring.position.copy(pos);
+      b.ring.rotation.set(Math.random() * 3, Math.random() * 3, 0);
+      b.ball.visible = b.ring.visible = true;
+      // and everything it was, thrown outward
+      for (let i = 0; i < 4; i++) this.burst(_b.set(pos.x + (i - 1.5) * 5, pos.y + (i % 2) * 6, pos.z + (i % 3 - 1) * 5), i % 2 ? color : _white);
+    },
     burst(pos, color) {
       const b = nextBurst;
       nextBurst = (nextBurst + 1) % F_N;
@@ -281,6 +313,24 @@ export function createRaceFx(group) {
       if (!root.visible) return;
       now = t;
       fireU.uTime.value = t;
+      for (const b of blasts) {
+        if (b.t < 0) continue;
+        b.t += dt;
+        const k = b.t / 2.4;
+        if (k >= 1) {
+          b.t = -1;
+          b.ball.visible = b.ring.visible = false;
+          continue;
+        }
+        // white at first, then its own colour, then gone
+        const size = 6 + 95 * (1 - Math.exp(-b.t * 2.6));
+        b.ball.scale.setScalar(size);
+        b.ball.material.color.copy(b.color).lerp(_white, Math.max(0, 1 - b.t * 2.5)).multiplyScalar(2.2);
+        b.ball.material.opacity = Math.pow(1 - k, 2.2) * 0.9;
+        b.ring.scale.setScalar(10 + 260 * (1 - Math.exp(-b.t * 1.7)));
+        b.ring.material.color.copy(b.color).multiplyScalar(2.5);
+        b.ring.material.opacity = (1 - k) * 0.9;
+      }
       fireU.uPx.value = wakeU.uPx.value = lightU.uPx.value = px;
       lightU.uTime.value = t;
       lightU.uLeader.value.copy(leader);

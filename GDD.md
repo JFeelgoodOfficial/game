@@ -774,6 +774,14 @@ offered at the Starter's stand on the terrace once the epilogue has played:
   the course to pass under it. This changes the skyline for good once the
   race exists.
 - The crowd each hold up a light, which is what shows from the air.
+- A world that hits something is destroyed. "Something" is the monument
+  (`hit()` in `world/lightepilogue.js`, both courses of it) and any tower
+  near the course (`hitTower()` in `world/racecourse.js`). Towers are now cut
+  down only where they stand in the middle of the course; one at the course's
+  edge is left to be flown round. Worlds touching each other still shove.
+- A destroyed world goes up in a ball of light, a ring and four bursts
+  (`fx.explode`). A rival is marked out and placed last. The pilot's race
+  ends there, and a new world is ready at the stand.
 
 Rules the chapter keeps to:
 

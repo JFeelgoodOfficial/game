@@ -109,6 +109,7 @@ export function createEpilogue(k) {
   const up0 = new THREE.Vector3(0, 1, 0);
   const monU = { uTime: { value: 0 }, uA: { value: new THREE.Color(0.4, 0.9, 1) }, uB: { value: new THREE.Color(1, 0.7, 0.4) }, uLight: { value: lightDir } };
   let monument = null;
+  let hit = null; // (pos, radius) -> true if a world there is in the monument
   let way = null; // { point, dir, room }: a gap in it to fly through (src/worldRace.js), if it has one
   if (entry) {
     const w = worldFrom(entry);
@@ -188,6 +189,24 @@ export function createEpilogue(k) {
         };
       }
     }
+    // Is a world of radius `rad` at `p` touching it? Both courses of it: the
+    // front one about the drawing's plane, and the one set back behind.
+    hit = (p, rad) => {
+      const rx = p.x - center.x, rz = p.z - center.z;
+      const d = rx * dir.x + rz * dir.z; // how far through
+      const front = Math.abs(d) < 23 + rad, rear = d > 31 - rad && d < 85 + rad;
+      if (!front && !rear) return false;
+      const px = (rx * side.x + rz * side.z) / SPAN, py = (p.y - center.y) / SPAN;
+      if (Math.abs(px) > 1.2 || Math.abs(py) > 1.2) return false;
+      const reach = ((front ? 15 : 10) + rad * 0.8) / SPAN;
+      for (const r of runs) {
+        const ex = r[2] - r[0], ey = r[3] - r[1], l2 = ex * ex + ey * ey || 1e-9;
+        const t = Math.max(0, Math.min(1, ((px - r[0]) * ex + (py - r[1]) * ey) / l2));
+        const qx = px - r[0] - ex * t, qy = py - r[1] - ey * t;
+        if (qx * qx + qy * qy < reach * reach) return true;
+      }
+      return false;
+    };
     const n = Math.min(runs.length, 1200);
     monument = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.ShaderMaterial({ vertexShader: MON_VERT, fragmentShader: MON_FRAG, uniforms: monU, fog: false }), Math.max(n, 1));
     const along = new Float32Array(Math.max(n, 1));
@@ -461,6 +480,7 @@ export function createEpilogue(k) {
   return {
     built: !!monument,
     way,
+    hit: (p, rad) => !!hit && hit(p, rad),
     held: () => u >= 0,
     // In the suite: over the pilot's shoulder at the three of them and what is
     // beyond the glass; then round to the west for the ship.
