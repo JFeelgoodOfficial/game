@@ -61,10 +61,11 @@ function loadBest() {
   }
 }
 
-// k: { group, camera, colliders, consoles }
+// k: { group, camera, colliders, consoles, way — the gap in the monument, towers — the city's instanced towers }
 export function createWorldRace(k) {
   const { group, camera } = k;
-  const course = createCourse(group);
+  const course = createCourse(group, k.way || null);
+  const towersCut = k.towers ? course.makeWay(k.towers) : 0;
   const fx = createRaceFx(group);
   const TERRACE = new THREE.Vector3(0, 60, -77); // over the terrace, where the finish is seen from
   const _burst = new THREE.Vector3();
@@ -432,7 +433,7 @@ export function createWorldRace(k) {
           const placed = RACE.placed.replace('{place}', RACE.places[place] || `${place + 1}`).replace('{n}', field.length);
           chapterHud.say(`${RACE.finish.replace('{time}', clock(time))} — ${placed}${isBest ? ` — ${RACE.best}` : ''}`, 6.5);
           uiSound('cheer');
-          sparks = 6;
+          sparks = 10;
           sparkAt = 0;
           course.show(course.gates.length); // every gate spent
         }
@@ -452,8 +453,8 @@ export function createWorldRace(k) {
         if (sparkAt <= 0) {
           sparkAt = 0.55;
           sparks--;
-          const from = sparks % 2 ? TERRACE : me.pos;
-          _burst.set(from.x + Math.sin(sparks * 2.4) * 30, from.y + 14 + (sparks % 3) * 10, from.z + Math.cos(sparks * 1.7) * 30);
+          // (ahead of the pilot's world, where they are looking)
+          course.at(me.s + 90 / course.length, Math.sin(sparks * 2.4) * 34, 10 + (sparks % 3) * 12, _burst);
           fx.burst(_burst, field[sparks % field.length].color);
         }
       }
@@ -484,7 +485,7 @@ export function createWorldRace(k) {
     state: () => ({
       state, world: me && me.world.id, s: me ? me.s : 0, x: me ? me.x : 0, y: me ? me.y : 0, v: me ? me.v : 0,
       lap: me ? me.lap : 0, gate: me ? me.gate : 0, gates: course.gates.length, time, meter: me ? me.meter : 0, draft: me ? me.draft : 0,
-      best: { ...best }, length: course.length, place,
+      best: { ...best }, length: course.length, place, via: course.sVia, towersCut,
       field: field.map((r) => ({ name: r.name, world: r.world.id, at: Math.round((r.lap + r.s) * 1000) / 1000, x: Math.round(r.x * 10) / 10, y: Math.round(r.y * 10) / 10, v: Math.round(r.v), done: r.done })),
       order: order.map((r) => r.name),
     }),

@@ -106,8 +106,10 @@ export function createEpilogue(k) {
   // --- the monument: the drawing, a third of a mile high ---
   const center = new THREE.Vector3(S.x + dir.x * FAR, S.y + 40, S.z + dir.z * FAR);
   const entry = loadFirstEntry();
+  const up0 = new THREE.Vector3(0, 1, 0);
   const monU = { uTime: { value: 0 }, uA: { value: new THREE.Color(0.4, 0.9, 1) }, uB: { value: new THREE.Color(1, 0.7, 0.4) }, uLight: { value: lightDir } };
   let monument = null;
+  let way = null; // { point, dir, room }: a gap in it to fly through (src/worldRace.js), if it has one
   if (entry) {
     const w = worldFrom(entry);
     monU.uA.value.copy(w.a);
@@ -130,6 +132,60 @@ export function createEpilogue(k) {
           ax = s[i][0];
           ay = s[i][1];
         }
+      }
+    }
+    // A way through it: the place in the drawing furthest from any line, and
+    // for choice one that lines go round (the inside of a loop), so that a
+    // world can be flown through the thing and not past it.
+    {
+      const near = (px, py) => {
+        let best = 9;
+        for (const r of runs) {
+          const ex = r[2] - r[0], ey = r[3] - r[1], l2 = ex * ex + ey * ey || 1e-9;
+          const t = Math.max(0, Math.min(1, ((px - r[0]) * ex + (py - r[1]) * ey) / l2));
+          const d = Math.hypot(px - r[0] - ex * t, py - r[1] - ey * t);
+          if (d < best) best = d;
+        }
+        return best;
+      };
+      // closed in: lines within reach in most directions
+      const ringed = (px, py) => {
+        let hits = 0;
+        for (let k = 0; k < 8; k++) {
+          const a = (k / 8) * Math.PI * 2;
+          for (let s = 0.06; s <= 0.9; s += 0.06) {
+            if (near(px + Math.cos(a) * s, py + Math.sin(a) * s) < 0.04) {
+              hits++;
+              break;
+            }
+          }
+        }
+        return hits;
+      };
+      let bx0 = 1, bx1 = -1, by0 = 1, by1 = -1;
+      for (const r of runs) {
+        bx0 = Math.min(bx0, r[0], r[2]);
+        bx1 = Math.max(bx1, r[0], r[2]);
+        by0 = Math.min(by0, r[1], r[3]);
+        by1 = Math.max(by1, r[1], r[3]);
+      }
+      let best = null;
+      for (let gy = 0; gy <= 24; gy++) {
+        for (let gx = 0; gx <= 24; gx++) {
+          const px = bx0 + ((bx1 - bx0) * gx) / 24, py = by0 + ((by1 - by0) * gy) / 24;
+          const room = near(px, py);
+          if (room < 0.07) continue; // (a world and its lane need this much)
+          const score = room + (ringed(px, py) >= 6 ? 1 : 0);
+          if (!best || score > best.score) best = { px, py, room, score };
+        }
+      }
+      if (best) {
+        way = {
+          point: center.clone().addScaledVector(side, best.px * SPAN).addScaledVector(up0, best.py * SPAN),
+          dir: dir.clone(),
+          room: best.room * SPAN - 15, // clear air round the middle of the gap
+          ringed: best.score >= 1,
+        };
       }
     }
     const n = Math.min(runs.length, 1200);
@@ -404,6 +460,7 @@ export function createEpilogue(k) {
 
   return {
     built: !!monument,
+    way,
     held: () => u >= 0,
     // In the suite: over the pilot's shoulder at the three of them and what is
     // beyond the glass; then round to the west for the ship.
@@ -545,7 +602,7 @@ export function createEpilogue(k) {
       }
       far.instanceMatrix.needsUpdate = true;
     },
-    state: () => ({ u, end: T_END, runs: monument ? monument.count : 0, people: people.length, crew: crew.map((m) => m.rig.group.position.toArray().map(Math.round)),
+    state: () => ({ way: way ? { at: way.point.toArray().map(Math.round), room: Math.round(way.room), ringed: way.ringed } : null, u, end: T_END, runs: monument ? monument.count : 0, people: people.length, crew: crew.map((m) => m.rig.group.position.toArray().map(Math.round)),
       // how far each captain's lower foot is off the floor it stands on
       feet: crew.map((m) => Math.round((footY(m.rig) - m.floor) * 1000) / 1000),
       peopleFeet: people.map((p) => Math.round(footY(p.rig) * 1000) / 1000),

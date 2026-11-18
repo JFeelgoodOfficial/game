@@ -928,7 +928,7 @@ export function createLightCity(ctx) {
         }
         if (!race && ch.epilogue()) {
           try {
-            race = createWorldRace({ group, camera: ctx.camera, colliders, consoles });
+            race = createWorldRace({ group, camera: ctx.camera, colliders, consoles, way: epi ? epi.way : null, towers: city.parts.slice(0, 2) });
           } catch (err) {
             console.warn('[lightcity] the race could not be built', err);
           }
@@ -976,7 +976,7 @@ export function createLightCity(ctx) {
       // (the race is offered the visit after the suite scene has played)
       if (!race && ctx.chapter && ctx.chapter.epilogue() && epi && !epi.held()) {
         try {
-          race = createWorldRace({ group, camera: ctx.camera, colliders, consoles });
+          race = createWorldRace({ group, camera: ctx.camera, colliders, consoles, way: epi ? epi.way : null, towers: city.parts.slice(0, 2) });
         } catch (err) {
           console.warn('[lightcity] the race could not be built', err);
           race = { held: () => false, running: () => false, camera: () => false, onChoice: () => undefined, tick() {}, stop() {}, quitPrompt: () => null, state: () => null };
