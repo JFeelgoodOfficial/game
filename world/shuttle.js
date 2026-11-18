@@ -21,6 +21,13 @@
 // taken from, and any the game's logs say were visited (every world, if that
 // is too few to dream with).
 //
+// Awake again at the bottom, the ship above tries to render the planet the
+// pilot's fragments make. It draws most of it and stops: the archive already
+// has that one. Then there is nothing at all, and a blank canvas
+// (src/drawPad.js). What is drawn there is let go into the dark as the first
+// creature of a world that has never been (world/firstcreature.js), and that
+// world begins round it: unfinished, in colours no fragment had, still growing.
+//
 // One clock `u` from the hatch, everything placed from it. Nothing here is
 // walked: the place holds the pilot and takes the camera, and the mouse (or a
 // thumb) still looks round. A site for src/capitalWalk.js. Frame: +y up.
@@ -40,19 +47,24 @@ import { createLayerPlanet, LAYERS } from './layerplanet.js';
 import { createPlace } from './holoplace.js';
 import { HULL_VERT, HULL_FRAG } from './lightship.js';
 import { SKY_VERT, SKY_FRAG, WIRE_VERT, WIRE_FRAG, MEGA } from './divebridge.js';
-import { WORLDS, HOME, DIVE, DREAM } from './chapter-dialogue.js';
+import { createCreature, worldFrom, saveFirstEntry, loadFirstEntry } from './firstcreature.js';
+import { openDrawPad, closeDrawPad, isDrawPadOpen } from '../src/drawPad.js';
+import { WORLDS, HOME, DIVE, DREAM, STALL } from './chapter-dialogue.js';
 
 const ZERO = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 const HALF = 2.6; // half the cube's edge
 const BOOM = 2.1; // the camera, behind the pilot's head
 const BELOW = new THREE.Vector3(-0.3, -0.94, -0.12).normalize(); // the hole: underneath, a little to port
-const SHIP_AT = new THREE.Vector3(6, 1, 9).normalize(); // the ship overhead, as the tether pays out
+const SHIP_AT = new THREE.Vector3(0.22, 1, 0.3).normalize(); // the ship overhead, as the tether pays out
 
 const T_DROP = 2, T_DEEP = 22; // let go; at the bottom
 const T_DREAM = T_DEEP + 2; // the cabin begins to go
 const T_WAKE = T_DREAM + C.CH_DREAM_TIME;
 const T_END = T_WAKE + 5;
+const AHEAD = new THREE.Vector3(0, 3.2, -15); // where a world is put in front of the glass
+const SECONDS_GONE = C.CH_YEARS_GONE * 365 * 86400; // what the megaworld's clock reads by the time the pilot wakes
+const LAYER_TIME = 2.4; // seconds the ship takes to draw one layer
 const COINS = { low: 220, medium: 500, high: 800, ultra: 1000 };
 
 const COIN_VERT = /* glsl */ `
@@ -135,6 +147,15 @@ export function createShuttle(ctx) {
   tetherGlow.quaternion.copy(tether.quaternion);
   tether.position.set(0, HALF, 0);
   tetherGlow.position.copy(tether.position);
+  // ...and a hard line down the middle of it, in the cabin's own turning
+  // colour, drawn over everything: the one thing the dream does not change
+  const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false, transparent: true, depthTest: false, depthWrite: false });
+  const core = new THREE.Mesh(new THREE.CylinderGeometry(1, 0.03, 1, 8, 1, true).translate(0, 0.5, 0), coreMat);
+  core.position.copy(tether.position);
+  core.quaternion.copy(tether.quaternion);
+  core.renderOrder = 20;
+  core.frustumCulled = false;
+  group.add(core);
 
   // --- the shuttle: one cell, its edges turning through the spectrum ---
   const cabin = new THREE.Group();
@@ -222,6 +243,9 @@ export function createShuttle(ctx) {
     const got = WORLDS.filter((w) => chapter.picked(w.id) || logs.includes(w.id));
     known = got.length >= 3 ? got : WORLDS;
     chapter.compose(made);
+    have = LAYERS.filter((l) => made[l]);
+    mine.setAll(made);
+    mine.revealAll(0);
   }
   // one wrong world: each layer from a different one of them (the pilot's own
   // fragments, where they took one, are in it more often than not)
@@ -241,6 +265,15 @@ export function createShuttle(ctx) {
   let shuttleT = 0, shipT = 0, worldT = 0;
   let said = -1;
   let hudAt = 0;
+  let world0 = 0; // the megaworld's clock at the hatch
+  let phaseRate = 5.5; // how fast the pulses run on the tether and the wire
+  // after waking: the stall, the canvas, the birth
+  let v = 0, w = 0; // seconds into the stall; into the birth
+  let stallSaid = false, birthSaid = -1, pctAt = 0;
+  let have = []; // the layers the pilot's fragments fill
+  let creature = null; // world/firstcreature.js, once something has been drawn
+  const from = new THREE.Vector3(0, 1.75, -5); // where the drawing was let go
+  const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _e = new THREE.Euler(), _to = new THREE.Vector3();
   let inside = false;
   let prev = null;
 
@@ -250,10 +283,129 @@ export function createShuttle(ctx) {
   };
   const dreamAt = (x) => ease(T_DREAM, T_DREAM + 6, x) * (1 - ease(T_WAKE - 1, T_END, x));
 
+  // --- what the ship tries to render, and what it could not have ---
+  const mine = createLayerPlanet(4, { life: 300, seg: 64, seed: 5.9 });
+  mine.group.position.copy(AHEAD);
+  mine.group.rotation.z = 0.25;
+  mine.group.visible = false;
+  group.add(mine.group);
+  const born = createLayerPlanet(5, { life: 4, seg: 64, seed: 11.3 });
+  born.group.position.copy(AHEAD);
+  born.group.rotation.z = -0.2;
+  born.group.visible = false;
+  group.add(born.group);
+
+  function hatchCreature(strokes) {
+    if (creature) {
+      group.remove(creature.points);
+      creature.dispose();
+    }
+    creature = createCreature(strokes, 3);
+    creature.points.renderOrder = 8;
+    group.add(creature.points);
+    born.setAll(worldFrom(strokes).layers);
+  }
+  function onDrawn(strokes) {
+    hatchCreature(saveFirstEntry(strokes));
+    // it leaves from where it was drawn: in front of the pilot's eyes
+    const cp = Math.cos(cWalk.pitch);
+    from.set(Math.sin(cWalk.yaw) * cp * 5, 1.75 + Math.sin(cWalk.pitch) * 5, Math.cos(cWalk.yaw) * cp * 5);
+    w = 0;
+    birthSaid = -1;
+    chapter.advance('birth');
+    uiSound('engage');
+  }
+  // nothing to be seen: the canvas is up (or should be)
+  const blank = () => !running && (chapter.stage() === 'canvas' || (chapter.reached('birth') && !creature));
+
+  // Awake at the bottom. Called every frame once the dream is over.
+  function after(dt, t, px) {
+    const st = chapter.stage();
+    mine.group.visible = st === 'stall';
+    born.group.visible = !!creature && chapter.reached('birth');
+    if (creature) creature.points.visible = born.group.visible;
+    if (st === 'stall') {
+      // the ship draws the pilot's planet a layer at a time, and stops short
+      v += dt;
+      const n = Math.max(have.length, 1);
+      const stopAt = n * LAYER_TIME - 0.45;
+      const prog = Math.min(Math.max(v - 2, 0), stopAt);
+      const stuck = v - 2 >= stopAt;
+      const flick = stuck ? 0.82 + 0.18 * Math.sign(Math.sin(t * 23) + 0.3) : 1;
+      for (let i = 0; i < have.length; i++) mine.reveal(have[i], Math.min(Math.max((prog - i * LAYER_TIME) / LAYER_TIME, 0), 1) * flick);
+      mine.holo(stuck ? 1 : 0.15);
+      mine.group.rotation.y = stuck ? mine.group.rotation.y : t * 0.1;
+      mine.tick(stuck ? Math.floor(t * 4) / 4 : t, px); // stuck, it only stutters
+      pctAt -= dt;
+      if (pctAt <= 0 && !stallSaid && v > 2) {
+        pctAt = 0.1;
+        chapterHud.say(`${Math.floor((prog / (n * LAYER_TIME)) * 100)}%`, 0.6);
+      }
+      if (stuck && !stallSaid && v - 2 > stopAt + 2.2) {
+        stallSaid = true;
+        chapterHud.say(STALL.line, 5);
+        uiSound('toggle');
+      }
+      if (v - 2 > stopAt + 8.5) {
+        // ...and then there is nothing
+        chapter.advance('canvas');
+        chapterHud.say(null);
+        chapterHud.clocks(null);
+        cWalk.yaw = Math.PI;
+        cWalk.pitch = 0.1;
+      }
+      return;
+    }
+    if (blank()) {
+      if (!isDrawPadOpen()) openDrawPad(STALL.canvas, onDrawn);
+      return;
+    }
+    if (!creature) return;
+    // --- the birth ---
+    w += dt;
+    const g = ease(0, 16, w);
+    const grown = 0.1 + 0.5 * g + Math.min(Math.max(w - 16, 0) * 0.003, 0.22); // never finished
+    born.reveal('ground', grown);
+    born.reveal('sky', grown * 0.75);
+    born.reveal('light', ease(7, 13, w));
+    born.group.rotation.y = t * 0.06;
+    born.tick(t, px);
+    // the creature: off the canvas, then away round its world
+    const cu = creature.uniforms;
+    cu.uAmount.value = ease(0, 2.6, w);
+    cu.uWave.value = ease(0.8, 5, w);
+    cu.uBright.value = 2.4 + 0.5 * Math.sin(t * 1.3);
+    const k = ease(3, 11, w);
+    const a = t * 0.33;
+    _to.set(AHEAD.x + Math.cos(a) * 9, AHEAD.y + Math.sin(a * 0.7) * 2.4, AHEAD.z + Math.sin(a) * 6 + 1.5);
+    creature.points.position.lerpVectors(from, _to, k);
+    _q1.setFromEuler(_e.set(-Math.atan2(from.y - 1.75, Math.hypot(from.x, from.z)), Math.atan2(-from.x, -from.z), 0, 'YXZ')); // facing the pilot
+    _q2.setFromEuler(_e.set(0.25 * Math.sin(a * 0.7), -a, 0.2 * Math.cos(a), 'YXZ')); // along its way
+    creature.points.quaternion.slerpQuaternions(_q1, _q2, k);
+    cu.uSize.value = 3 + 2.2 * k;
+    creature.update(t, px);
+    // everything else goes quiet round it: the wire slows, the megaworld's
+    // lights can be told apart again
+    const calm = ease(4, 18, w);
+    skyU.uFire.value = 0.4 + 0.2 * ease(0, 8, w);
+    skyU.uDrift.value = 1 - 0.8 * calm;
+    skyU.uFlick.value = 110 * Math.exp(-3.6 * calm);
+    phaseRate = 5.5 - 5.1 * calm;
+    chapterHud.white(Math.max(0, 1 - w / 2.6));
+    setEventRumble(0.3 * ease(0, 2, w) * (1 - ease(5, 13, w)) * (0.4 + 0.6 * MOTION_SCALE));
+    for (let i = 0; i < STALL.birth.length; i++) {
+      if (i > birthSaid && w >= STALL.birth[i][0] && w < 900) {
+        birthSaid = i;
+        chapterHud.say(STALL.birth[i][1], 6);
+      }
+    }
+    if (w >= 22 && chapter.advance('return')) uiSound('select');
+  }
+
   const _look = new THREE.Vector3();
   const consoles = [{
     x: 0, y: 0, z: 0, r: 3, prompt: 'E — BACK UP THE TETHER',
-    off: () => running,
+    off: () => !chapter.reached('return'),
     use: () => ((site.portal = 'hatch'), null),
   }];
   const surfaces = [{ kind: 'disc', cx: 0, cz: 0, r: 1.2, y: 0 }];
@@ -276,13 +428,15 @@ export function createShuttle(ctx) {
     consoles,
     onChoice: () => null,
     portal: null,
-    held: () => running, // one seat, and nothing to do in it but look
+    held: () => !chapter.reached('return'), // one seat, and nothing to do in it but look
     // from just behind the pilot's head, wherever they are looking
     camera(pos, target) {
       const cp = Math.cos(cWalk.pitch);
       _look.set(Math.sin(cWalk.yaw) * cp, Math.sin(cWalk.pitch), Math.cos(cWalk.yaw) * cp);
-      target.set(0, 1.75, 0).addScaledVector(_look, 4);
-      pos.set(0, 1.75, 0).addScaledVector(_look, -BOOM);
+      // (over the right shoulder, so the middle of the view is the view)
+      const rx = -Math.cos(cWalk.yaw) * 0.95, rz = Math.sin(cWalk.yaw) * 0.95;
+      target.set(rx, 2.15, rz).addScaledVector(_look, 6);
+      pos.set(rx, 2.15, rz).addScaledVector(_look, -BOOM);
       pos.y = Math.max(pos.y, 0.5);
       return true;
     },
@@ -309,6 +463,7 @@ export function createShuttle(ctx) {
       const k = chapter.clocks();
       shipT = k.ship || 75;
       worldT = k.world || 2.5e8;
+      world0 = Math.min(worldT, SECONDS_GONE);
       // a shuttle that has already been down is found at the bottom, awake
       const done = chapter.reached('stall');
       running = !done;
@@ -316,6 +471,18 @@ export function createShuttle(ctx) {
       shuttleT = 0;
       said = -1;
       cut = -1;
+      v = 0;
+      stallSaid = false;
+      birthSaid = -1;
+      phaseRate = 5.5;
+      skyU.uFire.value = 0.4;
+      skyU.uDrift.value = 1;
+      skyU.uFlick.value = 110;
+      // what was drawn before is still alive down here
+      const entry = chapter.reached('birth') ? loadFirstEntry() : null;
+      if (entry) hatchCreature(entry);
+      w = chapter.reached('return') ? 999 : 0;
+      from.set(0, 1.75, -5);
       chapter.advance('shuttle');
       if (running) uiSound('engage');
     },
@@ -323,6 +490,7 @@ export function createShuttle(ctx) {
       if (!inside) return;
       inside = false;
       group.visible = false;
+      closeDrawPad();
       setEventRumble(0);
       chapterHud.clear();
       chapterHud.clocks(null);
@@ -347,6 +515,7 @@ export function createShuttle(ctx) {
         u += dt;
         if (u >= T_END) {
           running = false;
+          worldT = Math.max(worldT, SECONDS_GONE);
           chapter.setClocks(shipT, worldT);
           chapter.advance('stall');
         }
@@ -359,14 +528,19 @@ export function createShuttle(ctx) {
       skyU.uHoleR.value = 1.02 + 0.5 * down;
       skyU.uMegaR.value = 0.13 - 0.07 * down;
       const out = 26 + 1500 * down * down; // tether paid out
-      ship.position.copy(SHIP_AT).multiplyScalar(out + 60).setY(SHIP_AT.y * out + 60 + HALF);
+      ship.position.copy(SHIP_AT).multiplyScalar(out + 52);
+      ship.position.y += HALF;
       tether.scale.set(1, out, 1);
       tetherGlow.scale.set(1, out, 1);
       // (a line all the way up, however much of it there is)
       tether.material.uniforms.uWide.value = 0.02 + out * 0.0011;
-      tetherGlow.material.uniforms.uWide.value = 0.08 + out * 0.0044;
-      wire.position.copy(ship.position).addScaledVector(UP, 52);
-      phase.value += dt * 5.5;
+      tetherGlow.material.uniforms.uWide.value = 0.05 + out * 0.0024;
+      core.scale.set(0.02 + out * 0.0028, out, 0.02 + out * 0.0028);
+      coreMat.color.setHSL((t * 0.07) % 1, 1, 0.6).multiplyScalar(1.5);
+      coreMat.opacity = 0.35 + 0.65 * d;
+      wire.position.copy(ship.position);
+      wire.position.x += 80;
+      phase.value += dt * phaseRate;
       // the cube swings a little on its line
       cabin.rotation.z = 0.035 * Math.sin(t * 0.7) * (1 - down * 0.6) * MOTION_SCALE;
       cabin.rotation.x = 0.03 * Math.sin(t * 0.53 + 1) * (1 - down * 0.6) * MOTION_SCALE;
@@ -374,22 +548,28 @@ export function createShuttle(ctx) {
       edgeMat.opacity = 1 - d;
       glassMat.opacity = 0.06 * (1 - d);
       floorMat.opacity = 1 - d;
-      cabin.visible = d < 0.995;
+      // (with the canvas up there is nothing: not the hole, not the ship, not the cabin)
+      const dark = blank();
+      cabin.visible = d < 0.995 && !dark;
+      sky.visible = ship.visible = wire.visible = tether.visible = tetherGlow.visible = core.visible = !dark;
 
       // --- the clocks: three now, and this one the slowest ---
       shuttleT += dt * (1 - (1 - C.CH_SHUTTLE_SLOW) * down);
       if (running) {
         shipT += dt;
-        worldT += dt * C.CH_DIVE_RATE * C.CH_DIVE_DEEPER * (1 + (C.CH_SHUTTLE_DEEPER - 1) * down);
+        // the megaworld's runs away faster the further down: by waking it has been CH_YEARS_GONE years
+        worldT = world0 + (SECONDS_GONE - world0) * Math.pow(Math.min(u / T_END, 1), 1.7);
       }
       hudAt -= dt;
       if (hudAt <= 0) {
         hudAt = 0.1;
-        if (d > 0.6) chapterHud.clocks(null); // there are no clocks in it
+        if (d > 0.6 || dark) chapterHud.clocks(null); // there are no clocks in it
         else chapterHud.clocks(shipT, worldT, DIVE.clocks.ship, DIVE.clocks.world, shuttleT, DIVE.clocks.shuttle);
       }
       setEventRumble(running ? Math.min(1, 0.5 * ease(0, 3, u) * (1 - down) + 0.35 * d) * (0.4 + 0.6 * MOTION_SCALE) : 0);
       chapterHud.white(running ? Math.max(0, 1 - u / 1.2) * 0.8 : 0);
+
+      if (!running) after(dt, t, px);
 
       // --- the dream ---
       dream.visible = d > 0.003;
@@ -464,7 +644,7 @@ export function createShuttle(ctx) {
     },
     inside: () => inside,
     places: { seat: [0, 0, 0] },
-    info: () => ({ u, running, down: ease(T_DROP, T_DEEP, u), dream: dreamAt(u), cut, shuttleT, shipT, worldT, known: known.length, end: T_END, dreamAt: T_DREAM }),
+    info: () => ({ v, w, creature: creature ? creature.count : 0, blank: blank(), u, running, down: ease(T_DROP, T_DEEP, u), dream: dreamAt(u), cut, shuttleT, shipT, worldT, known: known.length, end: T_END, dreamAt: T_DREAM }),
     seek(x) {
       if (!running) return false;
       u = x;
