@@ -29,6 +29,7 @@ import { uiSound, setEventRumble } from '../src/sfx.js';
 import { chapterHud } from '../src/chapterHud.js';
 import { tint, box, cyl, mergedMesh, floorOf } from './capital.js';
 import { buildRig, poseRig } from './aliens.js';
+import { measureRig, standRig } from './rigGround.js';
 import { createLayerPlanet } from './layerplanet.js';
 import { createPlace } from './holoplace.js';
 import { HULL_VERT, HULL_FRAG } from './lightship.js';
@@ -306,8 +307,9 @@ export function createDiveBridge(ctx) {
   const STAND = { vask: [-7.6, -2.4], marrow: [7.6, -2.4], lux: [3.4, 7.2] };
   const crew = CAPTAINS.map((c) => {
     const [x, z] = STAND[c.id] || [0, 7];
-    const rig = buildRig(SEEDS[c.id] ?? 0x333, 'fleet');
-    rig.group.position.set(x, rig.params.groundOffset || 0, z);
+    const rig = measureRig(buildRig(SEEDS[c.id] ?? 0x333, 'fleet'));
+    rig.group.position.set(x, 0, z);
+    standRig(rig, 0);
     // the two at the rail look out; the one who is afraid has their back to the neck
     rig.group.rotation.y = c.takes === 'fears' ? Math.atan2(-x, -z) : Math.atan2(x, z) + Math.PI * (x < 0 ? 0.92 : 1.08);
     group.add(rig.group);
@@ -562,6 +564,7 @@ export function createDiveBridge(ctx) {
       // the captains
       for (const m of crew) {
         poseRig(m.rig, dt, t, 'idle', 0);
+        standRig(m.rig, 0);
         const set = mode !== 'dock';
         const k = set ? 1.2 + 0.5 * Math.sin(t * 3 + m.clock.position.x) : 0.12;
         m.clock.material.color.setRGB(0.5 * k, 1.0 * k, 1.1 * k);
