@@ -52,7 +52,7 @@ import { initHoloPanel, openHoloPanel, closeHoloPanel, isHoloPanelOpen, holoPane
 import {
   initTenretni, updateTenretni, tenretniHolding, stepTenretniHold, resetTenretni,
   tenretniFx, tenretniDebug, capitalDock, tenretniSailVelocity, holoPrograms, holoWorld,
-  nearestVessel, vesselSite, holdVessel, placeFleets, wormholeCapture, farGate, enterFar, farSite, farDoor,
+  nearestVessel, vesselSite, holdVessel, placeFleets, wormholeCapture, farGate, enterFar, farSite, farDoor, farWantsLanding, farMarkLanded,
 } from './tenretniLazy.js';
 import {
   interiorScene,
@@ -1474,8 +1474,9 @@ function beginSkyAutoLand(d) {
   }
   _skyAxis.normalize();
   const arcTime = THREE.MathUtils.clamp(
-    2.5 + (skyArcAng * d.planet.radius) / C.SKY_ARC_SPEED, 3.5, C.AUTOLAND_MAX_TIME
+    2.5 + (skyArcAng * Math.max(d.planet.radius, skyStartR * 0.5)) / C.SKY_ARC_SPEED, 3.5, d === LANDING_DOCK ? C.FAR_AUTOLAND_TIME : C.AUTOLAND_MAX_TIME
   );
+  if (d === LANDING_DOCK) farMarkLanded();
   autoLandDuration = arcTime + C.SKY_DESCEND_TIME;
   skyArcFrac = arcTime / autoLandDuration;
   autoT = 0;
@@ -2365,6 +2366,8 @@ function frame(now) {
         stepShip(DT, piloted);
         if (piloted && !autopilotActive()) checkTouchdown();
         if (landState === null) checkSkyCapture();
+        // the far side, the first time: the Landing reaches out for the ship from wherever it is
+        if (landState === null && farWantsLanding(DT) && aimLandingDock()) beginSkyAutoLand(LANDING_DOCK);
         if (landState === null && piloted && !autopilotActive()) checkPlanetCapture();
         if (landState === null) checkCoinCapture();
       }
