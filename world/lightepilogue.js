@@ -31,6 +31,8 @@ import { chapterHud } from '../src/chapterHud.js';
 import { tint, box, cyl, mergedMesh } from './capital.js';
 import { buildRig, poseRig } from './aliens.js';
 import { measureRig, standRig, footY } from './rigGround.js';
+import { buildCaptain, liveCaptain } from './captainDress.js';
+import { cWalk } from '../src/capitalWalk.js';
 import { SUITE, PAV } from './lightpavilion.js';
 import { loadFirstEntry, worldFrom } from './firstcreature.js';
 import { CAPTAINS, EPILOGUE } from './chapter-dialogue.js';
@@ -243,7 +245,7 @@ export function createEpilogue(k) {
   k.pavilion.hideCaptains(); // they are not at the Pavilion's table any more
   const WINDOW = [[-3.2, 0.2], [0.2, -0.4], [3.4, 0.3]]; // across the glass, a little apart
   const crew = CAPTAINS.map((c, i) => {
-    const rig = measureRig(buildRig(SEEDS[c.id] ?? 0x333 + i, 'fleet'));
+    const rig = buildCaptain(c.id);
     const x = S.x + dir.x * 11.5 + side.x * WINDOW[i][0] + dir.x * WINDOW[i][1];
     const z = S.z + dir.z * 11.5 + side.z * WINDOW[i][0] + dir.z * WINDOW[i][1];
     rig.group.position.set(x, S.y, z);
@@ -292,6 +294,10 @@ export function createEpilogue(k) {
     trail.material.opacity = Math.min(go * 0.5, 0.75) * Math.max(0, 1 - (x - 9) / 4);
   }
 
+  let talker = null, talkT = 0; // whose line is up, and for how much longer
+  // where each stands about the pilot: to either side and one ahead, never
+  // behind, where the camera is [angle from the way the pilot faces, how far]
+  const SLOTS = [[-1.35, 2.7], [1.35, 2.7], [0.25, 4.4]];
   let u = -1; // the scene's clock; < 0 when it is not playing
   let said = -1;
   const _a = new THREE.Vector3(), _b = new THREE.Vector3();
@@ -348,6 +354,8 @@ export function createEpilogue(k) {
             said = i;
             const who = CAPTAINS.find((c) => c.id === EPILOGUE.lines[i][1]);
             chapterHud.say(who ? `${who.short} — ${EPILOGUE.lines[i][2]}` : EPILOGUE.lines[i][2], 6);
+            talker = who ? who.id : null;
+            talkT = 2.2 + EPILOGUE.lines[i][2].length * 0.045; // about as long as it takes to say
           }
         }
         const since = u - EPILOGUE.launchAt;
@@ -373,8 +381,8 @@ export function createEpilogue(k) {
           turn(m, m.want, dt, 2.2);
         } else if (walker) {
           // a place of their own round the pilot, a few steps off
-          const a = m.slot + t * 0.05;
-          let tx = walker.x + Math.cos(a) * (2.6 + i * 0.7), tz = walker.z + Math.sin(a) * (2.6 + i * 0.7);
+          const a = cWalk.facingYaw + SLOTS[i % SLOTS.length][0], r = SLOTS[i % SLOTS.length][1];
+          let tx = walker.x + Math.sin(a) * r, tz = walker.z + Math.cos(a) * r;
           if (k.floorYAt(tx, tz, walker.y + 0.6) === -Infinity) {
             // no floor there (a bridge is narrow): fall in behind instead
             tx = walker.x;
@@ -388,12 +396,12 @@ export function createEpilogue(k) {
             g.z = tz;
             m.floor = walker.y;
           } else if (d > 0.9) {
-            const speed = d > 6 ? 13 : 7;
+            const speed = d > 12 ? 24 : d > 5 ? 14 : 7; // they keep up with a run
             const step = Math.min(d - 0.6, speed * dt);
             g.x += (dx / d) * step;
             g.z += (dz / d) * step;
             m.moving = true;
-            m.pace = Math.min(step / Math.max(dt, 1e-4) / 13, 1); // legs as fast as the ground goes by
+            m.pace = Math.min(step / Math.max(dt, 1e-4) / 14, 1); // legs as fast as the ground goes by
             turn(m, Math.atan2(dx, dz), dt, 8);
           } else turn(m, Math.atan2(walker.x - g.x, walker.z - g.z), dt, 2);
           // the floor under their own feet, not the pilot's
@@ -405,7 +413,16 @@ export function createEpilogue(k) {
         m.npc.y = m.floor;
         poseRig(m.rig, dt, t, m.moving ? 'walk' : 'idle', m.pace);
         standRig(m.rig, m.floor);
+        // the face: speaking if the line is theirs; looking at whoever is
+        // speaking, or else (once they are following) at the pilot
+        const mine = talkT > 0 && talker === m.c.id;
+        let lookYaw = 0;
+        const at = talkT > 0 && talker && !mine ? crew.find((o) => o.c.id === talker) : null;
+        if (at) lookYaw = Math.atan2(at.rig.group.position.x - g.x, at.rig.group.position.z - g.z) - m.yaw;
+        else if (chapter.epilogue() && walker && !m.moving) lookYaw = Math.atan2(walker.x - g.x, walker.z - g.z) - m.yaw;
+        liveCaptain(m.rig, dt, t, mine, lookYaw);
       }
+      if (talkT > 0) talkT -= dt;
 
       // the people of the city, about their day
       for (let i = 0; i < people.length; i++) {

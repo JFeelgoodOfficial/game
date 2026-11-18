@@ -29,7 +29,8 @@ import { uiSound, setEventRumble } from '../src/sfx.js';
 import { chapterHud } from '../src/chapterHud.js';
 import { tint, box, cyl, mergedMesh, floorOf } from './capital.js';
 import { buildRig, poseRig } from './aliens.js';
-import { measureRig, standRig } from './rigGround.js';
+import { standRig } from './rigGround.js';
+import { buildCaptain, liveCaptain } from './captainDress.js';
 import { createLayerPlanet } from './layerplanet.js';
 import { createPlace } from './holoplace.js';
 import { HULL_VERT, HULL_FRAG } from './lightship.js';
@@ -307,7 +308,7 @@ export function createDiveBridge(ctx) {
   const STAND = { vask: [-7.6, -2.4], marrow: [7.6, -2.4], lux: [3.4, 7.2] };
   const crew = CAPTAINS.map((c) => {
     const [x, z] = STAND[c.id] || [0, 7];
-    const rig = measureRig(buildRig(SEEDS[c.id] ?? 0x333, 'fleet'));
+    const rig = buildCaptain(c.id);
     rig.group.position.set(x, 0, z);
     standRig(rig, 0);
     // the two at the rail look out; the one who is afraid has their back to the neck
@@ -352,6 +353,7 @@ export function createDiveBridge(ctx) {
   let shipT = 0, worldT = 0; // the two clocks, seconds since they were set
   let phase = 0; // the wire's pulses
   let rise = 0; // seconds into the way home
+  let talker = null, talkT = 0; // whose line is up, and for how much longer
   let said = -1;
   let inside = false;
   let prev = null;
@@ -517,6 +519,7 @@ export function createDiveBridge(ctx) {
     },
     tick(dt, t) {
       chapterHud.tick(dt);
+      if (talkT > 0) talkT -= dt;
       skyU.uTime.value = t;
       hullU.uTime.value = t;
       if (walker) sky.position.copy(walker);
@@ -565,6 +568,15 @@ export function createDiveBridge(ctx) {
       for (const m of crew) {
         poseRig(m.rig, dt, t, 'idle', 0);
         standRig(m.rig, 0);
+        // whoever is speaking speaks; the others turn their heads to them
+        const mine = talkT > 0 && talker === m.c.id;
+        let lookYaw = 0;
+        if (talkT > 0 && talker && !mine) {
+          for (const o of crew) {
+            if (o.c.id === talker) lookYaw = Math.atan2(o.rig.group.position.x - m.rig.group.position.x, o.rig.group.position.z - m.rig.group.position.z) - m.rig.group.rotation.y;
+          }
+        }
+        liveCaptain(m.rig, dt, t, mine, lookYaw);
         const set = mode !== 'dock';
         const k = set ? 1.2 + 0.5 * Math.sin(t * 3 + m.clock.position.x) : 0.12;
         m.clock.material.color.setRGB(0.5 * k, 1.0 * k, 1.1 * k);
@@ -579,6 +591,8 @@ export function createDiveBridge(ctx) {
             said = i;
             const who = CAPTAINS.find((c) => c.id === DIVE.lines[i][1]);
             chapterHud.say(who ? `${who.short} — ${DIVE.lines[i][2]}` : DIVE.lines[i][2], 5.5);
+            talker = who ? who.id : null;
+            talkT = 2.2 + DIVE.lines[i][2].length * 0.045;
             if (i === 0) uiSound('impact');
           }
         }

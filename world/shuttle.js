@@ -41,7 +41,8 @@ import { cWalk } from '../src/capitalWalk.js';
 import { chime, uiSound, setEventRumble } from '../src/sfx.js';
 import { chapterHud } from '../src/chapterHud.js';
 import { floorOf } from './capital.js';
-import { buildRig, poseRig } from './aliens.js';
+import { poseRig } from './aliens.js';
+import { buildCaptain } from './captainDress.js';
 import { createShip as createFreighter } from './ship.js';
 import { createLayerPlanet, LAYERS } from './layerplanet.js';
 import { createPlace } from './holoplace.js';
@@ -222,8 +223,8 @@ export function createShuttle(ctx) {
   dream.add(toy.group);
   toy.group.scale.setScalar(0.06);
   // the captains, the wrong size, adrift
-  const giants = [0x51a, 0x7c3, 0x2e9].map((seed, i) => {
-    const rig = buildRig(seed, 'fleet');
+  const giants = ['vask', 'marrow', 'lux'].map((id, i) => {
+    const rig = buildCaptain(id);
     rig.group.scale.setScalar(5 + i * 2.5);
     dream.add(rig.group);
     return { rig, a: i * 2.1 + 0.6, far: 22 + i * 9, h: -6 + i * 7 };
