@@ -540,6 +540,7 @@ export const C = {
   CH_HOME_OUT: 30.0, // its centre, this far beyond the glass
   CH_HOME_UP: 4.6, // ...and this far above the suite's floor
   CH_HOME_SPIN: 0.045, // rad/sec
+  CH_DIVE_RATE: 525600.0, // megaworld seconds per ship second at the horizon: a year a minute (world/divebridge.js)
   CH_DEMO_BACK: 25.0, // seconds into the hangar demo that the ship is home again (world/lightdemo.js)
   CH_HOME_DONE: 0.93, // how much of it the archive has drawn: all but the end
 };

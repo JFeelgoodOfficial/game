@@ -8,6 +8,7 @@
 //   cine(on)        bars in / out
 //   say(text, sec)  one line, bottom centre, for `sec` seconds (null clears)
 //   white(v)        0..1, a flash over everything
+//   clocks(a, b, labelA, labelB)   two clocks, top left, in seconds (null hides them)
 //   tick(dt)        once a frame while anything might be showing
 
 const CSS = `
@@ -25,12 +26,20 @@ const CSS = `
 #chHud .line.show { opacity: 1; }
 /* outside a scene the bottom of the screen is the game's: the line goes up top */
 #chHud:not(.on) .line { bottom: auto; top: 17vh; }
+#chHud .clocks {
+  position: absolute; left: max(2.2vw, env(safe-area-inset-left)); top: 2.4vh; display: none;
+  padding: 0.7em 1em; background: rgba(4, 12, 20, 0.55); border: 1px solid rgba(130, 247, 255, 0.5);
+  color: #a9f7ff; font-size: clamp(11px, 1.5vw, 16px); letter-spacing: 0.18em; white-space: pre; line-height: 1.7;
+  text-shadow: 0 0 10px rgba(130, 247, 255, 0.7);
+}
+#chHud .clocks.show { display: block; }
+#chHud .clocks b { font-weight: normal; color: #ffc9ec; text-shadow: 0 0 10px rgba(212, 64, 143, 0.9); }
 #chHud .white { position: absolute; inset: 0; background: #fff; opacity: 0; }
 body.ch-cine > *:not(canvas):not(#chHud):not(#flash) { opacity: 0 !important; pointer-events: none !important; }
 @media (prefers-reduced-motion: reduce) { #chHud .bar { transition: none; } }
 `;
 
-let root = null, line = null, white = null;
+let root = null, line = null, white = null, clocks = null, clockA = null, clockB = null;
 let lineT = 0;
 let cineOn = false;
 
@@ -41,10 +50,23 @@ function build() {
   document.head.appendChild(style);
   root = document.createElement('div');
   root.id = 'chHud';
-  root.innerHTML = '<div class="white"></div><div class="bar top"></div><div class="bar bot"></div><div class="line"></div>';
+  root.innerHTML = '<div class="white"></div><div class="bar top"></div><div class="bar bot"></div><div class="line"></div><div class="clocks"><span class="a"></span>\n<b class="b"></b></div>';
   document.body.appendChild(root);
   line = root.querySelector('.line');
   white = root.querySelector('.white');
+  clocks = root.querySelector('.clocks');
+  clockA = root.querySelector('.clocks .a');
+  clockB = root.querySelector('.clocks .b');
+}
+
+const two = (n) => String(Math.floor(n)).padStart(2, '0');
+// seconds as a clock; past a day, days; past a year, years
+function stamp(sec) {
+  const d = Math.floor(sec / 86400), y = Math.floor(d / 365);
+  const hms = `${two((sec / 3600) % 24)}:${two((sec / 60) % 60)}:${two(sec % 60)}`;
+  if (y > 0) return `${y}Y ${String(d % 365).padStart(3, '0')}D ${hms}`;
+  if (d > 0) return `${d}D ${hms}`;
+  return hms;
 }
 
 export const chapterHud = {
@@ -70,6 +92,16 @@ export const chapterHud = {
     if (!root && v <= 0) return;
     build();
     white.style.opacity = v <= 0.004 ? '0' : v.toFixed(3);
+  },
+  clocks(a, b, labelA = '', labelB = '') {
+    if (a == null) {
+      if (clocks) clocks.classList.remove('show');
+      return;
+    }
+    build();
+    clocks.classList.add('show');
+    clockA.textContent = `${labelA.padEnd(10)}${stamp(a)}`;
+    clockB.textContent = `${labelB.padEnd(10)}${stamp(b)}`;
   },
   tick(dt) {
     if (lineT > 0) {

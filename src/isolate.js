@@ -139,6 +139,9 @@ const WORLD_RENDER = {
   // Aboard the light ship (world/lightship.js): a dark walk inside a hull of
   // coloured light, so it is opened up and the lights are let bloom.
   lightship: { exposure: 0.85, bloomThreshold: 0.95, bloomStrength: 0.45 },
+  // ...and its bridge, at the black hole (world/divebridge.js): dark, with
+  // the ring, the wire and the flood left to bloom.
+  dive: { exposure: 0.9, bloomThreshold: 0.9, bloomStrength: 0.6 },
   terra: GENERIC_RENDER,
   rustia: GENERIC_RENDER,
   neptunia: GENERIC_RENDER,
