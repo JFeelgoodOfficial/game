@@ -746,8 +746,19 @@ offered at the Starter's stand on the terrace once the epilogue has played:
   missed gate costs two seconds.
 - The city holds the pilot and gives the race the camera. E leaves a race.
   Best time per world is saved under `fgsf.worldrace`.
-- Built so far: one world against the clock. Rivals, collisions, crowds and
-  lingering wakes are not built.
+- The grid is the pilot and up to six others (`CH_TIER[tier].rivals`): the
+  three captains on worlds from their own peoples (`RACE.captainWorld`), then
+  the names in `RACE.others`. Every racer is one record stepped by the same
+  code; a rival's stick comes from `think()`, which makes for the next gate
+  with an error set by its skill, and eases or finds more when the pilot is
+  well behind or ahead.
+- Worlds that touch shove each other apart across the course by mass, and the
+  one behind is slowed. A world close in behind another and in line is pulled
+  along (up to 9% more speed).
+- The panel shows position and the running order; the finish gives the
+  pilot's place.
+- Not built: crowds, lingering wakes, lights that follow the leader, and a
+  finish through the monument.
 
 Rules the chapter keeps to:
 

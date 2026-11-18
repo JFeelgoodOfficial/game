@@ -15,9 +15,10 @@ import { createLayerPlanet } from './layerplanet.js';
 
 export const RACER_R = 5.5;
 
-export function createRacer(world) {
+// `lite`: a rival's, seen from further off: coarser, and nothing living on it.
+export function createRacer(world, lite = false) {
   const group = new THREE.Group();
-  const planet = createLayerPlanet(RACER_R, { life: 160, seg: 48, seed: world.id.length * 3.1 + world.speed * 7 });
+  const planet = createLayerPlanet(RACER_R, { life: lite ? 4 : 160, seg: lite ? 32 : 48, seed: world.id.length * 3.1 + world.speed * 7 });
   planet.setAll(world.layers);
   planet.revealAll(1);
   planet.holo(0.22); // (a little of its own light, so its night side is not a hole in the sky)
