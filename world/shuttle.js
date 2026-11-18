@@ -33,7 +33,7 @@
 // thumb) still looks round. A site for src/capitalWalk.js. Frame: +y up.
 
 import * as THREE from 'three';
-import { C } from '../src/constants.js';
+import { C, CH_TIER } from '../src/constants.js';
 import { Q } from '../src/quality.js';
 import { sun } from '../src/sun.js';
 import { MOTION_SCALE } from '../src/motion.js';
@@ -195,7 +195,7 @@ export function createShuttle(ctx) {
   dream.add(place.mesh);
   // planets the wrong size: [radius at rest, how far off, how fast round, height]
   const BODIES = [[26, 62, 0.05, -8], [0.22, 1.9, 1.7, 1.9], [0.3, 2.6, -1.2, 2.5], [5, 24, 0.22, 9], [2.2, 13, -0.4, -5], [9, 40, 0.11, 16]];
-  const bodies = BODIES.map(([r, far, rate, h], i) => {
+  const bodies = BODIES.slice(0, (CH_TIER[Q.tier] || CH_TIER.medium).dream).map(([r, far, rate, h], i) => {
     const p = createLayerPlanet(r, { life: i === 0 ? 400 : 120, seg: i === 0 ? 64 : 32, seed: 3.1 + i * 4.7 });
     p.group.visible = false;
     dream.add(p.group);
@@ -269,7 +269,7 @@ export function createShuttle(ctx) {
   let phaseRate = 5.5; // how fast the pulses run on the tether and the wire
   // after waking: the stall, the canvas, the birth
   let v = 0, w = 0; // seconds into the stall; into the birth
-  let stallSaid = false, birthSaid = -1, pctAt = 0;
+  let stallSaid = false, birthSaid = -1, pctAt = 0, pctShown = -1;
   let have = []; // the layers the pilot's fragments fill
   let creature = null; // world/firstcreature.js, once something has been drawn
   const from = new THREE.Vector3(0, 1.75, -5); // where the drawing was let go
@@ -339,7 +339,8 @@ export function createShuttle(ctx) {
       pctAt -= dt;
       if (pctAt <= 0 && !stallSaid && v > 2) {
         pctAt = 0.1;
-        chapterHud.say(`${Math.floor((prog / (n * LAYER_TIME)) * 100)}%`, 0.6);
+        const pct = Math.floor((prog / (n * LAYER_TIME)) * 100);
+        if (pct !== pctShown) chapterHud.say(`${(pctShown = pct)}%`, 1.2);
       }
       if (stuck && !stallSaid && v - 2 > stopAt + 2.2) {
         stallSaid = true;

@@ -31,6 +31,7 @@
  */
 
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -360,6 +361,65 @@ export function buildRig(seed, cityId) {
     tail.add(tailMesh);
   }
 
+  // --- One skinned mesh in place of a mesh per part ---
+  // A figure is built above as seventeen-odd meshes hung on its joints, which
+  // is seventeen draws a figure. Here they are fused into a single mesh
+  // rigidly skinned to those same joints (each vertex follows the one joint
+  // its part hung from), in three groups for the three materials. The joints
+  // are untouched, so every pose, and anything a world hangs on a joint,
+  // works as before; the materials are the same three objects, so a world
+  // that recolours them still does. Three draws a figure.
+  root.updateMatrixWorld(true);
+  const bones = [];
+  const parts = [[], [], []]; // skin, cloth, eye
+  const mats = [skinMat, clothMat, eyeMat];
+  const fused = [];
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    const joint = o.parent;
+    let bi = bones.indexOf(joint);
+    if (bi < 0) bi = bones.push(joint) - 1;
+    o.updateMatrix();
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    for (const name of Object.keys(g.attributes)) if (name !== 'position' && name !== 'normal') g.deleteAttribute(name);
+    g.applyMatrix4(o.matrix).applyMatrix4(joint.matrixWorld);
+    const n = g.attributes.position.count;
+    const idx = new Uint16Array(n * 4), wgt = new Float32Array(n * 4);
+    for (let v = 0; v < n; v++) {
+      idx[v * 4] = bi;
+      wgt[v * 4] = 1;
+    }
+    g.setAttribute('skinIndex', new THREE.BufferAttribute(idx, 4));
+    g.setAttribute('skinWeight', new THREE.BufferAttribute(wgt, 4));
+    parts[Math.max(mats.indexOf(o.material), 0)].push(g);
+    fused.push(o);
+  });
+  const seen = new Set();
+  for (const o of fused) {
+    o.parent.remove(o);
+    if (!seen.has(o.geometry)) {
+      seen.add(o.geometry);
+      o.geometry.dispose();
+    }
+  }
+  const byMat = [], matsUsed = [];
+  for (let m = 0; m < 3; m++) {
+    if (!parts[m].length) continue;
+    byMat.push(parts[m].length > 1 ? mergeGeometries(parts[m], false) : parts[m][0]);
+    matsUsed.push(mats[m]);
+    if (parts[m].length > 1) for (const g of parts[m]) g.dispose();
+  }
+  const bodyGeo = byMat.length > 1 ? mergeGeometries(byMat, true) : byMat[0];
+  if (byMat.length > 1) for (const g of byMat) g.dispose();
+  const body = new THREE.SkinnedMesh(bodyGeo, byMat.length > 1 ? matsUsed : matsUsed[0]);
+  body.name = 'Body';
+  root.add(body);
+  body.updateMatrixWorld(true);
+  body.bind(new THREE.Skeleton(bones), body.matrixWorld);
+  // (its bounds are the standing figure's; a stride does not leave them by enough to matter)
+  bodyGeo.computeBoundingSphere();
+  bodyGeo.boundingSphere.radius *= 1.35;
+
   const totalHeightApprox = 0.95 * scaleY + 0.18 * scaleY + 0.52 * scaleY + 0.3 * headScale * scaleY;
   root.position.y -= 0; // ground alignment handled by feet offset below
   const groundOffset = 0.95 * scaleY - 0.11; // approx foot clearance so pelvis sits above ground correctly
@@ -368,7 +428,12 @@ export function buildRig(seed, cityId) {
     group: root,
     joints: { pelvis, torso, head, shoulders, armL, armR, legL, legR, tail },
     materials: { skinMat, clothMat, eyeMat },
-    params: { height, gaitSpeed, gaitPhase, scaleY, groundOffset },
+    body,
+    params: {
+      height, gaitSpeed, gaitPhase, scaleY, groundOffset,
+      // the legs' own measure (world/rigGround.js plants the feet with it)
+      leg: { upper: 0.34 * limbScale * scaleY, lower: 0.32 * limbScale * scaleY, radius: 0.045 * limbScale * scaleY },
+    },
     cityId,
   };
 }

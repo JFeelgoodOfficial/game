@@ -311,3 +311,64 @@ is `armed` or later. The holodeck room, its panel and the session code are in
 the boot chunk (they are part of the ship). Fifteen fleet ships cost thirty
 draw calls (two shared geometries per class); a siege adds two per besieged
 warship. None of this has been measured on a phone.
+
+## Megaworld chapter: performance pass (GDD 5.7.4)
+
+Measured headless (SwiftShader, 960×540, MEDIUM tier), one rendered frame per
+reading via `__renderer.info` with `autoReset` off, so the count includes every
+composer pass. Frame rates from this renderer are not meaningful and are not
+recorded; draw calls, triangles and live geometries are.
+
+| Scene | Calls before | Calls after | Triangles before | Triangles after |
+|---|---|---|---|---|
+| City, terrace | 285 | 287 | 147,260 | 151,420 |
+| City, Pavilion | 468 | 276 | 167,200 | 148,926 |
+| City, suite | 229 | 231 | 129,098 | 133,258 |
+| Light ship, on the walk | 198 | 174 | 108,520 | 93,432 |
+| Light ship, in a room | 144 | 144 | 88,228 | 88,228 |
+| Bridge | 203 | 203 | 54,678 | 54,678 |
+| Shuttle | 127 | 127 | 50,036 | 50,036 |
+
+Live geometries after visiting the city, ship, bridge and shuttle and
+returning to the city: 701 before, 442 after.
+
+What changed:
+
+- **People by distance.** A city descendant is a jointed figure (about 17
+  draws) only within `CH_TIER[tier].rigNear` of the pilot; beyond it they are
+  one instance of a shared capsule. LOW uses the capsule always.
+- **Tier table.** `CH_TIER` in `src/constants.js` sets the number of people,
+  the figure range, the worlds in the archive flood and the bodies in the
+  dream. Read when each place is built.
+- **Layer planets share spheres.** One unit sphere per segment count, scaled
+  per planet, instead of six spheres per planet.
+- **Fragments are built on approach.** The 30 fragment planets aboard the
+  light ship are made the first time their room is neared, and only drawn
+  within 24 units.
+- **Retired places are freed.** Once the light ship has left for good, the
+  ship, bridge and shuttle are removed and their geometry, materials and
+  textures disposed.
+- **Less text churn.** The HUD clocks and the stall's percentage make a new
+  string only when the shown value changes.
+
+### Figures fused (follow-up)
+
+`buildRig` in `world/aliens.js` now fuses a figure's parts into one skinned
+mesh, rigidly bound to the same joints, in three material groups. A figure
+is three draws instead of about seventeen. The joints and the three material
+objects are unchanged, so poses, things hung on joints and recolouring all
+work as before. This applies to every world that uses these figures.
+
+| Scene | Calls before the pass | After the pass | After fusing |
+|---|---|---|---|
+| City, terrace | 285 | 287 | 175 |
+| City, Pavilion | 468 | 276 | 178 |
+| City, suite | 229 | 231 | 157 |
+
+Live geometries in the city: 430 to 299.
+
+Not done, and why:
+
+- **About 150 calls remain in the city with no figures in view.** Not yet
+  broken down between the city's own meshes, sprites and the post passes.
+- **Shared shader chunks** would tidy the source but not change the frame.

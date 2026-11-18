@@ -5,7 +5,8 @@
 // swing, so a figure placed by it stands in the air or in the floor and its
 // feet leave the ground in the middle of every stride.
 //
-// Here the legs are measured once (the lengths are in the rig's own joints),
+// Here the legs are measured once (the lengths are in the rig's joints and
+// its params.leg),
 // and then each frame, after the pose has been set, the lower of the two feet
 // is worked out from the hip and knee angles and the figure is put so that
 // that foot is on the floor. The stance foot is planted; the body rides up
@@ -16,17 +17,14 @@
 //   standRig(rig, floorY)      every frame, after poseRig; returns the y it set
 //   footY(rig)                 where the lower foot is now (for checks)
 
-function leg(l) {
-  const upper = -l.knee.position.y; // hip to knee
-  const shin = l.knee.children[0]; // the lower leg's capsule, hung from the knee
-  const lower = shin ? -shin.position.y * 2 : upper;
-  const radius = shin && shin.geometry.parameters ? shin.geometry.parameters.radius || 0 : 0;
-  return { hip: l.hip, knee: l.knee, upper, lower, radius, top: l.hip.position.y };
+function leg(l, m) {
+  // hip to knee is in the joints; the shin's length and thickness are the rig's own measure
+  return { hip: l.hip, knee: l.knee, upper: -l.knee.position.y, lower: m.lower, radius: m.radius, top: l.hip.position.y };
 }
 
 export function measureRig(rig) {
   const j = rig.joints;
-  rig.ground = { pelvis: j.pelvis, L: leg(j.legL), R: leg(j.legR) };
+  rig.ground = { pelvis: j.pelvis, L: leg(j.legL, rig.params.leg), R: leg(j.legR, rig.params.leg) };
   return rig;
 }
 

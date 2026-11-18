@@ -23,6 +23,8 @@
 
 import * as THREE from 'three';
 import { MOTION_SCALE } from '../src/motion.js';
+import { CH_TIER } from '../src/constants.js';
+import { Q } from '../src/quality.js';
 import { uiSound, setEventRumble } from '../src/sfx.js';
 import { label } from '../src/holoLabel.js';
 import { chapterHud } from '../src/chapterHud.js';
@@ -214,7 +216,8 @@ export function createEpilogue(k) {
     o.z = c.z + Math.sin(a) * Math.min(r, c === PAV ? 25 : c.r);
     return o;
   };
-  const people = AREAS.map((area, i) => {
+  const tier = CH_TIER[Q.tier] || CH_TIER.medium;
+  const people = AREAS.slice(0, tier.people).map((area, i) => {
     const rig = measureRig(buildRig(0x1000 + i * 977, 'fleet'));
     const p = spot(area, { x: 0, z: 0 });
     rig.group.position.set(p.x, 0, p.z);
@@ -223,6 +226,18 @@ export function createEpilogue(k) {
     root.add(rig.group);
     return { rig, area, to: spot(area, { x: 0, z: 0 }), wait: rnd() * 5, speed: 1.6 + rnd() * 1.4 };
   });
+  // far off, a person is one instance of a capsule in their own colours: a
+  // jointed figure is seventeen draws, and from across the terrace nobody can
+  // tell the difference
+  const far = new THREE.InstancedMesh(
+    new THREE.CapsuleGeometry(0.27, 1.15, 3, 8).translate(0, 0.85, 0),
+    new THREE.MeshLambertMaterial({ emissive: 0x1c1a17 }),
+    Math.max(people.length, 1)
+  );
+  const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _p = new THREE.Vector3();
+  people.forEach((p, i) => far.setColorAt(i, p.rig.materials.clothMat.color));
+  far.frustumCulled = false;
+  root.add(far);
 
   // --- the captains ---
   k.pavilion.hideCaptains(); // they are not at the Pavilion's table any more
@@ -345,7 +360,8 @@ export function createEpilogue(k) {
       // the captains: at the glass until it is over, then wherever the pilot goes
       const looking = u >= EPILOGUE.lookAt[0] && u < EPILOGUE.lookAt[1];
       const west = u >= EPILOGUE.launchAt - 1;
-      crew.forEach((m, i) => {
+      for (let i = 0; i < crew.length; i++) {
+        const m = crew[i];
         const g = m.rig.group.position;
         m.moving = false;
         if (!chapter.epilogue()) {
@@ -389,10 +405,11 @@ export function createEpilogue(k) {
         m.npc.y = m.floor;
         poseRig(m.rig, dt, t, m.moving ? 'walk' : 'idle', m.pace);
         standRig(m.rig, m.floor);
-      });
+      }
 
       // the people of the city, about their day
-      for (const p of people) {
+      for (let i = 0; i < people.length; i++) {
+        const p = people[i];
         const g = p.rig.group.position;
         let walking = false;
         if (p.wait > 0) p.wait -= dt;
@@ -408,9 +425,18 @@ export function createEpilogue(k) {
             walking = true;
           }
         }
-        poseRig(p.rig, dt, t, walking ? 'walk' : 'idle', walking ? 0.6 : 0);
-        standRig(p.rig, 0); // (all three of their floors are at 0)
+        // near the pilot, the figure; far off, the capsule
+        const near = !!walker && tier.rigNear > 0 && Math.abs(walker.y) < 8 && Math.hypot(g.x - walker.x, g.z - walker.z) < tier.rigNear;
+        p.rig.group.visible = near;
+        if (near) {
+          poseRig(p.rig, dt, t, walking ? 'walk' : 'idle', walking ? 0.6 : 0);
+          standRig(p.rig, 0); // (all three of their floors are at 0)
+          _s.setScalar(0);
+        } else _s.setScalar(p.rig.group.scale.x);
+        _q.setFromAxisAngle(_up, p.rig.group.rotation.y);
+        far.setMatrixAt(i, _m.compose(_p.set(g.x, 0, g.z), _q, _s));
       }
+      far.instanceMatrix.needsUpdate = true;
     },
     state: () => ({ u, end: T_END, runs: monument ? monument.count : 0, people: people.length, crew: crew.map((m) => m.rig.group.position.toArray().map(Math.round)),
       // how far each captain's lower foot is off the floor it stands on
