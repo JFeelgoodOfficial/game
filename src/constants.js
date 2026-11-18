@@ -559,12 +559,13 @@ export const C = {
 // What the megaworld chapter spends per tier (GDD 5.7.4). people: the city's
 // descendants; rigNear: inside this range a person is a jointed figure, beyond
 // it one instance of a shared capsule (0: always the capsule); flood: worlds
-// that come round the bridge in the archive flood; dream: bodies in the dream.
+// that come round the bridge in the archive flood; dream: bodies in the dream;
+// lanterns: lights adrift over the city's walks; birds: the flock at the monument.
 export const CH_TIER = {
-  low: { people: 6, rigNear: 0, flood: 3, dream: 3 },
-  medium: { people: 10, rigNear: 38, flood: 6, dream: 6 },
-  high: { people: 13, rigNear: 60, flood: 6, dream: 6 },
-  ultra: { people: 13, rigNear: 90, flood: 6, dream: 6 },
+  low: { people: 6, rigNear: 0, flood: 3, dream: 3, lanterns: 80, birds: 40 },
+  medium: { people: 10, rigNear: 38, flood: 6, dream: 6, lanterns: 220, birds: 110 },
+  high: { people: 13, rigNear: 60, flood: 6, dream: 6, lanterns: 360, birds: 180 },
+  ultra: { people: 13, rigNear: 90, flood: 6, dream: 6, lanterns: 480, birds: 240 },
 };
 
 export const TIERS = {

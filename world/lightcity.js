@@ -27,7 +27,8 @@ import { tint, box, cyl, mergedMesh, floorOf, buildRobot, trackRobot } from './c
 import { doorFrame, doorLight, DOOR } from './farlanding.js';
 import { holeDirection } from './farhole.js';
 import { buildHangar, HANGAR_BOX } from './lightvessel.js';
-import { buildPavilion } from './lightpavilion.js';
+import { buildPavilion, PAV } from './lightpavilion.js';
+import { CH_TIER } from '../src/constants.js';
 import { createDemo } from './lightdemo.js';
 import { createEpilogue } from './lightepilogue.js';
 import { DEMO } from './chapter-dialogue.js';
@@ -102,6 +103,7 @@ const TOWER_FRAG = /* glsl */ `
   uniform float uTime;
   uniform vec3 uHaze;
   uniform vec3 uLight; // toward the white hole
+  uniform float uAged; // a thousand years on: three peoples have built here too
   varying float vUp;
   varying vec3 vWorld;
   varying vec3 vN;
@@ -128,12 +130,36 @@ const TOWER_FRAG = /* glsl */ `
     float fine = 1.0 - smoothstep(0.3, 0.9, px); // panes merge to a sheen far off
     vec3 cyan = vec3(0.50, 0.88, 1.0), gold = vec3(1.0, 0.80, 0.42);
     vec3 lamp = mix(cyan, gold, step(0.66, hash(cell.yy + vSeed * 3.0)));
+    // A thousand years on, half the towers are the newcomers': Rustia's are
+    // dark and rust-clad with ember in the windows, Saturnia's pale gold,
+    // Wavemall Prime's lit in pink and cyan by the storey.
+    float who = fract(vSeed * 9.37);
+    float theirs = uAged * step(0.5, fract(vSeed * 3.71));
+    vec3 rustG = vec3(0.13, 0.055, 0.03), rustL = vec3(1.0, 0.52, 0.2);
+    vec3 goldG = vec3(0.26, 0.2, 0.1), goldL = vec3(1.0, 0.9, 0.62);
+    vec3 neonG = vec3(0.07, 0.03, 0.13), neonL = mix(vec3(1.0, 0.35, 0.75), vec3(0.4, 0.95, 1.0), step(0.5, fract(cell.y * 0.5)));
+    vec3 g2 = who < 0.333 ? rustG : who < 0.666 ? goldG : neonG;
+    vec3 l2 = who < 0.333 ? rustL : who < 0.666 ? goldL : neonL;
+    glass = mix(glass, g2 * (0.6 + 0.4 * sunward), theirs);
+    lamp = mix(lamp, l2, theirs);
     vec3 col = glass + lamp * mix(0.2, pane * on * 0.95, fine) * (0.85 + 0.15 * sin(uTime * 0.7 + cell.y));
+    // setbacks: a ledge every so often up the tower, dark above a line of light
+    float ledge = fract(vUp * (4.0 + floor(vSeed * 5.0)) + vSeed);
+    col *= 1.0 - 0.45 * smoothstep(0.93, 0.96, ledge) * fine;
+    col += lamp * smoothstep(0.972, 0.985, ledge) * (1.0 - smoothstep(0.985, 1.0, ledge)) * 0.9;
+    // a sign on some of them, part way up one face: a block of light that changes
+    float sy = 0.35 + 0.4 * fract(vSeed * 5.13);
+    float sign = step(0.72, fract(vSeed * 7.77)) * step(abs(vUp - sy), 0.035) * step(abs(fract(vFace.x * 0.1592 + vSeed) - 0.5), 0.07);
+    vec3 signC = mix(vec3(1.0, 0.4, 0.75), vec3(0.45, 0.95, 1.0), step(0.5, fract(vSeed * 11.3)));
+    signC = mix(signC, vec3(1.0, 0.8, 0.4), step(0.8, fract(vSeed * 2.9)));
+    col = mix(col, signC * (0.9 + 0.5 * step(0.5, fract(uTime * 0.25 + vSeed * 9.0))) * (0.7 + 0.3 * step(0.5, fract(vFace.x * 30.0 + vUp * 300.0))), sign);
     // bright ribs up the corners and bands across, every few storeys
     col += cyan * (1.0 - smoothstep(0.0, 0.07, abs(fract(vFace.x * 0.9549 + 0.5) - 0.5))) * 0.5 * fine;
     col += gold * step(0.93, fract(vWorld.y * 0.0105 + vSeed)) * 0.7;
     // the crown burns, and the edges catch the sky
     col += vec3(1.0, 0.92, 0.70) * smoothstep(0.955, 1.0, vUp) * 1.3;
+    // ...and a beacon at the very top keeps time
+    col += vec3(1.0, 0.25, 0.2) * smoothstep(0.988, 1.0, vUp) * step(0.6, fract(uTime * 0.45 + vSeed * 7.0)) * 2.5;
     col += vec3(0.50, 0.78, 1.0) * pow(1.0 - max(dot(N, V), 0.0), 3.0) * 0.5;
     col += vec3(1.0, 0.97, 0.9) * pow(sunward, 6.0) * 0.35;
     // feet lost in the light of the streets
@@ -348,7 +374,7 @@ function buildCity(group, lightDir) {
   const heart = new THREE.Vector2(lightDir.x, lightDir.z).normalize().multiplyScalar(1250);
   const n = TOWERS[Q.tier] || TOWERS.medium;
   const nSpire = Math.round(n * 0.62), nSlab = n - nSpire;
-  const uniforms = { uTime: { value: 0 }, uHaze: { value: HAZE }, uLight: { value: lightDir } };
+  const uniforms = { uTime: { value: 0 }, uHaze: { value: HAZE }, uLight: { value: lightDir }, uAged: { value: 0 } };
   const mat = new THREE.ShaderMaterial({ vertexShader: TOWER_VERT, fragmentShader: TOWER_FRAG, uniforms, fog: false });
   const spires = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.34, 1, 1, 6).translate(0, 0.5, 0), mat, nSpire);
   const slabs = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), mat, nSlab);
@@ -480,6 +506,7 @@ export function createLightCity(ctx) {
     const rot = Math.atan2(bx - ax, bz - az);
     glass.push(tint(box(0.08, 1.05, len, (ax + bx) / 2, 0.58, (az + bz) / 2, rot), COL.glass));
     glow.push(tint(box(0.12, 0.07, len, (ax + bx) / 2, 1.13, (az + bz) / 2, rot), GLOW.gold, 1.5));
+    lit.push(tint(cyl(0.06, 0.08, 1.16, ax, 0.58, az, 6), COL.gold)); // a post where each run begins
   };
 
   // --- the balcony: a floor, a prow, a rail ---
@@ -564,6 +591,47 @@ export function createLightCity(ctx) {
     if (Math.abs((z0 + z1) / 2 - TERR_Z) < BRIDGE_HW + 0.8 && (x0 + x1) / 2 > GALL_X) continue; // the bridge
     rail(x0, z0, x1, z1);
   }
+
+  // --- what people sit on, and stand under ---
+  const bench = (x, z, face) => {
+    lit.push(tint(box(2.3, 0.12, 0.72, x, 0.5, z, face), COL.stone));
+    lit.push(tint(box(2.3, 0.5, 0.1, x - Math.cos(face) * 0 + Math.sin(face) * -0.31, 0.78, z + Math.cos(face) * -0.31, face), COL.stone));
+    for (const e of [-0.9, 0.9]) lit.push(tint(box(0.12, 0.5, 0.6, x + Math.cos(face) * e, 0.25, z - Math.sin(face) * e, face), COL.stoneDark));
+    glow.push(tint(box(2.1, 0.03, 0.06, x + Math.sin(face) * 0.36, 0.08, z + Math.cos(face) * 0.36, face), GLOW.gold, 1.0));
+    colliders.push({ x, z, r: 1.0, top: Infinity });
+  };
+  const planter = (x, z, r) => {
+    lit.push(tint(cyl(r, r * 0.7, 0.7, x, 0.35, z, 14), COL.stoneDark));
+    lit.push(tint(cyl(r * 0.92, r * 0.92, 0.06, x, 0.7, z, 14), 0x2a5a48));
+    // what grows in it is light
+    for (let i = 0; i < 7; i++) {
+      const a = i * 2.4, rr = r * 0.6 * ((i % 3) / 2);
+      glow.push(tint(new THREE.ConeGeometry(0.1, 0.7 + (i % 4) * 0.35, 5).translate(x + Math.cos(a) * rr, 1.05 + (i % 4) * 0.17, z + Math.sin(a) * rr), i % 2 ? 0x7dffc0 : 0x9fe8ff, 1.3));
+    }
+    colliders.push({ x, z, r: r + 0.15, top: Infinity });
+  };
+  const standard = (x, z) => {
+    lit.push(tint(cyl(0.07, 0.11, 4.2, x, 2.1, z, 6), COL.gold));
+    lit.push(tint(cyl(0.4, 0.07, 0.25, x, 4.25, z, 8), COL.gold));
+    glow.push(tint(cyl(0.3, 0.3, 0.3, x, 4.5, z, 10), GLOW.white, 1.9));
+  };
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + 0.52;
+    if (Math.abs(Math.sin(a)) < 0.3 || (Math.abs(Math.cos(a)) < 0.3 && Math.sin(a) > 0)) continue; // not across a bridge
+    bench(Math.cos(a) * 13.5, TERR_Z + Math.sin(a) * 13.5, -a + Math.PI / 2);
+  }
+  for (const a of [0.62, 2.52, 3.76, 5.66]) planter(Math.cos(a) * 8.6, TERR_Z + Math.sin(a) * 8.6, 1.15);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + 0.3;
+    bench(PAV.x + Math.cos(a) * 20.5, PAV.z + Math.sin(a) * 20.5, -a + Math.PI / 2);
+  }
+  for (const a of [0.9, 2.2, 4.1, 5.4]) planter(PAV.x + Math.cos(a) * 14, PAV.z + Math.sin(a) * 14, 1.3);
+  for (const a of [1.4, 4.9]) bench(GALL_X + Math.cos(a) * 9, TERR_Z + Math.sin(a) * 9, -a + Math.PI / 2);
+  planter(GALL_X + 6, TERR_Z - 8, 1.0);
+  // lamp standards down the long bridge and out along the two side ones
+  for (let z = BRIDGE_Z0 - 4; z > BRIDGE_Z1; z -= 9) for (const s of [-1, 1]) standard(s * (BRIDGE_HW + 0.05), z);
+  for (let x = TERR_R + 6; x < PAV.x - PAV.r - 2; x += 10) for (const s of [-1, 1]) standard(x, TERR_Z + s * (BRIDGE_HW + 0.05));
+  for (let x = -TERR_R - 6; x > GALL_X + GALL_R + 2; x -= 10) for (const s of [-1, 1]) standard(x, TERR_Z + s * (BRIDGE_HW + 0.05));
 
   const litMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x2c2b28 });
   const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });
@@ -718,6 +786,52 @@ export function createLightCity(ctx) {
     trailAge.needsUpdate = true;
     trailU.uScale.value = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((C.FOV * Math.PI) / 360);
   }
+  // --- lanterns adrift over the walks: let go from somewhere below, rising, never in a hurry ---
+  const nLan = (CH_TIER[Q.tier] || CH_TIER.medium).lanterns;
+  const lanSeed = new Float32Array(nLan * 3);
+  let ls = 0x1a27e2;
+  for (let i = 0; i < lanSeed.length; i++) lanSeed[i] = ((ls = (Math.imul(ls, 1664525) + 1013904223) >>> 0), ls / 4294967296);
+  const lanGeo = new THREE.BufferGeometry();
+  lanGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(nLan * 3), 3));
+  lanGeo.setAttribute('aSeed', new THREE.BufferAttribute(lanSeed, 3));
+  const lanU = { uTime: { value: 0 }, uScale: { value: 600 } };
+  const lanterns = new THREE.Points(lanGeo, new THREE.ShaderMaterial({
+    uniforms: lanU,
+    vertexShader: /* glsl */ `
+      attribute vec3 aSeed;
+      uniform float uTime, uScale;
+      varying float vSeed;
+      varying float vFade;
+      void main() {
+        vec3 p = vec3(-150.0 + aSeed.x * 300.0, 0.0, -150.0 + aSeed.z * 180.0);
+        float h = mod(aSeed.y * 90.0 + uTime * (0.7 + 1.1 * aSeed.x), 90.0);
+        p.y = -12.0 + h;
+        p.xz += 2.5 * vec2(sin(uTime * 0.3 + aSeed.y * 30.0), cos(uTime * 0.23 + aSeed.x * 30.0));
+        vSeed = aSeed.y;
+        vFade = smoothstep(0.0, 8.0, h) * smoothstep(90.0, 70.0, h);
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = clamp(uScale * (0.42 + 0.3 * aSeed.z) / max(-mv.z, 0.5), 1.5, 44.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform float uTime;
+      varying float vSeed;
+      varying float vFade;
+      void main() {
+        vec2 q = gl_PointCoord * 2.0 - 1.0;
+        float r = length(q * vec2(1.25, 1.0));
+        if (r > 1.0) discard;
+        vec3 c = mix(vec3(1.0, 0.62, 0.25), vec3(1.0, 0.86, 0.55), vSeed);
+        float flick = 0.8 + 0.2 * sin(uTime * (3.0 + vSeed * 4.0) + vSeed * 50.0);
+        gl_FragColor = vec4(c * pow(1.0 - r, 1.3) * 1.5 * flick * vFade, 1.0);
+      }
+    `,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+  }));
+  lanterns.frustumCulled = false;
+  group.add(lanterns);
+
   const sky = buildSky(group, lightDir);
   const skyU = sky.uniforms;
 
@@ -823,6 +937,9 @@ export function createLightCity(ctx) {
     },
     tick(dt, t) {
       city.uniforms.uTime.value = t;
+      city.uniforms.uAged.value = ctx.chapter && ctx.chapter.home() ? 1 : 0;
+      lanU.uTime.value = t;
+      lanU.uScale.value = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((C.FOV * Math.PI) / 360);
       city.groundU.uTime.value = t;
       city.craftU.uTime.value = t;
       city.craftU.uScale.value = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((C.FOV * Math.PI) / 360);
