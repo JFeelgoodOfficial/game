@@ -731,6 +731,24 @@ terrace's rail:
   lines are `DISTRICTS` in `world/chapter-dialogue.js`.
 - They sit inside the 240-unit circle the city's towers keep clear of.
 
+World racing (`src/worldRace.js`, `world/racecourse.js`, `world/racers.js`),
+offered at the Starter's stand on the terrace once the epilogue has played:
+
+- The pilot picks one of seven small worldships (`RACE.worlds` in
+  `world/chapter-dialogue.js`: layers, speed, grip, boost, drive colour) and
+  flies three laps against the clock.
+- The course is one closed line, about 3,100 units, through air nothing
+  stands in: over the Pavilion, up into the sky, west above the hangar, and
+  back low over the three districts. Twenty-seven gates, each set off the
+  middle.
+- A racer is held to the course and steered across and up within it. It goes
+  forward on its own; boost is spent with Space and earned by clean gates; a
+  missed gate costs two seconds.
+- The city holds the pilot and gives the race the camera. E leaves a race.
+  Best time per world is saved under `fgsf.worldrace`.
+- Built so far: one world against the clock. Rivals, collisions, crowds and
+  lingering wakes are not built.
+
 Rules the chapter keeps to:
 
 - Every place is a site for the platform walker (`src/capitalWalk.js`), which

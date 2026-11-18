@@ -10,6 +10,7 @@
 //   white(v)        0..1, a flash over everything
 //   clocks(a, b, labelA, labelB, c, labelC)   two clocks, top left, in seconds (null
 //                   hides them); a third, above them, if c is given
+//   panel(text)     a few lines top left (null hides it)
 //   tick(dt)        once a frame while anything might be showing
 
 const CSS = `
@@ -35,12 +36,21 @@ const CSS = `
 }
 #chHud .clocks.show { display: block; }
 #chHud .clocks b { font-weight: normal; color: #ffc9ec; text-shadow: 0 0 10px rgba(212, 64, 143, 0.9); }
+#chHud .panel {
+  position: absolute; left: max(2.2vw, env(safe-area-inset-left)); top: 2.4vh; display: none;
+  padding: 0.7em 1em; background: rgba(4, 12, 20, 0.55); border: 1px solid rgba(130, 247, 255, 0.5);
+  color: #a9f7ff; font-size: clamp(10px, 1.4vw, 15px); letter-spacing: 0.16em; white-space: pre; line-height: 1.7;
+  text-shadow: 0 0 10px rgba(130, 247, 255, 0.7);
+}
+#chHud .panel.show { display: block; }
+/* flying a race: the on-foot key list and the compass are not for this */
+body.ch-race #walkHint, body.ch-race #compass { opacity: 0 !important; }
 #chHud .white { position: absolute; inset: 0; background: #fff; opacity: 0; }
 body.ch-cine > *:not(canvas):not(#chHud):not(#flash) { opacity: 0 !important; pointer-events: none !important; }
 @media (prefers-reduced-motion: reduce) { #chHud .bar { transition: none; } }
 `;
 
-let root = null, line = null, white = null, clocks = null, clockA = null, clockB = null, clockC = null;
+let root = null, panel = null, line = null, white = null, clocks = null, clockA = null, clockB = null, clockC = null;
 let lineT = 0;
 let shownA = -2, shownB = -2, shownC = -2; // the seconds the clocks last showed
 let cineOn = false;
@@ -52,10 +62,11 @@ function build() {
   document.head.appendChild(style);
   root = document.createElement('div');
   root.id = 'chHud';
-  root.innerHTML = '<div class="white"></div><div class="bar top"></div><div class="bar bot"></div><div class="line"></div><div class="clocks"><span class="c"></span><span class="a"></span>\n<b class="b"></b></div>';
+  root.innerHTML = '<div class="white"></div><div class="bar top"></div><div class="bar bot"></div><div class="line"></div><div class="panel"></div><div class="clocks"><span class="c"></span><span class="a"></span>\n<b class="b"></b></div>';
   document.body.appendChild(root);
   line = root.querySelector('.line');
   white = root.querySelector('.white');
+  panel = root.querySelector('.panel');
   clocks = root.querySelector('.clocks');
   clockA = root.querySelector('.clocks .a');
   clockB = root.querySelector('.clocks .b');
@@ -109,6 +120,20 @@ export const chapterHud = {
     if (fa !== shownA) clockA.textContent = `${labelA.padEnd(10)}${stamp((shownA = fa))}`;
     if (fb !== shownB) clockB.textContent = `${labelB.padEnd(10)}${stamp((shownB = fb))}`;
     if (fc !== shownC) clockC.textContent = (shownC = fc) < 0 ? '' : `${labelC.padEnd(10)}${stamp(fc)}\n`;
+  },
+  // a race is being flown (puts the on-foot hints away)
+  racing(on) {
+    document.body.classList.toggle('ch-race', !!on);
+  },
+  // a few lines of text, top left (the race's lap, gate, time and boost); null hides it
+  panel(text) {
+    if (text == null) {
+      if (panel) panel.classList.remove('show');
+      return;
+    }
+    build();
+    panel.textContent = text;
+    panel.classList.add('show');
   },
   tick(dt) {
     if (lineT > 0) {

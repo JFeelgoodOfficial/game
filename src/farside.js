@@ -137,6 +137,7 @@ export function createFarside(ctx) {
         scene,
         hideFleet: () => ctx.fleets()?.show(false),
         chapter: ctx.chapter,
+        camera,
         greet: () => {
           if (ctx.chapter && ctx.chapter.home()) return ctx.chapter.keeperTalk();
           ctx.onMet();
@@ -574,6 +575,8 @@ export function createFarside(ctx) {
       demo: city ? city.info().demo : null,
       epi: city ? city.info().epi : null,
       districts: city ? city.info().districts : null,
+      race: city ? city.info().race : null,
+      raceSet: city ? city.info().raceSet : null,
       inShip: !!(lship && lship.inside()),
       ship: lship ? lship.info() : null,
       onBridge: !!(bridge && bridge.inside()),

@@ -320,3 +320,56 @@ export const DISTRICTS = {
     },
   },
 };
+
+// --- world racing (src/worldRace.js) --------------------------------------------
+// Small worldships, half the size of the one that came for Terra, raced round
+// the City of Light. `worlds`: what can be flown. Layers as in WORLDS above;
+// speed, grip and boost are each about 1 (more is better); `drive` is the
+// colour of its engine and its wake.
+export const RACE = {
+  marshal: { name: 'The Starter', species: 'City of Light', cityId: 'The Terrace' },
+  prompt: 'E — RACE THE WORLDS',
+  lines: [
+    'They build small ones now, for sport. Half the size of the one that came for Terra, and nobody inside.',
+    'Three laps. Through the gates of light: over the Pavilion, up round the sky, back over the three quarters.',
+    'W and S climb and dive. A and D turn. SPACE spends your boost. Clean gates earn it back.',
+  ],
+  pick: 'WHICH WORLD?',
+  count: ['3', '2', '1', 'GO'],
+  lap: 'LAP {n} OF {of} — {time}',
+  missed: 'GATE MISSED +{sec}s',
+  finish: 'FINISHED — {time}',
+  best: 'A NEW BEST',
+  quit: 'E — LEAVE THE RACE',
+  hud: 'LAP {lap}/{of}   GATE {gate}/{gates}\nTIME {time}   BEST {best}\nBOOST {boost}',
+  worlds: [
+    {
+      id: 'tide', name: 'TIDE', note: 'OCEAN · QUICK TO TURN', speed: 1.0, grip: 1.25, boost: 1.0, drive: 0x6fd8ff,
+      layers: { sky: { a: 0x8fd4ff, b: 0xffffff, bands: 0.6 }, ground: { sea: 0x0d4f9a, land: 0x2f8f6a, high: 0xd8f0e0, scale: 2.2, level: 0.66 }, structures: null, life: { col: 0xbff4ff, kind: 0, speed: 1.2 }, light: { col: 0xcfeaff, kind: 0 } },
+    },
+    {
+      id: 'frost', name: 'FROST', note: 'ICE · FAST, SLIDES', speed: 1.15, grip: 0.8, boost: 1.0, drive: 0xcff4ff,
+      layers: { sky: { a: 0xbfe8ff, b: 0xffffff, bands: 0.9 }, ground: { sea: 0x5f9fcf, land: 0xe9f4ff, high: 0xffffff, scale: 3.0, level: 0.35 }, structures: null, life: null, light: { col: 0x9fffe0, kind: 2 } },
+    },
+    {
+      id: 'cinder', name: 'CINDER', note: 'RUST DESERT · STEADY', speed: 1.0, grip: 1.0, boost: 1.2, drive: 0xff9a4a,
+      layers: { sky: { a: 0xd89a70, b: 0xffd9b0, bands: 0.3 }, ground: { sea: 0x4d2c18, land: 0xa86133, high: 0xe0a070, scale: 2.4, level: 0.28 }, structures: { col: 0xffb060, kind: 3, density: 0.2 }, life: null, light: { col: 0xffc080, kind: 0 } },
+    },
+    {
+      id: 'canopy', name: 'CANOPY', note: 'JUNGLE · GRIPS', speed: 0.95, grip: 1.35, boost: 0.9, drive: 0x7dff9a,
+      layers: { sky: { a: 0x8fe8b0, b: 0xf0ffe0, bands: 0.7 }, ground: { sea: 0x124a3a, land: 0x2f9a48, high: 0x9fd86a, scale: 3.6, level: 0.36 }, structures: null, life: { col: 0xffe08a, kind: 2, speed: 0.6 }, light: { col: 0xd8ff9a, kind: 0 } },
+    },
+    {
+      id: 'halo', name: 'HALO', note: 'GAS GIANT · HEAVY, FASTEST', speed: 1.25, grip: 0.7, boost: 0.9, drive: 0xffd98a,
+      layers: { sky: { a: 0xffc56e, b: 0xfff3d6, bands: 1.0 }, ground: { sea: 0xb9783a, land: 0xe9c48a, high: 0xfff6e0, scale: 1.1, level: 0.5 }, structures: null, life: null, light: { col: 0xffe2a0, kind: 1 } },
+    },
+    {
+      id: 'works', name: 'WORKS', note: 'MACHINE WORLD · BIG BOOST', speed: 1.05, grip: 0.95, boost: 1.5, drive: 0x7dffb0,
+      layers: { sky: { a: 0x2a6a5a, b: 0x9fffd0, bands: 0.1 }, ground: { sea: 0x0b0e12, land: 0x1c242c, high: 0x3a4a52, scale: 4.5, level: 0.3 }, structures: { col: 0x66ffaa, kind: 0, density: 0.8 }, life: null, light: { col: 0x66ffaa, kind: 1 } },
+    },
+    {
+      id: 'ember', name: 'EMBER', note: 'MOLTEN · WILD', speed: 1.2, grip: 0.85, boost: 1.3, drive: 0xff5a2a,
+      layers: { sky: { a: 0xff7a3a, b: 0xffd08a, bands: 0.4 }, ground: { sea: 0xff5a1a, land: 0x2a1410, high: 0x6a2a18, scale: 2.8, level: 0.48 }, structures: null, life: null, light: { col: 0xff8a3a, kind: 2 } },
+    },
+  ],
+};
