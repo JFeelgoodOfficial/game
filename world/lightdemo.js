@@ -20,6 +20,7 @@ import { MOTION_SCALE } from '../src/motion.js';
 import { uiSound, setEventRumble } from '../src/sfx.js';
 import { chapterHud } from '../src/chapterHud.js';
 import { buildRobot } from './capital.js';
+import { createPlace } from './holoplace.js';
 import { WORLDS, DEMO } from './chapter-dialogue.js';
 
 const T_SURGE = 3.0; // the cells begin to fall in with each other
@@ -27,60 +28,6 @@ const T_GO = 7.0; // the first jump
 const T_BACK = C.CH_DEMO_BACK; // ...and the last: home
 const T_END = T_BACK + 6.5;
 const DOME_R = 820;
-
-const PLACE_VERT = /* glsl */ `
-  varying vec3 vDir;
-  void main() {
-    vDir = position;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-const PLACE_FRAG = /* glsl */ `
-  uniform vec3 uA, uB, uSea, uLand, uHigh, uStruct, uLightC;
-  uniform float uTime, uBands, uScale, uLevel, uSeed, uFade;
-  varying vec3 vDir;
-  float h2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-  float n2(vec2 p) {
-    vec2 i = floor(p), f = fract(p);
-    f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(h2(i), h2(i + vec2(1, 0)), f.x), mix(h2(i + vec2(0, 1)), h2(i + vec2(1, 1)), f.x), f.y);
-  }
-  float fbm(vec2 p) {
-    float a = 0.5, s = 0.0;
-    for (int i = 0; i < 4; i++) { s += a * n2(p); p = p * 2.03 + 17.3; a *= 0.5; }
-    return s;
-  }
-  void main() {
-    vec3 d = normalize(vDir);
-    float h = d.y;
-    vec3 L = normalize(vec3(0.75, 0.3, 0.55));
-    // the sky, its cloud drawn out along the way the ship is going
-    vec3 sky = mix(uB, uA, smoothstep(-0.02, 0.55, h));
-    vec2 q = d.xz / (abs(h) + 0.3);
-    float cl = fbm(q * vec2(1.6, 1.6 / (1.0 + uBands * 3.0)) + vec2(uSeed, uTime * 0.35));
-    sky = mix(sky, uB * 1.2 + 0.08, smoothstep(0.45, 0.8, cl) * smoothstep(0.0, 0.3, h) * 0.75);
-    float s = max(dot(d, L), 0.0);
-    sky += uLightC * (pow(s, 500.0) * 4.0 + pow(s, 14.0) * 0.4);
-    // the ground, going by underneath
-    vec2 p = d.xz / max(-h, 0.015) + vec2(uSeed * 3.0, uTime * 2.2);
-    float n = fbm(p * uScale * 0.3);
-    float land = smoothstep(uLevel - 0.02, uLevel + 0.02, n);
-    vec3 g = mix(uSea * (0.5 + 0.9 * n), mix(uLand, uHigh, smoothstep(uLevel, uLevel + 0.3, n)), land);
-    g *= 0.55 + 0.6 * max(L.y + 0.4 * n, 0.0);
-    // what was built on it, as lights
-    vec2 c = floor(p * 5.0), f = fract(p * 5.0) - 0.5;
-    g += uStruct * step(h2(c), 0.3) * land * smoothstep(0.3, 0.0, length(f)) * 1.8;
-    vec3 col = h > 0.0 ? sky : mix(uB, g, smoothstep(0.0, 0.2, -h));
-    // a skyline of it along the horizon
-    float az = atan(d.x, d.z) * 38.0;
-    float id = floor(az);
-    float tall = h2(vec2(id, uSeed)) * h2(vec2(id * 0.37, 4.0)) * 0.16;
-    float tower = step(0.0, h) * step(h, tall) * step(0.12, fract(az)) ;
-    float win = step(0.6, h2(floor(vec2(az * 4.0, h * 260.0))));
-    col = mix(col, uStruct * (0.12 + 0.9 * win) + uA * 0.1, tower * 0.9);
-    gl_FragColor = vec4(col * uFade, 1.0);
-  }
-`;
 
 // hangar: world/lightvessel.js buildHangar(); chapter: src/chapter.js; at: where
 // the walker stands to watch, in the city's frame; showCity(on): the city
@@ -90,35 +37,13 @@ export function createDemo(group, hangar, chapter, at, showCity) {
   const center = new THREE.Vector3().copy(hangar.root.position);
   center.z -= 115; // the middle of the hull, bow to drive
 
-  // --- the places it goes ---
-  const U = {
-    uA: { value: new THREE.Color() }, uB: { value: new THREE.Color() },
-    uSea: { value: new THREE.Color() }, uLand: { value: new THREE.Color() }, uHigh: { value: new THREE.Color() },
-    uStruct: { value: new THREE.Color() }, uLightC: { value: new THREE.Color() },
-    uTime: { value: 0 }, uBands: { value: 0 }, uScale: { value: 2 }, uLevel: { value: 0.5 }, uSeed: { value: 0 }, uFade: { value: 1 },
-  };
-  const dome = new THREE.Mesh(
-    new THREE.SphereGeometry(DOME_R, 48, 32),
-    new THREE.ShaderMaterial({ vertexShader: PLACE_VERT, fragmentShader: PLACE_FRAG, uniforms: U, side: THREE.BackSide, fog: false })
-  );
+  // --- the places it goes (world/holoplace.js) ---
+  const place = createPlace(DOME_R);
+  const U = place.uniforms;
+  const dome = place.mesh;
   dome.position.copy(center);
-  dome.visible = false;
-  dome.frustumCulled = false;
   group.add(dome);
-  function paint(i) {
-    const L = WORLDS[i % WORLDS.length].layers;
-    U.uA.value.set(L.sky.a);
-    U.uB.value.set(L.sky.b);
-    U.uBands.value = L.sky.bands;
-    U.uSea.value.set(L.ground.sea);
-    U.uLand.value.set(L.ground.land);
-    U.uHigh.value.set(L.ground.high);
-    U.uScale.value = L.ground.scale;
-    U.uLevel.value = L.ground.level;
-    U.uStruct.value.set(L.structures.col);
-    U.uLightC.value.set(L.light.col);
-    U.uSeed.value = (i % WORLDS.length) * 7.31 + 1.3;
-  }
+  const paint = (i) => place.paint(WORLDS[i % WORLDS.length].layers, (i % WORLDS.length) * 7.31 + 1.3);
 
   // --- the jumps: every world in order, round and round, each sooner than the last ---
   const jumps = [];

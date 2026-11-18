@@ -29,6 +29,7 @@ import { holeDirection } from './farhole.js';
 import { buildHangar, HANGAR_BOX } from './lightvessel.js';
 import { buildPavilion } from './lightpavilion.js';
 import { createDemo } from './lightdemo.js';
+import { DEMO } from './chapter-dialogue.js';
 
 const SNAP = 1.2;
 const DOOR_Z = 10; // the way back
@@ -621,6 +622,15 @@ export function createLightCity(ctx) {
     for (const m of city.parts) m.visible = on;
   }) : null;
   if (demo) consoles.push(demo.console);
+  // ...and, once that has been watched, the way aboard (world/lightship.js)
+  const BOARD = { x: GALL_X - GALL_R + 4, z: TERR_Z };
+  if (ctx.chapter) {
+    consoles.push({
+      x: BOARD.x, y: 0, z: BOARD.z, r: 5.5, prompt: DEMO.board,
+      off: () => !ctx.chapter.reached('holo') || (demo && demo.held()),
+      use: () => ((site.portal = 'ship'), null),
+    });
+  }
 
   // --- the light the walker leaves behind: sparks wound round the path just
   // walked, three strands of them, fading as they open out ---
@@ -728,6 +738,8 @@ export function createLightCity(ctx) {
     pad: new THREE.Vector3(0, 0, DOOR_Z),
     spawn: new THREE.Vector3(0, 0, DOOR_Z - 5),
     spawnYaw: Math.PI, // facing -z: the view
+    fromShip: new THREE.Vector3(GALL_X - GALL_R + 7, 0, TERR_Z), // stepping back off the light ship
+    fromShipYaw: Math.PI / 2, // facing the terrace
     npcs: [{ x: GREET.x, y: 0, z: GREET.z, role: 'greeter', talk: () => ctx.greet() }, ...npcs],
     consoles,
     rooms: pavilion.rooms,

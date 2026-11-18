@@ -23,6 +23,8 @@ const CSS = `
   opacity: 0; transition: opacity 0.7s;
 }
 #chHud .line.show { opacity: 1; }
+/* outside a scene the bottom of the screen is the game's: the line goes up top */
+#chHud:not(.on) .line { bottom: auto; top: 17vh; }
 #chHud .white { position: absolute; inset: 0; background: #fff; opacity: 0; }
 body.ch-cine > *:not(canvas):not(#chHud):not(#flash) { opacity: 0 !important; pointer-events: none !important; }
 @media (prefers-reduced-motion: reduce) { #chHud .bar { transition: none; } }

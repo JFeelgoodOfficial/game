@@ -43,6 +43,7 @@ import { buildMegaworld, cageAt, CAGE_PERIOD, PATTERN_PERIOD } from '../world/me
 import { buildFarHole } from '../world/farhole.js';
 import { createFarLanding } from '../world/farlanding.js';
 import { createLightCity } from '../world/lightcity.js';
+import { createLightShip } from '../world/lightship.js';
 import commonVert from './shaders/tenretni.vert?raw';
 import wormFrag from './shaders/wormhole.frag?raw';
 
@@ -144,6 +145,21 @@ export function createFarside(ctx) {
       console.warn('[farside] the City of Light could not be built', err);
     }
     return city;
+  }
+
+  // ...and aboard the light ship in its hangar (world/lightship.js), built the
+  // first time it is boarded
+  let lship = null;
+  let lshipBroken = false;
+  function buildShip() {
+    if (lship || lshipBroken || !ctx.chapter) return lship;
+    try {
+      lship = createLightShip({ scene, hideFleet: () => ctx.fleets()?.show(false), chapter: ctx.chapter });
+    } catch (err) {
+      lshipBroken = true;
+      console.warn('[farside] the light ship could not be built', err);
+    }
+    return lship;
   }
 
   // --- physics ---
@@ -474,16 +490,18 @@ export function createFarside(ctx) {
       }
       place(t);
     },
-    // The places that are walked: 'pad' (the landing) and 'city' (through its
-    // door; built on first asking). Null if there is nothing to walk.
+    // The places that are walked: 'pad' (the landing), 'city' (through its
+    // door) and 'ship' (the light ship, boarded from the city's gallery); the
+    // last two are built on first asking. Null if there is nothing to walk.
     site(kind) {
       if (!active) return null;
-      return kind === 'city' ? buildCity() : landing;
+      return kind === 'city' ? buildCity() : kind === 'ship' ? buildShip() : landing;
     },
     // A door has been walked through since this was last asked: 'city' (into
-    // the City of Light), 'pad' (back out of it), or null. Asking clears it.
+    // the City of Light), 'pad' (back out of it), 'ship' (aboard the light
+    // ship), 'gallery' (off it again), or null. Asking clears it.
     door() {
-      const s = city && city.inside() ? city : landing;
+      const s = lship && lship.inside() ? lship : city && city.inside() ? city : landing;
       const to = s.portal;
       s.portal = null;
       return to;
@@ -498,6 +516,8 @@ export function createFarside(ctx) {
       inCity: !!(city && city.inside()),
       cityTowers: city ? city.info().towers : null,
       demo: city ? city.info().demo : null,
+      inShip: !!(lship && lship.inside()),
+      ship: lship ? lship.info() : null,
       fade,
       altitude: alt,
       groundY: groundY(),

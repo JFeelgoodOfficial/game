@@ -136,6 +136,9 @@ const WORLD_RENDER = {
   // the lamps bloom. Not soleLight: the place borrows the game's own sun and
   // ambient for the stay and puts them back itself.
   lightcity: { exposure: 0.62, bloomThreshold: 1.4, bloomStrength: 0.3 },
+  // Aboard the light ship (world/lightship.js): a dark walk inside a hull of
+  // coloured light, so it is opened up and the lights are let bloom.
+  lightship: { exposure: 0.85, bloomThreshold: 0.95, bloomStrength: 0.45 },
   terra: GENERIC_RENDER,
   rustia: GENERIC_RENDER,
   neptunia: GENERIC_RENDER,
