@@ -526,6 +526,8 @@ export const C = {
   FAR_LAND_OUT: 6400.0, // from the first caged star, toward the arrival point
   FAR_LAND_ALT: 1200.0, // pad above the plane: clear of the canopy floor and its drag
   FAR_LAND_CAPTURE: 640.0, // the dock's stand-in radius (captures at 1.25 of this)
+  FAR_AUTOLAND_DELAY: 7.0, // seconds after coming through before the Landing takes the helm (the first time only)
+  FAR_AUTOLAND_TIME: 24.0, // ...and the longest that approach may take: it is a long way off
   FAR_LAND_HOLD: 1400.0, // inside this the fleet goes to its station overhead
   FAR_LAND_RING_R: 3200.0, // the station ring...
   FAR_LAND_RING_H: 2600.0, // ...and its height over the pad

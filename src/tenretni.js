@@ -466,6 +466,8 @@ function loadSaved() {
     if (Number.isFinite(raw?.size) && raw.size >= 1) size = raw.size;
     if (typeof raw?.eating === 'string') eating = raw.eating;
     if (raw?.met) met = true;
+    // (a pilot who has been met in the city, or is anywhere in the story after it, has landed)
+    if (raw?.landed || raw?.met || raw?.ch) farLanded = true;
     chapter.restore(raw?.ch);
   } catch {
     // unreadable save: whatever is missing is recomputed
@@ -488,6 +490,7 @@ function save() {
       lost: lost.size ? [...lost] : undefined,
       comms: Object.keys(comms).length ? comms : undefined,
       met: met || undefined,
+      landed: farLanded || undefined,
       ch: chapter.serialize(),
     }));
   } catch {
@@ -1009,6 +1012,8 @@ let far = null; // src/farside.js createFarside(), built the first time it is wa
 let farBroken = false;
 let farFirst = false; // this session's arrival: the wormhole is still closing behind
 let met = false; // the pilot has been greeted in the City of Light (saved)
+let farLanded = false; // the Landing has had the pilot's helm once (saved): it does not take it unasked again
+let arriveT = 0; // seconds flown on the far side this visit
 // ...and everything after the suite (src/chapter.js, GDD 5.7.4), saved with it
 const chapter = createChapter({ onSave: () => save() });
 export const chapterDebug = () => chapter;
@@ -1046,6 +1051,22 @@ export function farGate() {
 export const farSite = (kind) => (ended === 'far' && far ? far.site(kind) : null);
 // A door there has been walked through: 'city' | 'pad' | null (clears on asking).
 export const farDoor = () => (ended === 'far' && far ? far.door() : null);
+
+// The first time through, the megaworld does what the Sky City does: a little
+// after the pilot arrives, the Landing takes the helm and flies the ship down
+// to its pad, however far off it is. True once, when that is due (src/game.js
+// asks every physics tick in free flight); never again after any landing there.
+export function farWantsLanding(dt) {
+  if (ended !== 'far' || !far || farLanded) return false;
+  arriveT += dt;
+  return arriveT >= C.FAR_AUTOLAND_DELAY;
+}
+// The Landing has the helm (asked for, or flown into).
+export function farMarkLanded() {
+  if (farLanded) return;
+  farLanded = true;
+  save();
+}
 
 // The pilot is through. Saved at once: a reload from here is the far side.
 export function enterFar() {
@@ -1086,6 +1107,7 @@ function applyFar() {
   if (!far) return;
   far.apply(farFirst);
   farFirst = false;
+  arriveT = 0;
   // every ship that came through keeps station on the pilot, over the canopy
   if (fleets) fleets.follow(ship, null, 1, { snap: true, floorY: far.floor });
 }
@@ -1771,6 +1793,7 @@ function report() {
     ended,
     far: far ? far.state() : null,
     met,
+    farLanded,
     chapter: chapter.state(),
     size,
     radius: terra.radius,
