@@ -8,7 +8,8 @@
 //   cine(on)        bars in / out
 //   say(text, sec)  one line, bottom centre, for `sec` seconds (null clears)
 //   white(v)        0..1, a flash over everything
-//   clocks(a, b, labelA, labelB)   two clocks, top left, in seconds (null hides them)
+//   clocks(a, b, labelA, labelB, c, labelC)   two clocks, top left, in seconds (null
+//                   hides them); a third, above them, if c is given
 //   tick(dt)        once a frame while anything might be showing
 
 const CSS = `
@@ -39,7 +40,7 @@ body.ch-cine > *:not(canvas):not(#chHud):not(#flash) { opacity: 0 !important; po
 @media (prefers-reduced-motion: reduce) { #chHud .bar { transition: none; } }
 `;
 
-let root = null, line = null, white = null, clocks = null, clockA = null, clockB = null;
+let root = null, line = null, white = null, clocks = null, clockA = null, clockB = null, clockC = null;
 let lineT = 0;
 let cineOn = false;
 
@@ -50,13 +51,14 @@ function build() {
   document.head.appendChild(style);
   root = document.createElement('div');
   root.id = 'chHud';
-  root.innerHTML = '<div class="white"></div><div class="bar top"></div><div class="bar bot"></div><div class="line"></div><div class="clocks"><span class="a"></span>\n<b class="b"></b></div>';
+  root.innerHTML = '<div class="white"></div><div class="bar top"></div><div class="bar bot"></div><div class="line"></div><div class="clocks"><span class="c"></span><span class="a"></span>\n<b class="b"></b></div>';
   document.body.appendChild(root);
   line = root.querySelector('.line');
   white = root.querySelector('.white');
   clocks = root.querySelector('.clocks');
   clockA = root.querySelector('.clocks .a');
   clockB = root.querySelector('.clocks .b');
+  clockC = root.querySelector('.clocks .c');
 }
 
 const two = (n) => String(Math.floor(n)).padStart(2, '0');
@@ -93,7 +95,7 @@ export const chapterHud = {
     build();
     white.style.opacity = v <= 0.004 ? '0' : v.toFixed(3);
   },
-  clocks(a, b, labelA = '', labelB = '') {
+  clocks(a, b, labelA = '', labelB = '', c = null, labelC = '') {
     if (a == null) {
       if (clocks) clocks.classList.remove('show');
       return;
@@ -102,6 +104,7 @@ export const chapterHud = {
     clocks.classList.add('show');
     clockA.textContent = `${labelA.padEnd(10)}${stamp(a)}`;
     clockB.textContent = `${labelB.padEnd(10)}${stamp(b)}`;
+    clockC.textContent = c == null ? '' : `${labelC.padEnd(10)}${stamp(c)}\n`;
   },
   tick(dt) {
     if (lineT > 0) {
