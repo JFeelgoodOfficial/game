@@ -19,6 +19,10 @@
 import * as THREE from 'three';
 import { tint, box, cyl, buildRobot, trackRobot } from './capital.js';
 import { buildRig, poseRig } from './aliens.js';
+import { C } from '../src/constants.js';
+import { Q } from '../src/quality.js';
+import { createLayerPlanet } from './layerplanet.js';
+import { HOME } from './chapter-dialogue.js';
 
 export const PAV = { x: 92, z: -77, r: 30 };
 // the suite: its floor's centre, in the city's frame
@@ -68,7 +72,7 @@ const STEWARD = {
 };
 
 // `k`: the city's kit { group, lit, glow, glass, surfaces, colliders, rail(ax, az, bx, bz),
-//      npcs, consoles, glowMat }. Returns { tick(dt, t, walker), rooms, floors, setWalker(p) }.
+//      npcs, consoles, glowMat, chapter — src/chapter.js, or none }. Returns { tick(dt, t, walker), rooms, floors, setWalker(p) }.
 export function buildPavilion(k) {
   const { lit, glow, glass, surfaces, colliders, rail, npcs, consoles } = k;
   const P = PAV, S = SUITE;
@@ -224,6 +228,38 @@ export function buildPavilion(k) {
   glow.push(tint(new THREE.TorusGeometry(5.2, 0.07, 6, 56).rotateX(Math.PI / 2).translate(S.x, S.y + 0.06, S.z - 1), GLOW.gold, 1.3));
   glow.push(tint(cyl(2.4, 2.4, 0.08, S.x, S.y + SUITE_H - 0.06, S.z, 28), GLOW.white, 1.3));
 
+  // --- what waits in it (GDD 5.7.4): the pilot's own world, turning outside
+  // the glass in front of the seat, drawn by the archive and all but finished;
+  // and the one who has come to say what it would cost ---
+  const HA = -Math.PI / 2 + 0.5; // the way the seat faces
+  const hx = Math.cos(HA), hz = Math.sin(HA);
+  const home = createLayerPlanet(C.CH_HOME_R, { life: 500, seed: 8.3 });
+  home.group.position.set(S.x + hx * (S.r + C.CH_HOME_OUT), S.y + C.CH_HOME_UP, S.z + hz * (S.r + C.CH_HOME_OUT));
+  home.group.rotation.z = 0.3;
+  home.setAll(HOME.layers);
+  home.holo(1);
+  k.group.add(home.group);
+  // the lines of light it is being drawn with, from the floor of the city up
+  const beamMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.25, 0.75, 1.0), transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide });
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(C.CH_HOME_R * 0.9, 1.5, 150, 40, 1, true).translate(0, -75 - C.CH_HOME_R * 0.55, 0), beamMat);
+  beam.position.copy(home.group.position);
+  beam.renderOrder = 6;
+  k.group.add(beam);
+
+  const VA = HA - 0.95; // off to one side of the seat, by the glass
+  const VS = { x: S.x + Math.cos(VA) * 11.6, y: S.y, z: S.z + Math.sin(VA) * 11.6 };
+  VS.face = Math.atan2(home.group.position.x - VS.x, home.group.position.z - VS.z); // it is looking at it
+  const vrig = buildRobot(robotMat, k.glowMat, { body: 0xf3eede, dark: 0xc7a255, glow: 0xfff0c0 });
+  vrig.group.position.set(VS.x, VS.y, VS.z);
+  vrig.group.rotation.y = VS.face;
+  vrig.group.scale.setScalar(1.15);
+  k.group.add(vrig.group);
+  const visitor = { ...vrig, ...VS, seed: 9.4, look: 0 };
+  colliders.push({ x: VS.x, z: VS.z, r: 0.85, top: Infinity });
+  const chapter = k.chapter || null;
+  if (chapter) npcs.push({ x: VS.x, y: VS.y, z: VS.z, role: 'visitor', talk: () => chapter.visitorTalk() });
+  let lifeT = 0;
+
   return {
     // the floors the city's polished-floor shader is laid over: [geometry builder args]
     floors: [
@@ -240,13 +276,28 @@ export function buildPavilion(k) {
     tick(dt, t) {
       for (const r of rigs) poseRig(r, dt, t, 'idle', 0);
       trackRobot(steward, walker, dt, t);
+      // the one in the suite watches whoever is in it with them, and nobody else
+      trackRobot(visitor, walker && walker.y > S.y - 2 ? walker : null, dt, t);
+      // home: every layer is there but the end of each. The ground and the sky
+      // stop short of the pole and the line they are drawn with never gets
+      // there; the life comes and goes, because that part will not hold.
+      const done = C.CH_HOME_DONE + 0.012 * Math.sin(t * 0.31);
+      home.reveal('ground', done);
+      home.reveal('sky', done - 0.04);
+      home.reveal('structures', done - 0.02);
+      home.reveal('light', 0.8 + 0.2 * Math.sin(t * 0.5));
+      lifeT = 0.5 + 0.5 * Math.sin(t * 0.23);
+      home.reveal('life', 0.25 + 0.6 * lifeT * lifeT);
+      home.group.rotation.y = t * C.CH_HOME_SPIN;
+      home.tick(t, (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((C.FOV * Math.PI) / 360));
+      beamMat.opacity = 0.09 + 0.03 * Math.sin(t * 1.7);
       orb.position.y = 3.2 + 0.18 * Math.sin(t * 0.9);
       halo.position.y = orb.position.y;
       halo.rotation.set(Math.PI / 2 + 0.5 * Math.sin(t * 0.4), t * 0.5, 0);
     },
     places: {
       pavilion: [P.x - 12, 0, P.z], lift: [LIFT.x - 3.2, 0, LIFT.z], suite: [SL.x, S.y, SL.z - 2.8],
-      steward: [ST.x - 2.6, 0, ST.z], captain: [P.x + CAPTAINS[0].at[0] + 2.2, 0, P.z + CAPTAINS[0].at[1] + 1.4],
+      steward: [ST.x - 2.6, 0, ST.z], visitor: [VS.x - Math.cos(VA) * 2.6, S.y, VS.z - Math.sin(VA) * 2.6], captain: [P.x + CAPTAINS[0].at[0] + 2.2, 0, P.z + CAPTAINS[0].at[1] + 1.4],
     },
   };
 }

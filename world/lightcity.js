@@ -454,7 +454,8 @@ function buildSky(group, lightDir) {
   return { uniforms, dome };
 }
 
-// ctx: { scene, hideFleet(), greet() -> the dialogue payload the greeter speaks }
+// ctx: { scene, hideFleet(), greet() -> the dialogue payload the greeter speaks,
+//        chapter — src/chapter.js: the story after the suite }
 export function createLightCity(ctx) {
   const group = new THREE.Group();
   group.visible = false;
@@ -563,7 +564,7 @@ export function createLightCity(ctx) {
   const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });
   // --- the Pavilion, the lift and the pilot's suite (world/lightpavilion.js) ---
   const npcs = [], consoles = [];
-  const pavilion = buildPavilion({ group, lit, glow, glass, surfaces, colliders, rail, npcs, consoles, glowMat });
+  const pavilion = buildPavilion({ group, lit, glow, glass, surfaces, colliders, rail, npcs, consoles, glowMat, chapter: ctx.chapter });
   // (geometry from more than one module: unindexed, so it all merges)
   const flatList = (list) => list.map((g) => (g.index ? g.toNonIndexed() : g));
   const glassMat = new THREE.MeshBasicMaterial({
@@ -722,7 +723,7 @@ export function createLightCity(ctx) {
     npcs: [{ x: GREET.x, y: 0, z: GREET.z, role: 'greeter', talk: () => ctx.greet() }, ...npcs],
     consoles,
     rooms: pavilion.rooms,
-    onChoice: () => null,
+    onChoice: (tag) => (ctx.chapter ? ctx.chapter.onChoice(tag) : null),
     portal: null, // 'pad' once the walker has gone back through the door
     setWalker(p) {
       pavilion.setWalker(p);

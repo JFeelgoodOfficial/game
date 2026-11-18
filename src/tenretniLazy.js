@@ -143,5 +143,6 @@ export const tenretniDebug = () => ({
   end: () => mod && mod.debugEnd(),
   far: () => mod && mod.debugFar(),
   story: () => mod && mod.debugStory(),
+  chapter: () => (mod ? mod.chapterDebug() : null),
   state: () => (mod ? mod.state() : { loaded: false, stage: questStage(SECRET) }),
 });
