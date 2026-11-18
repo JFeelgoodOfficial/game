@@ -47,6 +47,7 @@ const T_FALL = 3, T_SETTLE = 20; // falling; down
 const T_DRIFT = 28; // seconds from settling for the drift to run all the way out
 const T_FLOOD = T_SETTLE + 33; // the archive begins to come down the wire
 const T_END = T_FLOOD + 22; // ...and is all there is
+const DEEPER = Math.log(C.CH_DIVE_DEEPER); // how many times faster again by the end of the flood (ln)
 const RATE = Math.log(C.CH_DIVE_RATE); // megaworld seconds per ship second, at full drift (ln)
 
 const COL = { floor: 0x0d1118, edge: 0x1b2430, plinth: 0x222c3a };
@@ -475,7 +476,9 @@ export function createDiveBridge(ctx) {
       // the clocks: set together, and then only one of them keeps to seconds
       if (mode !== 'dock') {
         shipT += dt;
-        worldT += dt * Math.exp(RATE * (mode === 'synced' ? 0 : drift));
+        // ...down, a minute is a year; and the ship goes on sinking through the
+        // flood, so by the end of it a minute is many
+        worldT += dt * (mode === 'synced' ? 1 : Math.exp(RATE * drift + DEEPER * ease(T_SETTLE + T_DRIFT, T_END, u)));
         hudAt -= dt;
         if (hudAt <= 0) {
           hudAt = 0.1;
