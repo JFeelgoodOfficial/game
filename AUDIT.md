@@ -351,12 +351,24 @@ What changed:
 - **Less text churn.** The HUD clocks and the stall's percentage make a new
   string only when the shown value changes.
 
+### Figures fused (follow-up)
+
+`buildRig` in `world/aliens.js` now fuses a figure's parts into one skinned
+mesh, rigidly bound to the same joints, in three material groups. A figure
+is three draws instead of about seventeen. The joints and the three material
+objects are unchanged, so poses, things hung on joints and recolouring all
+work as before. This applies to every world that uses these figures.
+
+| Scene | Calls before the pass | After the pass | After fusing |
+|---|---|---|---|
+| City, terrace | 285 | 287 | 175 |
+| City, Pavilion | 468 | 276 | 178 |
+| City, suite | 229 | 231 | 157 |
+
+Live geometries in the city: 430 to 299.
+
 Not done, and why:
 
-- **The terrace and suite did not improve.** The figures in view there are
-  near enough to be jointed, and the three captains always are. Cutting a
-  figure's own draw count needs its parts merged per bone, which means
-  changing `world/aliens.js` and every world that uses it.
-- **About 180 calls remain in the city with no figures in view.** Not yet
+- **About 150 calls remain in the city with no figures in view.** Not yet
   broken down between the city's own meshes, sprites and the post passes.
 - **Shared shader chunks** would tidy the source but not change the frame.
