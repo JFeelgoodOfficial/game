@@ -2,23 +2,27 @@
 //
 // From the Starter's stand on the terrace the pilot picks a world
 // (RACE.worlds in world/chapter-dialogue.js) and flies it three laps of the
-// course (world/racecourse.js) against the clock.
+// course (world/racecourse.js) against a grid of others: the three captains,
+// each on a world from their own people, and whoever else has turned up.
 //
 // A racer is held to the course: where it is is "how far round, how far
-// across, how far up", and the pilot has the across and the up. The world goes
+// across, how far up", and its flyer has the across and the up. The world goes
 // forward on its own, faster on boost; the flying is in putting it through
-// gates that are each set a little off the middle. A gate taken clean puts
-// boost back; a gate missed costs seconds, not the race.
+// gates that are each set a little off the middle, and in what the others are
+// doing. A gate taken clean puts boost back; a gate missed costs seconds and
+// speed. Close in behind another world and it pulls you along. Lean on one and
+// the heavier of the two wins.
 //
 //   W / S   climb / dive        A / D   turn        SPACE   boost       E   leave
 //   (on a phone: the left stick steers, JUMP is boost, the context button leaves)
 //
 // It is not walked: while a race is on, the city holds the pilot where they
 // stand and the race has the camera (src/capitalWalk.js held / camera / act).
-// One clock, everything placed from the racer's place on the course.
+// Every racer, the pilot's included, is one record stepped by the same code;
+// only where the stick comes from differs.
 
 import * as THREE from 'three';
-import { C } from './constants.js';
+import { C, CH_TIER } from './constants.js';
 import { Q } from './quality.js';
 import { input, moveAxes } from './input.js';
 import { MOTION_SCALE } from './motion.js';
@@ -27,13 +31,14 @@ import { chapterHud } from './chapterHud.js';
 import { tint, cyl, mergedMesh } from '../world/capital.js';
 import { createLayerPlanet } from '../world/layerplanet.js';
 import { createCourse, GATE_R, LANE } from '../world/racecourse.js';
-import { createRacer } from '../world/racers.js';
-import { RACE } from '../world/chapter-dialogue.js';
+import { createRacer, RACER_R } from '../world/racers.js';
+import { RACE, CAPTAINS } from '../world/chapter-dialogue.js';
 
 const KEY = 'fgsf.worldrace';
 const LAPS = 3;
 const BASE = 92; // units a second, a world of speed 1, no boost
 const PENALTY = 2; // seconds for a gate missed
+const DRAFT = 46; // how far behind another world its pull is felt
 const STAND = { x: 9.5, z: -63.5 }; // the Starter's stand, on the terrace
 
 const clock = (sec) => {
@@ -86,51 +91,78 @@ export function createWorldRace(k) {
   k.colliders.push({ x: STAND.x, z: STAND.z, r: 1.3, top: Infinity });
 
   let state = 'idle'; // 'idle' | 'count' | 'run' | 'done'
-  let world = null, racer = null;
-  let s = 0, x = 0, y = 0, vx = 0, vy = 0, v = 0; // round the lap 0..1, across, up, and their speeds
-  let lap = 0, gate = 0, time = 0, lapStart = 0, meter = 0.5, boosting = 0, T = 0, counted = -1, hudAt = 0;
+  let field = []; // every racer; field[0] is the pilot
+  let me = null;
+  let time = 0, lapStart = 0, T = 0, counted = -1, hudAt = 0, bumpAt = 0, place = 0;
   let hudText = '';
-  const pos = new THREE.Vector3(), ahead = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3();
+  const order = []; // the field, leader first
+  const ahead = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3();
   const cam = new THREE.Vector3(), camWant = new THREE.Vector3(), m4 = new THREE.Matrix4(), back = new THREE.Vector3();
   let camSet = false;
 
-  function place() {
-    course.at(s, x, y, pos);
-    course.ahead(s, ahead);
-    course.across(s, right);
-    course.up(s, up);
-    racer.group.position.copy(pos);
+  function put(r) {
+    course.at(r.s, r.x, r.y, r.pos);
+    course.ahead(r.s, ahead);
+    course.across(r.s, right);
+    course.up(r.s, up);
+    r.mesh.group.position.copy(r.pos);
     // nose down the course, leaning into the turn and the climb
     m4.makeBasis(right, up, back.copy(ahead).negate());
-    racer.group.quaternion.setFromRotationMatrix(m4);
-    racer.group.rotateZ(-vx * 0.012);
-    racer.group.rotateX(vy * 0.008);
+    r.mesh.group.quaternion.setFromRotationMatrix(m4);
+    r.mesh.group.rotateZ(-r.vx * 0.012);
+    r.mesh.group.rotateX(r.vy * 0.008);
+  }
+
+  function clear() {
+    for (const r of field) {
+      group.remove(r.mesh.group);
+      r.mesh.dispose();
+    }
+    field = [];
+    me = null;
   }
 
   function start(id) {
-    const w = RACE.worlds.find((o) => o.id === id);
-    if (!w) return false;
-    if (racer) {
-      group.remove(racer.group);
-      racer.dispose();
+    const mine = RACE.worlds.find((o) => o.id === id);
+    if (!mine) return false;
+    clear();
+    // who else: the captains on their own peoples' worlds, then the others,
+    // each on the next world nobody has
+    const taken = new Set([mine.id]);
+    const free = () => RACE.worlds.find((w) => !taken.has(w.id)) || RACE.worlds[0];
+    const entries = [{ name: RACE.you, world: mine, skill: 1 }];
+    const nRivals = (CH_TIER[Q.tier] || CH_TIER.medium).rivals;
+    const names = [...CAPTAINS.map((c) => ({ name: c.short, want: RACE.captainWorld[c.id] })), ...RACE.others.map((name) => ({ name }))];
+    for (let i = 0; i < Math.min(nRivals, names.length); i++) {
+      const want = RACE.worlds.find((w) => w.id === names[i].want);
+      const w = want && !taken.has(want.id) ? want : free();
+      taken.add(w.id);
+      entries.push({ name: names[i].name, world: w, skill: 0.93 + 0.035 * ((i * 7) % 4) });
     }
-    world = w;
-    racer = createRacer(w);
-    group.add(racer.group);
-    model.setAll(w.layers);
-    s = 0;
-    x = y = vx = vy = v = 0;
-    lap = gate = 0;
+    // the grid: two abreast back from the line, the pilot in the middle of it
+    const slot = entries.map((_, i) => i);
+    slot.splice(Math.floor(entries.length / 2), 0, slot.shift());
+    field = entries.map((e, i) => {
+      const g = slot.indexOf(i);
+      const mesh = createRacer(e.world, i > 0);
+      group.add(mesh.group);
+      return {
+        name: e.name, world: e.world, skill: e.skill, mesh, ai: i > 0, seed: i * 1.73,
+        s: -g * 0.0045, x: (g % 2 ? 1 : -1) * 8, y: 0, vx: 0, vy: 0, v: 0,
+        lap: 0, gate: 0, meter: 0.5, boosting: 0, slow: 0, draft: 0, done: false, pos: new THREE.Vector3(),
+      };
+    });
+    me = field[0];
+    model.setAll(mine.layers);
     time = lapStart = 0;
-    meter = 0.5;
-    boosting = 0;
     T = 0;
     counted = -1;
+    place = 0;
     camSet = false;
     state = 'count';
     chapterHud.racing(true);
     course.show(0);
-    place();
+    for (const r of field) put(r);
     return true;
   }
 
@@ -138,11 +170,7 @@ export function createWorldRace(k) {
     if (state === 'idle') return;
     state = 'idle';
     course.show(-1);
-    if (racer) {
-      group.remove(racer.group);
-      racer.dispose();
-      racer = null;
-    }
+    clear();
     chapterHud.racing(false);
     chapterHud.panel(null);
     chapterHud.say(null);
@@ -153,13 +181,147 @@ export function createWorldRace(k) {
     }
   }
 
+  // how far round the whole race a racer is (finishers ahead of everyone still flying)
+  const progress = (r) => (r.done ? 1000 - r.doneAt : r.lap + r.s);
+  function rank() {
+    order.length = 0;
+    for (const r of field) order.push(r);
+    order.sort((a, b) => progress(b) - progress(a));
+  }
+
   function hud() {
+    let list = '';
+    for (let i = 0; i < order.length; i++) list += `${i ? '  ' : ''}${i + 1} ${order[i].name}`;
     const text = RACE.hud
-      .replace('{lap}', Math.min(lap + 1, LAPS)).replace('{of}', LAPS)
-      .replace('{gate}', gate).replace('{gates}', course.gates.length)
-      .replace('{time}', clock(time)).replace('{best}', clock(best[world.id] ?? NaN))
-      .replace('{boost}', '█'.repeat(Math.round(meter * 10)).padEnd(10, '░'));
+      .replace('{pos}', order.indexOf(me) + 1).replace('{n}', field.length)
+      .replace('{lap}', Math.min(me.lap + 1, LAPS)).replace('{of}', LAPS)
+      .replace('{gate}', me.gate).replace('{gates}', course.gates.length)
+      .replace('{time}', clock(time)).replace('{best}', clock(best[me.world.id] ?? NaN))
+      .replace('{boost}', '█'.repeat(Math.round(me.meter * 10)).padEnd(10, '░'))
+      .replace('{order}', list);
     if (text !== hudText) chapterHud.panel((hudText = text));
+  }
+
+  // One racer, one step. ax, ay: the stick (-1..1); boost: asked for.
+  function step(r, ax, ay, boost, dt, live) {
+    const w = r.world;
+    const go = live && !r.done;
+    const wantBoost = go && boost && r.meter > 0.02;
+    r.boosting += ((wantBoost ? 1 : 0) - r.boosting) * Math.min(1, dt * 5);
+    if (wantBoost) r.meter = Math.max(0, r.meter - dt / 2.4);
+    r.slow = Math.max(0, r.slow - dt * 0.7);
+    const top = BASE * w.speed * r.skill * (1 + 0.6 * r.boosting * w.boost) * (1 + 0.09 * r.draft) * (1 - 0.3 * r.slow);
+    r.v += ((go ? top : r.done ? top * 0.4 : 0) - r.v) * Math.min(1, dt * (go ? 1.6 : 0.8));
+    // grip: how fast the world takes a new heading (a heavy one slides)
+    const g = 3.2 * w.grip;
+    r.vx += ((go ? ax : 0) * 34 - r.vx) * Math.min(1, dt * g);
+    r.vy += ((go ? ay : 0) * 30 - r.vy) * Math.min(1, dt * g);
+    r.x += r.vx * dt;
+    r.y += r.vy * dt;
+    if (Math.abs(r.x) > LANE) {
+      r.x = Math.sign(r.x) * LANE;
+      r.vx = 0;
+    }
+    if (Math.abs(r.y) > LANE * 0.8) {
+      r.y = Math.sign(r.y) * LANE * 0.8;
+      r.vy = 0;
+    }
+    const before = r.s;
+    r.s += (r.v * dt) / course.length;
+    let event = 0; // 1 clean gate, 2 missed gate, 3 a lap, 4 the finish
+    if (go) {
+      const gt = course.gates[r.gate];
+      if (gt && before < gt.s && r.s >= gt.s) {
+        if (Math.hypot(r.x - gt.across, r.y - gt.up) < GATE_R * 0.92) {
+          r.meter = Math.min(1, r.meter + 0.3);
+          event = 1;
+        } else {
+          r.slow = 1;
+          event = 2;
+        }
+        r.gate++;
+      }
+      if (r.s >= 1) {
+        r.s -= 1;
+        r.lap++;
+        r.gate = 0;
+        event = 3;
+        if (r.lap >= LAPS) {
+          r.done = true;
+          r.doneAt = time;
+          event = 4;
+        }
+      }
+    } else if (r.s >= 1) r.s -= 1;
+    return event;
+  }
+
+  // What a rival does with its stick: make for the next gate, not quite true,
+  // and round anything it is about to run into.
+  function think(r, t) {
+    const gt = course.gates[r.gate] || course.gates[0];
+    const wob = (1.02 - r.skill) * 60; // the less sure, the wider of the mark
+    let tx = gt.across + Math.sin(t * 0.9 + r.seed * 5) * wob, ty = gt.up + Math.cos(t * 0.7 + r.seed * 3) * wob;
+    // only close to a gate does it really commit to it; between gates it drifts back to the middle
+    const toGate = ((gt.s - r.s + 1) % 1) * course.length;
+    const commit = Math.min(1, 90 / Math.max(toGate, 1));
+    tx *= 0.35 + 0.65 * commit;
+    ty *= 0.35 + 0.65 * commit;
+    r.ax = Math.max(-1, Math.min(1, (tx - r.x) / 7));
+    r.ay = Math.max(-1, Math.min(1, (ty - r.y) / 7));
+    // boost when there is plenty, or when the pilot is getting away
+    const gap = progress(me) - progress(r);
+    r.wantBoost = r.meter > 0.75 || (gap > 0.02 && r.meter > 0.25 && Math.sin(t * 0.5 + r.seed) > 0);
+    // (a field that strings right out is no race: those well behind find a little more, those well ahead ease)
+    r.rubber = gap > 0.06 ? 1.06 : gap < -0.06 ? 0.95 : 1;
+  }
+
+  // Worlds in each other's way: they shove, by weight, and whoever is tucked in behind another is pulled along.
+  function meet(dt) {
+    for (const r of field) r.draft = 0;
+    let hit = false;
+    for (let i = 0; i < field.length; i++) {
+      for (let j = i + 1; j < field.length; j++) {
+        const a = field[i], b = field[j];
+        let ds = (a.s - b.s) % 1;
+        if (ds > 0.5) ds -= 1;
+        if (ds < -0.5) ds += 1;
+        const along = ds * course.length; // > 0: a is ahead of b
+        const dx = a.x - b.x, dy = a.y - b.y;
+        const lat = Math.hypot(dx, dy);
+        // the pull: behind, close, and in line
+        if (Math.abs(along) > RACER_R * 2 && Math.abs(along) < DRAFT && lat < 8) {
+          const k = (1 - Math.abs(along) / DRAFT) * (1 - lat / 8);
+          if (along > 0) b.draft = Math.max(b.draft, k);
+          else a.draft = Math.max(a.draft, k);
+        }
+        const d = Math.hypot(along, lat), min = RACER_R * 2.05;
+        if (d >= min || d < 1e-4) continue;
+        const ma = a.world.mass || 1, mb = b.world.mass || 1, push = (min - d) / (ma + mb);
+        const nx = lat > 1e-3 ? dx / lat : a.seed > b.seed ? 1 : -1, ny = lat > 1e-3 ? dy / lat : 0;
+        // apart across the course, the lighter the further
+        a.x += nx * push * mb;
+        a.y += ny * push * mb;
+        b.x -= nx * push * ma;
+        b.y -= ny * push * ma;
+        const rel = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+        if (rel < 0) {
+          a.vx -= nx * rel * (mb / (ma + mb)) * 1.6;
+          a.vy -= ny * rel * (mb / (ma + mb)) * 1.6;
+          b.vx += nx * rel * (ma / (ma + mb)) * 1.6;
+          b.vy += ny * rel * (ma / (ma + mb)) * 1.6;
+        }
+        // ...and the one behind is held up by it
+        (along > 0 ? b : a).v *= 1 - Math.min(0.6 * dt * 8, 0.12);
+        if (a === me || b === me) hit = true;
+      }
+    }
+    bumpAt -= dt;
+    if (hit && bumpAt <= 0) {
+      bumpAt = 0.45;
+      uiSound('impact');
+    }
+    return hit;
   }
 
   k.consoles.push({
@@ -183,16 +345,19 @@ export function createWorldRace(k) {
       return null;
     },
     stop,
-    // behind the world and a little above it, looking down the course
+    // behind the pilot's world and a little above it, looking down the course
     camera(outPos, target) {
-      if (state === 'idle' || !racer) return false;
-      camWant.copy(pos).addScaledVector(ahead, -(24 + 10 * boosting)).addScaledVector(up, 7.5).addScaledVector(right, -vx * 0.12);
+      if (state === 'idle' || !me) return false;
+      course.ahead(me.s, ahead);
+      course.up(me.s, up);
+      course.across(me.s, right);
+      camWant.copy(me.pos).addScaledVector(ahead, -(24 + 10 * me.boosting)).addScaledVector(up, 7.5).addScaledVector(right, -me.vx * 0.12);
       if (!camSet) {
         cam.copy(camWant);
         camSet = true;
       }
       outPos.copy(cam);
-      target.copy(pos).addScaledVector(ahead, 40).addScaledVector(up, 2);
+      target.copy(me.pos).addScaledVector(ahead, 40).addScaledVector(up, 2);
       return true;
     },
     tick(dt, t) {
@@ -215,98 +380,90 @@ export function createWorldRace(k) {
           lapStart = 0;
         }
       }
+      const live = state === 'run' || state === 'done';
+      if (state === 'run') time += dt;
 
-      // --- flying ---
+      // --- everyone flies ---
       const axes = moveAxes();
-      const live = state === 'run';
-      const wantBoost = live && input.brake && meter > 0.02;
-      boosting += ((wantBoost ? 1 : 0) - boosting) * Math.min(1, dt * 5);
-      if (wantBoost) meter = Math.max(0, meter - dt / 2.4);
-      const top = BASE * world.speed * (1 + 0.6 * boosting * world.boost);
-      v += ((live ? top : state === 'done' ? top * 0.35 : 0) - v) * Math.min(1, dt * (live ? 1.6 : 0.8));
-      // grip: how fast the world takes a new heading (a heavy one slides)
-      const g = 3.2 * world.grip;
-      vx += ((live ? axes.strafe : 0) * 34 - vx) * Math.min(1, dt * g);
-      vy += ((live ? axes.fwd : 0) * 30 - vy) * Math.min(1, dt * g);
-      x += vx * dt;
-      y += vy * dt;
-      if (Math.abs(x) > LANE) {
-        x = Math.sign(x) * LANE;
-        vx = 0;
-      }
-      if (Math.abs(y) > LANE * 0.8) {
-        y = Math.sign(y) * LANE * 0.8;
-        vy = 0;
-      }
-      const before = s;
-      s += (v * dt) / course.length;
-
-      if (live) {
-        time += dt;
-        // the next gate: through it, or past it
-        const gt = course.gates[gate];
-        if (gt && before < gt.s && s >= gt.s) {
-          if (Math.hypot(x - gt.across, y - gt.up) < GATE_R * 0.92) {
-            meter = Math.min(1, meter + 0.3);
-            chime(392 * Math.pow(1.0595, (gate * 2) % 12));
-          } else {
-            time += PENALTY;
-            chapterHud.say(RACE.missed.replace('{sec}', PENALTY), 1.6);
-            uiSound('toggle');
-          }
-          gate++;
-          course.show(gate);
+      for (let i = 0; i < field.length; i++) {
+        const r = field[i];
+        let ev;
+        if (r.ai) {
+          think(r, t);
+          const keep = r.skill;
+          r.skill = keep * r.rubber;
+          ev = step(r, r.ax, r.ay, r.wantBoost, dt, live);
+          r.skill = keep;
+        } else ev = step(r, axes.strafe, axes.fwd, input.brake, dt, state === 'run');
+        if (r !== me) continue;
+        // what the pilot is told about their own flying
+        if (ev === 1) chime(392 * Math.pow(1.0595, (me.gate * 2) % 12));
+        else if (ev === 2) {
+          time += PENALTY;
+          chapterHud.say(RACE.missed.replace('{sec}', PENALTY), 1.6);
+          uiSound('toggle');
         }
-        if (s >= 1) {
-          s -= 1;
-          lap++;
-          const lapTime = time - lapStart;
+        if (ev === 1 || ev === 2) course.show(me.gate);
+        if (ev === 3) {
+          chapterHud.say(RACE.lap.replace('{n}', me.lap + 1).replace('{of}', LAPS).replace('{time}', clock(time - lapStart)), 2.6);
           lapStart = time;
-          gate = 0;
-          if (lap >= LAPS) {
-            state = 'done';
-            T = 0;
-            const isBest = !(best[world.id] <= time);
-            if (isBest) {
-              best[world.id] = Math.round(time * 10) / 10;
-              saveBest();
-            }
-            chapterHud.say(`${RACE.finish.replace('{time}', clock(time))}${isBest ? ` — ${RACE.best}` : ''}`, 6);
-            uiSound('cheer');
-            course.show(course.gates.length); // every gate spent
-          } else {
-            chapterHud.say(RACE.lap.replace('{n}', lap + 1).replace('{of}', LAPS).replace('{time}', clock(lapTime)), 2.6);
-            uiSound('engage');
-            course.show(0);
+          uiSound('engage');
+          course.show(0);
+        } else if (ev === 4) {
+          state = 'done';
+          T = 0;
+          rank();
+          place = order.indexOf(me);
+          const isBest = !(best[me.world.id] <= time);
+          if (isBest) {
+            best[me.world.id] = Math.round(time * 10) / 10;
+            saveBest();
           }
+          const placed = RACE.placed.replace('{place}', RACE.places[place] || `${place + 1}`).replace('{n}', field.length);
+          chapterHud.say(`${RACE.finish.replace('{time}', clock(time))} — ${placed}${isBest ? ` — ${RACE.best}` : ''}`, 6.5);
+          uiSound('cheer');
+          course.show(course.gates.length); // every gate spent
         }
-      } else if (s >= 1) s -= 1;
+      }
+      const hit = live ? meet(dt) : false;
+      rank();
 
-      place();
-      racer.tick(t, px, Math.min(v / (BASE * 1.4), 1), boosting);
+      for (const r of field) {
+        put(r);
+        r.mesh.tick(t, px, Math.min(r.v / (BASE * 1.4), 1), Math.max(r.boosting, r.draft * 0.5));
+      }
       cam.lerp(camWant, Math.min(1, dt * 6));
       if (camera) {
-        const fov = C.FOV + 16 * boosting * MOTION_SCALE;
+        const fov = C.FOV + (16 * me.boosting + 5 * me.draft) * MOTION_SCALE;
         if (Math.abs(camera.fov - fov) > 0.05) {
           camera.fov = fov;
           camera.updateProjectionMatrix();
         }
       }
-      setEventRumble(boosting * 0.35 * (0.4 + 0.6 * MOTION_SCALE));
+      setEventRumble((me.boosting * 0.35 + (hit ? 0.5 : 0)) * (0.4 + 0.6 * MOTION_SCALE));
       hudAt -= dt;
       if (hudAt <= 0) {
         hudAt = 0.1;
         hud();
       }
-      if (state === 'done' && T > 6.5) stop();
+      if (state === 'done' && T > 7) stop();
     },
-    state: () => ({ state, world: world && world.id, s, x, y, v, lap, gate, gates: course.gates.length, time, meter, best: { ...best }, length: course.length }),
-    // dev: put the racer at a place on the course
+    state: () => ({
+      state, world: me && me.world.id, s: me ? me.s : 0, x: me ? me.x : 0, y: me ? me.y : 0, v: me ? me.v : 0,
+      lap: me ? me.lap : 0, gate: me ? me.gate : 0, gates: course.gates.length, time, meter: me ? me.meter : 0, draft: me ? me.draft : 0,
+      best: { ...best }, length: course.length, place,
+      field: field.map((r) => ({ name: r.name, world: r.world.id, at: Math.round((r.lap + r.s) * 1000) / 1000, x: Math.round(r.x * 10) / 10, y: Math.round(r.y * 10) / 10, v: Math.round(r.v), done: r.done })),
+      order: order.map((r) => r.name),
+    }),
+    // dev: put a racer (the pilot's, or field[i]) at a place on the course
     debugSet(o) {
       if (state === 'idle') return false;
-      if (o.s != null) s = o.s;
-      if (o.x != null) x = o.x;
-      if (o.y != null) y = o.y;
+      const r = field[o.i || 0];
+      if (!r) return false;
+      if (o.s != null) r.s = o.s;
+      if (o.x != null) r.x = o.x;
+      if (o.y != null) r.y = o.y;
+      if (o.lap != null) r.lap = o.lap;
       return true;
     },
   };
