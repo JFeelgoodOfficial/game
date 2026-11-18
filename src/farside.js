@@ -45,6 +45,7 @@ import { createFarLanding } from '../world/farlanding.js';
 import { createLightCity } from '../world/lightcity.js';
 import { createLightShip } from '../world/lightship.js';
 import { createDiveBridge } from '../world/divebridge.js';
+import { createShuttle } from '../world/shuttle.js';
 import commonVert from './shaders/tenretni.vert?raw';
 import wormFrag from './shaders/wormhole.frag?raw';
 
@@ -175,6 +176,20 @@ export function createFarside(ctx) {
       console.warn('[farside] the bridge could not be built', err);
     }
     return bridge;
+  }
+
+  // ...and the shuttle that goes down from it on a tether (world/shuttle.js)
+  let shuttle = null;
+  let shuttleBroken = false;
+  function buildShuttle() {
+    if (shuttle || shuttleBroken || !ctx.chapter) return shuttle;
+    try {
+      shuttle = createShuttle({ scene, camera, hideFleet: () => ctx.fleets()?.show(false), chapter: ctx.chapter });
+    } catch (err) {
+      shuttleBroken = true;
+      console.warn('[farside] the shuttle could not be built', err);
+    }
+    return shuttle;
   }
 
   // --- physics ---
@@ -510,14 +525,14 @@ export function createFarside(ctx) {
     // last two are built on first asking. Null if there is nothing to walk.
     site(kind) {
       if (!active) return null;
-      return kind === 'city' ? buildCity() : kind === 'ship' ? buildShip() : kind === 'bridge' ? buildBridge() : landing;
+      return kind === 'city' ? buildCity() : kind === 'ship' ? buildShip() : kind === 'bridge' ? buildBridge() : kind === 'shuttle' ? buildShuttle() : landing;
     },
     // A door has been walked through since this was last asked: 'city' (into
     // the City of Light), 'pad' (back out of it), 'ship' (aboard the light
     // ship), 'gallery' (off it again), 'bridge' / 'hall' (forward to
     // its bridge and back), or null. Asking clears it.
     door() {
-      const s = bridge && bridge.inside() ? bridge : lship && lship.inside() ? lship : city && city.inside() ? city : landing;
+      const s = shuttle && shuttle.inside() ? shuttle : bridge && bridge.inside() ? bridge : lship && lship.inside() ? lship : city && city.inside() ? city : landing;
       const to = s.portal;
       s.portal = null;
       return to;
@@ -537,6 +552,9 @@ export function createFarside(ctx) {
       onBridge: !!(bridge && bridge.inside()),
       dive: bridge ? bridge.info() : null,
       diveSeek: bridge ? bridge.seek : null,
+      inShuttle: !!(shuttle && shuttle.inside()),
+      shuttle: shuttle ? shuttle.info() : null,
+      shuttleSeek: shuttle ? shuttle.seek : null,
       fade,
       altitude: alt,
       groundY: groundY(),

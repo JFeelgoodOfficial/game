@@ -38,7 +38,7 @@ const R = 11; // the bridge's floor
 const SNAP = 1.2;
 const ZERO = new THREE.Vector3();
 const HOLE = new THREE.Vector3(-1, -0.1, -0.22).normalize(); // to port, a little ahead
-const MEGA = new THREE.Vector3(0.72, 0.52, 0.42).normalize(); // high to starboard, abaft the beam
+export const MEGA = new THREE.Vector3(0.72, 0.52, 0.42).normalize(); // high to starboard, abaft the beam
 const WIRE_FROM = new THREE.Vector3(8.5, 9, 18); // where it leaves the hull
 const WIRE_LEN = 2600;
 
@@ -54,14 +54,14 @@ const COL = { floor: 0x0d1118, edge: 0x1b2430, plinth: 0x222c3a };
 const GLOW = { cyan: 0x9fe8ff, gold: 0xffe2a0 };
 const SEEDS = { vask: 0x51a, marrow: 0x7c3, lux: 0x2e9 }; // the Pavilion's own three (world/lightpavilion.js)
 
-const SKY_VERT = /* glsl */ `
+export const SKY_VERT = /* glsl */ `
   varying vec3 vDir;
   void main() {
     vDir = position;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
-const SKY_FRAG = /* glsl */ `
+export const SKY_FRAG = /* glsl */ `
   uniform float uTime;
   uniform float uSpace;   // 0 in the hangar .. 1 out
   uniform vec3 uHole;     // toward the hole
@@ -70,6 +70,8 @@ const SKY_FRAG = /* glsl */ `
   uniform float uMegaR;
   uniform float uFlick;   // how many times a second the megaworld's lights change
   uniform float uDrift;   // 0..1
+  uniform float uFall;    // how fast the disc's glow dies away from the edge
+  uniform float uFire;    // ...and how bright it is
   varying vec3 vDir;
   float h1(float n) { return fract(sin(n) * 43758.5453); }
   float h2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -111,9 +113,9 @@ const SKY_FRAG = /* glsl */ `
     float streak = fbm(vec2(phi * 5.0 + log(x + 0.02) * 9.0 - uTime * 0.22, x * 7.0 - uTime * 0.05));
     float fine = fbm(vec2(phi * 22.0 - uTime * 0.5, x * 30.0));
     float dop = 0.55 + 0.75 * pow(0.5 + 0.5 * cos(phi - 0.7), 1.6);
-    float disc = exp(-out1 * 3.0) * (0.25 + 1.5 * streak * streak + 0.5 * fine) * dop;
+    float disc = exp(-out1 * uFall) * (0.25 + 1.5 * streak * streak + 0.5 * fine) * dop;
     vec3 fire = mix(vec3(1.0, 0.32, 0.06), vec3(1.0, 0.86, 0.62), clamp(disc * 0.6 + ring, 0.0, 1.0));
-    vec3 hole = fire * (disc * 1.5 + ring) * step(1.0, x);
+    vec3 hole = fire * (disc * 1.5 * uFire + ring) * step(1.0, x);
     // stars close to it are drawn out round the edge and thinned
     space *= smoothstep(1.0, 1.5, x);
     space = (space + hole) * smoothstep(0.994, 1.0, x); // inside: nothing
@@ -158,7 +160,7 @@ const SKY_FRAG = /* glsl */ `
 
 // The wire: a line of light from the hull to the megaworld, thin where it
 // leaves and wider with distance so that it is a line all the way.
-const WIRE_VERT = /* glsl */ `
+export const WIRE_VERT = /* glsl */ `
   uniform float uWide;
   varying float vAlong;
   varying float vSide;
@@ -171,7 +173,7 @@ const WIRE_VERT = /* glsl */ `
     gl_Position = projectionMatrix * mv;
   }
 `;
-const WIRE_FRAG = /* glsl */ `
+export const WIRE_FRAG = /* glsl */ `
   uniform float uTime;
   uniform float uDrift; // 0..1
   uniform float uPhase; // how far the pulses have run (the gauge: it only speeds up)
@@ -204,7 +206,7 @@ export function createDiveBridge(ctx) {
   // --- what is outside ---
   const skyU = {
     uTime: { value: 0 }, uSpace: { value: 0 }, uHole: { value: HOLE }, uHoleR: { value: 0.3 },
-    uMega: { value: MEGA }, uMegaR: { value: 0.2 }, uFlick: { value: 0.6 }, uDrift: { value: 0 },
+    uMega: { value: MEGA }, uMegaR: { value: 0.2 }, uFlick: { value: 0.6 }, uDrift: { value: 0 }, uFall: { value: 3 }, uFire: { value: 1 },
   };
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(3400, 64, 40),
@@ -388,6 +390,12 @@ export function createDiveBridge(ctx) {
       return null;
     },
   });
+  // the shuttle (world/shuttle.js): down through the hatch, once the ship can do no more
+  consoles.push({
+    x: HATCH.x, y: 0, z: HATCH.z, r: 2.4, prompt: DIVE.hatch,
+    off: () => mode !== 'deep',
+    use: () => ((site.portal = 'shuttle'), null),
+  });
   consoles.push({
     x: 0, y: 0, z: R + 3.6, r: 2.2, prompt: 'E — BACK TO THE ARCHIVE',
     off: () => mode === 'dive',
@@ -408,6 +416,8 @@ export function createDiveBridge(ctx) {
     pad: new THREE.Vector3(0, 0, R + 3.6),
     spawn: new THREE.Vector3(0, 0, R + 1.5),
     spawnYaw: Math.PI,
+    fromShuttle: new THREE.Vector3(HATCH.x, 0, HATCH.z + 2.6), // back up the tether
+    fromShuttleYaw: Math.PI,
     npcs: [],
     consoles,
     onChoice: () => null,

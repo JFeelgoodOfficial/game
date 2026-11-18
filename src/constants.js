@@ -542,6 +542,9 @@ export const C = {
   CH_HOME_SPIN: 0.045, // rad/sec
   CH_DIVE_RATE: 525600.0, // megaworld seconds per ship second at the horizon: a year a minute (world/divebridge.js)
   CH_DIVE_DEEPER: 60.0, // ...and this many times faster again by the end of the flood, so the dive costs years
+  CH_SHUTTLE_SLOW: 0.1, // at the bottom of the tether the shuttle's clock runs this fast against the ship's
+  CH_SHUTTLE_DEEPER: 1.5, // ...and the megaworld's this many times faster again than from the ship
+  CH_DREAM_TIME: 50.0, // seconds the dream lasts (world/shuttle.js)
   CH_DEMO_BACK: 25.0, // seconds into the hangar demo that the ship is home again (world/lightdemo.js)
   CH_HOME_DONE: 0.93, // how much of it the archive has drawn: all but the end
 };

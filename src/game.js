@@ -1435,6 +1435,8 @@ const FAR_HOPS = {
   gallery: ['city', 'fromShip', 'fromShipYaw', 'lightcity'],
   bridge: ['bridge', 'spawn', 'spawnYaw', 'dive'],
   hall: ['ship', 'fromBridge', 'fromBridgeYaw', 'lightship'],
+  shuttle: ['shuttle', 'spawn', 'spawnYaw', 'dive'],
+  hatch: ['bridge', 'fromShuttle', 'fromShuttleYaw', 'dive'],
 };
 let doorT = -1;
 let doorTo = null;
