@@ -79,6 +79,19 @@ export const HULL_FRAG = /* glsl */ `
     vec2 mg = vec2(uv.x * 0.9, uv.y * 0.9 - uTime * (0.6 + seed));
     float mote = step(0.94, h2(floor(mg) + seed * 9.0)) * (1.0 - smoothstep(0.1, 0.4, length(fract(mg) - 0.5)));
     vec3 col = c * glow * beat * 0.62 + vec3(1.0, 0.97, 0.9) * mote * 0.5;
+    // the people of each cell, seen from behind the glass they dance against
+    vec2 pg = vec2(f.x * 5.0, (f.y + 0.34) * 5.0);
+    vec2 pc = vec2(floor(pg.x + 0.5), 0.0);
+    float who = h2(pc + id * 3.1 + face);
+    vec2 fp = vec2(pg.x - pc.x, pg.y) * 0.2;
+    fp.y -= 0.02 * abs(sin(uTime * (4.0 + who * 3.0) + who * 30.0));
+    float body = 1.0 - smoothstep(0.016, 0.022, length(vec2(fp.x, max(abs(fp.y - 0.05) - 0.035, 0.0))));
+    float head = 1.0 - smoothstep(0.013, 0.018, length(fp - vec2(0.0, 0.115)));
+    vec2 arm = vec2(abs(fp.x), fp.y) - vec2(0.015, 0.07);
+    vec2 ad = normalize(vec2(0.6, 0.5 + 0.5 * sin(uTime * (2.0 + who * 2.0) + who * 9.0)));
+    float reach = 1.0 - smoothstep(0.005, 0.009, length(arm - ad * clamp(dot(arm, ad), 0.0, 0.055)));
+    float people = max(body, max(head, reach)) * step(0.3, who) * step(abs(f.y + 0.3), 0.19);
+    col = mix(col, c * 0.07, people * 0.85);
     col = mix(col, vec3(0.01, 0.012, 0.02), frame);
     gl_FragColor = vec4(col * uDim, 1.0);
   }
@@ -115,6 +128,17 @@ export function createLightShip(ctx) {
     for (const s of [-1, 1]) glow.push(tint(box(0.05, 60, 0.05, s * HALL_HW, 30, z), GLOW.cyan, 0.5));
   }
 
+  // ribs over the walk, a line of light down its roof, and chevrons in its floor pointing forward
+  for (const z of [28, 21, 7, 0, -7, -21, -28, -35, -49, -56]) {
+    lit.push(tint(new THREE.TorusGeometry(6.4, 0.16, 6, 28, Math.PI).translate(0, 0.2, z), COL.edge));
+    glow.push(tint(new THREE.TorusGeometry(6.4, 0.035, 5, 28, Math.PI).translate(0, 0.2, z - 0.2), GLOW.cyan, 1.1));
+    for (const s of [-1, 1]) lit.push(tint(cyl(0.3, 0.42, 0.5, s * 6.4, 0.2, z, 8), COL.plinth));
+  }
+  glow.push(tint(box(0.1, 0.06, hl * 2 - 6, 0, 6.6, hz), GLOW.white, 1.2));
+  for (let z = HALL_Z0 - 8; z > HALL_Z1 + 6; z -= 8) {
+    for (const s of [-1, 1]) glow.push(tint(box(1.5, 0.04, 0.12, s * 1.1, 0.032, z - 0.55, s * 0.7), GLOW.cyan, 0.8));
+  }
+
   // --- the rooms ---
   const rooms = [];
   const flatList = (list) => list.map((g) => (g.index ? g.toNonIndexed() : g));
@@ -126,6 +150,12 @@ export function createLightShip(ctx) {
     lit.push(tint(box(bx1 - bx0, 0.4, 4.4, side * (bx0 + bx1) / 2, -0.2, cz), COL.floor));
     surfaces.push({ kind: 'rect', cx: side * (bx0 + bx1) / 2, cz, ux: 1, uz: 0, hl: (bx1 - bx0) / 2 + 0.6, hw: 2.2, yA: 0, yB: 0 });
     for (const e of [-1, 1]) glow.push(tint(box(bx1 - bx0, 0.06, 0.12, side * (bx0 + bx1) / 2, 0.03, cz + e * 2.1), GLOW.cyan, 1.2));
+    // a gate of light at the walk's edge, in that world's own sky and ground
+    glow.push(tint(new THREE.TorusGeometry(3.0, 0.11, 6, 32, Math.PI).rotateY(Math.PI / 2).translate(side * (HALL_HW + 0.3), 0, cz), w.layers.sky.a, 1.5));
+    glow.push(tint(new THREE.TorusGeometry(2.72, 0.05, 6, 32, Math.PI).rotateY(Math.PI / 2).translate(side * (HALL_HW + 0.3), 0, cz), w.layers.ground.land, 1.3));
+    for (const e of [-1, 1]) lit.push(tint(cyl(0.2, 0.3, 0.9, side * (HALL_HW + 0.3), 0.45, cz + e * 3.0, 8), COL.plinth));
+    // rings let into the room's floor
+    for (const rr of [ROOM_R - 2.4, 4.2, 2.0]) glow.push(tint(new THREE.TorusGeometry(rr, 0.03, 5, 56).rotateX(Math.PI / 2).translate(cx, 0.04, cz), w.layers.sky.a, 0.7));
     lit.push(tint(cyl(ROOM_R, ROOM_R - 1.6, 0.6, cx, -0.3, cz, 56), COL.floor));
     lit.push(tint(cyl(ROOM_R - 4, 0.6, 9, cx, -5.1, cz, 24), COL.edge));
     surfaces.push({ kind: 'disc', cx, cz, r: ROOM_R, y: 0 });
@@ -156,6 +186,8 @@ export function createLightShip(ctx) {
       const a = (side > 0 ? 0 : Math.PI) + (k - 2) * 0.62; // fanned round the far side
       const x = cx + Math.cos(a) * PLINTH_R, z = cz + Math.sin(a) * PLINTH_R;
       lit.push(tint(cyl(0.42, 0.6, 1.1, x, 0.55, z, 12), COL.plinth));
+      lit.push(tint(cyl(0.85, 0.95, 0.16, x, 0.08, z, 12), COL.edge)); // its step
+      glow.push(tint(new THREE.TorusGeometry(0.9, 0.025, 5, 28).rotateX(Math.PI / 2).translate(x, 0.17, z), w.layers[layer].col ?? w.layers[layer].a ?? w.layers[layer].land, 1.2));
       colliders.push({ x, z, r: 0.7, top: Infinity });
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(0.62, 0.05, 6, 32).rotateX(Math.PI / 2),

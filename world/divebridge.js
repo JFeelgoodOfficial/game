@@ -294,6 +294,10 @@ export function createDiveBridge(ctx) {
   lit.push(tint(cyl(0.9, 1.2, 1.1, HELM.x, 0.55, HELM.z, 6), COL.plinth));
   glow.push(tint(cyl(0.95, 0.95, 0.06, HELM.x, 1.13, HELM.z, 6), GLOW.gold, 1.6));
   colliders.push({ x: HELM.x, z: HELM.z, r: 1.25, top: Infinity });
+  // a wheel on it, and its two grips
+  lit.push(tint(new THREE.TorusGeometry(0.62, 0.05, 6, 28).rotateX(-0.9).translate(HELM.x, 1.5, HELM.z + 0.25), COL.edge));
+  for (const s of [-1, 1]) glow.push(tint(cyl(0.06, 0.06, 0.22, HELM.x + s * 0.62, 1.5, HELM.z + 0.25, 6), GLOW.gold, 1.8));
+  lit.push(tint(cyl(0.05, 0.05, 0.5, HELM.x, 1.3, HELM.z + 0.1, 6).rotateX(-0.2), COL.edge));
   // the hatch in the floor: the shuttle's (lit when there is somewhere deeper to go)
   const HATCH = { x: 0, z: 5 };
   const hatchMat = new THREE.MeshBasicMaterial({ color: 0x0a1016, fog: false });
@@ -320,7 +324,15 @@ export function createDiveBridge(ctx) {
     clock.position.set(x * 1.12, 1.55, z * 1.12);
     clock.lookAt(0, 1.55, 0);
     group.add(clock);
-    return { c, rig, clock };
+    // their station: a stem, a slanted board, and a column of light that
+    // climbs as the two clocks come apart
+    const out = Math.hypot(x, z), ux = x / out, uz = z / out;
+    lit.push(tint(cyl(0.07, 0.12, 1.0, x + ux * 1.1, 0.5, z + uz * 1.1, 6), COL.plinth));
+    lit.push(tint(box(0.9, 0.06, 0.5, x + ux * 1.1, 1.05, z + uz * 1.1, Math.atan2(ux, uz)), COL.edge));
+    const gauge = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1, 0.1).translate(0, 0.5, 0), new THREE.MeshBasicMaterial({ color: 0x223040, fog: false }));
+    gauge.position.set(x + ux * 1.45, 1.1, z + uz * 1.45);
+    group.add(gauge);
+    return { c, rig, clock, gauge };
   });
 
   const litMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x0c0f14 });
@@ -581,6 +593,10 @@ export function createDiveBridge(ctx) {
         const k = set ? 1.2 + 0.5 * Math.sin(t * 3 + m.clock.position.x) : 0.12;
         m.clock.material.color.setRGB(0.5 * k, 1.0 * k, 1.1 * k);
         m.clock.rotation.z = set ? -shipT * 0.8 : 0;
+        // the gauge: how far apart the clocks have come
+        const dr = skyU.uDrift.value * skyU.uSpace.value;
+        m.gauge.scale.y = 0.05 + 1.3 * dr;
+        m.gauge.material.color.setRGB(0.3 + 1.6 * dr, 1.1 - 0.5 * dr, 1.2 - 0.9 * dr);
       }
 
       if (mode === 'dive') {
