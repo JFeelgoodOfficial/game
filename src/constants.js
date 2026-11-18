@@ -561,12 +561,13 @@ export const C = {
 // it one instance of a shared capsule (0: always the capsule); flood: worlds
 // that come round the bridge in the archive flood; dream: bodies in the dream;
 // lanterns: lights adrift over the city's walks; birds: the flock at the monument;
-// rivals: other worlds on the grid in a race.
+// rivals: other worlds on the grid in a race; wake: lights in each world's
+// lingering wake; crowd: people at the rails while a race is on.
 export const CH_TIER = {
-  low: { people: 8, rigNear: 0, flood: 3, dream: 3, lanterns: 80, birds: 40, rivals: 3 },
-  medium: { people: 14, rigNear: 38, flood: 6, dream: 6, lanterns: 220, birds: 110, rivals: 5 },
-  high: { people: 19, rigNear: 60, flood: 6, dream: 6, lanterns: 360, birds: 180, rivals: 5 },
-  ultra: { people: 19, rigNear: 90, flood: 6, dream: 6, lanterns: 480, birds: 240, rivals: 6 },
+  low: { people: 8, rigNear: 0, flood: 3, dream: 3, lanterns: 80, birds: 40, rivals: 3, wake: 50, crowd: 60 },
+  medium: { people: 14, rigNear: 38, flood: 6, dream: 6, lanterns: 220, birds: 110, rivals: 5, wake: 100, crowd: 150 },
+  high: { people: 19, rigNear: 60, flood: 6, dream: 6, lanterns: 360, birds: 180, rivals: 5, wake: 130, crowd: 240 },
+  ultra: { people: 19, rigNear: 90, flood: 6, dream: 6, lanterns: 480, birds: 240, rivals: 6, wake: 160, crowd: 320 },
 };
 
 export const TIERS = {

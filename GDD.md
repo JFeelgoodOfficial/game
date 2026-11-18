@@ -757,8 +757,15 @@ offered at the Starter's stand on the terrace once the epilogue has played:
   along (up to 9% more speed).
 - The panel shows position and the running order; the finish gives the
   pilot's place.
-- Not built: crowds, lingering wakes, lights that follow the leader, and a
-  finish through the monument.
+- While a race is on (`world/racefx.js`): every world leaves a wake of light
+  in its drive's colour that hangs for some seconds; a crowd stands at the
+  rails of the terrace, the Pavilion and the districts and jumps when the
+  leader is overhead; each district holds a beam of its own colour on the
+  leader; a bell is rung the first time anyone starts each lap; fireworks go
+  up at the finish. Counts are `wake` and `crowd` in `CH_TIER`.
+- Not built: a finish through the monument. The course does not go there,
+  because the towers between are placed at random and their positions are not
+  exposed.
 
 Rules the chapter keeps to:
 
