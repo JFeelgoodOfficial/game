@@ -42,6 +42,7 @@ body.ch-cine > *:not(canvas):not(#chHud):not(#flash) { opacity: 0 !important; po
 
 let root = null, line = null, white = null, clocks = null, clockA = null, clockB = null, clockC = null;
 let lineT = 0;
+let shownA = -2, shownB = -2, shownC = -2; // the seconds the clocks last showed
 let cineOn = false;
 
 function build() {
@@ -98,13 +99,16 @@ export const chapterHud = {
   clocks(a, b, labelA = '', labelB = '', c = null, labelC = '') {
     if (a == null) {
       if (clocks) clocks.classList.remove('show');
+      shownA = shownB = shownC = -2;
       return;
     }
     build();
     clocks.classList.add('show');
-    clockA.textContent = `${labelA.padEnd(10)}${stamp(a)}`;
-    clockB.textContent = `${labelB.padEnd(10)}${stamp(b)}`;
-    clockC.textContent = c == null ? '' : `${labelC.padEnd(10)}${stamp(c)}\n`;
+    // (strings are only made when a second that is shown has changed)
+    const fa = Math.floor(a), fb = Math.floor(b), fc = c == null ? -1 : Math.floor(c);
+    if (fa !== shownA) clockA.textContent = `${labelA.padEnd(10)}${stamp((shownA = fa))}`;
+    if (fb !== shownB) clockB.textContent = `${labelB.padEnd(10)}${stamp((shownB = fb))}`;
+    if (fc !== shownC) clockC.textContent = (shownC = fc) < 0 ? '' : `${labelC.padEnd(10)}${stamp(fc)}\n`;
   },
   tick(dt) {
     if (lineT > 0) {

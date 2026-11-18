@@ -21,7 +21,7 @@
 // A site for src/capitalWalk.js. Frame: +y up, forward -z, port -x.
 
 import * as THREE from 'three';
-import { C } from '../src/constants.js';
+import { C, CH_TIER } from '../src/constants.js';
 import { Q } from '../src/quality.js';
 import { sun } from '../src/sun.js';
 import { MOTION_SCALE } from '../src/motion.js';
@@ -335,7 +335,7 @@ export function createDiveBridge(ctx) {
   place.mesh.renderOrder = -5;
   place.uniforms.uSpeed.value = 1.4;
   group.add(place.mesh);
-  const visions = [...WORLDS.map((w) => w.layers), HOME.layers].map((layers, i, all) => {
+  const visions = [...WORLDS.slice(0, (CH_TIER[Q.tier] || CH_TIER.medium).flood).map((w) => w.layers), HOME.layers].map((layers, i, all) => {
     const home = i === all.length - 1;
     const p = createLayerPlanet(home ? 4.6 : 3, { life: home ? 320 : 160, seg: 40, seed: 1.7 + i * 2.9 });
     p.setAll(layers);

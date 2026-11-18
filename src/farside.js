@@ -193,6 +193,22 @@ export function createFarside(ctx) {
     return shuttle;
   }
 
+  // Take a walked place out of the scene and free what it made. (Geometry
+  // marked shared belongs to every planet at once and is kept.)
+  function retire(place) {
+    if (!place) return null;
+    scene.remove(place.group);
+    place.group.traverse((o) => {
+      if (o.geometry && !o.geometry.userData.shared) o.geometry.dispose();
+      const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+      for (const m of mats) {
+        if (m.map) m.map.dispose();
+        m.dispose();
+      }
+    });
+    return null;
+  }
+
   // --- physics ---
   const body = addBody({
     position: new THREE.Vector3(0, -C.FAR_RADIUS, 0),
@@ -534,6 +550,13 @@ export function createFarside(ctx) {
     // ship), 'gallery' (off it again), 'bridge' / 'hall' (forward to
     // its bridge and back), or null. Asking clears it.
     door() {
+      // once the light ship has left for good, nothing aboard it can be
+      // visited again: let it all go
+      if (ctx.chapter && ctx.chapter.epilogue() && city && city.inside() && (lship || bridge || shuttle)) {
+        lship = retire(lship);
+        bridge = retire(bridge);
+        shuttle = retire(shuttle);
+      }
       const s = shuttle && shuttle.inside() ? shuttle : bridge && bridge.inside() ? bridge : lship && lship.inside() ? lship : city && city.inside() ? city : landing;
       const to = s.portal;
       s.portal = null;

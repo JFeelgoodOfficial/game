@@ -556,6 +556,17 @@ export const C = {
 // costs a phone or software rasteriser cannot pay; HIGH and ULTRA spend the
 // headroom a discrete GPU has. `minScale` is how far the frame governor may
 // drop the internal render resolution before auto mode gives up a whole tier.
+// What the megaworld chapter spends per tier (GDD 5.7.4). people: the city's
+// descendants; rigNear: inside this range a person is a jointed figure, beyond
+// it one instance of a shared capsule (0: always the capsule); flood: worlds
+// that come round the bridge in the archive flood; dream: bodies in the dream.
+export const CH_TIER = {
+  low: { people: 6, rigNear: 0, flood: 3, dream: 3 },
+  medium: { people: 10, rigNear: 38, flood: 6, dream: 6 },
+  high: { people: 13, rigNear: 60, flood: 6, dream: 6 },
+  ultra: { people: 13, rigNear: 90, flood: 6, dream: 6 },
+};
+
 export const TIERS = {
   low: { pixelRatio: 1.0, bloom: false, aa: 'none', minScale: 0.6 },
   medium: { pixelRatio: 1.5, bloom: true, aa: 'fxaa', minScale: 0.7 },

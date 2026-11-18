@@ -157,19 +157,13 @@ export function createLightShip(ctx) {
       const x = cx + Math.cos(a) * PLINTH_R, z = cz + Math.sin(a) * PLINTH_R;
       lit.push(tint(cyl(0.42, 0.6, 1.1, x, 0.55, z, 12), COL.plinth));
       colliders.push({ x, z, r: 0.7, top: Infinity });
-      const mini = createLayerPlanet(0.8, { life: 110, seg: 32, seed: 2.1 + i * 3.3 });
-      mini.group.position.set(x, 2.5, z);
-      mini.set(layer, w.layers[layer]);
-      mini.reveal(layer, 1);
-      mini.holo(1);
-      rg.add(mini.group);
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(0.62, 0.05, 6, 32).rotateX(Math.PI / 2),
         new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false })
       );
       ring.position.set(x, 1.14, z);
       rg.add(ring);
-      const f = { layer, x, z, mini, ring, lift: 0 };
+      const f = { layer, x, z, mini: null, ring, lift: 0 }; // (the planet on it is made when the room is first come near)
       consoles.push({
         x, y: 0, z, r: 2.3,
         get prompt() {
@@ -184,6 +178,16 @@ export function createLightShip(ctx) {
     const room = { w, i, cx, cz, side, rg, whole, frags, near: false };
     rooms.push(room);
   });
+
+  function makeMini(room, f) {
+    const mini = createLayerPlanet(0.8, { life: 110, seg: 32, seed: 2.1 + room.i * 3.3 });
+    mini.group.position.set(f.x, 2.5, f.z);
+    mini.set(f.layer, room.w.layers[f.layer]);
+    mini.reveal(f.layer, 1);
+    mini.holo(1);
+    room.rg.add(mini.group);
+    return mini;
+  }
 
   // --- forward: the way to the bridge, shut until the archive has been walked ---
   lit.push(tint(box(HALL_HW * 2 + 2, 9, 0.6, 0, 4.5, HALL_Z1 - 0.3), COL.edge));
@@ -391,13 +395,20 @@ export function createLightShip(ctx) {
         r.whole.group.rotation.y = t * 0.08 + r.i;
         r.whole.tick(t, px);
         const picked = chapter.picked(r.w.id);
+        const close = r === at || r.d < 24; // from the walk a room shows its world and its rings; the fragments come up as it is neared
         for (const f of r.frags) {
           const mineHere = picked === f.layer;
           f.lift += ((mineHere ? 1 : 0) - f.lift) * Math.min(1, dt * 4);
-          f.mini.group.position.y = 2.5 + 0.12 * Math.sin(t * 1.3 + f.x) + f.lift * 0.5;
-          f.mini.group.rotation.y = t * 0.35 + f.z;
-          f.mini.group.scale.setScalar(1 + f.lift * 0.3);
-          f.mini.tick(t, px);
+          if (close && !f.mini) f.mini = makeMini(r, f);
+          if (f.mini) {
+            f.mini.group.visible = close;
+            if (close) {
+              f.mini.group.position.y = 2.5 + 0.12 * Math.sin(t * 1.3 + f.x) + f.lift * 0.5;
+              f.mini.group.rotation.y = t * 0.35 + f.z;
+              f.mini.group.scale.setScalar(1 + f.lift * 0.3);
+              f.mini.tick(t, px);
+            }
+          }
           const pulse = 0.75 + 0.25 * Math.sin(t * 2.2 + f.x * 3);
           if (mineHere) f.ring.material.color.setRGB(2.0, 1.7, 0.9);
           else f.ring.material.color.setRGB(0.5 * pulse, 0.95 * pulse, 1.2 * pulse);

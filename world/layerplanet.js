@@ -226,6 +226,17 @@ const LIFE_FRAG = /* glsl */ `
   }
 `;
 
+const SPHERES = new Map();
+function unitSphere(seg) {
+  let g = SPHERES.get(seg);
+  if (!g) {
+    g = new THREE.SphereGeometry(1, seg, Math.round(seg * 0.6));
+    g.userData.shared = true;
+    SPHERES.set(seg, g);
+  }
+  return g;
+}
+
 const _c = new THREE.Color();
 const hex = (h, target) => target.copy(_c.set(h));
 
@@ -247,7 +258,8 @@ export function createLayerPlanet(radius = 1, opts = {}) {
   };
   const haloU = { uA: U.sky.uA, uReveal: U.sky.uReveal, uHolo: shared.uHolo };
 
-  const ball = (r, seg) => new THREE.SphereGeometry(r, seg, Math.round(seg * 0.6));
+  // every planet of a given fineness is the same unit sphere, scaled (shared: never disposed)
+  const ball = (r, seg) => unitSphere(seg);
   const shell = (geo, frag, uniforms, extra) => {
     const m = new THREE.Mesh(geo, new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: frag, uniforms, fog: false, ...extra }));
     m.visible = false;
@@ -255,19 +267,23 @@ export function createLayerPlanet(radius = 1, opts = {}) {
     return m;
   };
   const ground = shell(ball(radius, SEG), GROUND_FRAG, U.ground, { transparent: true });
+  ground.scale.setScalar(radius);
   ground.renderOrder = 1;
   const structures = shell(ball(radius * 1.004, SEG), STRUCT_FRAG, U.structures, {
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
   });
   structures.renderOrder = 2;
+  structures.scale.setScalar(radius * 1.004);
   const sky = shell(ball(radius * 1.07, Math.round(SEG * 0.75)), SKY_FRAG, U.sky, { transparent: true, depthWrite: false });
   sky.renderOrder = 4;
+  sky.scale.setScalar(radius * 1.07);
   const halo = new THREE.Mesh(ball(radius * 1.28, 32), new THREE.ShaderMaterial({
     vertexShader: HALO_VERT, fragmentShader: HALO_FRAG, uniforms: haloU,
     side: THREE.BackSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
   }));
   halo.visible = false;
   halo.renderOrder = 0;
+  halo.scale.setScalar(radius * 1.28);
   group.add(halo);
 
   // life
@@ -293,8 +309,10 @@ export function createLayerPlanet(radius = 1, opts = {}) {
   const moonArm = new THREE.Group();
   const moon = new THREE.Mesh(ball(radius * 0.1, 20), lightMat);
   moon.position.set(radius * 1.75, 0, 0);
+  moon.scale.setScalar(radius * 0.1);
   const moonGlow = new THREE.Mesh(ball(radius * 0.19, 16), glowMat);
   moonGlow.position.copy(moon.position);
+  moonGlow.scale.setScalar(radius * 0.19);
   moonArm.add(moon, moonGlow);
   moonArm.rotation.z = 0.35;
   const ring = new THREE.Mesh(new THREE.RingGeometry(radius * 1.42, radius * 1.95, 96, 1), glowMat);
@@ -384,7 +402,7 @@ export function createLayerPlanet(radius = 1, opts = {}) {
     },
     dispose() {
       group.traverse((o) => {
-        if (o.geometry) o.geometry.dispose();
+        if (o.geometry && !o.geometry.userData.shared) o.geometry.dispose();
         if (o.material) o.material.dispose();
       });
     },
