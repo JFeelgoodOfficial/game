@@ -31,6 +31,8 @@
 //   platform.camera(pos, target) -> true if the place has taken the camera
 //                        (writes both, platform-local; src/chapter.js scenes)
 //   console.off()        true while a console is not there to be used
+//   platform.act()       E, while the place is holding the walker (leave a race)
+//   platform.heldPrompt()  what the prompt line says then
 //
 // walk.js dispatches its public surface here whenever capitalActive().
 
@@ -358,6 +360,10 @@ export function capitalInteract() {
     advanceDialogue();
     return undefined;
   }
+  if (site.held && site.held()) {
+    if (site.act) site.act();
+    return undefined;
+  }
   const f = focus();
   if (!f) return undefined;
   if (f.kind === 'use' && f.it.gun && site.gun) {
@@ -375,6 +381,7 @@ export function capitalInteract() {
 export function capitalPromptText() {
   if (gun.active) return 'G — STAND DOWN';
   if (isDialogueOpen()) return null;
+  if (site.held && site.held()) return site.heldPrompt ? site.heldPrompt() : null;
   const f = focus();
   if (f) return f.kind === 'use' ? f.it.prompt : 'E — TALK';
   return nearPad() ? 'G — BOARD' : null;
