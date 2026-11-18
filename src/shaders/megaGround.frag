@@ -30,6 +30,7 @@ uniform float uStarHdr;
 uniform float uHorizon; // distance to the horizon from the camera's height
 uniform float uFade; // 0..1, the whole world fading up
 uniform vec3 uHaze;
+uniform float uAged; // a thousand years on: the conduits are every colour, and there are far more of them
 
 float h21(vec2 c) {
   c = mod(c, 1024.0);
@@ -69,6 +70,11 @@ float conduit(vec2 p, vec3 a, vec3 b, float px) {
   float halo = exp(-s.x / 520.0) * 0.10;
   float run = 0.65 + 0.35 * sin(s.y * len * 0.0021 - uTime * 2.4);
   return (core * run + halo) * ends * a.z * b.z;
+}
+
+// the colours the old world runs on: cyan, green, violet, gold
+vec3 pal(float h) {
+  return h < 0.25 ? vec3(0.22, 0.85, 1.0) : h < 0.5 ? vec3(0.28, 1.0, 0.5) : h < 0.75 ? vec3(0.72, 0.42, 1.0) : vec3(1.0, 0.74, 0.24);
 }
 
 void main() {
@@ -146,16 +152,34 @@ void main() {
   float lightK = pool * pool / (1.0 + cd * cd / 3.0e7);
   col += (col * 110.0 + 0.02) * warm * lightK * own.z;
   // conduits to and from the four neighbours
-  float c = conduit(L, own, cage(cell + vec2(1.0, 0.0)), px)
-          + conduit(L, cage(cell - vec2(1.0, 0.0)), own, px)
-          + conduit(L, own, cage(cell + vec2(0.0, 1.0)), px)
-          + conduit(L, cage(cell - vec2(0.0, 1.0)), own, px);
-  col += vec3(1.0, 0.42, 0.10) * c * uHdr * 0.34 * (1.0 - pad);
+  vec3 fire = vec3(1.0, 0.42, 0.10);
+  float cE = conduit(L, own, cage(cell + vec2(1.0, 0.0)), px);
+  float cW = conduit(L, cage(cell - vec2(1.0, 0.0)), own, px);
+  float cN = conduit(L, own, cage(cell + vec2(0.0, 1.0)), px);
+  float cS = conduit(L, cage(cell - vec2(0.0, 1.0)), own, px);
+  vec3 lines = mix(fire, pal(h21(cell + 3.0)), uAged) * cE + mix(fire, pal(h21(cell - vec2(1.0, 0.0) + 3.0)), uAged) * cW
+             + mix(fire, pal(h21(cell + 57.0)), uAged) * cN + mix(fire, pal(h21(cell - vec2(0.0, 1.0) + 57.0)), uAged) * cS;
+  if (uAged > 0.0) {
+    // a thousand years on: every star is tied to every star round it, the
+    // plates have rings of light let into the hull about them, and the
+    // trenches between districts carry light of their own
+    lines += uAged * (pal(h21(cell + 91.0)) * conduit(L, own, cage(cell + vec2(1.0, 1.0)), px)
+                    + pal(h21(cell - vec2(1.0, 1.0) + 91.0)) * conduit(L, cage(cell - vec2(1.0, 1.0)), own, px)
+                    + pal(h21(cell + 133.0)) * conduit(L, own, cage(cell + vec2(1.0, -1.0)), px)
+                    + pal(h21(cell - vec2(1.0, -1.0) + 133.0)) * conduit(L, cage(cell - vec2(1.0, -1.0)), own, px));
+    float halo = (1.0 - smoothstep(0.0, 80.0 + px, abs(cd - uPad * 1.5))) + (1.0 - smoothstep(0.0, 60.0 + px, abs(cd - uPad * 2.1)))
+               + 0.6 * (1.0 - smoothstep(0.0, 50.0 + px, abs(cd - uPad * 2.9)));
+    col += pal(h21(cell + 7.0)) * halo * own.z * uAged * uHdr * 0.55 * (0.7 + 0.3 * sin(uTime * 1.3 + cd * 0.002));
+    col += pal(fract(dist3.x * 7.0)) * dist3.y * dist3.z * uAged * uHdr * 0.32 * (0.65 + 0.35 * sin(uTime * 0.9 + dist3.x * 30.0));
+  }
+  col += lines * uHdr * mix(0.34, 0.85, uAged) * (1.0 - pad);
 
   // --- the distance: haze, and a lit line where the world ends ---
   float fr = clamp(vD / uHorizon, 0.0, 1.0);
   float haze = smoothstep(0.10, 0.92, fr);
   vec3 hz = uHaze * (0.7 + 1.6 * smoothstep(0.6, 1.0, fr));
+  // ...and it has air now: a blue line where the world ends
+  hz = mix(hz, vec3(0.05, 0.16, 0.36) * (0.5 + 3.0 * smoothstep(0.7, 1.0, fr)), uAged);
   col = mix(col, hz, haze * 0.94);
 
   gl_FragColor = vec4(col * uFade, 1.0);

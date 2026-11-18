@@ -32,7 +32,7 @@ import { buildRig, poseRig } from './aliens.js';
 import { createLayerPlanet } from './layerplanet.js';
 import { createPlace } from './holoplace.js';
 import { HULL_VERT, HULL_FRAG } from './lightship.js';
-import { WORLDS, HOME, CAPTAINS, DIVE } from './chapter-dialogue.js';
+import { WORLDS, HOME, CAPTAINS, DIVE, RETURN } from './chapter-dialogue.js';
 
 const R = 11; // the bridge's floor
 const SNAP = 1.2;
@@ -72,6 +72,7 @@ export const SKY_FRAG = /* glsl */ `
   uniform float uDrift;   // 0..1
   uniform float uFall;    // how fast the disc's glow dies away from the edge
   uniform float uFire;    // ...and how bright it is
+  uniform float uAged;    // the megaworld a thousand years on: wrapped in a lattice of light
   varying vec3 vDir;
   float h1(float n) { return fract(sin(n) * 43758.5453); }
   float h2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -85,6 +86,13 @@ export const SKY_FRAG = /* glsl */ `
     float a = 0.5, s = 0.0;
     for (int i = 0; i < 4; i++) { s += a * n2(p); p = p * 2.07 + 13.1; a *= 0.5; }
     return s;
+  }
+  // one strand of the lattice: a great circle about an axis, and a ring where the axis comes out
+  vec3 strand(vec3 m, vec3 axis, vec3 c) {
+    float k = abs(dot(m, axis));
+    float line = smoothstep(0.022, 0.0, k) + 0.3 * exp(-k * 16.0);
+    float ring = smoothstep(0.006, 0.0, abs((1.0 - k) - 0.014)) + 0.6 * smoothstep(0.004, 0.0, abs((1.0 - k) - 0.004));
+    return c * (line + ring * 1.6);
   }
   void main() {
     vec3 d = normalize(vDir);
@@ -128,7 +136,7 @@ export const SKY_FRAG = /* glsl */ `
       vec2 q = vec2(dot(d, mx), dot(d, my)) / uMegaR;
       float rr = dot(q, q);
       // its haze, outside the limb
-      space += vec3(0.25, 0.9, 0.6) * exp(-max(sqrt(rr) - 1.0, 0.0) * 9.0) * 0.16 * step(1.0, rr);
+      space += mix(vec3(0.25, 0.9, 0.6), vec3(0.3, 0.65, 1.0) * 1.8, uAged) * exp(-max(sqrt(rr) - 1.0, 0.0) * 9.0) * 0.16 * step(1.0, rr);
       if (rr < 1.0) {
         vec3 n = vec3(q, sqrt(1.0 - rr));
         // lit from the hole's side, in the hole's colour
@@ -149,8 +157,23 @@ export const SKY_FRAG = /* glsl */ `
         on = mix(on, 0.45 + 0.4 * h2(lid + fract(uTime) * 61.0), smoothstep(0.75, 1.0, uDrift));
         float dot1 = smoothstep(0.42, 0.1, length(fract(lg) - 0.5));
         vec3 lamp = mix(vec3(0.25, 1.0, 0.6), vec3(0.7, 1.0, 0.95), h2(lid + 3.0));
-        body += lamp * on * dot1 * step(0.3, h2(lid + 7.0)) * (0.9 + 1.3 * uDrift);
+        body += lamp * on * dot1 * step(0.3, h2(lid + 7.0)) * (0.9 + 1.3 * uDrift) * (1.0 - 0.82 * uAged);
         body += vec3(0.3, 1.0, 0.7) * pow(1.0 - n.z, 3.0) * 0.35;
+        if (uAged > 0.0) {
+          // the lattice turns slowly with the world under it
+          vec3 m = n;
+          float ca = cos(uTime * 0.025), sa = sin(uTime * 0.025);
+          m.xz = mat2(ca, -sa, sa, ca) * m.xz;
+          vec3 cy = vec3(0.3, 0.9, 1.0), vi = vec3(0.7, 0.45, 1.0), go = vec3(1.0, 0.78, 0.3);
+          // the six axes of an icosahedron: their great circles cross in triangles and fives
+          vec3 web = strand(m, vec3(0.0, 0.5257, 0.8507), cy) + strand(m, vec3(0.0, 0.5257, -0.8507), vi)
+                   + strand(m, vec3(0.5257, 0.8507, 0.0), cy) + strand(m, vec3(0.5257, -0.8507, 0.0), go)
+                   + strand(m, vec3(0.8507, 0.0, 0.5257), vi) + strand(m, vec3(-0.8507, 0.0, 0.5257), cy);
+          // and the fine threads between them
+          float fine = pow(fbm(m.xy * 26.0 + m.z * 9.0), 3.0) * 1.1;
+          body = body * 0.5 + (web * (0.6 + 0.25 * sin(uTime * 1.7 + m.x * 30.0)) + mix(cy, vi, fbm(m.yz * 5.0)) * fine) * uAged;
+          body += vec3(0.3, 0.6, 1.0) * pow(1.0 - n.z, 2.5) * 0.5 * uAged;
+        }
         space = body;
       }
     }
@@ -206,7 +229,7 @@ export function createDiveBridge(ctx) {
   // --- what is outside ---
   const skyU = {
     uTime: { value: 0 }, uSpace: { value: 0 }, uHole: { value: HOLE }, uHoleR: { value: 0.3 },
-    uMega: { value: MEGA }, uMegaR: { value: 0.2 }, uFlick: { value: 0.6 }, uDrift: { value: 0 }, uFall: { value: 3 }, uFire: { value: 1 },
+    uMega: { value: MEGA }, uMegaR: { value: 0.2 }, uFlick: { value: 0.6 }, uDrift: { value: 0 }, uFall: { value: 3 }, uFire: { value: 1 }, uAged: { value: 0 },
   };
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(3400, 64, 40),
@@ -326,6 +349,7 @@ export function createDiveBridge(ctx) {
   let u = 0; // seconds since the helm was taken
   let shipT = 0, worldT = 0; // the two clocks, seconds since they were set
   let phase = 0; // the wire's pulses
+  let rise = 0; // seconds into the way home
   let said = -1;
   let inside = false;
   let prev = null;
@@ -340,7 +364,7 @@ export function createDiveBridge(ctx) {
 
   // Everything outside, from the clock.
   function pose(x) {
-    const out = mode === 'dive' || mode === 'deep';
+    const out = mode === 'dive' || mode === 'deep' || mode === 'rise';
     const down = ease(T_FALL, T_SETTLE, x);
     skyU.uSpace.value = out ? ease(0.2, 1.6, x) : 0;
     skyU.uHoleR.value = 0.34 + 0.66 * down; // (wider than a pane, and its edge still in it)
@@ -357,7 +381,7 @@ export function createDiveBridge(ctx) {
     sun.ambient.color.setRGB(0.8 - 0.45 * s, 0.85 - 0.4 * s, 1.0 - 0.2 * s);
     sun.ambient.intensity = 1.1 - 0.35 * s;
     // the flood
-    const f = out ? ease(T_FLOOD, T_END, x) : 0;
+    const f = out && mode !== 'rise' && !chapter.reached('return') ? ease(T_FLOOD, T_END, x) : 0;
     place.mesh.visible = f > 0.002;
     place.uniforms.uAlpha.value = f * f * 0.72;
     for (const v of visions) v.p.group.visible = f > 0.002;
@@ -373,11 +397,17 @@ export function createDiveBridge(ctx) {
   consoles.push({
     x: HELM.x, y: 0, z: HELM.z + 1.6, r: 2.6,
     get prompt() {
-      return mode === 'dock' ? DIVE.sync : DIVE.launch;
+      return mode === 'deep' ? RETURN.helm : mode === 'dock' ? DIVE.sync : DIVE.launch;
     },
-    off: () => mode !== 'dock' && mode !== 'synced',
+    off: () => !(mode === 'dock' || mode === 'synced' || (mode === 'deep' && chapter.reached('return'))),
     use() {
-      if (mode === 'dock') {
+      if (mode === 'deep') {
+        // the way home: up out of the well, to a world a thousand years older
+        mode = 'rise';
+        rise = 0;
+        chapterHud.cine(true);
+        uiSound('engage');
+      } else if (mode === 'dock') {
         mode = 'synced';
         shipT = worldT = 0;
         uiSound('toggle');
@@ -398,7 +428,7 @@ export function createDiveBridge(ctx) {
   });
   consoles.push({
     x: 0, y: 0, z: R + 3.6, r: 2.2, prompt: 'E — BACK TO THE ARCHIVE',
-    off: () => mode === 'dive',
+    off: () => mode === 'dive' || mode === 'rise',
     use: () => ((site.portal = 'hall'), null),
   });
 
@@ -423,7 +453,14 @@ export function createDiveBridge(ctx) {
     onChoice: () => null,
     portal: null,
     // falling, the pilot is at the helm: free to look, not to walk
-    held: () => mode === 'dive' && u < T_SETTLE,
+    held: () => (mode === 'dive' && u < T_SETTLE) || mode === 'rise',
+    // going home, the megaworld is the view
+    camera(pos, target) {
+      if (mode !== 'rise') return false;
+      pos.set(-1.5, 2.3, -2.5);
+      target.copy(pos).addScaledVector(MEGA, 60);
+      return true;
+    },
     setWalker(p) {
       walker = p || null;
     },
@@ -441,7 +478,13 @@ export function createDiveBridge(ctx) {
       scene.fog = null;
       ctx.hideFleet();
       // a ship that has already gone down is still down
-      if (chapter.reached('shuttle')) {
+      skyU.uAged.value = chapter.reached('stall') ? 1 : 0;
+      rise = 0;
+      if (chapter.home()) {
+        // home again: in the hangar, with nowhere left to go
+        mode = 'home';
+        u = 0;
+      } else if (chapter.reached('shuttle')) {
         mode = 'deep';
         u = T_END;
         const k = chapter.clocks();
@@ -482,13 +525,30 @@ export function createDiveBridge(ctx) {
         if (u >= T_END) finish();
       }
       const { down, drift, flood } = pose(u);
+      if (mode === 'rise') {
+        // the hole falls away below, the megaworld comes up to fill the glass,
+        // and its lights and the wire slow to where they can be followed
+        rise += dt;
+        const up = ease(0, 15, rise);
+        skyU.uHoleR.value = 1.0 - 0.86 * up;
+        skyU.uMegaR.value = 0.13 + 1.05 * up * up;
+        skyU.uDrift.value = 1 - 0.9 * up;
+        skyU.uFlick.value = 0.6 * Math.exp((1 - up) * 5.2);
+        chapterHud.white(ease(14.5, 17, rise));
+        if (rise >= 17) {
+          mode = 'home';
+          chapter.setHome();
+          chapterHud.cine(false);
+          site.portal = 'gallery';
+        }
+      }
 
       // the clocks: set together, and then only one of them keeps to seconds
-      if (mode !== 'dock') {
+      if (mode !== 'dock' && mode !== 'home') {
         shipT += dt;
         // ...down, a minute is a year; and the ship goes on sinking through the
         // flood, so by the end of it a minute is many
-        worldT += dt * (mode === 'synced' ? 1 : Math.exp(RATE * drift + DEEPER * ease(T_SETTLE + T_DRIFT, T_END, u)));
+        worldT += dt * (mode === 'synced' || chapter.reached('stall') ? 1 : Math.exp(RATE * drift + DEEPER * ease(T_SETTLE + T_DRIFT, T_END, u)));
         hudAt -= dt;
         if (hudAt <= 0) {
           hudAt = 0.1;
@@ -522,7 +582,7 @@ export function createDiveBridge(ctx) {
       }
       const falling = mode === 'dive' ? ease(0.5, 4, u) * (1 - 0.75 * down) : 0;
       setEventRumble(mode === 'dive' || mode === 'deep' ? Math.min(1, falling * 0.8 + flood * 0.75) * (0.4 + 0.6 * MOTION_SCALE) : 0);
-      chapterHud.white(mode === 'dive' ? Math.max(0, 1 - u / 1.4) * 0.9 : 0);
+      if (mode !== 'rise') chapterHud.white(mode === 'dive' ? Math.max(0, 1 - u / 1.4) * 0.9 : 0);
 
       // the flood: the worlds come round the glass, closer and faster, and the
       // place behind them changes sooner each time
@@ -564,7 +624,7 @@ export function createDiveBridge(ctx) {
     inside: () => inside,
     places: { helm: [HELM.x, 0, HELM.z + 1.6], hatch: [HATCH.x, 0, HATCH.z], aft: [0, 0, R + 1.5] },
     info: () => ({
-      mode, u, shipT, worldT, drift: skyU.uDrift.value, holeR: skyU.uHoleR.value,
+      mode, rise, megaR: skyU.uMegaR.value, u, shipT, worldT, drift: skyU.uDrift.value, holeR: skyU.uHoleR.value,
       flood: place.uniforms.uAlpha.value, end: T_END, settle: T_SETTLE,
     }),
     // dev: jump the dive's clock

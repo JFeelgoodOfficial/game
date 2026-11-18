@@ -58,6 +58,10 @@ const CELL_FRAG = /* glsl */ `
   uniform float uFlight; // 0 at rest .. 1 under way (world/lightdemo.js)
   uniform float uPhase; // how far round the spectrum flight has carried it
   uniform float uFlash; // 0..1: every cell white, at a jump
+  uniform float uGiven; // 1 once the archive holds something it was given...
+  uniform float uGivenSeed; // ...and this cell keeps its colours, which are not in the cycle
+  uniform vec3 uGivenA;
+  uniform vec3 uGivenB;
   varying vec3 vLocal;
   varying vec3 vLN;
   varying vec3 vWorld;
@@ -97,6 +101,7 @@ const CELL_FRAG = /* glsl */ `
     // with each other and the whole spectrum runs down the hull as one prism.
     float rate = 0.035 + 0.11 * fract(vSeed * 7.31);
     vec3 tintC = hue(vSeed * (1.0 - 0.8 * uFlight) + uTime * rate + uPhase + uFlight * vWorld.z * 0.0035);
+    if (uGiven > 0.5 && abs(vSeed - uGivenSeed) < 1e-6) tintC = mix(uGivenA, uGivenB, 0.5 + 0.5 * sin(uTime * 0.9)) * 1.5 + 0.25;
     vec3 V = normalize(cameraPosition - vWorld);
     float facing = max(dot(normalize(vN), V), 0.0);
     // glass lit from inside: brightest in the middle of the pane
@@ -161,7 +166,9 @@ export function buildHangar(group) {
   group.add(root);
   const r = rng(0xbea57);
   const dummy = new THREE.Object3D();
-  const uniforms = { uTime: { value: 0 }, uFlight: { value: 0 }, uPhase: { value: 0 }, uFlash: { value: 0 } };
+  const uniforms = { uTime: { value: 0 }, uFlight: { value: 0 }, uPhase: { value: 0 }, uFlash: { value: 0 },
+    uGiven: { value: 0 }, uGivenSeed: { value: -1 }, uGivenA: { value: new THREE.Color(1, 1, 1) }, uGivenB: { value: new THREE.Color(1, 1, 1) },
+  };
   // the vessel itself, apart from the yard it is built in: it can be moved
   const vessel = new THREE.Group();
   root.add(vessel);
@@ -211,6 +218,9 @@ export function buildHangar(group) {
     seeds[i] = r();
   });
   cells.geometry.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seeds, 1));
+  // one cell on the gallery's side, amidships: the one that will change
+  const gi = list.findIndex(([x, y, z, , sy, sz]) => x === NX - 1 && y === 4 && z >= 3 && sy === 1 && sz === 1);
+  uniforms.uGivenSeed.value = seeds[gi >= 0 ? gi : 0];
   cells.frustumCulled = false;
   vessel.add(cells);
 

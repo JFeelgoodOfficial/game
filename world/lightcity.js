@@ -30,6 +30,8 @@ import { buildHangar, HANGAR_BOX } from './lightvessel.js';
 import { buildPavilion } from './lightpavilion.js';
 import { createDemo } from './lightdemo.js';
 import { DEMO } from './chapter-dialogue.js';
+import { chapterHud } from '../src/chapterHud.js';
+import { loadFirstEntry, worldFrom } from './firstcreature.js';
 
 const SNAP = 1.2;
 const DOOR_Z = 10; // the way back
@@ -777,6 +779,19 @@ export function createLightCity(ctx) {
       sun.ambient.color.set(0xdfe8ff);
       sun.ambient.intensity = 1.3;
       ctx.hideFleet();
+      // back from the hole: what the two clocks came to, and one cell of the
+      // ship in colours the archive never held
+      const ch = ctx.chapter;
+      if (ch && ch.home()) {
+        if (!ch.reached('done')) chapterHud.say(ch.returnLine(), 9);
+        const entry = loadFirstEntry();
+        if (entry) {
+          const w = worldFrom(entry);
+          hangar.uniforms.uGivenA.value.copy(w.a);
+          hangar.uniforms.uGivenB.value.copy(w.b);
+          hangar.uniforms.uGiven.value = 1;
+        }
+      }
     },
     // Total and idempotent: the door, the menu and a world reset all end here.
     onLeave() {
@@ -799,6 +814,7 @@ export function createLightCity(ctx) {
       city.craftU.uScale.value = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((C.FOV * Math.PI) / 360);
       floorU.uTime.value = t;
       hangar.tick(t);
+      chapterHud.tick(dt);
       if (demo) demo.tick(dt, t);
       pavilion.tick(dt, t);
       // the sky goes where the eye goes: from the suite, half a kilometre up, it

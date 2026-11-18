@@ -20,7 +20,7 @@ import { addCodex } from './journal.js';
 import { uiSound } from './sfx.js';
 import { LAYERS } from '../world/layerplanet.js';
 import { C } from './constants.js';
-import { WORLDS, SUITE_OFFER, SUITE_ACCEPT, SUITE_WAIT, SUITE_REMIND } from '../world/chapter-dialogue.js';
+import { WORLDS, SUITE_OFFER, SUITE_ACCEPT, SUITE_WAIT, SUITE_REMIND, RETURN } from '../world/chapter-dialogue.js';
 
 export const STAGES = ['suite', 'demo', 'holo', 'dive', 'shuttle', 'dream', 'stall', 'canvas', 'birth', 'return', 'done'];
 
@@ -30,6 +30,7 @@ export function createChapter(ctx) {
   const picks = {};
   const seen = [];
   let assigned = false;
+  let home = false; // the light ship is back in its hangar, a long time later
   const clock = { ship: 0, world: 0 }; // what the two clocks read when the ship was down
 
   const at = (s) => STAGES.indexOf(s);
@@ -48,6 +49,7 @@ export function createChapter(ctx) {
 
     // --- the suite: the one who waits by the window ---
     visitorTalk() {
+      if (home) return RETURN.plinth; // back, with something for the archive
       if (stage === 'suite') return SUITE_OFFER;
       return SUITE_REMIND;
     },
@@ -113,10 +115,29 @@ export function createChapter(ctx) {
     },
     clocks: () => clock,
 
+    // --- the return ---
+    home: () => home,
+    setHome() {
+      if (home) return;
+      home = true;
+      ctx.onSave();
+    },
+    // what the two clocks came to, said once the pilot is back in the city
+    returnLine() {
+      const m = Math.max(1, Math.round(clock.ship / 60));
+      const y = Math.max(1, Math.round(clock.world / (365 * 86400)));
+      return RETURN.clocks.replace('{ship}', `${m} MINUTE${m === 1 ? '' : 'S'}`).replace('{world}', `${y} YEAR${y === 1 ? '' : 'S'}`);
+    },
+    // the Keeper, on the terrace, afterwards: the last thing in the chapter
+    keeperTalk() {
+      if (advance('done')) addCodex(RETURN.codex);
+      return RETURN.keeper;
+    },
+
     // --- the save: one small object inside src/tenretni.js's ---
     serialize() {
       if (stage === 'suite' && !seen.length) return undefined;
-      return { stage, picks: { ...picks }, seen: seen.slice(), assigned: assigned || undefined, clock: clock.world ? [Math.round(clock.ship), Math.round(clock.world)] : undefined };
+      return { stage, picks: { ...picks }, seen: seen.slice(), assigned: assigned || undefined, home: home || undefined, clock: clock.world ? [Math.round(clock.ship), Math.round(clock.world)] : undefined };
     },
     restore(raw) {
       if (!raw || typeof raw !== 'object') return;
@@ -126,6 +147,7 @@ export function createChapter(ctx) {
       }
       if (Array.isArray(raw.seen)) for (const w of WORLDS) if (raw.seen.includes(w.id) && !seen.includes(w.id)) seen.push(w.id);
       if (raw.assigned) assigned = true;
+      if (raw.home) home = true;
       if (Array.isArray(raw.clock) && raw.clock.length === 2 && raw.clock.every(Number.isFinite)) [clock.ship, clock.world] = raw.clock;
     },
 
@@ -136,6 +158,6 @@ export function createChapter(ctx) {
       ctx.onSave();
       return true;
     },
-    state: () => ({ stage, picks: { ...picks }, seen: seen.slice(), assigned, clock: { ...clock } }),
+    state: () => ({ stage, home, picks: { ...picks }, seen: seen.slice(), assigned, clock: { ...clock } }),
   };
 }

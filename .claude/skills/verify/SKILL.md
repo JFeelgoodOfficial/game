@@ -475,3 +475,24 @@ frame: gallery (-112, 0, -77), Pavilion centre (92, 0, -77), its lift pad
 (`walkSite().capital.prompt()` reads the pad's prompt; `.floor` reads 300 in
 the suite). Walking pace in the city is 10 u/s (twice the usual 5).
 
+The megaworld chapter (GDD 5.7.4): `tenretni.state().chapter` → `{stage, home,
+picks, seen, assigned, clock}`; `__debug.tenretni.chapter().go(stage)` jumps the
+story (`suite`, `demo`, `holo`, `dive`, `shuttle`, `stall`, `canvas`, `birth`,
+`return`, `done`). Seed `ch: {stage, picks, seen, assigned, clock: [ship,
+world], home}` inside `fgsf.tenretni` to boot at a scene, and `fgsf.firstentry`
+`{v: 1, strokes: [[[x, y], …], …]}` for a drawing. From inside the city,
+`farLanding.door('ship' | 'bridge' | 'shuttle' | 'gallery' | 'hall' | 'hatch')`
+hops between the chapter's places. `far().state()` adds `demo`, `inShip`,
+`ship`, `onBridge`, `dive`, `diveSeek(sec)`, `inShuttle`, `shuttle`,
+`shuttleSeek(sec)`. Frames: suite hologram toward (0.48, -0.88) from the
+suite's centre, the Archivist at about (172, 300, -184); the demo and boarding
+console at the gallery (-124, 0, -77); aboard, rooms at x ±24, z 14 / -14 / -42
+with the bridge door at z -62; on the bridge the helm console at (0, 0, -2.9)
+and the hatch at (0, 0, 5). The dive's clock: settle at 20 s, flood from 53 s,
+end at 75 s. The shuttle's: bottom at 22 s, dream 24–74 s, awake at 79 s.
+The canvas is DOM (`#chPad`): draw with `page.mouse` on its canvas, or
+`(await import('/src/drawPad.js')).drawPadDebug.stroke(points)` / `.done()`.
+The subtitle line is `#chHud .line.show`, the clocks `#chHud .clocks.show`.
+Under SwiftShader the city runs at about 4 fps, so anything timed in game
+seconds takes two to three times as long in real time: wait on state, never
+on a timeout.

@@ -671,6 +671,50 @@ entry options (`spawn`, `yaw`, `quiet`), `site.noShip`, `site.exit`,
 `site.speed`.
 The greeting's words are a first draft (`GREETING` in `src/farside.js`).
 
+### 5.7.4 The megaworld chapter: after the suite (owner's story)
+
+What happens to the pilot once they have been given the suite. One state
+machine, `src/chapter.js`, owned and saved by `src/tenretni.js` (`ch` inside
+`fgsf.tenretni`); every word, the captains, the home world and the six archive
+worlds with their fragments are in `world/chapter-dialogue.js`, the one file to
+edit for the writing. Tunables are the `CH_*` block in `src/constants.js`.
+
+Stages, in order (the story only goes forward): `suite` → `demo` → `holo` →
+`dive` → `shuttle` → `dream` (unused as a saved stage) → `stall` → `canvas` →
+`birth` → `return` → `done`. A separate saved flag, `home`, says the light
+ship is back in its hangar.
+
+| Stage | Where | What happens |
+|---|---|---|
+| suite | `world/lightpavilion.js` | The pilot's home world hangs outside the glass as a hologram, all but finished. The Archivist makes the offer. |
+| demo | `world/lightdemo.js` | At the gallery rail a Tenretni takes the light ship out. It jumps through the archive in order, faster each time round, and is back where it began. |
+| holo | `world/lightship.js` | Aboard: six rooms, one per archived world, each closing that world round the pilot (`world/holoplace.js`). One fragment may be taken from each; they stack into a planet (`world/layerplanet.js`). After `CH_ASSIGN_AFTER` rooms the shuttle is announced. |
+| dive | `world/divebridge.js` | The bridge. Clocks are synced, the helm taken, the ship goes down to the horizon. The hole to port, the megaworld as a moon to starboard, the wire between. One value, drift, drives the megaworld's flicker, the wire's pulses and its clock. Then the archive floods in. |
+| shuttle | `world/shuttle.js` | One seat on a tether, the ship overhead, the ring of fire round the horizon, a third and slowest clock. At the bottom, the dream: the worlds this pilot has seen, put together wrong. On waking the megaworld's clock reads `CH_YEARS_GONE` years. |
+| stall | `world/shuttle.js` | The ship renders the planet the fragments make and stops short: the archive has that one. |
+| canvas | `src/drawPad.js` | Black, and a blank canvas. Mouse, touch or pen. |
+| birth | `world/firstcreature.js` | The drawing is let go as a creature of light and a world begins round it in colours taken from the drawing. Saved as `fgsf.firstentry`. |
+| return | `world/divebridge.js` | From the helm the ship rises; the megaworld, a thousand years older and wrapped in a lattice of light, fills the glass. `home` is set. |
+| done | city | The clocks are compared in a line, the Keeper speaks, the creature swims where the hologram hung, and one cell of the light ship keeps its colours. |
+
+Rules the chapter keeps to:
+
+- Every place is a site for the platform walker (`src/capitalWalk.js`), which
+  gained three optional hooks for this: `held()`, `camera(pos, target)` and a
+  console's `off()`.
+- Places are reached by the far side's door handler (`FAR_HOPS` in
+  `src/game.js`) under the same white as the City of Light's door, inside the
+  same pause of the universe; only the render preset changes
+  (`lightship`, `dive` in `src/isolate.js`).
+- A planet is never pre-rendered. It is five layers, each filled by one
+  fragment, stacked at draw time.
+- Timed scenes are one clock and a pose from it, so arriving at a scene that
+  has already played is the end pose.
+- A thousand years on (`home`), the megaworld's ground carries conduits in
+  four colours between every caged star and its eight neighbours, rings round
+  each plate, lit district trenches and a blue horizon (`uAged` in
+  `megaGround.frag`).
+
 ### 5.8 The Sky City (Saturnia)
 
 Saturnia has no surface, so it gets a place instead: a floating city 320 units
