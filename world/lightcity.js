@@ -928,7 +928,7 @@ export function createLightCity(ctx) {
         }
         if (!race && ch.epilogue()) {
           try {
-            race = createWorldRace({ group, camera: ctx.camera, colliders, consoles });
+            race = createWorldRace({ group, camera: ctx.camera, colliders, consoles, way: epi ? epi.way : null, towers: city.parts.slice(0, 2), hit: epi ? epi.hit : null });
           } catch (err) {
             console.warn('[lightcity] the race could not be built', err);
           }
@@ -976,7 +976,7 @@ export function createLightCity(ctx) {
       // (the race is offered the visit after the suite scene has played)
       if (!race && ctx.chapter && ctx.chapter.epilogue() && epi && !epi.held()) {
         try {
-          race = createWorldRace({ group, camera: ctx.camera, colliders, consoles });
+          race = createWorldRace({ group, camera: ctx.camera, colliders, consoles, way: epi ? epi.way : null, towers: city.parts.slice(0, 2), hit: epi ? epi.hit : null });
         } catch (err) {
           console.warn('[lightcity] the race could not be built', err);
           race = { held: () => false, running: () => false, camera: () => false, onChoice: () => undefined, tick() {}, stop() {}, quitPrompt: () => null, state: () => null };
@@ -1002,7 +1002,7 @@ export function createLightCity(ctx) {
       terrace: [0, 0, TERR_Z + 8], greeter: [0, 0, GREET.z + 2.6], gallery: [GALL_X, 0, TERR_Z],
       ...pavilion.places,
     },
-    info: () => ({ towers: city.towers, cells: hangar.cells, demo: demo ? demo.state() : null, districts: districts ? districts.state() : null, race: race ? race.state() : null, raceSet: race ? race.debugSet : null, epi: epi ? epi.state() : null }),
+    info: () => ({ towers: city.towers, cells: hangar.cells, demo: demo ? demo.state() : null, districts: districts ? districts.state() : null, race: race ? race.state() : null, raceSet: race ? race.debugSet : null, raceProbe: race ? race.debugProbe : null, epi: epi ? epi.state() : null }),
   };
   return site;
 }

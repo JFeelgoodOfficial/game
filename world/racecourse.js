@@ -21,17 +21,32 @@
 
 import * as THREE from 'three';
 
+// Without a monument to fly through (no drawing was ever made): up into the sky and round.
 const PATH = [
   [0, 42, -52], [95, 48, -40], [170, 95, -95], [200, 190, -20], [120, 330, 110], [-40, 520, 150],
   [-200, 700, 40], [-430, 620, -250], [-520, 440, -520], [-380, 390, -640], [-220, 400, -420],
+  [-70, 250, -160], [-60, 62, -150], [0, 44, -186], [80, 40, -150], [62, 42, -92],
+];
+// With one: out over the Pavilion, down among the towers to the thing the pilot
+// drew, through it, up and back over the city's heart, and home over the hangar
+// and the three districts. `g`: the gap; `d`: the way through it (unit, level).
+const pathVia = (g, d) => [
+  [0, 42, -52], [95, 48, -40], [170, 80, -80], [240, 170, -230],
+  [g.x - d.x * 230, g.y - 10, g.z - d.z * 230], [g.x - d.x * 70, g.y, g.z - d.z * 70],
+  [g.x, g.y, g.z],
+  [g.x + d.x * 80, g.y, g.z + d.z * 80], [g.x + d.x * 240, g.y + 60, g.z + d.z * 240],
+  [g.x + d.x * 330 - d.z * 160, g.y + 240, g.z + d.z * 330 + d.x * 160],
+  [60, 700, -640], [-220, 640, -560], [-430, 480, -420], [-300, 400, -250],
   [-70, 250, -160], [-60, 62, -150], [0, 44, -186], [80, 40, -150], [62, 42, -92],
 ];
 const FRAMES = 600;
 export const GATE_R = 11; // a gate's radius
 export const LANE = 24; // how far off the middle a racer can get
 
-export function createCourse(group) {
-  const curve = new THREE.CatmullRomCurve3(PATH.map((p) => new THREE.Vector3(p[0], p[1], p[2])), true, 'centripetal');
+// `via`: { point, dir } from the monument (world/lightepilogue.js `way`), or nothing.
+export function createCourse(group, via) {
+  const path = via ? pathVia(via.point, via.dir) : PATH;
+  const curve = new THREE.CatmullRomCurve3(path.map((p) => new THREE.Vector3(p[0], p[1], p[2])), true, 'centripetal');
   curve.arcLengthDivisions = 800;
   const length = curve.getLength();
   // a frame at every step round it: ahead, and then across and up from the
@@ -61,9 +76,27 @@ export function createCourse(group) {
   // gates: one every hundred-odd units, each set off the middle its own way
   const n = Math.round(length / 115);
   const gates = [];
+  // where on the lap the monument is: gates near it are set dead centre, because the gap is where it is
+  let sVia = -1;
+  if (via) {
+    let bestD = Infinity;
+    for (let i = 0; i < FRAMES; i++) {
+      const d = P[i].distanceToSquared(via.point);
+      if (d < bestD) {
+        bestD = d;
+        sVia = i / FRAMES;
+      }
+    }
+  }
   for (let i = 0; i < n; i++) {
     const s = (i + 0.5) / n;
-    gates.push({ s, across: Math.sin(i * 2.4) * 12, up: Math.cos(i * 1.7) * 9 });
+    let off = 1;
+    if (sVia >= 0) {
+      let d = Math.abs(s - sVia);
+      d = Math.min(d, 1 - d) * length;
+      off = Math.min(Math.max((d - 90) / 160, 0), 1);
+    }
+    gates.push({ s, across: Math.sin(i * 2.4) * 12 * off, up: Math.cos(i * 1.7) * 9 * off });
   }
   const ring = new THREE.InstancedMesh(new THREE.TorusGeometry(GATE_R, 0.55, 8, 40), new THREE.MeshBasicMaterial({ fog: false, toneMapped: false }), n);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), pos = new THREE.Vector3(), z = new THREE.Vector3(0, 0, 1), dir = new THREE.Vector3();
@@ -87,9 +120,60 @@ export function createCourse(group) {
 
   const colNext = new THREE.Color(2.2, 1.9, 0.9), colSoon = new THREE.Color(0.5, 1.3, 1.6), colDone = new THREE.Color(0.12, 0.2, 0.26);
   let shown = -2;
+  // The towers make way, but only just: any that stands in the middle of the
+  // course (where the gates are) is cut down to pass under it. One that
+  // stands at the course's edge is left, and is there to be flown round.
+  // `meshes`: the city's instanced towers, spires first then slabs (feet at
+  // their own y). Those near enough to matter are remembered for hitTower().
+  const near = []; // x, z, radius at the foot, foot y, top y, taper (how much narrower at the top, 0..1)
+  function makeWay(meshes) {
+    const m = new THREE.Matrix4(), p = new THREE.Vector3(), qq = new THREE.Quaternion(), sc = new THREE.Vector3();
+    let cut = 0;
+    near.length = 0;
+    meshes.forEach((mesh, mi) => {
+      const spire = mi === 0; // a spire is a cone of radius 1 at the foot and 0.34 at the top; a slab is a unit box
+      for (let i = 0; i < mesh.count; i++) {
+        mesh.getMatrixAt(i, m);
+        m.decompose(p, qq, sc);
+        const rad = spire ? Math.max(sc.x, sc.z) : Math.max(sc.x, sc.z) * 0.55;
+        const clear = 20 + rad, far = LANE + rad + 10;
+        let top = p.y + sc.y, close = false;
+        for (let k = 0; k < FRAMES; k += 2) {
+          const c = P[k], dx = c.x - p.x, dz = c.z - p.z, d2 = dx * dx + dz * dz;
+          if (d2 > far * far) continue;
+          close = true;
+          if (d2 < clear * clear) top = Math.min(top, c.y - 22);
+        }
+        if (top < p.y + sc.y - 0.5) {
+          sc.y = Math.max(top - p.y, 12);
+          mesh.setMatrixAt(i, m.compose(p, qq, sc));
+          cut++;
+        }
+        if (close) near.push(p.x, p.z, rad, p.y, p.y + sc.y, spire ? 0.66 : 0);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    });
+    return cut;
+  }
+  // Is a world of radius `rad` at `p` in a tower?
+  function hitTower(p, rad) {
+    for (let i = 0; i < near.length; i += 6) {
+      if (p.y - rad > near[i + 4]) continue;
+      const dx = p.x - near[i], dz = p.z - near[i + 1];
+      const up01 = Math.min(Math.max((p.y - near[i + 3]) / Math.max(near[i + 4] - near[i + 3], 1), 0), 1);
+      const r = near[i + 2] * (1 - near[i + 5] * up01) + rad * 0.8;
+      if (dx * dx + dz * dz < r * r) return true;
+    }
+    return false;
+  }
+
   return {
     length,
     gates,
+    sVia,
+    makeWay,
+    hitTower,
+    towersNear: () => near.length / 6,
     at,
     ahead: (s, out) => lerp(T, s, out).normalize(),
     across: (s, out) => lerp(X, s, out).normalize(),

@@ -763,9 +763,25 @@ offered at the Starter's stand on the terrace once the epilogue has played:
   leader is overhead; each district holds a beam of its own colour on the
   leader; a bell is rung the first time anyone starts each lap; fireworks go
   up at the finish. Counts are `wake` and `crowd` in `CH_TIER`.
-- Not built: a finish through the monument. The course does not go there,
-  because the towers between are placed at random and their positions are not
-  exposed.
+- The course goes through the monument. `world/lightepilogue.js` finds the
+  place in the drawing furthest from any line, preferring one that lines go
+  round (the inside of a loop), and hands it to the race as `way`; the course
+  is then laid out from the Pavilion down among the towers, through that gap,
+  up over the city and home (about 3,800 units, 33 gates). Gates near the gap
+  are set dead centre. A drawing with no gap wide enough, or no drawing, gets
+  the shorter course that keeps to the sky.
+- The towers make way: `course.makeWay()` cuts down any tower that stands in
+  the course to pass under it. This changes the skyline for good once the
+  race exists.
+- The crowd each hold up a light, which is what shows from the air.
+- A world that hits something is destroyed. "Something" is the monument
+  (`hit()` in `world/lightepilogue.js`, both courses of it) and any tower
+  near the course (`hitTower()` in `world/racecourse.js`). Towers are now cut
+  down only where they stand in the middle of the course; one at the course's
+  edge is left to be flown round. Worlds touching each other still shove.
+- A destroyed world goes up in a ball of light, a ring and four bursts
+  (`fx.explode`). A rival is marked out and placed last. The pilot's race
+  ends there, and a new world is ready at the stand.
 
 Rules the chapter keeps to:
 

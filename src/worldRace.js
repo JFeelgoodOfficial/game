@@ -61,13 +61,17 @@ function loadBest() {
   }
 }
 
-// k: { group, camera, colliders, consoles }
+// k: { group, camera, colliders, consoles, way — the gap in the monument, towers — the city's instanced towers,
+//      hit(pos, radius) — is a world there in the monument }
 export function createWorldRace(k) {
   const { group, camera } = k;
-  const course = createCourse(group);
+  const course = createCourse(group, k.way || null);
+  const towersCut = k.towers ? course.makeWay(k.towers) : 0;
   const fx = createRaceFx(group);
   const TERRACE = new THREE.Vector3(0, 60, -77); // over the terrace, where the finish is seen from
   const _burst = new THREE.Vector3();
+  let crash = null; // the last world lost, and to what (for checks)
+  let wreckedLast = false; // the pilot's last world did not come back
   let rung = 0, sparks = 0, sparkAt = 0; // laps the bells have been rung for; fireworks still to go up
   const best = loadBest();
   const saveBest = () => {
@@ -154,7 +158,7 @@ export function createWorldRace(k) {
       return {
         name: e.name, world: e.world, skill: e.skill, mesh, ai: i > 0, seed: i * 1.73,
         s: -g * 0.0045, x: (g % 2 ? 1 : -1) * 8, y: 0, vx: 0, vy: 0, v: 0,
-        lap: 0, gate: 0, meter: 0.5, boosting: 0, slow: 0, draft: 0, done: false, pos: new THREE.Vector3(),
+        lap: 0, gate: 0, meter: 0.5, boosting: 0, slow: 0, draft: 0, done: false, out: false, pos: new THREE.Vector3(),
         color: new THREE.Color(e.world.drive),
       };
     });
@@ -167,6 +171,7 @@ export function createWorldRace(k) {
     camSet = false;
     rung = 0;
     sparks = 0;
+    wreckedLast = false;
     fx.begin();
     state = 'count';
     chapterHud.racing(true);
@@ -192,7 +197,24 @@ export function createWorldRace(k) {
   }
 
   // how far round the whole race a racer is (finishers ahead of everyone still flying)
-  const progress = (r) => (r.done ? 1000 - r.doneAt : r.lap + r.s);
+  const progress = (r) => (r.out ? -10 + r.outAt * 0.001 : r.done ? 1000 - r.doneAt : r.lap + r.s);
+
+  // A world has hit something. It goes up, and that is the end of it.
+  function destroy(r) {
+    r.out = true;
+    r.outAt = time;
+    r.v = r.vx = r.vy = 0;
+    r.mesh.group.visible = false;
+    fx.explode(r.pos, r.color);
+    uiSound('impact');
+    if (r === me) {
+      state = 'wreck';
+      T = 0;
+      chapterHud.say(RACE.wrecked, 5);
+      chapterHud.white(0.85);
+      course.show(-1);
+    } else chapterHud.say(RACE.lost.replace('{name}', r.name), 2.4);
+  }
   function rank() {
     order.length = 0;
     for (const r of field) order.push(r);
@@ -201,7 +223,7 @@ export function createWorldRace(k) {
 
   function hud() {
     let list = '';
-    for (let i = 0; i < order.length; i++) list += `${i ? '  ' : ''}${i + 1} ${order[i].name}`;
+    for (let i = 0; i < order.length; i++) list += `${i ? '  ' : ''}${order[i].out ? '×' : i + 1} ${order[i].name}`;
     const text = RACE.hud
       .replace('{pos}', order.indexOf(me) + 1).replace('{n}', field.length)
       .replace('{lap}', Math.min(me.lap + 1, LAPS)).replace('{of}', LAPS)
@@ -293,6 +315,7 @@ export function createWorldRace(k) {
     for (let i = 0; i < field.length; i++) {
       for (let j = i + 1; j < field.length; j++) {
         const a = field[i], b = field[j];
+        if (a.out || b.out) continue;
         let ds = (a.s - b.s) % 1;
         if (ds > 0.5) ds -= 1;
         if (ds < -0.5) ds += 1;
@@ -348,6 +371,7 @@ export function createWorldRace(k) {
     running: () => state !== 'idle',
     held: () => state !== 'idle',
     quitPrompt: () => (state === 'run' || state === 'count' ? RACE.quit : null),
+    wrecked: () => wreckedLast,
     // a world picked at the stand
     onChoice(tag) {
       if (typeof tag !== 'string' || !tag.startsWith('race:')) return undefined;
@@ -390,13 +414,14 @@ export function createWorldRace(k) {
           lapStart = 0;
         }
       }
-      const live = state === 'run' || state === 'done';
+      const live = state === 'run' || state === 'done' || state === 'wreck';
       if (state === 'run') time += dt;
 
       // --- everyone flies ---
       const axes = moveAxes();
       for (let i = 0; i < field.length; i++) {
         const r = field[i];
+        if (r.out) continue;
         let ev;
         if (r.ai) {
           think(r, t);
@@ -432,12 +457,24 @@ export function createWorldRace(k) {
           const placed = RACE.placed.replace('{place}', RACE.places[place] || `${place + 1}`).replace('{n}', field.length);
           chapterHud.say(`${RACE.finish.replace('{time}', clock(time))} — ${placed}${isBest ? ` — ${RACE.best}` : ''}`, 6.5);
           uiSound('cheer');
-          sparks = 6;
+          sparks = 10;
           sparkAt = 0;
           course.show(course.gates.length); // every gate spent
         }
       }
       const hit = live ? meet(dt) : false;
+      // anything that is not another world: the towers, and the thing across the city
+      if (live) {
+        for (const r of field) {
+          if (r.out || r.done) continue;
+          course.at(r.s, r.x, r.y, r.pos);
+          const tower = course.hitTower(r.pos, RACER_R);
+          if (tower || (k.hit && k.hit(r.pos, RACER_R))) {
+            crash = { name: r.name, s: Math.round(r.s * 1000) / 1000, x: Math.round(r.x), y: Math.round(r.y), into: tower ? 'tower' : 'monument' };
+            destroy(r);
+          }
+        }
+      }
       rank();
       // the bells, the first time anyone starts each new lap
       const lead = order[0];
@@ -452,14 +489,15 @@ export function createWorldRace(k) {
         if (sparkAt <= 0) {
           sparkAt = 0.55;
           sparks--;
-          const from = sparks % 2 ? TERRACE : me.pos;
-          _burst.set(from.x + Math.sin(sparks * 2.4) * 30, from.y + 14 + (sparks % 3) * 10, from.z + Math.cos(sparks * 1.7) * 30);
+          // (ahead of the pilot's world, where they are looking)
+          course.at(me.s + 90 / course.length, Math.sin(sparks * 2.4) * 34, 10 + (sparks % 3) * 12, _burst);
           fx.burst(_burst, field[sparks % field.length].color);
         }
       }
 
       for (let i = 0; i < field.length; i++) {
         const r = field[i];
+        if (r.out) continue;
         put(r);
         if (live) fx.wake(i, r.pos, r.color);
         r.mesh.tick(t, px, Math.min(r.v / (BASE * 1.4), 1), Math.max(r.boosting, r.draft * 0.5));
@@ -479,15 +517,29 @@ export function createWorldRace(k) {
         hudAt = 0.1;
         hud();
       }
+      if (state === 'wreck') {
+        chapterHud.white(Math.max(0, 0.85 - T * 1.4));
+        setEventRumble(Math.max(0, 1 - T / 1.6) * (0.4 + 0.6 * MOTION_SCALE));
+      }
       if (state === 'done' && T > 7) stop();
+      else if (state === 'wreck' && T > 5.5) {
+        stop();
+        wreckedLast = true;
+        chapterHud.say(RACE.again, 5);
+      }
     },
     state: () => ({
       state, world: me && me.world.id, s: me ? me.s : 0, x: me ? me.x : 0, y: me ? me.y : 0, v: me ? me.v : 0,
       lap: me ? me.lap : 0, gate: me ? me.gate : 0, gates: course.gates.length, time, meter: me ? me.meter : 0, draft: me ? me.draft : 0,
-      best: { ...best }, length: course.length, place,
-      field: field.map((r) => ({ name: r.name, world: r.world.id, at: Math.round((r.lap + r.s) * 1000) / 1000, x: Math.round(r.x * 10) / 10, y: Math.round(r.y * 10) / 10, v: Math.round(r.v), done: r.done })),
+      best: { ...best }, length: course.length, place, crash, via: course.sVia, towersCut, towersNear: course.towersNear(),
+      field: field.map((r) => ({ name: r.name, world: r.world.id, out: r.out, at: Math.round((r.lap + r.s) * 1000) / 1000, x: Math.round(r.x * 10) / 10, y: Math.round(r.y * 10) / 10, v: Math.round(r.v), done: r.done })),
       order: order.map((r) => r.name),
     }),
+    // dev: what is at a place on the course
+    debugProbe(o) {
+      const p = course.at(o.s, o.x || 0, o.y || 0, new THREE.Vector3());
+      return { at: p.toArray().map(Math.round), tower: course.hitTower(p, RACER_R), monument: !!(k.hit && k.hit(p, RACER_R)) };
+    },
     // dev: put a racer (the pilot's, or field[i]) at a place on the course
     debugSet(o) {
       if (state === 'idle') return false;

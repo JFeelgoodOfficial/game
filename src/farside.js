@@ -577,6 +577,7 @@ export function createFarside(ctx) {
       districts: city ? city.info().districts : null,
       race: city ? city.info().race : null,
       raceSet: city ? city.info().raceSet : null,
+      raceProbe: city ? city.info().raceProbe : null,
       inShip: !!(lship && lship.inside()),
       ship: lship ? lship.info() : null,
       onBridge: !!(bridge && bridge.inside()),

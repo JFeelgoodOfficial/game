@@ -27,6 +27,7 @@ import { SEAM, BELL, SAT } from './lightdistricts.js';
 import { PAV } from './lightpavilion.js';
 
 const RACERS = 8; // most worlds on a grid
+const _white = new THREE.Color(1, 1, 1);
 const WAKE_LIFE = 7.5; // seconds a wake hangs
 const WAKE_STEP = 9; // a new light every this far along
 const TERR = { x: 0, z: -77 };
@@ -117,6 +118,56 @@ export function createRaceFx(group) {
   }
   const used = ci;
   crowd.count = used;
+  // ...and what each of them is holding up: a light, which is what a crowd looks like from the air
+  const lPos = new Float32Array(used * 3), lCol = new Float32Array(used * 3), lSeed = new Float32Array(used);
+  for (let i = 0; i < used; i++) {
+    lPos[i * 3] = cx[i];
+    lPos[i * 3 + 1] = cy[i] + 2.3;
+    lPos[i * 3 + 2] = cz[i];
+    col.set(PAL[Math.floor(rnd() * 4)]);
+    lCol[i * 3] = col.r;
+    lCol[i * 3 + 1] = col.g;
+    lCol[i * 3 + 2] = col.b;
+    lSeed[i] = cs[i];
+  }
+  const lGeo = new THREE.BufferGeometry();
+  lGeo.setAttribute('position', new THREE.BufferAttribute(lPos, 3));
+  lGeo.setAttribute('color', new THREE.BufferAttribute(lCol, 3));
+  lGeo.setAttribute('aSeed', new THREE.BufferAttribute(lSeed, 1));
+  const lightU = { uTime: { value: 0 }, uPx: { value: 600 }, uLeader: { value: new THREE.Vector3() } };
+  const lights = new THREE.Points(lGeo, new THREE.ShaderMaterial({
+    uniforms: lightU,
+    vertexShader: /* glsl */ `
+      attribute vec3 color;
+      attribute float aSeed;
+      uniform float uTime, uPx;
+      uniform vec3 uLeader;
+      varying vec3 vCol;
+      varying float vK;
+      void main() {
+        float near = max(0.0, 1.0 - distance(position.xz, uLeader.xz) / 170.0);
+        // waved, and waved harder when the leader is overhead
+        vec3 p = position + vec3(sin(uTime * (4.0 + aSeed * 3.0) + aSeed * 40.0), abs(sin(uTime * (5.0 + aSeed * 3.0) + aSeed * 40.0)), 0.0) * (0.15 + 0.7 * near);
+        vCol = color;
+        vK = 0.55 + 0.45 * sin(uTime * (6.0 + aSeed * 5.0) + aSeed * 90.0) + near;
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = clamp(uPx * (0.9 + 0.9 * near) / max(-mv.z, 1.0), 2.0, 30.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying vec3 vCol;
+      varying float vK;
+      void main() {
+        float r = length(gl_PointCoord * 2.0 - 1.0);
+        if (r > 1.0) discard;
+        gl_FragColor = vec4((vCol * 1.8 + 0.3) * pow(1.0 - r, 1.2) * vK, 1.0);
+      }
+    `,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+  }));
+  lights.frustumCulled = false;
+  root.add(lights);
   crowd.frustumCulled = false;
   root.add(crowd);
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
@@ -133,7 +184,7 @@ export function createRaceFx(group) {
   const _d = new THREE.Vector3(), _aim = new THREE.Vector3(0, 300, 0);
 
   // --- fireworks ---
-  const F_PER = 90, F_N = 6;
+  const F_PER = 90, F_N = 14;
   const fSeed = new Float32Array(F_N * F_PER * 3);
   for (let i = 0; i < fSeed.length; i++) fSeed[i] = rnd();
   const fAt = new Float32Array(F_N * F_PER * 3), fCol = new Float32Array(F_N * F_PER * 3), fT0 = new Float32Array(F_N * F_PER).fill(-100);
@@ -154,7 +205,7 @@ export function createRaceFx(group) {
       varying vec3 vCol;
       void main() {
         float a = uTime - aT0; // seconds since it went up
-        vK = clamp(1.0 - a / 2.6, 0.0, 1.0) * step(0.0, a);
+        vK = clamp(1.0 - a / 3.4, 0.0, 1.0) * step(0.0, a);
         vCol = color;
         // out in every direction, slowing, and falling a little
         float th = aSeed.x * 6.2832, ph = acos(aSeed.y * 2.0 - 1.0);
@@ -163,7 +214,7 @@ export function createRaceFx(group) {
         vec3 p = position + dir * out1 - vec3(0.0, a * a * 3.0, 0.0);
         vec4 mv = modelViewMatrix * vec4(p, 1.0);
         gl_Position = projectionMatrix * mv;
-        gl_PointSize = vK <= 0.0 ? 0.0 : clamp(uPx * (1.4 + 1.4 * aSeed.z) * vK / max(-mv.z, 1.0), 1.5, 40.0);
+        gl_PointSize = vK <= 0.0 ? 0.0 : clamp(uPx * (2.4 + 2.4 * aSeed.z) * vK / max(-mv.z, 1.0), 2.0, 70.0);
       }
     `,
     fragmentShader: /* glsl */ `
@@ -181,6 +232,20 @@ export function createRaceFx(group) {
   root.add(fire);
   let nextBurst = 0, now = 0;
 
+  // --- a world going up: a ball of light that swells and thins, and a ring thrown out across the sky ---
+  const BLASTS = 4;
+  const blasts = [];
+  for (let i = 0; i < BLASTS; i++) {
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false }));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.035, 6, 64), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false }));
+    ball.visible = ring.visible = false;
+    ball.frustumCulled = ring.frustumCulled = false;
+    root.add(ball, ring);
+    blasts.push({ ball, ring, t: -1, color: new THREE.Color() });
+  }
+  let nextBlast = 0;
+  const _b = new THREE.Vector3();
+
   return {
     begin() {
       root.visible = true;
@@ -190,6 +255,10 @@ export function createRaceFx(group) {
       lastX.fill(1e9);
       fT0.fill(-100);
       fGeo.attributes.aT0.needsUpdate = true;
+      for (const b of blasts) {
+        b.t = -1;
+        b.ball.visible = b.ring.visible = false;
+      }
     },
     end() {
       root.visible = false;
@@ -213,6 +282,19 @@ export function createRaceFx(group) {
       wAge.array[o] = 0;
       wPos.needsUpdate = wCol.needsUpdate = true;
     },
+    // a world destroyed at `pos`
+    explode(pos, color) {
+      const b = blasts[nextBlast];
+      nextBlast = (nextBlast + 1) % BLASTS;
+      b.t = 0;
+      b.color.copy(color);
+      b.ball.position.copy(pos);
+      b.ring.position.copy(pos);
+      b.ring.rotation.set(Math.random() * 3, Math.random() * 3, 0);
+      b.ball.visible = b.ring.visible = true;
+      // and everything it was, thrown outward
+      for (let i = 0; i < 4; i++) this.burst(_b.set(pos.x + (i - 1.5) * 5, pos.y + (i % 2) * 6, pos.z + (i % 3 - 1) * 5), i % 2 ? color : _white);
+    },
     burst(pos, color) {
       const b = nextBurst;
       nextBurst = (nextBurst + 1) % F_N;
@@ -231,7 +313,27 @@ export function createRaceFx(group) {
       if (!root.visible) return;
       now = t;
       fireU.uTime.value = t;
-      fireU.uPx.value = wakeU.uPx.value = px;
+      for (const b of blasts) {
+        if (b.t < 0) continue;
+        b.t += dt;
+        const k = b.t / 2.4;
+        if (k >= 1) {
+          b.t = -1;
+          b.ball.visible = b.ring.visible = false;
+          continue;
+        }
+        // white at first, then its own colour, then gone
+        const size = 6 + 95 * (1 - Math.exp(-b.t * 2.6));
+        b.ball.scale.setScalar(size);
+        b.ball.material.color.copy(b.color).lerp(_white, Math.max(0, 1 - b.t * 2.5)).multiplyScalar(2.2);
+        b.ball.material.opacity = Math.pow(1 - k, 2.2) * 0.9;
+        b.ring.scale.setScalar(10 + 260 * (1 - Math.exp(-b.t * 1.7)));
+        b.ring.material.color.copy(b.color).multiplyScalar(2.5);
+        b.ring.material.opacity = (1 - k) * 0.9;
+      }
+      fireU.uPx.value = wakeU.uPx.value = lightU.uPx.value = px;
+      lightU.uTime.value = t;
+      lightU.uLeader.value.copy(leader);
       const A = wAge.array, k = dt / WAKE_LIFE;
       for (let i = 0; i < N; i++) if (A[i] < 1) A[i] = Math.min(1, A[i] + k);
       wAge.needsUpdate = true;
