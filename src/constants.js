@@ -532,6 +532,15 @@ export const C = {
   // The door (src/game.js): the white between the landing and the City of Light.
   FAR_DOOR_FLASH: 0.45, // seconds to full white
   FAR_DOOR_FADE: 1.3, // ...and to clear
+  // --- the megaworld chapter (src/chapter.js, GDD 5.7.4) ---
+  CH_FRAGMENTS_NEEDED: 5, // worlds a fragment must be taken from before the dive
+  CH_ASSIGN_AFTER: 3, // holo rooms walked into before the shuttle is spoken of
+  // The pilot's home, turning outside the suite (world/lightpavilion.js).
+  CH_HOME_R: 17.0, // the hologram's radius
+  CH_HOME_OUT: 30.0, // its centre, this far beyond the glass
+  CH_HOME_UP: 4.6, // ...and this far above the suite's floor
+  CH_HOME_SPIN: 0.045, // rad/sec
+  CH_HOME_DONE: 0.93, // how much of it the archive has drawn: all but the end
 };
 
 // --- quality tiers (src/quality.js) ---

@@ -56,6 +56,7 @@ import { createFleets } from './fleets.js';
 import { createExplosions } from './explosion.js';
 import { createEndgame } from './endgame.js';
 import { createFarside } from './farside.js';
+import { createChapter } from './chapter.js';
 import { grantUpgrade, hasUpgrade } from './inventory.js';
 import { sun } from './sun.js';
 import { blackhole } from './blackhole.js';
@@ -465,6 +466,7 @@ function loadSaved() {
     if (Number.isFinite(raw?.size) && raw.size >= 1) size = raw.size;
     if (typeof raw?.eating === 'string') eating = raw.eating;
     if (raw?.met) met = true;
+    chapter.restore(raw?.ch);
   } catch {
     // unreadable save: whatever is missing is recomputed
   }
@@ -486,6 +488,7 @@ function save() {
       lost: lost.size ? [...lost] : undefined,
       comms: Object.keys(comms).length ? comms : undefined,
       met: met || undefined,
+      ch: chapter.serialize(),
     }));
   } catch {
     // storage full or blocked: the world still changes for this session
@@ -1006,6 +1009,9 @@ let far = null; // src/farside.js createFarside(), built the first time it is wa
 let farBroken = false;
 let farFirst = false; // this session's arrival: the wormhole is still closing behind
 let met = false; // the pilot has been greeted in the City of Light (saved)
+// ...and everything after the suite (src/chapter.js, GDD 5.7.4), saved with it
+const chapter = createChapter({ onSave: () => save() });
+export const chapterDebug = () => chapter;
 
 // Build the megaworld (hidden, weightless until applied). Once.
 function loadFar() {
@@ -1014,6 +1020,7 @@ function loadFar() {
     far = createFarside({
       scene, camera, sunWorld,
       fleets: () => fleets,
+      chapter,
       onMet: () => {
         if (met) return;
         met = true;
@@ -1764,6 +1771,7 @@ function report() {
     ended,
     far: far ? far.state() : null,
     met,
+    chapter: chapter.state(),
     size,
     radius: terra.radius,
     eatingNow: assim ? assim.state() : null,

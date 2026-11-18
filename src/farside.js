@@ -74,7 +74,8 @@ const wrap = (v, p) => ((v % p) + p) % p;
 
 // ctx: { scene, camera, sunWorld — tenretni's live unit vector toward the
 //        light, shared by its hull materials and the fleets' decks,
-//        fleets() -> src/fleets.js | null, onMet() — the pilot has been greeted }
+//        fleets() -> src/fleets.js | null, onMet() — the pilot has been greeted,
+//        chapter — src/chapter.js, the story after the suite }
 export function createFarside(ctx) {
   const { scene, camera, sunWorld } = ctx;
   const S = C.FAR_CAGE_SPACING;
@@ -132,6 +133,7 @@ export function createFarside(ctx) {
       city = createLightCity({
         scene,
         hideFleet: () => ctx.fleets()?.show(false),
+        chapter: ctx.chapter,
         greet: () => {
           ctx.onMet();
           return GREETING;
