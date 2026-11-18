@@ -106,6 +106,7 @@ function buildGround() {
   const uniforms = {
     uR: { value: C.FAR_RADIUS },
     uS: { value: C.FAR_CAGE_SPACING },
+    uAged: { value: 0 }, // 0 as the pilot found it .. 1 a thousand years on (GDD 5.7.4)
     uOffPlate: { value: new THREE.Vector2() },
     uOffBlock: { value: new THREE.Vector2() },
     uOffDistrict: { value: new THREE.Vector2() },

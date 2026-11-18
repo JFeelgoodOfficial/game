@@ -49,6 +49,7 @@ const VERT = /* glsl */ `
 const FRAG = /* glsl */ `
   uniform vec3 uA, uB;
   uniform float uBright;
+  uniform float uSolid; // 1 where it has to show against a bright sky: colour laid over, not added
   varying float vAlong;
   varying float vSeed;
   varying float vGlow;
@@ -57,7 +58,10 @@ const FRAG = /* glsl */ `
     if (r > 1.0) discard;
     float core = pow(1.0 - r, 2.4);
     vec3 c = mix(uA, uB, fract(vAlong * 0.8 + vSeed));
-    gl_FragColor = vec4((c * 1.3 + vec3(1.0) * core * 0.7) * core * vGlow * uBright, 1.0);
+    vec3 lit = (c * 1.3 + vec3(1.0) * core * 0.7) * uBright;
+    // (laid over a bright sky it wants depth of colour, not light)
+    vec3 deep = c * c * (0.55 + 0.6 * core) * uBright;
+    gl_FragColor = mix(vec4(lit * core * vGlow, 1.0), vec4(deep, clamp(pow(1.0 - r, 0.7) * (0.55 + 0.45 * vGlow) * 1.6, 0.0, 1.0)), uSolid);
   }
 `;
 
@@ -94,7 +98,8 @@ export function worldFrom(strokes) {
 }
 
 // strokes -> { points, update(t, px), set(amount, wave, bright), dispose() }
-export function createCreature(strokes, size = 3) {
+// `solid`: for a bright place (see uSolid).
+export function createCreature(strokes, size = 3, solid = false) {
   const pos = [], nor = [], dat = [];
   strokes.forEach((s, si) => {
     if (!s.length) return;
@@ -133,11 +138,11 @@ export function createCreature(strokes, size = 3) {
   const w = worldFrom(strokes);
   const uniforms = {
     uTime: { value: 0 }, uPx: { value: 600 }, uSize: { value: size }, uAmount: { value: 1 }, uWave: { value: 1 },
-    uA: { value: w.a }, uB: { value: w.b }, uBright: { value: 1 },
+    uA: { value: w.a }, uB: { value: w.b }, uBright: { value: 1 }, uSolid: { value: solid ? 1 : 0 },
   };
   const points = new THREE.Points(geo, new THREE.ShaderMaterial({
     vertexShader: VERT, fragmentShader: FRAG, uniforms,
-    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+    transparent: true, blending: solid ? THREE.NormalBlending : THREE.AdditiveBlending, depthWrite: false, fog: false,
   }));
   points.frustumCulled = false;
   return {

@@ -138,6 +138,7 @@ export function createFarside(ctx) {
         hideFleet: () => ctx.fleets()?.show(false),
         chapter: ctx.chapter,
         greet: () => {
+          if (ctx.chapter && ctx.chapter.home()) return ctx.chapter.keeperTalk();
           ctx.onMet();
           return GREETING;
         },
@@ -373,6 +374,7 @@ export function createFarside(ctx) {
     const g = mega.ground;
     g.mesh.position.set(cam.x, gy, cam.z);
     const gu = g.uniforms;
+    gu.uAged.value = ctx.chapter && ctx.chapter.home() ? 1 : 0; // a thousand years on (GDD 5.7.4)
     gu.uOffPlate.value.set(wrap(lx, C.FAR_PLATE * PATTERN_PERIOD), wrap(lz, C.FAR_PLATE * PATTERN_PERIOD));
     gu.uOffBlock.value.set(wrap(lx, C.FAR_BLOCK * PATTERN_PERIOD), wrap(lz, C.FAR_BLOCK * PATTERN_PERIOD));
     gu.uOffDistrict.value.set(wrap(lx, C.FAR_DISTRICT * PATTERN_PERIOD), wrap(lz, C.FAR_DISTRICT * PATTERN_PERIOD));

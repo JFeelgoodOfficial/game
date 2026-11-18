@@ -108,7 +108,7 @@ export function createShuttle(ctx) {
   // --- outside: the same sky as the bridge's, with the hole underneath ---
   const skyU = {
     uTime: { value: 0 }, uSpace: { value: 1 }, uHole: { value: BELOW }, uHoleR: { value: 1.0 },
-    uMega: { value: MEGA }, uMegaR: { value: 0.13 }, uFlick: { value: 110 }, uDrift: { value: 1 }, uFall: { value: 11 }, uFire: { value: 0.4 },
+    uMega: { value: MEGA }, uMegaR: { value: 0.13 }, uFlick: { value: 110 }, uDrift: { value: 1 }, uFall: { value: 11 }, uFire: { value: 0.4 }, uAged: { value: 0 },
   };
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(3400, 64, 40),
@@ -521,6 +521,8 @@ export function createShuttle(ctx) {
         }
       }
       const down = ease(T_DROP, T_DEEP, u);
+      // up there the centuries are going by: the megaworld is not what it was
+      skyU.uAged.value = Math.pow(Math.min(u / T_END, 1), 2);
       const d = dreamAt(u);
 
       // --- the way down ---

@@ -23,6 +23,7 @@ import { C } from '../src/constants.js';
 import { Q } from '../src/quality.js';
 import { createLayerPlanet } from './layerplanet.js';
 import { HOME } from './chapter-dialogue.js';
+import { createCreature, loadFirstEntry } from './firstcreature.js';
 
 export const PAV = { x: 92, z: -77, r: 30 };
 // the suite: its floor's centre, in the city's frame
@@ -259,6 +260,7 @@ export function buildPavilion(k) {
   const chapter = k.chapter || null;
   if (chapter) npcs.push({ x: VS.x, y: VS.y, z: VS.z, role: 'visitor', talk: () => chapter.visitorTalk() });
   let lifeT = 0;
+  let creature = null; // what the pilot gave the archive, once they are back (world/firstcreature.js)
 
   return {
     // the floors the city's polished-floor shader is laid over: [geometry builder args]
@@ -278,6 +280,29 @@ export function buildPavilion(k) {
       trackRobot(steward, walker, dt, t);
       // the one in the suite watches whoever is in it with them, and nobody else
       trackRobot(visitor, walker && walker.y > S.y - 2 ? walker : null, dt, t);
+      const px = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((C.FOV * Math.PI) / 360);
+      if (chapter && chapter.home()) {
+        // back: the old world is not offered any more. Where it hung, the
+        // thing that was given swims in the light it was being drawn with,
+        // and the one by the window has not stopped looking at it.
+        home.group.visible = false;
+        if (!creature) {
+          const entry = loadFirstEntry();
+          if (entry) {
+            creature = createCreature(entry, 17, true);
+            creature.points.renderOrder = 7;
+            k.group.add(creature.points);
+          }
+        }
+        if (creature) {
+          const a = t * 0.3;
+          creature.points.position.set(home.group.position.x + Math.cos(a) * 5, home.group.position.y + 1.5 + Math.sin(a * 0.7) * 2.5, home.group.position.z + Math.sin(a) * 5);
+          creature.points.rotation.set(0.2 * Math.sin(a * 0.7), -a + HA + Math.PI, 0.15 * Math.cos(a));
+          creature.uniforms.uBright.value = 1.15 + 0.2 * Math.sin(t * 1.3);
+          creature.update(t, px);
+        }
+        beamMat.opacity = 0.16 + 0.05 * Math.sin(t * 1.7);
+      } else {
       // home: every layer is there but the end of each. The ground and the sky
       // stop short of the pole and the line they are drawn with never gets
       // there; the life comes and goes, because that part will not hold.
@@ -291,6 +316,7 @@ export function buildPavilion(k) {
       home.group.rotation.y = t * C.CH_HOME_SPIN;
       home.tick(t, (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((C.FOV * Math.PI) / 360));
       beamMat.opacity = 0.09 + 0.03 * Math.sin(t * 1.7);
+      }
       orb.position.y = 3.2 + 0.18 * Math.sin(t * 0.9);
       halo.position.y = orb.position.y;
       halo.rotation.set(Math.PI / 2 + 0.5 * Math.sin(t * 0.4), t * 0.5, 0);

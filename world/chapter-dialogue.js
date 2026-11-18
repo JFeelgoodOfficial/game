@@ -224,6 +224,8 @@ export const STALL = {
 
 // --- 5. the return --------------------------------------------------------------
 export const RETURN = {
+  helm: 'E — TAKE THE SHIP HOME',
+  // {ship}: minutes on the ship's clock; {world}: years on the megaworld's
   clocks: 'YOU WERE GONE {ship}. HERE IT HAS BEEN {world}.',
   keeper: {
     speaker: TENRETNI('The Keeper'),
