@@ -115,7 +115,7 @@ export const SKY_FRAG = /* glsl */ `
     float dop = 0.55 + 0.75 * pow(0.5 + 0.5 * cos(phi - 0.7), 1.6);
     float disc = exp(-out1 * uFall) * (0.25 + 1.5 * streak * streak + 0.5 * fine) * dop;
     vec3 fire = mix(vec3(1.0, 0.32, 0.06), vec3(1.0, 0.86, 0.62), clamp(disc * 0.6 + ring, 0.0, 1.0));
-    vec3 hole = fire * (disc * 1.5 * uFire + ring) * step(1.0, x);
+    vec3 hole = fire * (disc * 1.5 + ring) * uFire * step(1.0, x);
     // stars close to it are drawn out round the edge and thinned
     space *= smoothstep(1.0, 1.5, x);
     space = (space + hole) * smoothstep(0.994, 1.0, x); // inside: nothing
