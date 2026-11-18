@@ -32,6 +32,7 @@ import { tint, cyl, mergedMesh } from '../world/capital.js';
 import { createLayerPlanet } from '../world/layerplanet.js';
 import { createCourse, GATE_R, LANE } from '../world/racecourse.js';
 import { createRacer, RACER_R } from '../world/racers.js';
+import { createRaceFx } from '../world/racefx.js';
 import { RACE, CAPTAINS } from '../world/chapter-dialogue.js';
 
 const KEY = 'fgsf.worldrace';
@@ -64,6 +65,10 @@ function loadBest() {
 export function createWorldRace(k) {
   const { group, camera } = k;
   const course = createCourse(group);
+  const fx = createRaceFx(group);
+  const TERRACE = new THREE.Vector3(0, 60, -77); // over the terrace, where the finish is seen from
+  const _burst = new THREE.Vector3();
+  let rung = 0, sparks = 0, sparkAt = 0; // laps the bells have been rung for; fireworks still to go up
   const best = loadBest();
   const saveBest = () => {
     try {
@@ -150,6 +155,7 @@ export function createWorldRace(k) {
         name: e.name, world: e.world, skill: e.skill, mesh, ai: i > 0, seed: i * 1.73,
         s: -g * 0.0045, x: (g % 2 ? 1 : -1) * 8, y: 0, vx: 0, vy: 0, v: 0,
         lap: 0, gate: 0, meter: 0.5, boosting: 0, slow: 0, draft: 0, done: false, pos: new THREE.Vector3(),
+        color: new THREE.Color(e.world.drive),
       };
     });
     me = field[0];
@@ -159,6 +165,9 @@ export function createWorldRace(k) {
     counted = -1;
     place = 0;
     camSet = false;
+    rung = 0;
+    sparks = 0;
+    fx.begin();
     state = 'count';
     chapterHud.racing(true);
     course.show(0);
@@ -170,6 +179,7 @@ export function createWorldRace(k) {
     if (state === 'idle') return;
     state = 'idle';
     course.show(-1);
+    fx.end();
     clear();
     chapterHud.racing(false);
     chapterHud.panel(null);
@@ -422,16 +432,39 @@ export function createWorldRace(k) {
           const placed = RACE.placed.replace('{place}', RACE.places[place] || `${place + 1}`).replace('{n}', field.length);
           chapterHud.say(`${RACE.finish.replace('{time}', clock(time))} — ${placed}${isBest ? ` — ${RACE.best}` : ''}`, 6.5);
           uiSound('cheer');
+          sparks = 6;
+          sparkAt = 0;
           course.show(course.gates.length); // every gate spent
         }
       }
       const hit = live ? meet(dt) : false;
       rank();
+      // the bells, the first time anyone starts each new lap
+      const lead = order[0];
+      if (lead && lead.lap > rung && lead.lap < LAPS) {
+        rung = lead.lap;
+        chime(196);
+        if (lead !== me) uiSound('select');
+      }
+      // fireworks at the finish: over the terrace and round the pilot's world, one after another
+      if (sparks > 0) {
+        sparkAt -= dt;
+        if (sparkAt <= 0) {
+          sparkAt = 0.55;
+          sparks--;
+          const from = sparks % 2 ? TERRACE : me.pos;
+          _burst.set(from.x + Math.sin(sparks * 2.4) * 30, from.y + 14 + (sparks % 3) * 10, from.z + Math.cos(sparks * 1.7) * 30);
+          fx.burst(_burst, field[sparks % field.length].color);
+        }
+      }
 
-      for (const r of field) {
+      for (let i = 0; i < field.length; i++) {
+        const r = field[i];
         put(r);
+        if (live) fx.wake(i, r.pos, r.color);
         r.mesh.tick(t, px, Math.min(r.v / (BASE * 1.4), 1), Math.max(r.boosting, r.draft * 0.5));
       }
+      fx.tick(dt, t, lead ? lead.pos : me.pos, px);
       cam.lerp(camWant, Math.min(1, dt * 6));
       if (camera) {
         const fov = C.FOV + (16 * me.boosting + 5 * me.draft) * MOTION_SCALE;
