@@ -257,6 +257,15 @@ export function uiSound(kind) {
   } else note(tone[0], 1500, 1100, 0.14, 0.018, t);
 }
 
+// One held note at a pitch (the megaworld chapter's fragments each sound one:
+// world/chapter-dialogue.js `tone`), with its octave over it.
+export function chime(freq) {
+  if (!ctx || ctx.state !== 'running' || settings.muted) return;
+  const t = ctx.currentTime;
+  note(tone[0], freq, freq, 0.2, 0.32, t);
+  note(tone[1], freq * 2, freq * 2, 0.07, 0.2, t + 0.03);
+}
+
 // Tenretni's presence, 0..1: a rumble under everything else. Written every
 // frame of the event and left at 0 the rest of the time.
 export function setEventRumble(level) {

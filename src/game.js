@@ -2529,6 +2529,16 @@ function frame(now) {
             enterCapitalWalk(city, { spawn: city.spawn, yaw: city.spawnYaw, quiet: true });
             acquireSurface('lightcity', renderer, aoPass, camera, bloomPass);
           }
+        } else if (doorTo === 'ship' || doorTo === 'gallery') {
+          // ...and between the city and the light ship in its hangar (GDD
+          // 5.7.4): both are inside the same pause, so only the look changes
+          const aboard = doorTo === 'ship';
+          const to = farSite(aboard ? 'ship' : 'city');
+          if (to) {
+            enterCapitalWalk(to, { spawn: aboard ? to.spawn : to.fromShip, yaw: aboard ? to.spawnYaw : to.fromShipYaw, quiet: true });
+            releaseSurface(renderer, aoPass, camera, bloomPass);
+            acquireSurface(aboard ? 'lightship' : 'lightcity', renderer, aoPass, camera, bloomPass);
+          }
         } else {
           const pad = farSite('pad');
           releaseIsolation(renderer, aoPass, camera, bloomPass);

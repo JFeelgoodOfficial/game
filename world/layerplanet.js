@@ -232,6 +232,7 @@ const hex = (h, target) => target.copy(_c.set(h));
 export function createLayerPlanet(radius = 1, opts = {}) {
   const group = new THREE.Group();
   const LIFE_N = opts.life ?? 400;
+  const SEG = opts.seg ?? 64; // a small one can be coarser
   const light = new THREE.Vector3(0.55, 0.45, 0.7).normalize();
   // shared by every shell: one clock, one hologram dial, one ground to stand on
   const shared = {
@@ -253,13 +254,13 @@ export function createLayerPlanet(radius = 1, opts = {}) {
     group.add(m);
     return m;
   };
-  const ground = shell(ball(radius, 64), GROUND_FRAG, U.ground, { transparent: true });
+  const ground = shell(ball(radius, SEG), GROUND_FRAG, U.ground, { transparent: true });
   ground.renderOrder = 1;
-  const structures = shell(ball(radius * 1.004, 64), STRUCT_FRAG, U.structures, {
+  const structures = shell(ball(radius * 1.004, SEG), STRUCT_FRAG, U.structures, {
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
   });
   structures.renderOrder = 2;
-  const sky = shell(ball(radius * 1.07, 48), SKY_FRAG, U.sky, { transparent: true, depthWrite: false });
+  const sky = shell(ball(radius * 1.07, Math.round(SEG * 0.75)), SKY_FRAG, U.sky, { transparent: true, depthWrite: false });
   sky.renderOrder = 4;
   const halo = new THREE.Mesh(ball(radius * 1.28, 32), new THREE.ShaderMaterial({
     vertexShader: HALO_VERT, fragmentShader: HALO_FRAG, uniforms: haloU,

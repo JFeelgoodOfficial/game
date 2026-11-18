@@ -19,6 +19,7 @@
 import { addCodex } from './journal.js';
 import { uiSound } from './sfx.js';
 import { LAYERS } from '../world/layerplanet.js';
+import { C } from './constants.js';
 import { WORLDS, SUITE_OFFER, SUITE_ACCEPT, SUITE_WAIT, SUITE_REMIND } from '../world/chapter-dialogue.js';
 
 export const STAGES = ['suite', 'demo', 'holo', 'dive', 'shuttle', 'dream', 'stall', 'canvas', 'birth', 'return', 'done'];
@@ -62,6 +63,47 @@ export function createChapter(ctx) {
       return null;
     },
 
+    // --- the holodeck on the light ship (world/lightship.js) ---
+    // A room has been walked into. True the first time for that room.
+    see(id) {
+      if (seen.includes(id)) return false;
+      seen.push(id);
+      ctx.onSave();
+      return true;
+    },
+    seenCount: () => seen.length,
+    // the shuttle is due to be spoken of / has been
+    assignDue: () => !assigned && seen.length >= C.CH_ASSIGN_AFTER,
+    assigned: () => assigned,
+    setAssigned() {
+      if (assigned) return;
+      assigned = true;
+      addCodex('The Shuttle');
+      ctx.onSave();
+    },
+    // One fragment from a world: taking another from the same world swaps it.
+    pick(id, layer) {
+      if (picks[id] === layer) return false;
+      delete picks[id]; // (so the newest pick is always last)
+      picks[id] = layer;
+      ctx.onSave();
+      return true;
+    },
+    picked: (id) => picks[id] || null,
+    count: () => Object.keys(picks).length,
+    // enough worlds have given something, and the assignment has been heard
+    ready: () => assigned && Object.keys(picks).length >= Math.min(C.CH_FRAGMENTS_NEEDED, WORLDS.length),
+    // The planet the picks make, into `out` { sky, ground, ... } (fragment or
+    // null): where two worlds gave the same layer, the later one is kept.
+    compose(out) {
+      for (const l of LAYERS) out[l] = null;
+      for (const id of Object.keys(picks)) {
+        const w = WORLDS.find((x) => x.id === id);
+        if (w) out[picks[id]] = w.layers[picks[id]];
+      }
+      return out;
+    },
+
     // --- the save: one small object inside src/tenretni.js's ---
     serialize() {
       if (stage === 'suite' && !seen.length) return undefined;
@@ -71,7 +113,7 @@ export function createChapter(ctx) {
       if (!raw || typeof raw !== 'object') return;
       if (STAGES.includes(raw.stage)) stage = raw.stage;
       if (raw.picks && typeof raw.picks === 'object') {
-        for (const w of WORLDS) if (LAYERS.includes(raw.picks[w.id])) picks[w.id] = raw.picks[w.id];
+        for (const id of Object.keys(raw.picks)) if (WORLDS.some((w) => w.id === id) && LAYERS.includes(raw.picks[id])) picks[id] = raw.picks[id];
       }
       if (Array.isArray(raw.seen)) for (const w of WORLDS) if (raw.seen.includes(w.id) && !seen.includes(w.id)) seen.push(w.id);
       if (raw.assigned) assigned = true;
