@@ -23,7 +23,7 @@
 
 import * as THREE from 'three';
 import { MOTION_SCALE } from '../src/motion.js';
-import { CH_TIER } from '../src/constants.js';
+import { C, CH_TIER } from '../src/constants.js';
 import { Q } from '../src/quality.js';
 import { uiSound, setEventRumble } from '../src/sfx.js';
 import { label } from '../src/holoLabel.js';
@@ -155,7 +155,78 @@ export function createEpilogue(k) {
     monument.geometry.setAttribute('aAlong', new THREE.InstancedBufferAttribute(along, 1));
     monument.frustumCulled = false;
     root.add(monument);
+    // what holds it up: piers from the city's floor to the lowest of it, and a
+    // second, darker course of the same shape set back behind the first, so
+    // that it has a depth to it
+    const back = new THREE.InstancedMesh(monument.geometry, monument.material, Math.max(n, 1));
+    for (let i = 0; i < n; i++) {
+      monument.getMatrixAt(i, m4);
+      m4.decompose(pos, q, scl);
+      pos.addScaledVector(dir, 58);
+      scl.set(scl.x * 0.96, 20, 54);
+      back.setMatrixAt(i, m4.compose(pos, q, scl));
+    }
+    back.frustumCulled = false;
+    root.add(back);
+    const piers = [];
+    const lows = runs.slice(0, n).map((r) => [(r[0] + r[2]) / 2, Math.min(r[1], r[3])]).sort((p1, p2) => p1[1] - p2[1]);
+    const used = [];
+    for (const [x, y] of lows) {
+      if (used.length >= 7) break;
+      if (used.some((ux) => Math.abs(ux - x) < 0.22)) continue; // spread along it
+      used.push(x);
+      const top = center.y + y * SPAN, foot = -420;
+      const g = new THREE.BoxGeometry(14, top - foot, 14).translate(0, (top + foot) / 2, 0);
+      g.rotateY(Math.atan2(side.x, side.z)).translate(center.x + side.x * x * SPAN + dir.x * 29, 0, center.z + side.z * x * SPAN + dir.z * 29);
+      piers.push(tint(g, 0x39424f));
+      const cap = new THREE.BoxGeometry(22, 5, 22).translate(center.x + side.x * x * SPAN + dir.x * 29, top - 2, center.z + side.z * x * SPAN + dir.z * 29);
+      piers.push(tint(cap, 0xc9a455));
+    }
+    if (piers.length) root.add(mergedMesh(piers.map((g) => (g.index ? g.toNonIndexed() : g)), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x20242c })));
   }
+
+  // --- the flock that has made the thing its own: lights that circle it ---
+  const nBirds = (CH_TIER[Q.tier] || CH_TIER.medium).birds;
+  const birdSeed = new Float32Array(nBirds * 3);
+  let bs = 0x33c0de;
+  for (let i = 0; i < birdSeed.length; i++) birdSeed[i] = ((bs = (Math.imul(bs, 1664525) + 1013904223) >>> 0), bs / 4294967296);
+  const birdGeo = new THREE.BufferGeometry();
+  birdGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(nBirds * 3), 3));
+  birdGeo.setAttribute('aSeed', new THREE.BufferAttribute(birdSeed, 3));
+  const birdU = { uTime: monU.uTime, uPx: { value: 600 }, uA: monU.uA, uB: monU.uB };
+  const birds = new THREE.Points(birdGeo, new THREE.ShaderMaterial({
+    uniforms: birdU,
+    vertexShader: /* glsl */ `
+      attribute vec3 aSeed;
+      uniform float uTime, uPx;
+      varying float vSeed;
+      void main() {
+        // each on a ring of its own round the middle of the thing, the rings tilted every way
+        float a = aSeed.x * 6.2832 + uTime * (0.10 + 0.16 * aSeed.y) * (aSeed.z < 0.5 ? 1.0 : -1.0);
+        float r = 90.0 + 240.0 * aSeed.y;
+        vec3 p = vec3(cos(a) * r, sin(a * 2.0 + aSeed.z * 6.0) * 30.0, sin(a) * r);
+        float tilt = (aSeed.z - 0.5) * 2.2;
+        p = vec3(p.x, p.y * cos(tilt) - p.z * sin(tilt), p.y * sin(tilt) + p.z * cos(tilt));
+        vSeed = aSeed.x;
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = clamp(uPx * (2.2 + 2.0 * aSeed.z) * (0.75 + 0.25 * sin(uTime * 9.0 + aSeed.x * 60.0)) / max(-mv.z, 1.0), 1.5, 26.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uA, uB;
+      varying float vSeed;
+      void main() {
+        float r = length(gl_PointCoord * 2.0 - 1.0);
+        if (r > 1.0) discard;
+        gl_FragColor = vec4(mix(uA, uB, vSeed) * mix(uA, uB, vSeed) * 1.1, pow(1.0 - r, 0.8));
+      }
+    `,
+    transparent: true, depthWrite: false, fog: false,
+  }));
+  birds.position.copy(center);
+  birds.frustumCulled = false;
+  root.add(birds);
 
   // --- what forty generations of three peoples have done with the place ---
   const lit = [], glow = [];
@@ -340,6 +411,7 @@ export function createEpilogue(k) {
     },
     tick(dt, t, walker) {
       monU.uTime.value = t;
+      birdU.uPx.value = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((C.FOV * Math.PI) / 360);
       // the scene starts itself when the pilot comes up into the suite
       if (u < 0 && !chapter.epilogue() && walker && walker.y > S.y - 2 && Math.hypot(walker.x - S.x, walker.z - S.z) < S.r) {
         u = 0;

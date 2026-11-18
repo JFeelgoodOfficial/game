@@ -233,6 +233,24 @@ export function buildPavilion(k) {
     solid(x, z, 0.35);
   }
   glow.push(tint(new THREE.TorusGeometry(5.2, 0.07, 6, 56).rotateX(Math.PI / 2).translate(S.x, S.y + 0.06, S.z - 1), GLOW.gold, 1.3));
+  // a telescope by the glass, pointed the way the seat faces
+  {
+    const ta = -Math.PI / 2 + 0.5 + 0.55, tx = Math.cos(ta) * 11.2, tz = Math.sin(ta) * 11.2;
+    const aim = Math.atan2(Math.cos(-Math.PI / 2 + 0.5), Math.sin(-Math.PI / 2 + 0.5));
+    for (let i = 0; i < 3; i++) {
+      const la = (i / 3) * Math.PI * 2;
+      lit.push(tint(new THREE.CylinderGeometry(0.035, 0.035, 1.7, 5).rotateZ(0.32).rotateY(la).translate(S.x + tx + Math.cos(la) * -0.27, S.y + 0.8, S.z + tz + Math.sin(la) * 0.27), COL.gold));
+    }
+    put(box(0.26, 0.26, 2.0, S.x + tx, S.y + 1.72, S.z + tz, aim), COL.steel);
+    put(box(0.34, 0.34, 0.3, S.x + tx + Math.sin(aim) * 1.05, S.y + 1.72, S.z + tz + Math.cos(aim) * 1.05, aim), COL.gold);
+    glow.push(tint(box(0.2, 0.2, 0.05, S.x + tx - Math.sin(aim) * 1.02, S.y + 1.72, S.z + tz - Math.cos(aim) * 1.02, aim), GLOW.cyan, 1.4));
+    solid(tx, tz, 0.7);
+  }
+  // left about: a hard hat on the desk, a hand bell on the low table, a headset on the seat
+  put(new THREE.SphereGeometry(0.34, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2).translate(S.x + 10.2, S.y + 1.57, S.z + 2.0), COL.steel);
+  glow.push(tint(cyl(0.07, 0.07, 0.05, S.x + 10.2, S.y + 1.72, S.z + 2.33, 8), 0xff8a3a, 1.8));
+  put(cyl(0.1, 0.26, 0.34, S.x + 3.5, S.y + 1.08, S.z - 10.3, 10), COL.gold);
+  put(cyl(0.03, 0.03, 0.2, S.x + 3.5, S.y + 1.35, S.z - 10.3, 6), COL.wood);
   glow.push(tint(cyl(2.4, 2.4, 0.08, S.x, S.y + SUITE_H - 0.06, S.z, 28), GLOW.white, 1.3));
 
   // --- what waits in it (GDD 5.7.4): the pilot's own world, turning outside
