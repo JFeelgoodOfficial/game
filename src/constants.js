@@ -562,10 +562,10 @@ export const C = {
 // that come round the bridge in the archive flood; dream: bodies in the dream;
 // lanterns: lights adrift over the city's walks; birds: the flock at the monument.
 export const CH_TIER = {
-  low: { people: 6, rigNear: 0, flood: 3, dream: 3, lanterns: 80, birds: 40 },
-  medium: { people: 10, rigNear: 38, flood: 6, dream: 6, lanterns: 220, birds: 110 },
-  high: { people: 13, rigNear: 60, flood: 6, dream: 6, lanterns: 360, birds: 180 },
-  ultra: { people: 13, rigNear: 90, flood: 6, dream: 6, lanterns: 480, birds: 240 },
+  low: { people: 8, rigNear: 0, flood: 3, dream: 3, lanterns: 80, birds: 40 },
+  medium: { people: 14, rigNear: 38, flood: 6, dream: 6, lanterns: 220, birds: 110 },
+  high: { people: 19, rigNear: 60, flood: 6, dream: 6, lanterns: 360, birds: 180 },
+  ultra: { people: 19, rigNear: 90, flood: 6, dream: 6, lanterns: 480, birds: 240 },
 };
 
 export const TIERS = {

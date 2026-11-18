@@ -274,3 +274,49 @@ export const EPILOGUE = {
   // signs over the bridges: the names the ships had
   signs: ['SATURDAY FOREVER', 'NINTH BELL', 'LAST SEAM', 'HALO OF MORNING', 'EMBERWRIGHT', 'BUY ONE GET ONE'],
 };
+
+// --- the three districts off the terrace (world/lightdistricts.js) -------------
+// `find`: the one thing in each that goes in the codex.
+export const DISTRICTS = {
+  seam: {
+    name: 'THE SEAM',
+    sign: 'OPEN ALL SHIFTS',
+    find: {
+      prompt: 'E — READ THE WALL',
+      speaker: 'The Wall of Names', species: 'The Seam',
+      lines: [
+        'Every hand that came off the ships, cut in iron. Rustia first, because they built the wall.',
+        'Then Saturnia. Then Wavemall Prime. After the third row nobody kept them apart.',
+        'Near the top, three names with no end date. Vask. Marrow. Lux.',
+      ],
+      codex: 'The Wall of Names',
+    },
+  },
+  bell: {
+    name: 'THE NINTH BELL',
+    find: {
+      prompt: 'E — RING THE NINTH BELL',
+      speaker: 'The Ninth Bell', species: 'The Garden',
+      lines: [
+        'Eight bells for the eight watches. Saturnia hung them the first year.',
+        'The ninth is for whoever is not back yet. It has been rung every evening for a thousand years.',
+        'It is rung for you. Nobody here will ever need to ring it again, and they will anyway.',
+      ],
+      codex: 'The Ninth Bell',
+    },
+  },
+  saturday: {
+    name: 'SATURDAY',
+    shops: ['EMBER & SEAM', 'CANTOR\'S', 'TWO FOR ONE', 'THE LONG SHIFT'],
+    find: {
+      prompt: 'E — ASK AT THE DESK',
+      speaker: 'The Desk', species: 'Saturday',
+      lines: [
+        'Welcome to Saturday! It has been Saturday here since the first one of us clocked on.',
+        'We have a held item for you. Reference: FLOOR MANAGER LUX, DO NOT RESTOCK. One headset.',
+        'It has been behind this desk for a thousand years. We did not like to throw it out.',
+      ],
+      codex: 'Saturday',
+    },
+  },
+};

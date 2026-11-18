@@ -34,6 +34,7 @@ import { measureRig, standRig, footY } from './rigGround.js';
 import { buildCaptain, liveCaptain } from './captainDress.js';
 import { cWalk } from '../src/capitalWalk.js';
 import { SUITE, PAV } from './lightpavilion.js';
+import { DISTRICT_DIRS } from './lightdistricts.js';
 import { loadFirstEntry, worldFrom } from './firstcreature.js';
 import { CAPTAINS, EPILOGUE } from './chapter-dialogue.js';
 
@@ -244,6 +245,7 @@ export function createEpilogue(k) {
     const a = (i / 10) * Math.PI * 2 + 0.31;
     const x = TERR.x + Math.cos(a) * 17.2, z = TERR.z + Math.sin(a) * 17.2;
     if (Math.abs(z - TERR.z) < 4.5 || (Math.abs(x) < 4.5 && z > TERR.z)) continue; // the bridges
+    if (DISTRICT_DIRS.some(([ux, uz]) => Math.cos(a) * ux + Math.sin(a) * uz > 0.95)) continue; // ...and the three new ones
     lit.push(tint(cyl(0.7, 0.35, 0.9, x, 0.45, z, 8), RUST));
     glow.push(tint(cyl(0.55, 0.55, 0.12, x, 0.92, z, 8), EMBER, 2.0));
     k.colliders.push({ x, z, r: 0.8, top: Infinity });
@@ -280,10 +282,25 @@ export function createEpilogue(k) {
   });
 
   // --- the people of the city: descendants of all three, about their day ---
-  const AREAS = [TERR, TERR, TERR, TERR, TERR, PAV, PAV, PAV, PAV, PAV, PAV, GALL, GALL];
+  // (the districts first, so that every tier has somebody in each: world/lightdistricts.js)
+  const DIST = k.areas || [];
+  const AREAS = [...DIST, TERR, TERR, TERR, TERR, TERR, PAV, PAV, PAV, PAV, PAV, PAV, GALL, GALL, ...DIST];
   let rs = 0x7e2a11;
   const rnd = () => ((rs = (Math.imul(rs, 1664525) + 1013904223) >>> 0), rs / 4294967296);
-  const spot = (c, o) => {
+  const spot = (c, o, from) => {
+    if (c.ring) {
+      // a walk round something: the next place is a little way on round it, not across
+      const a = from ? Math.atan2(from.z - c.z, from.x - c.x) + (rnd() - 0.5) * 1.3 : rnd() * Math.PI * 2;
+      const r = c.ring[0] + rnd() * (c.ring[1] - c.ring[0]);
+      o.x = c.x + Math.cos(a) * r;
+      o.z = c.z + Math.sin(a) * r;
+      return o;
+    }
+    if (c.box) {
+      o.x = c.x + (rnd() * 2 - 1) * c.box[0];
+      o.z = c.z + (rnd() * 2 - 1) * c.box[1];
+      return o;
+    }
     const a = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * (c === PAV ? 24 : c.r) + (c === PAV ? 5 : 0);
     o.x = c.x + Math.cos(a) * Math.min(r, c === PAV ? 25 : c.r);
     o.z = c.z + Math.sin(a) * Math.min(r, c === PAV ? 25 : c.r);
@@ -293,9 +310,9 @@ export function createEpilogue(k) {
   const people = AREAS.slice(0, tier.people).map((area, i) => {
     const rig = measureRig(buildRig(0x1000 + i * 977, 'fleet'));
     const p = spot(area, { x: 0, z: 0 });
-    rig.group.position.set(p.x, 0, p.z);
+    rig.group.position.set(p.x, area.y || 0, p.z);
     rig.group.scale.setScalar(0.85 + rnd() * 0.3);
-    standRig(rig, 0);
+    standRig(rig, area.y || 0);
     root.add(rig.group);
     return { rig, area, to: spot(area, { x: 0, z: 0 }), wait: rnd() * 5, speed: 1.6 + rnd() * 1.4 };
   });
@@ -505,7 +522,7 @@ export function createEpilogue(k) {
         else {
           const dx = p.to.x - g.x, dz = p.to.z - g.z, d = Math.hypot(dx, dz);
           if (d < 0.4) {
-            spot(p.area, p.to);
+            spot(p.area, p.to, g);
             p.wait = 1.5 + ((p.to.x * 7.3) % 1 + 1) * 3;
           } else {
             g.x += (dx / d) * p.speed * dt;
@@ -515,15 +532,16 @@ export function createEpilogue(k) {
           }
         }
         // near the pilot, the figure; far off, the capsule
-        const near = !!walker && tier.rigNear > 0 && Math.abs(walker.y) < 8 && Math.hypot(g.x - walker.x, g.z - walker.z) < tier.rigNear;
+        const fy = p.area.y || 0;
+        const near = !!walker && tier.rigNear > 0 && Math.abs(walker.y - fy) < 8 && Math.hypot(g.x - walker.x, g.z - walker.z) < tier.rigNear;
         p.rig.group.visible = near;
         if (near) {
           poseRig(p.rig, dt, t, walking ? 'walk' : 'idle', walking ? 0.6 : 0);
-          standRig(p.rig, 0); // (all three of their floors are at 0)
+          standRig(p.rig, fy);
           _s.setScalar(0);
         } else _s.setScalar(p.rig.group.scale.x);
         _q.setFromAxisAngle(_up, p.rig.group.rotation.y);
-        far.setMatrixAt(i, _m.compose(_p.set(g.x, 0, g.z), _q, _s));
+        far.setMatrixAt(i, _m.compose(_p.set(g.x, fy, g.z), _q, _s));
       }
       far.instanceMatrix.needsUpdate = true;
     },

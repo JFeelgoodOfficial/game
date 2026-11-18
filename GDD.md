@@ -714,6 +714,23 @@ first time the city is entered with the ship home:
 - Afterwards the captains follow the pilot anywhere in the city and each has
   something to say.
 
+The districts (`world/lightdistricts.js`), built with the epilogue into the
+city's own walkable site, each reached by a bridge that goes up and over the
+terrace's rail:
+
+- **The Seam** (Rustia's), south-west and four units below the terrace: four
+  furnaces lit through their grates, ore carts going round on a rail, anvils,
+  and a wall of names.
+- **The Ninth Bell** (Saturnia's), south and three units above: a ring walk
+  round a well of light, eight bells on arches, a garden of pale trees, and a
+  ninth bell that swings when rung.
+- **Saturday** (Wavemall Prime's), south-east: an arcade on two floors under a
+  ribbed roof, twenty-four lit shopfronts, a moving stair, and a desk.
+- Each shows the other two peoples inside it, has descendants walking it, and
+  has one thing to find that adds a codex entry. Names, signs and the finds'
+  lines are `DISTRICTS` in `world/chapter-dialogue.js`.
+- They sit inside the 240-unit circle the city's towers keep clear of.
+
 Rules the chapter keeps to:
 
 - Every place is a site for the platform walker (`src/capitalWalk.js`), which
