@@ -31,6 +31,7 @@ import { buildPavilion, PAV } from './lightpavilion.js';
 import { CH_TIER } from '../src/constants.js';
 import { createDemo } from './lightdemo.js';
 import { createEpilogue } from './lightepilogue.js';
+import { createDistricts } from './lightdistricts.js';
 import { DEMO } from './chapter-dialogue.js';
 import { chapterHud } from '../src/chapterHud.js';
 import { loadFirstEntry, worldFrom } from './firstcreature.js';
@@ -618,6 +619,7 @@ export function createLightCity(ctx) {
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 + 0.52;
     if (Math.abs(Math.sin(a)) < 0.3 || (Math.abs(Math.cos(a)) < 0.3 && Math.sin(a) > 0)) continue; // not across a bridge
+    if (Math.sin(a) < -0.6) continue; // ...nor where the districts' bridges will leave
     bench(Math.cos(a) * 13.5, TERR_Z + Math.sin(a) * 13.5, -a + Math.PI / 2);
   }
   for (const a of [0.62, 2.52, 3.76, 5.66]) planter(Math.cos(a) * 8.6, TERR_Z + Math.sin(a) * 8.6, 1.15);
@@ -838,6 +840,7 @@ export function createLightCity(ctx) {
   // a thousand years on (world/lightepilogue.js): built the first time the
   // city is entered with the light ship home
   let epi = null;
+  let districts = null; // world/lightdistricts.js, built with it
 
   // what this place changes in the scene, kept to put back
   let inside = false;
@@ -902,9 +905,16 @@ export function createLightCity(ctx) {
       // ship in colours the archive never held
       const ch = ctx.chapter;
       if (ch && ch.home()) {
+        if (!districts) {
+          try {
+            districts = createDistricts({ group, surfaces, colliders, consoles, chapter: ch });
+          } catch (err) {
+            console.warn('[lightcity] the districts could not be built', err);
+          }
+        }
         if (!epi) {
           try {
-            epi = createEpilogue({ group, chapter: ch, hangar, lightDir, pavilion, floorYAt: site.floorYAt, npcs: site.npcs, colliders });
+            epi = createEpilogue({ group, chapter: ch, hangar, lightDir, pavilion, floorYAt: site.floorYAt, npcs: site.npcs, colliders, areas: districts ? districts.areas : [] });
           } catch (err) {
             console.warn('[lightcity] the epilogue could not be built', err);
           }
@@ -947,6 +957,7 @@ export function createLightCity(ctx) {
       hangar.tick(t);
       chapterHud.tick(dt);
       if (epi) epi.tick(dt, t, walker);
+      if (districts) districts.tick(dt, t);
       if (demo) demo.tick(dt, t);
       pavilion.tick(dt, t);
       // the sky goes where the eye goes: from the suite, half a kilometre up, it
@@ -966,7 +977,7 @@ export function createLightCity(ctx) {
       terrace: [0, 0, TERR_Z + 8], greeter: [0, 0, GREET.z + 2.6], gallery: [GALL_X, 0, TERR_Z],
       ...pavilion.places,
     },
-    info: () => ({ towers: city.towers, cells: hangar.cells, demo: demo ? demo.state() : null, epi: epi ? epi.state() : null }),
+    info: () => ({ towers: city.towers, cells: hangar.cells, demo: demo ? demo.state() : null, districts: districts ? districts.state() : null, epi: epi ? epi.state() : null }),
   };
   return site;
 }
