@@ -28,6 +28,7 @@ import { label } from '../src/holoLabel.js';
 import { chapterHud } from '../src/chapterHud.js';
 import { tint, box, cyl, mergedMesh } from './capital.js';
 import { buildRig, poseRig } from './aliens.js';
+import { measureRig, standRig, footY } from './rigGround.js';
 import { SUITE, PAV } from './lightpavilion.js';
 import { loadFirstEntry, worldFrom } from './firstcreature.js';
 import { CAPTAINS, EPILOGUE } from './chapter-dialogue.js';
@@ -214,10 +215,11 @@ export function createEpilogue(k) {
     return o;
   };
   const people = AREAS.map((area, i) => {
-    const rig = buildRig(0x1000 + i * 977, 'fleet');
+    const rig = measureRig(buildRig(0x1000 + i * 977, 'fleet'));
     const p = spot(area, { x: 0, z: 0 });
-    rig.group.position.set(p.x, rig.params.groundOffset || 0, p.z);
+    rig.group.position.set(p.x, 0, p.z);
     rig.group.scale.setScalar(0.85 + rnd() * 0.3);
+    standRig(rig, 0);
     root.add(rig.group);
     return { rig, area, to: spot(area, { x: 0, z: 0 }), wait: rnd() * 5, speed: 1.6 + rnd() * 1.4 };
   });
@@ -226,14 +228,15 @@ export function createEpilogue(k) {
   k.pavilion.hideCaptains(); // they are not at the Pavilion's table any more
   const WINDOW = [[-3.2, 0.2], [0.2, -0.4], [3.4, 0.3]]; // across the glass, a little apart
   const crew = CAPTAINS.map((c, i) => {
-    const rig = buildRig(SEEDS[c.id] ?? 0x333 + i, 'fleet');
+    const rig = measureRig(buildRig(SEEDS[c.id] ?? 0x333 + i, 'fleet'));
     const x = S.x + dir.x * 11.5 + side.x * WINDOW[i][0] + dir.x * WINDOW[i][1];
     const z = S.z + dir.z * 11.5 + side.z * WINDOW[i][0] + dir.z * WINDOW[i][1];
-    rig.group.position.set(x, S.y + (rig.params.groundOffset || 0), z);
+    rig.group.position.set(x, S.y, z);
+    standRig(rig, S.y);
     root.add(rig.group);
     const npc = { x, y: S.y, z, role: 'captain', talk: () => ({ speaker: { name: c.name, species: c.species, cityId: 'The City of Light' }, lines: EPILOGUE.talk[c.id] || [] }) };
     k.npcs.push(npc);
-    return { c, rig, npc, yaw: Math.atan2(dir.x, dir.z), want: Math.atan2(dir.x, dir.z), slot: (i / CAPTAINS.length) * Math.PI * 2 + 0.6, moving: false };
+    return { c, rig, npc, yaw: Math.atan2(dir.x, dir.z), want: Math.atan2(dir.x, dir.z), slot: (i / CAPTAINS.length) * Math.PI * 2 + 0.6, moving: false, floor: S.y, pace: 0 };
   });
   const turn = (m, yaw, dt, rate = 3) => {
     let d = yaw - m.yaw;
@@ -356,29 +359,36 @@ export function createEpilogue(k) {
           // a place of their own round the pilot, a few steps off
           const a = m.slot + t * 0.05;
           let tx = walker.x + Math.cos(a) * (2.6 + i * 0.7), tz = walker.z + Math.sin(a) * (2.6 + i * 0.7);
-          let ty = k.floorYAt(tx, tz, walker.y + 0.6);
-          if (ty === -Infinity) {
+          if (k.floorYAt(tx, tz, walker.y + 0.6) === -Infinity) {
             // no floor there (a bridge is narrow): fall in behind instead
             tx = walker.x;
             tz = walker.z;
-            ty = walker.y;
           }
           const dx = tx - g.x, dz = tz - g.z, d = Math.hypot(dx, dz);
-          const base = m.rig.params.groundOffset || 0;
-          if (d > 70 || Math.abs(ty + base - g.y) > 6) g.set(tx, ty + base, tz); // (the lift)
-          else if (d > 0.9) {
-            const step = Math.min(d - 0.6, (d > 6 ? 13 : 7) * dt);
+          m.pace = 0;
+          if (d > 70 || Math.abs(walker.y - m.floor) > 6) {
+            // (the lift: they arrive with the pilot)
+            g.x = tx;
+            g.z = tz;
+            m.floor = walker.y;
+          } else if (d > 0.9) {
+            const speed = d > 6 ? 13 : 7;
+            const step = Math.min(d - 0.6, speed * dt);
             g.x += (dx / d) * step;
             g.z += (dz / d) * step;
-            g.y = ty + base;
             m.moving = true;
+            m.pace = Math.min(step / Math.max(dt, 1e-4) / 13, 1); // legs as fast as the ground goes by
             turn(m, Math.atan2(dx, dz), dt, 8);
           } else turn(m, Math.atan2(walker.x - g.x, walker.z - g.z), dt, 2);
+          // the floor under their own feet, not the pilot's
+          const under = k.floorYAt(g.x, g.z, m.floor + 0.8);
+          if (under > -Infinity) m.floor = under;
         }
         m.npc.x = g.x;
         m.npc.z = g.z;
-        m.npc.y = g.y - (m.rig.params.groundOffset || 0);
-        poseRig(m.rig, dt, t, m.moving ? 'walk' : 'idle', m.moving ? 1 : 0);
+        m.npc.y = m.floor;
+        poseRig(m.rig, dt, t, m.moving ? 'walk' : 'idle', m.pace);
+        standRig(m.rig, m.floor);
       });
 
       // the people of the city, about their day
@@ -399,8 +409,14 @@ export function createEpilogue(k) {
           }
         }
         poseRig(p.rig, dt, t, walking ? 'walk' : 'idle', walking ? 0.6 : 0);
+        standRig(p.rig, 0); // (all three of their floors are at 0)
       }
     },
-    state: () => ({ u, end: T_END, runs: monument ? monument.count : 0, people: people.length, crew: crew.map((m) => m.rig.group.position.toArray().map(Math.round)), ship: hangar.vessel.visible }),
+    state: () => ({ u, end: T_END, runs: monument ? monument.count : 0, people: people.length, crew: crew.map((m) => m.rig.group.position.toArray().map(Math.round)),
+      // how far each captain's lower foot is off the floor it stands on
+      feet: crew.map((m) => Math.round((footY(m.rig) - m.floor) * 1000) / 1000),
+      peopleFeet: people.map((p) => Math.round(footY(p.rig) * 1000) / 1000),
+      // ...and the same thing measured from the drawn geometry, as a check on the sum
+      feetDrawn: crew.map((m) => Math.round((new THREE.Box3().setFromObject(m.rig.group).min.y - m.floor) * 1000) / 1000), ship: hangar.vessel.visible }),
   };
 }

@@ -19,6 +19,7 @@
 import * as THREE from 'three';
 import { tint, box, cyl, buildRobot, trackRobot } from './capital.js';
 import { buildRig, poseRig } from './aliens.js';
+import { measureRig, standRig } from './rigGround.js';
 import { C } from '../src/constants.js';
 import { Q } from '../src/quality.js';
 import { createLayerPlanet } from './layerplanet.js';
@@ -133,9 +134,10 @@ export function buildPavilion(k) {
   const rigs = [];
   const capSolids = [];
   for (const c of CAPTAINS) {
-    const rig = buildRig(c.seed, 'fleet');
+    const rig = measureRig(buildRig(c.seed, 'fleet'));
     const x = P.x + c.at[0], z = P.z + c.at[1];
-    rig.group.position.set(x, rig.params.groundOffset || 0, z);
+    rig.group.position.set(x, 0, z);
+    standRig(rig, 0);
     rig.group.rotation.y = c.face;
     k.group.add(rig.group);
     rigs.push(rig);
@@ -285,7 +287,10 @@ export function buildPavilion(k) {
       for (const n of npcs) if (n.table) n.x = n.z = 1e6;
     },
     tick(dt, t) {
-      for (const r of rigs) poseRig(r, dt, t, 'idle', 0);
+      for (const r of rigs) {
+        poseRig(r, dt, t, 'idle', 0);
+        standRig(r, 0);
+      }
       trackRobot(steward, walker, dt, t);
       // the one in the suite watches whoever is in it with them, and nobody else
       trackRobot(visitor, walker && walker.y > S.y - 2 ? walker : null, dt, t);
