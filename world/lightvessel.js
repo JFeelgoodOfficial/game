@@ -109,7 +109,29 @@ const CELL_FRAG = /* glsl */ `
     float beat = 0.86 + 0.14 * sin(uTime * (1.6 + fract(vSeed * 3.7) * 2.0) + vSeed * 40.0);
     vec3 col = tintC * glow * beat * 0.95 + vec3(1.0) * 0.10 * glow;
 
-    // the life in it: a few figures to a cubic cell, each on its own beat
+    // --- the room behind the glass: the eye's slant across the pane moves what
+    // is deep in it, so every cell has a back wall and a floor to look into ---
+    vec3 dp1 = dFdx(vWorld), dp2 = dFdy(vWorld);
+    vec2 du1 = dFdx(p), du2 = dFdy(p);
+    vec3 T = normalize(dp1 * du2.y - dp2 * du1.y + 1e-6), B = normalize(dp2 * du1.x - dp1 * du2.x + 1e-6);
+    vec2 slant = vec2(dot(V, T), dot(V, B)) / max(facing, 0.25);
+    vec2 pb = p - slant * 0.42; // where the sight line meets the back wall
+    vec2 eb = size * 0.5 - abs(pb);
+    float inBack = step(0.0, min(eb.x, eb.y));
+    // the back wall: panels, a lit doorway in some, shelves of light in others
+    vec2 wg = pb * 3.0;
+    float panel = smoothstep(0.03, 0.06, min(fract(wg.x), fract(wg.y)));
+    float door = step(0.62, fract(vSeed * 13.7)) * step(abs(pb.x - (fract(vSeed * 5.1) - 0.5) * size.x * 0.5), 0.09) * step(pb.y, -size.y * 0.5 + 0.34);
+    vec3 back = tintC * (0.30 + 0.16 * panel) + vec3(1.0, 0.95, 0.85) * door * 0.9;
+    // side walls, floor and ceiling, where the sight line leaves the back wall's frame: darker, ruled
+    float along = clamp(min(edge.x, edge.y) / (abs(min(eb.x, eb.y)) + min(edge.x, edge.y) + 1e-4), 0.0, 1.0);
+    vec3 sideW = tintC * (0.50 - 0.28 * along) * (0.85 + 0.15 * step(0.5, fract(along * 5.0)));
+    vec3 room = mix(sideW, back, inBack);
+    col = mix(room, col, 0.42); // the glass keeps its own glow over the room
+
+    // the life in it: a few figures to a cubic cell, each on its own beat,
+    // standing a little way back from the glass
+    p = p - slant * 0.14;
     float people = 0.0;
     vec2 g = p / 0.34;
     vec2 gc = floor(g + 0.5);
@@ -127,6 +149,10 @@ const CELL_FRAG = /* glsl */ `
 
     // the frame it is held in, and the shine on the glass
     col = mix(col, vec3(0.05, 0.06, 0.08) + tintC * 0.06, frame);
+    // lights set into the frame, every so often along it
+    vec2 q = uv * size;
+    float along2 = edge.x < edge.y ? q.y : q.x;
+    col += vec3(1.0, 0.86, 0.6) * frame * smoothstep(0.42, 0.5, abs(fract(along2 * 4.0) - 0.5) * 2.0 - 0.55) * 1.4;
     col += vec3(1.0) * pow(1.0 - facing, 3.0) * 0.30;
     col = mix(col * (1.0 + 0.2 * uFlight), vec3(1.7), uFlash);
     gl_FragColor = vec4(col, 1.0);
@@ -268,15 +294,28 @@ export function buildHangar(group) {
   lit.push(tint(cyl(70, 44, 60, 0, 0, 0, 20).rotateX(Math.PI / 2).translate(0, 0, hubZ - 80), DARK));
   glow.push(tint(cyl(40, 40, 3, 0, 0, 0, 24).rotateX(Math.PI / 2).translate(0, 0, hubZ - 112), 0xffb060, 1.8));
   glow.push(tint(cyl(18, 18, 4, 0, 0, 0, 24).rotateX(Math.PI / 2).translate(0, 0, hubZ - 114), 0xfff4d8, 2.2));
+  // (the two rings are their own meshes: they turn, opposite ways)
+  const rings = [];
   for (const [rr, zz, tube] of [[168, hubZ + 10, 9], [128, hubZ - 44, 7]]) {
-    lit.push(tint(new THREE.TorusGeometry(rr, tube, 10, 64).translate(0, 0, zz), STEEL));
-    lit.push(tint(new THREE.TorusGeometry(rr - tube * 2.2, tube * 0.45, 8, 64).translate(0, 0, zz), BRASS));
+    const rl = [], rg = [];
+    rl.push(tint(new THREE.TorusGeometry(rr, tube, 10, 64).translate(0, 0, zz), STEEL));
+    rl.push(tint(new THREE.TorusGeometry(rr - tube * 2.2, tube * 0.45, 8, 64).translate(0, 0, zz), BRASS));
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2 + (rr > 150 ? 0 : 0.39);
-      lit.push(tint(box(4, rr - 40, 4, 0, (rr + 40) / 2, zz).rotateZ(a), DARK));
-      glow.push(tint(box(3, 3, 3, 0, rr, zz + tube + 1).rotateZ(a), 0x9fe8ff, 1.8));
+      rl.push(tint(box(4, rr - 40, 4, 0, (rr + 40) / 2, zz).rotateZ(a), DARK));
+      rg.push(tint(box(3, 3, 3, 0, rr, zz + tube + 1).rotateZ(a), 0x9fe8ff, 1.8));
+      // lamps along each spoke, and vanes on the rim
+      for (let k = 1; k <= 3; k++) rg.push(tint(box(1.6, 1.6, 1.6, 0, 40 + ((rr - 40) * k) / 4, zz + 3).rotateZ(a), 0xffe2a0, 1.5));
+      rl.push(tint(box(14, 5, tube * 2.6, 0, rr + tube, zz).rotateZ(a + 0.2), DARK));
     }
+    rings.push({ lit: rl, glow: rg, dir: rr > 150 ? 1 : -1 });
   }
+  // running lights down the spine, and a blister of glass on the bow: the bridge
+  for (let z = BZ0 + 25; z < BOW_Z; z += 30) {
+    glow.push(tint(box(1.6, 1.6, 1.6, -20, 22.5, z), 0xff8a8a, 1.6), tint(box(1.6, 1.6, 1.6, 20, -22.5, z), 0x8affb0, 1.6));
+  }
+  lit.push(tint(cyl(24, 30, 6, 0, 91, BOW_Z + 10, 20), STEEL));
+  glow.push(tint(new THREE.TorusGeometry(22, 0.7, 6, 40).rotateX(Math.PI / 2).translate(0, 94.5, BOW_Z + 10), 0xffe2a0, 1.6));
   const litMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x161a20 });
   const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });
   const flatten = (list) => list.map((g) => (g.index ? g.toNonIndexed() : g));
@@ -284,6 +323,56 @@ export function buildHangar(group) {
   vessel.add(mergedMesh(flatten(glow), glowMat));
   lit.length = 0;
   glow.length = 0;
+  const turning = rings.map((r) => {
+    const g = new THREE.Group();
+    g.add(mergedMesh(flatten(r.lit), litMat), mergedMesh(flatten(r.glow), glowMat));
+    vessel.add(g);
+    return { g, dir: r.dir };
+  });
+  // the blister's glass
+  const blister = new THREE.Mesh(
+    new THREE.SphereGeometry(22, 28, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: 0xbfe6ff, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide, fog: false })
+  );
+  blister.position.set(0, 94, BOW_Z + 10);
+  blister.renderOrder = 3;
+  vessel.add(blister);
+  // the wake: light thrown out behind the drive when it is under way, every colour in turn down its length
+  const wake = new THREE.Mesh(
+    new THREE.CylinderGeometry(30, 150, 1, 24, 24, true).rotateX(Math.PI / 2).translate(0, 0, -0.5),
+    new THREE.ShaderMaterial({
+      uniforms,
+      vertexShader: /* glsl */ `
+        varying float vAlong;
+        varying vec3 vN2;
+        varying vec3 vW2;
+        void main() {
+          vAlong = -position.z;
+          vec4 w = modelMatrix * vec4(position, 1.0);
+          vW2 = w.xyz;
+          vN2 = normalize(mat3(modelMatrix) * normal);
+          gl_Position = projectionMatrix * viewMatrix * w;
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform float uTime, uFlight, uPhase;
+        varying float vAlong;
+        varying vec3 vN2;
+        varying vec3 vW2;
+        void main() {
+          vec3 c = clamp(abs(fract(vAlong * 1.6 - uTime * 0.9 + uPhase + vec3(0.0, 0.6667, 0.3333)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+          float rim = pow(1.0 - abs(dot(normalize(vN2), normalize(cameraPosition - vW2))), 1.5);
+          float streak = 0.6 + 0.4 * sin(vAlong * 40.0 - uTime * 14.0);
+          gl_FragColor = vec4((c * 0.9 + 0.25) * (1.0 - vAlong) * (1.0 - vAlong) * (0.35 + rim) * streak * uFlight * 1.4, 1.0);
+        }
+      `,
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false,
+    })
+  );
+  wake.position.set(0, 0, hubZ - 112);
+  wake.scale.set(1, 1, 900);
+  wake.frustumCulled = false;
+  vessel.add(wake);
   // the yard below: a deck of plates with work going on along its lines
   const YARD_Y = -230;
   lit.push(tint(box(420, 10, 980, 0, YARD_Y - 5, -70), DARK));
@@ -335,6 +424,10 @@ export function buildHangar(group) {
     helm: new THREE.Vector3(0, 96, BOW_Z + 10),
     tick(t) {
       uniforms.uTime.value = t;
+      // the drive turns over slowly at rest, and hard under way
+      const spin = t * 0.12 + uniforms.uPhase.value * 9.0;
+      for (const r of turning) r.g.rotation.z = spin * r.dir;
+      wake.visible = uniforms.uFlight.value > 0.01;
     },
   };
 }
