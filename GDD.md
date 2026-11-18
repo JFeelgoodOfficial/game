@@ -697,6 +697,23 @@ ship is back in its hangar.
 | return | `world/divebridge.js` | From the helm the ship rises; the megaworld, a thousand years older and wrapped in a lattice of light, fills the glass. `home` is set. |
 | done | city | The clocks are compared in a line, the Keeper speaks, the creature swims where the hologram hung, and one cell of the light ship keeps its colours. |
 
+The epilogue (`world/lightepilogue.js`, saved flag `epilogue`), built the
+first time the city is entered with the ship home:
+
+- The crews left behind were taken into the city and stayed. A thousand years
+  of Rustia, Saturnia and Wavemall Prime living together shows as bells in the
+  Pavilion's canopy, braziers of ember on the terrace, lights and signs over
+  the bridges in the ships' names, banners in three colours, and their
+  descendants walking the terrace, the Pavilion and the gallery.
+- Across the city from the suite stands a building in the shape of the
+  pilot's drawing, in its colours, about 600 units across.
+- The three captains wait in the suite. When the pilot comes up, a 48-second
+  scene plays: four lines, a pause in which they look at each other, and the
+  light ship leaving its hangar for the hole with a Tenretni at the helm. The
+  ship does not come back and can no longer be boarded.
+- Afterwards the captains follow the pilot anywhere in the city and each has
+  something to say.
+
 Rules the chapter keeps to:
 
 - Every place is a site for the platform walker (`src/capitalWalk.js`), which

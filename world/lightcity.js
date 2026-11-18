@@ -29,6 +29,7 @@ import { holeDirection } from './farhole.js';
 import { buildHangar, HANGAR_BOX } from './lightvessel.js';
 import { buildPavilion } from './lightpavilion.js';
 import { createDemo } from './lightdemo.js';
+import { createEpilogue } from './lightepilogue.js';
 import { DEMO } from './chapter-dialogue.js';
 import { chapterHud } from '../src/chapterHud.js';
 import { loadFirstEntry, worldFrom } from './firstcreature.js';
@@ -629,7 +630,7 @@ export function createLightCity(ctx) {
   if (ctx.chapter) {
     consoles.push({
       x: BOARD.x, y: 0, z: BOARD.z, r: 5.5, prompt: DEMO.board,
-      off: () => !ctx.chapter.reached('holo') || (demo && demo.held()),
+      off: () => !ctx.chapter.reached('holo') || (demo && demo.held()) || ctx.chapter.epilogue() || (!!epi && epi.held()),
       use: () => ((site.portal = 'ship'), null),
     });
   }
@@ -720,6 +721,10 @@ export function createLightCity(ctx) {
   const sky = buildSky(group, lightDir);
   const skyU = sky.uniforms;
 
+  // a thousand years on (world/lightepilogue.js): built the first time the
+  // city is entered with the light ship home
+  let epi = null;
+
   // what this place changes in the scene, kept to put back
   let inside = false;
   let prev = null;
@@ -745,8 +750,8 @@ export function createLightCity(ctx) {
     npcs: [{ x: GREET.x, y: 0, z: GREET.z, role: 'greeter', talk: () => ctx.greet() }, ...npcs],
     consoles,
     rooms: pavilion.rooms,
-    held: () => !!demo && demo.held(),
-    camera: (pos, target) => !!demo && demo.camera(pos, target),
+    held: () => (!!demo && demo.held()) || (!!epi && epi.held()),
+    camera: (pos, target) => (!!demo && demo.camera(pos, target)) || (!!epi && epi.camera(pos, target)),
     onChoice: (tag) => (ctx.chapter ? ctx.chapter.onChoice(tag) : null),
     portal: null, // 'pad' once the walker has gone back through the door
     setWalker(p) {
@@ -783,6 +788,14 @@ export function createLightCity(ctx) {
       // ship in colours the archive never held
       const ch = ctx.chapter;
       if (ch && ch.home()) {
+        if (!epi) {
+          try {
+            epi = createEpilogue({ group, chapter: ch, hangar, lightDir, pavilion, floorYAt: site.floorYAt, npcs: site.npcs, colliders });
+          } catch (err) {
+            console.warn('[lightcity] the epilogue could not be built', err);
+          }
+        }
+        if (epi) epi.stop(); // (puts the light ship where the story has it)
         if (!ch.reached('done')) chapterHud.say(ch.returnLine(), 9);
         const entry = loadFirstEntry();
         if (entry) {
@@ -798,6 +811,7 @@ export function createLightCity(ctx) {
       if (!inside) return;
       inside = false;
       if (demo) demo.stop();
+      if (epi) epi.stop();
       group.visible = false;
       ctx.scene.fog = prev.fog;
       sun.light.position.copy(prev.lightPos);
@@ -815,6 +829,7 @@ export function createLightCity(ctx) {
       floorU.uTime.value = t;
       hangar.tick(t);
       chapterHud.tick(dt);
+      if (epi) epi.tick(dt, t, walker);
       if (demo) demo.tick(dt, t);
       pavilion.tick(dt, t);
       // the sky goes where the eye goes: from the suite, half a kilometre up, it
@@ -834,7 +849,7 @@ export function createLightCity(ctx) {
       terrace: [0, 0, TERR_Z + 8], greeter: [0, 0, GREET.z + 2.6], gallery: [GALL_X, 0, TERR_Z],
       ...pavilion.places,
     },
-    info: () => ({ towers: city.towers, cells: hangar.cells, demo: demo ? demo.state() : null }),
+    info: () => ({ towers: city.towers, cells: hangar.cells, demo: demo ? demo.state() : null, epi: epi ? epi.state() : null }),
   };
   return site;
 }
