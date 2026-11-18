@@ -26,6 +26,11 @@
 //                        it left (a door, the menu, a world reset)
 //   platform.tick(dt, t) every rendered frame while walked, isolated or not
 //   platform.speed       a multiple of the usual walking and running pace
+//   platform.held()      true while the place is showing the walker something:
+//                        they stand still and nothing can be used
+//   platform.camera(pos, target) -> true if the place has taken the camera
+//                        (writes both, platform-local; src/chapter.js scenes)
+//   console.off()        true while a console is not there to be used
 //
 // walk.js dispatches its public surface here whenever capitalActive().
 
@@ -197,7 +202,7 @@ export function stepCapitalWalk(dt) {
   _wish.set(sinY * axes.fwd + -cosY * axes.strafe, 0, cosY * axes.fwd + sinY * axes.strafe);
   const targetSpeed = (input.sprint ? C.SKY_RUN_SPEED : C.SKY_WALK_SPEED) * (site.speed || 1);
   if (_wish.lengthSq() > 0) _wish.normalize().multiplyScalar(targetSpeed * axes.mag);
-  if (isDialogueOpen()) _wish.set(0, 0, 0); // stand still while spoken to
+  if (isDialogueOpen() || (site.held && site.held())) _wish.set(0, 0, 0); // stand still while spoken to, or shown something
 
   const accel = cWalk.grounded ? C.WALK_ACCEL_GROUND : C.WALK_ACCEL_AIR;
   _move.subVectors(_wish, cWalk.vel);
@@ -319,7 +324,9 @@ function focus() {
   _focus.it = null;
   if (!site) return null;
   let best = Infinity;
+  if (site.held && site.held()) return null;
   for (const c of site.consoles) {
+    if (c.off && c.off()) continue;
     const dx = cWalk.pos.x - c.x, dz = cWalk.pos.z - c.z;
     const d2 = dx * dx + dz * dz;
     if (Math.abs(cWalk.pos.y - c.y) < 2.5 && d2 < c.r * c.r && d2 < best) {
@@ -422,6 +429,15 @@ export function updateCapitalCamera(camera, delta = 0) {
   _up.set(0, 1, 0).applyQuaternion(site.group.quaternion);
   if (gun.active) {
     gunCamera(camera, toWorld, _up);
+    camSnap = true;
+    return;
+  }
+  // the place has the camera (a scene being shown): take its word for it
+  if (site.camera && site.camera(_desired, _target)) {
+    toWorld(_desired, camera.position);
+    toWorld(_target, _target);
+    camera.up.copy(_up);
+    camera.lookAt(_target);
     camSnap = true;
     return;
   }

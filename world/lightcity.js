@@ -28,6 +28,7 @@ import { doorFrame, doorLight, DOOR } from './farlanding.js';
 import { holeDirection } from './farhole.js';
 import { buildHangar, HANGAR_BOX } from './lightvessel.js';
 import { buildPavilion } from './lightpavilion.js';
+import { createDemo } from './lightdemo.js';
 
 const SNAP = 1.2;
 const DOOR_Z = 10; // the way back
@@ -429,7 +430,7 @@ function buildCity(group, lightDir) {
   craft.frustumCulled = false;
   group.add(craft);
 
-  return { uniforms, groundU, craftU, rings, towers: n };
+  return { uniforms, groundU, craftU, rings, towers: n, parts: [spires, slabs, ground, craft, ...rings] };
 }
 
 function buildSky(group, lightDir) {
@@ -613,6 +614,13 @@ export function createLightCity(ctx) {
 
   const city = buildCity(group, lightDir);
   const hangar = buildHangar(group);
+  // ...and the first thing the pilot is shown of it (world/lightdemo.js): asked
+  // for at the gallery's far rail, where the whole hull is in view
+  const demo = ctx.chapter ? createDemo(group, hangar, ctx.chapter, { x: GALL_X - GALL_R + 4, z: TERR_Z }, (on) => {
+    // while the ship is away the city is not what is round it
+    for (const m of city.parts) m.visible = on;
+  }) : null;
+  if (demo) consoles.push(demo.console);
 
   // --- the light the walker leaves behind: sparks wound round the path just
   // walked, three strands of them, fading as they open out ---
@@ -723,6 +731,8 @@ export function createLightCity(ctx) {
     npcs: [{ x: GREET.x, y: 0, z: GREET.z, role: 'greeter', talk: () => ctx.greet() }, ...npcs],
     consoles,
     rooms: pavilion.rooms,
+    held: () => !!demo && demo.held(),
+    camera: (pos, target) => !!demo && demo.camera(pos, target),
     onChoice: (tag) => (ctx.chapter ? ctx.chapter.onChoice(tag) : null),
     portal: null, // 'pad' once the walker has gone back through the door
     setWalker(p) {
@@ -760,6 +770,7 @@ export function createLightCity(ctx) {
     onLeave() {
       if (!inside) return;
       inside = false;
+      if (demo) demo.stop();
       group.visible = false;
       ctx.scene.fog = prev.fog;
       sun.light.position.copy(prev.lightPos);
@@ -776,6 +787,7 @@ export function createLightCity(ctx) {
       city.craftU.uScale.value = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((C.FOV * Math.PI) / 360);
       floorU.uTime.value = t;
       hangar.tick(t);
+      if (demo) demo.tick(dt, t);
       pavilion.tick(dt, t);
       // the sky goes where the eye goes: from the suite, half a kilometre up, it
       // would otherwise be cut by the far plane on the far side of the city
@@ -794,7 +806,7 @@ export function createLightCity(ctx) {
       terrace: [0, 0, TERR_Z + 8], greeter: [0, 0, GREET.z + 2.6], gallery: [GALL_X, 0, TERR_Z],
       ...pavilion.places,
     },
-    info: () => ({ towers: city.towers, cells: hangar.cells }),
+    info: () => ({ towers: city.towers, cells: hangar.cells, demo: demo ? demo.state() : null }),
   };
   return site;
 }

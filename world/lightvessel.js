@@ -55,6 +55,9 @@ const CELL_VERT = /* glsl */ `
 `;
 const CELL_FRAG = /* glsl */ `
   uniform float uTime;
+  uniform float uFlight; // 0 at rest .. 1 under way (world/lightdemo.js)
+  uniform float uPhase; // how far round the spectrum flight has carried it
+  uniform float uFlash; // 0..1: every cell white, at a jump
   varying vec3 vLocal;
   varying vec3 vLN;
   varying vec3 vWorld;
@@ -90,8 +93,10 @@ const CELL_FRAG = /* glsl */ `
 
     // its colour: all the way round the spectrum, at its own pace, from its
     // own place in it
+    // Under way (uFlight) the cells stop keeping their own time: they fall in
+    // with each other and the whole spectrum runs down the hull as one prism.
     float rate = 0.035 + 0.11 * fract(vSeed * 7.31);
-    vec3 tintC = hue(vSeed + uTime * rate);
+    vec3 tintC = hue(vSeed * (1.0 - 0.8 * uFlight) + uTime * rate + uPhase + uFlight * vWorld.z * 0.0035);
     vec3 V = normalize(cameraPosition - vWorld);
     float facing = max(dot(normalize(vN), V), 0.0);
     // glass lit from inside: brightest in the middle of the pane
@@ -118,6 +123,7 @@ const CELL_FRAG = /* glsl */ `
     // the frame it is held in, and the shine on the glass
     col = mix(col, vec3(0.05, 0.06, 0.08) + tintC * 0.06, frame);
     col += vec3(1.0) * pow(1.0 - facing, 3.0) * 0.30;
+    col = mix(col * (1.0 + 0.2 * uFlight), vec3(1.7), uFlash);
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -147,14 +153,20 @@ const GLASS_FRAG = /* glsl */ `
   }
 `;
 
-// Builds it all into `group` (the city's). Returns { tick(t), cells }.
+// Builds it all into `group` (the city's). Returns { tick(t), cells, and the
+// parts a flight moves }.
 export function buildHangar(group) {
   const root = new THREE.Group();
   root.position.set(VESSEL.x, VESSEL.y, VESSEL.z);
   group.add(root);
   const r = rng(0xbea57);
   const dummy = new THREE.Object3D();
-  const uniforms = { uTime: { value: 0 } };
+  const uniforms = { uTime: { value: 0 }, uFlight: { value: 0 }, uPhase: { value: 0 }, uFlash: { value: 0 } };
+  // the vessel itself, apart from the yard it is built in: it can be moved
+  const vessel = new THREE.Group();
+  root.add(vessel);
+  const yard = new THREE.Group();
+  root.add(yard);
   const cellMat = new THREE.ShaderMaterial({ vertexShader: CELL_VERT, fragmentShader: CELL_FRAG, uniforms, fog: false });
 
   // --- the cells: a block NX deep, NY tall, NZ long, still being added to ---
@@ -200,7 +212,7 @@ export function buildHangar(group) {
   });
   cells.geometry.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seeds, 1));
   cells.frustumCulled = false;
-  root.add(cells);
+  vessel.add(cells);
 
   // --- the bow: a bulb of hexagonal cells round the end of the spine ---
   const BOW_Z = 330;
@@ -223,7 +235,7 @@ export function buildHangar(group) {
   }
   hexes.geometry.setAttribute('aSeed', new THREE.InstancedBufferAttribute(hseeds, 1));
   hexes.frustumCulled = false;
-  root.add(hexes);
+  vessel.add(hexes);
 
   // --- the structure: spine, drive, and the yard it floats over ---
   const lit = [], glow = [];
@@ -255,6 +267,13 @@ export function buildHangar(group) {
       glow.push(tint(box(3, 3, 3, 0, rr, zz + tube + 1).rotateZ(a), 0x9fe8ff, 1.8));
     }
   }
+  const litMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x161a20 });
+  const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });
+  const flatten = (list) => list.map((g) => (g.index ? g.toNonIndexed() : g));
+  vessel.add(mergedMesh(flatten(lit), litMat));
+  vessel.add(mergedMesh(flatten(glow), glowMat));
+  lit.length = 0;
+  glow.length = 0;
   // the yard below: a deck of plates with work going on along its lines
   const YARD_Y = -230;
   lit.push(tint(box(420, 10, 980, 0, YARD_Y - 5, -70), DARK));
@@ -276,10 +295,8 @@ export function buildHangar(group) {
   for (const x of [-340, 340]) lit.push(tint(box(22, 14, 1160, x, ROOF_Y, -50), DARK));
   for (let x = -280; x <= 280; x += 70) lit.push(tint(box(3, 3, 1150, x, ROOF_Y + 8, -50), STEEL));
 
-  const litMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x161a20 });
-  const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });
-  root.add(mergedMesh(lit.map((g) => (g.index ? g.toNonIndexed() : g)), litMat));
-  root.add(mergedMesh(glow.map((g) => (g.index ? g.toNonIndexed() : g)), glowMat));
+  yard.add(mergedMesh(flatten(lit), litMat));
+  yard.add(mergedMesh(flatten(glow), glowMat));
 
   // --- the hangar's glass: tall leaning blades down each side, from the yard
   // to the roof, the near row framing the view from the gallery ---
@@ -298,10 +315,14 @@ export function buildHangar(group) {
     transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false,
   }));
   glass.renderOrder = 2;
-  root.add(glass);
+  yard.add(glass);
 
   return {
     cells: list.length + hexN,
+    // for the flight (world/lightdemo.js): the hull, the yard round it, the
+    // cells' uniforms, and where the helm is, in the vessel's own frame
+    root, vessel, yard, uniforms, glowMat,
+    helm: new THREE.Vector3(0, 96, BOW_Z + 10),
     tick(t) {
       uniforms.uTime.value = t;
     },

@@ -497,6 +497,7 @@ export function createFarside(ctx) {
       station: !!ctx.fleets()?.stationed(),
       inCity: !!(city && city.inside()),
       cityTowers: city ? city.info().towers : null,
+      demo: city ? city.info().demo : null,
       fade,
       altitude: alt,
       groundY: groundY(),
