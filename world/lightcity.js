@@ -851,7 +851,7 @@ export function createLightCity(ctx) {
     const ch = ctx.chapter;
     if (offer || !ch || !ch.ezOpen() || (epi && epi.held())) return;
     try {
-      offer = createEntryOffer({ group, robotMat, glowMat, npcs: site.npcs, colliders, chapter: ch, at: { x: -6.5, z: -5 }, wall: { x: -24, y: 7.2, z: -5 } });
+      offer = createEntryOffer({ group, robotMat, glowMat, npcs: site.npcs, colliders, consoles, chapter: ch, at: { x: -6.5, z: -5 }, wall: { x: -24, y: 7.2, z: -5 }, vessel: { x: 13.6, z: -4 }, board: () => (site.portal = 'well') });
       pavilion.hideVisitor();
       if (ch.before('ez_offer')) chapterHud.say(OFFER.found, 8);
     } catch (err) {
@@ -894,6 +894,9 @@ export function createLightCity(ctx) {
       return r !== undefined ? r : ctx.chapter ? ctx.chapter.onChoice(tag) : null;
     },
     portal: null, // 'pad' once the walker has gone back through the door
+    // back up the well in the submersible (world/submersible.js): at the east rail
+    fromWell: new THREE.Vector3(7.5, 0, -4),
+    fromWellYaw: -Math.PI / 2,
     setWalker(p) {
       pavilion.setWalker(p);
       if (!p) {

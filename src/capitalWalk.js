@@ -305,7 +305,7 @@ export function updateCapitalVisuals(dt, t) {
   _q.setFromAxisAngle(_yAxis, cWalk.facingYaw);
   astronaut.group.quaternion.copy(site.group.quaternion).multiply(_q);
   astronaut.update(dt, cWalk.mode, cWalk.speed01);
-  astronaut.group.visible = cWalk.view === 'tp' && !gun.active;
+  astronaut.group.visible = cWalk.view === 'tp' && !gun.active && !site.hidePilot; // (hidePilot: seated out of sight, at a vehicle's controls)
   updateGunVisuals(dt, toWorld);
   site.setWalker(cWalk.pos);
   if (site.tick) site.tick(dt, t);

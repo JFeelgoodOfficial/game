@@ -50,6 +50,11 @@ export const input = {
   fireTouch: false, // FIRE touch button held (touchControls.js)
   adsTouch: false, // AIM touch toggle (touchControls.js)
   coinDash: false, // DASH touch button on stevenlacey; src/coinWalk.js consumes it
+  // Entry Zero's lamp (src/lamp.js), read where the lamp is carried.
+  bandPrev: false, // Q edge-trigger: the band before this one (E is the one after)
+  lampToggle: false, // L edge-trigger: lamp on / off
+  allBands: false, // Z held: every band at once, once that has been learned
+  sink: false, // SINK touch button held in the submersible (src/lampHud.js); Shift on a keyboard
 };
 
 // The flight throttle, -1..1: the lever's deflection plus W/S as full throw.
@@ -153,6 +158,11 @@ function setKey(e, down) {
     case 'KeyC': if (down) input.toggleInterior = true; break; // stand up in the ship
     case 'KeyT': if (down) input.toggleView = true; break; // first/third person on foot
     case 'KeyB': if (down) input.toggleBoard = true; break; // snowboard on/off on foot
+    // Entry Zero's lamp (src/lamp.js): Q steps a band back (E, as `interact`,
+    // steps one on), L is the lamp itself, Z held is every band at once.
+    case 'KeyQ': if (down) input.bandPrev = true; break;
+    case 'KeyL': if (down) input.lampToggle = true; break;
+    case 'KeyZ': input.allBands = down; break;
     case 'KeyI': if (down) input.toggleVehicles = true; break; // vehicle selector on foot
     case 'KeyP': if (down) input.photo = true; break; // take a photo
     // R: screen recording, except in a warzone where it reloads (game.js gates

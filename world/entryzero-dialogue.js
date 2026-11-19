@@ -88,6 +88,32 @@ export const OFFER = {
   codex: 'Entry Zero',
 };
 
+// --- 2. the well: trying the lamp ---------------------------------------------------
+// Six targets hang in the shaft under the city, one for each band. `what` is
+// shown when one is found; it is the reason the thing shows in that band.
+export const WELL = {
+  enter: [
+    [1.5, 'vask', 'Six targets in the shaft. One for each band. Find them before we go any deeper.'],
+    [9, 'lux', 'So we can only ever see a sixth of what is out there. Lovely.'],
+  ],
+  targets: [
+    { band: 'bluegreen', what: 'LIVING LIGHT. WATER PASSES THIS COLOUR FURTHEST.' },
+    { band: 'uv', what: 'FLUORESCENCE. IT TAKES IN ULTRAVIOLET AND GIVES BACK A PATTERN.' },
+    { band: 'ir', what: 'BODY HEAT. IT GLOWS BY ITSELF. WATER WOULD HIDE IT.' },
+    { band: 'halpha', what: 'HYDROGEN, EXCITED. ONE LINE AND NO OTHER.' },
+    { band: 'xray', what: 'DENSITY. THE BEAM GOES THROUGH WHAT IS SOFT.' },
+    { band: 'radio', what: 'A SIGNAL. NOTHING TO SEE. IT GETS LOUDER AS YOU POINT.' },
+  ],
+  found: 'CALIBRATED — {band}. {what}',
+  radio: ['marrow', 'That one is not for looking. Point the lamp and listen.'],
+  xray: ['vask', 'That band goes through us as well. I will read the dose.'],
+  dose: ['vask', 'DOSE AT {n} PERCENT.'],
+  low: ['vask', 'Lamp at a quarter. Turn it off and it comes back.'],
+  done: ['vask', 'Six for six. It works.'],
+  up: 'THE RING ABOVE GOES BACK UP TO THE CITY',
+  board: 'E — BOARD THE VESSEL',
+};
+
 // --- 4. the firewall --------------------------------------------------------------
 export const FIREWALL = {
   first: ['vask', 'Everything burns except what glows like them.'],

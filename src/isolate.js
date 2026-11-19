@@ -142,6 +142,10 @@ const WORLD_RENDER = {
   // ...and its bridge, at the black hole (world/divebridge.js): dark, with
   // the ring, the wire and the flood left to bloom.
   dive: { exposure: 0.9, bloomThreshold: 0.9, bloomStrength: 0.6 },
+  // Inside the megaworld (world/submersible.js, GDD 5.7.5): black, and lit by
+  // one lamp, so whatever answers it blooms. `far`: the hollow is bigger than
+  // a place that is walked, and nothing in it needs contact shadows.
+  hollow: { exposure: 1.0, bloomThreshold: 0.8, bloomStrength: 0.7, far: 9000 },
   terra: GENERIC_RENDER,
   rustia: GENERIC_RENDER,
   neptunia: GENERIC_RENDER,
@@ -236,7 +240,7 @@ export function acquireSurface(keep, renderer, aoPass, camera, bloomPass) {
 
   if (camera) {
     iso.prevFar = camera.far;
-    camera.far = ISO_FAR;
+    camera.far = R.far || ISO_FAR;
     camera.updateProjectionMatrix();
   }
 

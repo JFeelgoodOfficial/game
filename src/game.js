@@ -1437,6 +1437,9 @@ const FAR_HOPS = {
   hall: ['ship', 'fromBridge', 'fromBridgeYaw', 'lightship'],
   shuttle: ['shuttle', 'spawn', 'spawnYaw', 'dive'],
   hatch: ['bridge', 'fromShuttle', 'fromShuttleYaw', 'dive'],
+  // Entry Zero (GDD 5.7.5): down the well under the city in the submersible, and back
+  well: ['sub', 'spawn', 'spawnYaw', 'hollow'],
+  wellup: ['city', 'fromWell', 'fromWellYaw', 'lightcity'],
 };
 let doorT = -1;
 let doorTo = null;
