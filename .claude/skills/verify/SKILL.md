@@ -570,3 +570,19 @@ the wall; looking at one on H-alpha gives Vask's line. Radiation feeders
 (zone 2): 120 from `life.feederAt`, `life.feeding` stays 0 until the X-ray
 band is on, then reaches 2 or more and the dose climbs about four times as
 fast; off that band they settle within 6 game seconds.
+
+The oldest strata (zone 4, stage `ez_deep` on arrival; seed `ez: {log: 63,
+node: 4}` with stage `ez_firewall`): `sub.hollow` adds `slabs` (34), `slabAt`
+(the first three: `{c, h}` centre and half extents), `pull` (u/s² down at the
+vessel; 0 at the top, 7 at the bottom) and `caller` → `{at, dist, coming,
+hold}`. Weight: `subSet` four fifths of the way to `hollow.exit`, hands off,
+and `sub.at[1]` falls. Rock: `subSet({at: slab.c})` and the vessel is put
+back outside it within a frame; 330 above a slab, `look`ing at it on X-ray,
+gives Lux's line after 1.5 game seconds. The listener: `caller.coming` is
+false until the drive is pushed (`input.brake` or any thrust), then it closes
+at 34 u/s on where it last heard the vessel; 5 game seconds of no thrust and
+`coming` goes false again. On the radio band `sub.audio.radio.near` is higher
+`look`ing at `caller.at` than away from it, and `sub.audio.dread` rises
+inside 1,300. `subSet` the vessel 60 from `caller.at` with `input.forward`
+held: after 2.5 game seconds the pulse takes it back to the node (Vask: `It
+has the lamp`). At `hollow.exit` Marrow says the lattice stops there.

@@ -576,6 +576,7 @@ export const C = {
   EZ_ZONE1_LEN: 5200.0, // entry node to exit node: the outer oceans
   EZ_ZONE2_LEN: 6200.0, // ...and the creature zone
   EZ_ZONE3_LEN: 2800.0, // ...and the firewall's: the wall is across the middle of it
+  EZ_ZONE4_LEN: 5600.0, // ...and the oldest strata, under it
   EZ_ZONE_WIDE: 2600.0, // how far off the lattice the vessel may wander
   EZ_SUB_DRAG_WATER: 1.7, // 1/s inside an ocean globe (EZ_SUB_DRAG is the dark between)
   EZ_NODE_R: 46.0, // inside this a lattice node takes the vessel, or recharges it
@@ -602,6 +603,15 @@ export const C = {
   EZ_BURN_TIME: 7.0, // seconds of the key band held on one place to open it
   EZ_BURN_HEAL: 4.0, // ...and to close again when the lamp comes off
   EZ_HOLE_R: 95.0, // how wide the hole gets
+  // The oldest strata (world/hollow.js, zone 4).
+  EZ_PULL_MAX: 7.0, // u/s^2 toward the centre at the bottom of the zone: weight, coming back
+  EZ_SLABS: 34, // pieces of the first worlds adrift there
+  // The one on the radio band that comes closer. It hears the drive.
+  EZ_CALLER_SPEED: 34.0, // u/s: about half the vessel flat out
+  EZ_CALLER_HEARS: 0.15, // how hard the drive must be pushed (0..1) for it to hear
+  EZ_CALLER_REACH: 170.0, // inside this it has the vessel
+  EZ_CALLER_HOLD: 2.5, // ...and after this many seconds there, it has the lamp
+  EZ_CALLER_LOSES: 5.0, // seconds of a silent drive before it stops coming
 };
 
 // How far each band of the lamp reaches, in units, by what it is shining
