@@ -128,7 +128,8 @@ void main() {
   float live = step(0.80, h21(tc + 13.0));
   vec3 tcol = mix(amber, cyan, step(0.6, h21(tc + 29.0)));
   col = mix(col, col * 1.9 + 0.006, trace * (1.0 - live));
-  col += tcol * trace * live * uHdr * 0.5 * (0.7 + 0.3 * sin(uTime * 2.0 + th * 40.0 + (th < 0.5 ? tuv.x : tuv.y) * 3.0));
+  // (a million years on almost none are live, and daylight is about to be laid over this)
+  col += tcol * trace * live * uHdr * 0.5 * (0.7 + 0.3 * sin(uTime * 2.0 + th * 40.0 + (th < 0.5 ? tuv.x : tuv.y) * 3.0)) * (1.0 - 0.995 * uEra);
 #endif
   // --- a million years on: the plating is ground now ---
   float dim = 1.0 - 0.94 * uEra; // what is left of the world's own light
