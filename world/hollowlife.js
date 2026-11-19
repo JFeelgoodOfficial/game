@@ -9,17 +9,22 @@
 //   line      H-alpha      a living veil of excited hydrogen: one emission line
 //   boned     X-ray        soft tissue is thin to it, bone is not
 //   caller    radio        never drawn; heard (world/entryzero-audio.js)
+//   guard     H-alpha      at the firewall: made of what the wall is made of,
+//                          which is why it lets them through
 //
 // A species is one InstancedMesh for every school of it in a zone, moved in
 // the vertex shader from a seed each, so a frame costs one uniform write. For
 // the log the CPU only needs to know where each school is and how big.
 //
-// The two threats want energy, not the hull:
+// The three threats want energy, not the hull:
 //
 //   light eaters   drawn to a lit lamp on any band but H-alpha, and drink the
 //                  beam. Seen only as edges in the light they are eating.
 //   heat leeches   seen only in infrared. They settle on the hull and take
 //                  the cabin's warmth; they cannot hold on at speed.
+//   radiation feeders   asleep, and dense enough to show on X-ray. The X-ray
+//                  band wakes them; at the glass they throw it back, and the
+//                  dose climbs faster. They settle when the band is left.
 //
 // Those are a handful of bodies stepped on the CPU, into preallocated arrays.
 
@@ -31,10 +36,11 @@ import { BANDS, LIFE } from './entryzero-dialogue.js';
 const bandOf = (id) => BANDS.findIndex((b) => b.id === id);
 
 // kind -> what the body is, and the shader branch that draws it
-const KIND = { drifter: 0, painted: 1, warm: 2, line: 3, boned: 4 };
+const KIND = { drifter: 0, painted: 1, warm: 2, line: 3, boned: 4, guard: 5 };
 function bodyGeometry(kind) {
   if (kind === 'drifter') return new THREE.SphereGeometry(1, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.55); // a bell
   if (kind === 'painted') return new THREE.SphereGeometry(1, 12, 8).scale(0.34, 0.5, 1.5); // long, and flat-sided
+  if (kind === 'guard') return new THREE.OctahedronGeometry(1, 2).scale(0.4, 0.4, 2.2); // a spindle
   if (kind === 'line') return new THREE.TorusKnotGeometry(1, 0.26, 96, 10, 2, 3);
   if (kind === 'boned') return new THREE.SphereGeometry(1, 14, 10).scale(0.55, 0.6, 1.4);
   return new THREE.SphereGeometry(1, 12, 8); // warm: a blob
@@ -107,6 +113,13 @@ const LIFE_FRAG = /* glsl */ `
       float run = 0.6 + 0.4 * sin(vL.x * 6.0 + uTime * 0.8);
       col = uTint * (0.25 + 2.0 * rim) * run;
       a = 0.2 + 0.8 * rim;
+    } else if (uKind == 5) {
+      // the wall's own gas, with a will: bright along its edges, and a seam of it down the middle
+      seen = lampSeen(3.0, vW);
+      float rim = pow(1.0 - face, 1.6);
+      float seam = smoothstep(0.12, 0.0, abs(n.x)) * (0.6 + 0.4 * sin(vL.z * 9.0 - uTime * 4.0));
+      col = uTint * (0.35 + 1.8 * rim + 1.4 * seam);
+      a = 0.3 + 0.7 * max(rim, seam);
     } else {
       seen = lampLit(4.0, vW);
       float soft = pow(1.0 - face, 1.5) * 0.45;
@@ -170,13 +183,32 @@ const LEECH_FRAG = /* glsl */ `
   }
 `;
 
+const FEEDER_FRAG = /* glsl */ `
+  ${LAMP_GLSL}
+  uniform float uTime;
+  varying vec3 vW;
+  varying vec3 vN;
+  varying float vState;
+  void main() {
+    // dense: X-rays stop in it, so on that band it is a hard bright shape.
+    // Awake, it gives some back, and then any beam finds its edge.
+    vec3 v = normalize(cameraPosition - vW);
+    float face = abs(dot(normalize(vN), v));
+    float x = lampLit(4.0, vW);
+    vec3 col = vec3(0.85, 0.9, 1.0) * x * (0.35 + 0.9 * face);
+    col += vec3(0.6, 0.75, 1.0) * vState * pow(1.0 - face, 2.0) * (0.25 + 0.6 * lampBeam(vW) * uLampOn) * (0.7 + 0.3 * sin(uTime * 11.0 + vW.z));
+    if (dot(col, vec3(1.0)) < 0.004) discard;
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
 function rng(seed) {
   let s = seed >>> 0;
   return () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
 }
 
 // k: { group, time, tier, schools: [{ kind, at: Vector3, range, size }], callers: [Vector3],
-//      eaters: [Vector3] (their haunts), leeches: [Vector3], seed }
+//      eaters: [Vector3] (their haunts), leeches: [Vector3], feeders: [Vector3], seed }
 // Returns the zone's life: step it, ask it what the lamp is on, dispose it.
 export function createLife(k) {
   const made = [];
@@ -188,7 +220,7 @@ export function createLife(k) {
   for (const sc of k.schools) (byKind[sc.kind] = byKind[sc.kind] || []).push(sc);
   for (const kind of Object.keys(byKind)) {
     const list = byKind[kind];
-    const per = kind === 'line' ? 1 : k.tier.school; // (the veil is one animal, and a big one)
+    const per = kind === 'line' ? 1 : kind === 'guard' ? Math.ceil(k.tier.school / 2) : k.tier.school; // (the veil is one animal, and a big one)
     const n = list.length * per;
     const geo = bodyGeometry(kind);
     const home = new Float32Array(n * 3), seed = new Float32Array(n * 4);
@@ -201,7 +233,7 @@ export function createLife(k) {
         home[o * 3 + 2] = sc.at.z + (rnd() - 0.5) * sc.range * 0.5;
         seed[o * 4] = rnd();
         seed[o * 4 + 1] = kind === 'line' ? sc.range * 0.3 : sc.range * (0.25 + 0.5 * rnd());
-        seed[o * 4 + 2] = (kind === 'line' ? 0.03 : 0.08 + 0.14 * rnd()) * (rnd() < 0.5 ? -1 : 1);
+        seed[o * 4 + 2] = (kind === 'line' ? 0.03 : kind === 'guard' ? 0.22 + 0.2 * rnd() : 0.08 + 0.14 * rnd()) * (rnd() < 0.5 ? -1 : 1);
         seed[o * 4 + 3] = sc.size * (kind === 'line' ? 1 : 0.6 + 0.8 * rnd());
       }
       groups.push({ kind, band: bandOf(LIFE[kind].band), at: sc.at, radius: sc.range + sc.size, hold: 0 });
@@ -245,6 +277,7 @@ export function createLife(k) {
   }
   const eaters = pests(k.eaters, k.tier.eaters, new THREE.OctahedronGeometry(1, 1).scale(1, 0.55, 1.6), EATER_FRAG, 7);
   const leeches = pests(k.leeches, k.tier.leeches, new THREE.SphereGeometry(1, 10, 6).scale(1, 0.45, 1.3), LEECH_FRAG, 3.2);
+  const feeders = pests(k.feeders || [], k.tier.feeders, new THREE.DodecahedronGeometry(1, 0), FEEDER_FRAG, 5);
 
   // toward `to` at up to `speed`, easing: into b.v / b.p
   function seek(b, to, speed, dt) {
@@ -260,7 +293,7 @@ export function createLife(k) {
     set.mesh.setMatrixAt(i, _m.compose(b.p, _q.setFromEuler(_e), _s.setScalar(b.size)));
   }
 
-  let drinking = 0, attached = 0;
+  let drinking = 0, attached = 0, feeding = 0, awake = 0;
 
   return {
     groups,
@@ -327,6 +360,32 @@ export function createLife(k) {
         leeches.mesh.instanceMatrix.needsUpdate = true;
         leeches.mesh.geometry.attributes.aState.needsUpdate = true;
       }
+      feeding = 0;
+      if (feeders) {
+        // X-rays in reach wake them; without any they settle after a while
+        const xray = lampLive() && (lamp.all || lamp.band === BAND.XRAY);
+        let near = false;
+        for (let i = 0; i < feeders.bodies.length && !near; i++) near = feeders.bodies[i].p.distanceTo(lamp.pos) < C.EZ_FEEDER_SEES;
+        awake = xray && near ? C.EZ_FEEDER_SLEEP : Math.max(0, awake - dt);
+        _t.copy(lamp.pos).addScaledVector(lamp.dir, 26);
+        for (let i = 0; i < feeders.bodies.length; i++) {
+          const b = feeders.bodies[i];
+          let d = Infinity;
+          if (awake > 0) {
+            _v.copy(_t).addScaledVector(b.slot, 20);
+            d = seek(b, _v, C.EZ_FEEDER_SPEED, dt);
+          } else seek(b, b.home, C.EZ_FEEDER_SPEED * 0.5, dt);
+          const want = awake > 0 ? (d < 70 ? 1 : 0.4) : 0;
+          b.on += (want - b.on) * Math.min(1, dt * 2);
+          if (b.on > 0.7) feeding++;
+          feeders.state[i] = b.on;
+          write(feeders, i, b, t);
+        }
+        feeders.mesh.instanceMatrix.needsUpdate = true;
+        feeders.mesh.geometry.attributes.aState.needsUpdate = true;
+      }
+      lamp.feeders = Math.min(1, feeding / 3);
+
       lamp.cabin = attached
         ? Math.max(0, lamp.cabin - C.EZ_CABIN_DRAIN * attached * dt)
         : Math.min(1, lamp.cabin + C.EZ_CABIN_WARM * dt);
@@ -356,6 +415,7 @@ export function createLife(k) {
     },
     drinking: () => drinking,
     attached: () => attached,
+    feeding: () => feeding,
     dispose() {
       for (const m of made) {
         k.group.remove(m);
@@ -365,8 +425,9 @@ export function createLife(k) {
     },
     info: () => ({
       groups: groups.map((g) => ({ kind: g.kind, band: BANDS[g.band].id, at: g.at.toArray().map(Math.round), radius: Math.round(g.radius) })),
-      eaters: eaters ? eaters.bodies.length : 0, leeches: leeches ? leeches.bodies.length : 0,
-      drinking: +drinking.toFixed(2), attached,
+      eaters: eaters ? eaters.bodies.length : 0, leeches: leeches ? leeches.bodies.length : 0, feeders: feeders ? feeders.bodies.length : 0,
+      drinking: +drinking.toFixed(2), attached, feeding, awake: +awake.toFixed(1),
+      feederAt: feeders ? feeders.bodies[0].p.toArray().map(Math.round) : null,
       eaterAt: eaters ? eaters.bodies[0].p.toArray().map(Math.round) : null,
       leechAt: leeches ? leeches.bodies[0].p.toArray().map(Math.round) : null,
     }),

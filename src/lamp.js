@@ -47,6 +47,8 @@ export const lamp = {
   dose: 0, // 0..1, from the X-ray band; it does not come back down by itself
   cabin: 1, // 0..1, the warmth aboard (heat leeches take it)
   eaters: 0, // 0..1, how much of the beam light eaters are drinking
+  feeders: 0, // 0..1, radiation feeders at the glass: the X-ray band costs more
+  lineBeam: false, // at the firewall the H-alpha band is a beam too (world/hollow.js says why)
   medium: 'void', // 'void' | 'water': what the lamp is shining through
   pos: new THREE.Vector3(),
   dir: new THREE.Vector3(0, 0, 1),
@@ -105,7 +107,7 @@ function refresh() {
   LAMP_U.uBand.value = lamp.band;
   LAMP_U.uAll.value = lamp.all ? 1 : 0;
   LAMP_U.uLampOn.value = lamp.on && lamp.energy > 0 ? 1 : 0;
-  LAMP_U.uLampLit.value = lamp.all || LIT[lamp.band] ? 1 : 0;
+  LAMP_U.uLampLit.value = lamp.all || LIT[lamp.band] || (lamp.lineBeam && lamp.band === BAND.HALPHA) ? 1 : 0;
   LAMP_U.uLampReach.value = reach;
   LAMP_U.uLampCone.value = Math.cos(C.EZ_LAMP_CONE);
   LAMP_U.uLampTint.value.copy(lamp.all ? WHITE : TINTS[lamp.band]);
@@ -133,7 +135,7 @@ export function stepLamp(dt, all) {
     const rate = C.EZ_LAMP_DRAIN * (lamp.all ? C.EZ_LAMP_ALL : 1) * (1 + lamp.eaters * C.EZ_LAMP_EATEN);
     lamp.energy = Math.max(0, lamp.energy - rate * dt);
     // X-rays are the one band that costs the crew something
-    if (lamp.all || lamp.band === BAND.XRAY) lamp.dose = Math.min(1, lamp.dose + C.EZ_DOSE_RATE * dt);
+    if (lamp.all || lamp.band === BAND.XRAY) lamp.dose = Math.min(1, lamp.dose + C.EZ_DOSE_RATE * (1 + lamp.feeders * C.EZ_FEEDER_DOSE) * dt);
   } else if (!lamp.on) {
     lamp.energy = Math.min(1, lamp.energy + C.EZ_LAMP_RECHARGE * dt);
   }
@@ -163,6 +165,7 @@ export function resetLamp(keepBand) {
   lamp.dose = 0;
   lamp.cabin = 1;
   lamp.eaters = 0;
+  lamp.feeders = 0;
   lamp.changed++;
   refresh();
 }
