@@ -230,7 +230,7 @@ export const CENTRE = {
   near: ['vask', 'Every band at once only goes as far as the shortest. Infrared. A hundred units. Get lower.'],
   solid: ['marrow', 'That is ground. Hold the light on it. Hold us still.'],
   gone: ['lux', 'It went. The ground went.'],
-  eaten: ['vask', 'They are eating the light. No light, no ground.'],
+  eaten: ['vask', 'They are eating all of it. No light, no ground. Lamp off, let them go, and light it again.'],
   altitude: 'ALTITUDE {alt}\nGROUND {pct}%',
   // the pilot's choice, once it holds
   ask: {

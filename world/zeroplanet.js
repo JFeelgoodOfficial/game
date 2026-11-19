@@ -86,9 +86,12 @@ const PLANET_FRAG = /* glsl */ `
     // every band at once: the thing itself. Faint, until the light is near
     // enough to land on it, and then it is rock and dry sea-bed and lit.
     vec3 body = mix(vec3(0.05, 0.16, 0.2), vec3(0.26, 0.21, 0.16) * (0.6 + 0.8 * h), land);
-    col *= mix(1.0, 0.45, uSeen);
+    col *= mix(1.0, 0.4, uSeen) * (1.0 - 0.75 * uSolid);
     col += body * uSeen * (0.16 + 0.25 * pow(1.0 - face, 2.0));
-    col += body * 3.2 * lampBeam(vW) * uSolid * uAll;
+    // (close to, the ground has grain: stones, and the cracked floor of a sea)
+    float grain = 0.55 + 0.45 * vnoise(vL * 0.35) + 0.25 * (vnoise(vL * 1.7) - 0.5);
+    float cracks = mix(1.0, smoothstep(0.0, 0.05, abs(vnoise(vL * 0.11 + 5.0) - 0.5)), 1.0 - land);
+    col += body * grain * cracks * 1.5 * lampBeam(vW) * uSolid * uAll;
     if (dot(col, vec3(1.0)) < 0.004) discard;
     gl_FragColor = vec4(col, 1.0);
   }
@@ -114,9 +117,10 @@ export function createCentre(k) {
     planet.position.copy(centre);
     planet.frustumCulled = false;
     root.add(planet);
-    // the light eaters are here too, over the side of it the vessel comes down on
-    const haunt = (a, b) => new THREE.Vector3(centre.x + Math.cos(a) * (R + 260) * Math.cos(b), centre.y + (R + 260) * Math.sin(b), centre.z + Math.sin(a) * (R + 260) * Math.cos(b));
-    life = createLife({ group: root, time: k.time, tier: k.tier, schools: [], callers: [], eaters: [haunt(0.4, 1.0), haunt(3.2, 1.1)], leeches: [], feeders: [], seed: 0x10ce05 });
+    // the light eaters are here too, round the sides of it: a lit lamp over
+    // the top brings them in about twenty seconds, and a dark one sends them back
+    const haunt = (a, b) => new THREE.Vector3(centre.x + Math.cos(a) * (R + 420) * Math.cos(b), centre.y + (R + 420) * Math.sin(b), centre.z + Math.sin(a) * (R + 420) * Math.cos(b));
+    life = createLife({ group: root, time: k.time, tier: k.tier, schools: [], callers: [], eaters: [haunt(0.4, 0.42), haunt(3.2, 0.48)], leeches: [], feeders: [], seed: 0x10ce05 });
   }
   function free() {
     if (life) life.dispose();
@@ -190,7 +194,8 @@ export function createCentre(k) {
       alt = d - R;
       const aimed = _v.dot(lamp.dir) / d > 0.45; // the lamp is on it, more or less
       const all = lamp.all && lampLive();
-      const eaten = lamp.eaters > 0.6;
+      // the eaters wear the lamp down (src/lamp.js); with all of them on the beam there is none left for the ground
+      const eaten = lamp.eaters >= 0.99;
       seen += ((all && aimed ? 1 : 0) - seen) * Math.min(1, dt * 1.5);
       const reach = all && aimed && !eaten && alt < lamp.reach && alt > 0;
       solid = reach ? Math.min(1, solid + dt / C.EZ_SOLID_IN) : Math.max(0, solid - dt / C.EZ_SOLID_OUT);

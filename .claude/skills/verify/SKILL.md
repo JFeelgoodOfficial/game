@@ -586,3 +586,25 @@ at 34 u/s on where it last heard the vessel; 5 game seconds of no thrust and
 inside 1,300. `subSet` the vessel 60 from `caller.at` with `input.forward`
 held: after 2.5 game seconds the pulse takes it back to the node (Vask: `It
 has the lamp`). At `hollow.exit` Marrow says the lattice stops there.
+
+The centre (`world/zeroplanet.js`, zone 5, stage `ez_centre`; seed `ez: {log:
+63, node: 5}` with stage `ez_centre` to arrive there from the well): from zone
+4, `subSet` 380 below `hollow.exit` and sink, and the vessel falls (`sub.ride`,
+no streaks, Lux's line). There `sub.lamp.canAll` is true, `lamp.medium` is
+`fog`, and `sub.hollow` → `{zone: 5, centre, r, alt, seen, solid, hold, reach,
+asked, stay, life}`. Each band draws one thing about the planet from any
+distance (`subSet` 900 above its top, `look` at `centre`). Every band:
+`page.keyboard.down('z')`; `lamp.all` true, `lamp.reach` 100, `seen` → 1
+(Lux: `It's only there while we look at it`). Not solid, the planet can be
+flown into (`alt` negative). `subSet({at: [0, centre[1] + r + 85, 0], pitch:
+-1.35})` with Z down: `solid` → 1 in 3 game seconds, `#chHud .panel` reads the
+altitude, and the hull cannot go under 30. Held there 4 game seconds,
+`sub.choosing` goes true and `#dlgPanel` asks who stays: `e` twice, then `1`
+`2` or `3` (Vask, Marrow, Lux) saves `ez.stay`; `x` instead leaves it unasked
+and it is asked again the next time the ground holds (the vessel sinks while
+the light is off: `subSet` it back first, and `subSet({lamp: {energy: 1}})`).
+While being asked the vessel is held still and the light kept on. After the
+choice the lamp stays on every band without the key while `alt` < 260; `l`
+turns it off and `solid` falls to 0 in 2 game seconds. Light eaters reach a
+lit lamp over the top in about 20 game seconds and only take the ground when
+`lamp.eaters` reads 1.
