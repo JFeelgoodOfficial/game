@@ -640,6 +640,9 @@ export const C = {
   EZ_RITE_FIRST: 25.0, // seconds of flight over the old megaworld before the rite is first seen
   EZ_RITE_EVERY: 260.0, // ...and between one showing of it and the next
   EZ_RITE_TIME: 46.0, // how long the cages stay lit
+  // The launch (world/launch.js): the light ship, out from the megaworld and into the hole.
+  EZ_LAUNCH_TIME: 74.0, // how long it lasts
+  EZ_LAUNCH_CROSS: 56.0, // seconds in, the horizon is crossed
 };
 
 // How far each band of the lamp reaches, in units, by what it is shining

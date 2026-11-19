@@ -37,7 +37,7 @@ import { DEMO } from './chapter-dialogue.js';
 import { chapterHud } from '../src/chapterHud.js';
 import { loadFirstEntry, worldFrom } from './firstcreature.js';
 import { createEntryOffer } from './entryoffer.js';
-import { OFFER } from './entryzero-dialogue.js';
+import { OFFER, LAUNCH } from './entryzero-dialogue.js';
 import { ERA } from '../src/era.js';
 import { createEraCity } from './eracity.js';
 
@@ -733,6 +733,16 @@ export function createLightCity(ctx) {
     });
   }
 
+  // ...and a million years on, with the ship back: the same place, and the
+  // last thing the pilot is asked (world/launch.js, GDD 5.7.5)
+  if (ctx.chapter) {
+    consoles.push({
+      x: BOARD.x, y: 0, z: BOARD.z, r: 5.5, prompt: LAUNCH.board,
+      off: () => !ctx.chapter.reached('ez_era'),
+      use: () => ctx.chapter.launchTalk(),
+    });
+  }
+
   // --- the light the walker leaves behind: sparks wound round the path just
   // walked, three strands of them, fading as they open out ---
   const hist = []; // a ring of { x, y, z, dx, dz, t }
@@ -926,6 +936,10 @@ export function createLightCity(ctx) {
     heldPrompt: () => (race ? race.quitPrompt() : null),
     camera: (pos, target) => (!!demo && demo.camera(pos, target)) || (!!epi && epi.camera(pos, target)) || (!!race && race.camera(pos, target)),
     onChoice: (tag) => {
+      if (tag === 'ez:launch') {
+        site.portal = 'launch'; // aboard, and away: there is no way back from this
+        return null;
+      }
       const r = race ? race.onChoice(tag) : undefined;
       return r !== undefined ? r : ctx.chapter ? ctx.chapter.onChoice(tag) : null;
     },

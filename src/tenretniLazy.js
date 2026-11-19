@@ -126,6 +126,7 @@ export const enterFar = () => mod && mod.enterFar();
 // through its door), and whether a door there has just been walked through.
 export const farSite = (kind) => (mod ? mod.farSite(kind) : null);
 export const farDoor = () => (mod ? mod.farDoor() : null);
+export const farBeyond = () => (mod ? mod.farBeyond() : false);
 // The first time on the far side, the Landing takes the helm unasked (once).
 export const farWantsLanding = (dt) => (mod ? mod.farWantsLanding(dt) : false);
 export const farMarkLanded = () => mod && mod.farMarkLanded();

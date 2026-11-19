@@ -32,7 +32,7 @@ import { uiSound } from './sfx.js';
 import { LAYERS } from '../world/layerplanet.js';
 import { C } from './constants.js';
 import { WORLDS, CAPTAINS, SUITE_OFFER, SUITE_ACCEPT, SUITE_WAIT, SUITE_REMIND, RETURN } from '../world/chapter-dialogue.js';
-import { BANDS, RELICS, OFFER, ERA } from '../world/entryzero-dialogue.js';
+import { BANDS, RELICS, OFFER, ERA, LAUNCH } from '../world/entryzero-dialogue.js';
 
 // Append only: a saved stage this list does not hold loads as 'suite'.
 export const STAGES = [
@@ -94,6 +94,8 @@ export function createChapter(ctx) {
         return OFFER.accept;
       }
       if (tag === 'ez:wait') return OFFER.wait;
+      // (the launch: the place it is asked at does the going, world/lightcity.js)
+      if (tag === 'ez:launch' || tag === 'ez:stay') return null;
       return null;
     },
 
@@ -178,6 +180,12 @@ export function createChapter(ctx) {
     ezOpen: () => at(stage) >= at('done') && epilogue,
     // the Archivist, at the rail (world/entryoffer.js)
     archivistTalk: () => (at(stage) >= at('ez_era') ? ERA.archivist : at(stage) < at('ez_offer') ? OFFER.ask : OFFER.remind),
+    // the light ship, at the gallery, a million years on: the last question
+    launchTalk: () => LAUNCH.ask,
+    // the saga's last stage: inside the hole, and nothing built past it
+    setBeyond() {
+      if (advance('ez_beyond')) addCodex(LAUNCH.codex);
+    },
     // the three clocks, in a line, said on coming back into the city a million years on
     eraLine() {
       const m = Math.max(1, Math.round(ez.clock / 60));
