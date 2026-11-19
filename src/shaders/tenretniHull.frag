@@ -12,6 +12,10 @@ uniform float uTime;
 // A light inside the frame (the megaworld's caged stars, world/megaworld.js):
 // xyz its place in vPos's space, w its strength. Unset (0) everywhere else.
 uniform vec4 uCore;
+// A million years on (src/era.js): growth over the plating, most windows dark,
+// and daylight of whatever strength there is. Unset (0) everywhere else.
+uniform float uEra;
+uniform float uDayK;
 
 float hash(vec3 p) {
   p = fract(p * 0.3183099 + 0.1);
@@ -25,7 +29,9 @@ void main() {
   vec3 cell = floor(vPos * uWin * 0.25);
   float plate = hash(cell);
   vec3 base = vec3(0.07, 0.08, 0.08) * (0.6 + 0.8 * plate);
-  vec3 lit = base * (0.06 + 1.2 * day);
+  float growth = uEra * smoothstep(0.3, 0.75, hash(floor(vPos * uWin * 0.06) + 1.3) * 0.65 + 0.35 * plate);
+  base = mix(base, vec3(0.045, 0.1, 0.04) * (0.6 + 0.8 * plate), growth * 0.8);
+  vec3 lit = base * (0.06 + 1.2 * day * mix(1.0, uDayK * 1.5, uEra));
   if (uCore.w > 0.0) {
     vec3 toCore = uCore.xyz - vPos;
     float cd = length(toCore);
@@ -34,11 +40,11 @@ void main() {
 
   vec3 wc = floor(vPos * uWin);
   float wh = hash(wc + 3.7);
-  float on = step(0.88, wh);
+  float on = step(mix(0.88, 0.992, uEra), wh);
   vec3 wcol = mix(vec3(0.15, 1.0, 0.45), vec3(0.3, 0.75, 1.0), step(0.93, wh));
   lit += wcol * on * uHdr * (0.6 + 0.4 * sin(uTime * 1.3 + wh * 50.0));
   // roofs glow: the tops of the towers carry the brightest light
-  lit += vec3(0.2, 1.0, 0.55) * smoothstep(0.93, 1.0, vUp) * uHdr * 0.4 * step(0.55, plate);
+  lit += vec3(0.2, 1.0, 0.55) * smoothstep(0.93, 1.0, vUp) * uHdr * 0.4 * step(0.55, plate) * (1.0 - uEra);
 
   gl_FragColor = vec4(lit, 1.0);
 }

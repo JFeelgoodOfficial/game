@@ -659,3 +659,20 @@ s and 0.95 by 23 s; `#chHud .clocks` shows `US` and `SURFACE 1048576Y …` from
 17 s; five lines. At the end: stage `ez_era`, the hop back to the city, bars
 and clocks gone. Boarding with stage `ez_ascent` saved starts the emergence
 at once (`sub.emerge` 0); with `ez_era` it is the well again.
+
+The megaworld a million years on (`src/era.js`, stage `ez_era`; seed it and
+stay in flight, no need to dock): `far().state()` adds `era` (1), `rite`
+(0..1), `riteT` (seconds into the rite, -1 between), `day` (the `EZ_LIGHT`
+in force) and `riteNow()`; `light` reads the day's direction (0.62, 0.36,
+-0.7 for `'sun'`), not the nearest star's. From the arrival point: the cages
+have no star, glow or conduit up to the hole, a bright disc stands where
+`light` points, and the ground is daylit. For the ground itself, lift the ship
+9,000 and pitch it down (`ship.quaternion.setFromAxisAngle({x: 1, y: 0, z: 0},
+-1.1)`, twice, a few seconds apart): islands of green with pale shores, sea
+between, towers standing in both, no specks of light on the land, one conduit
+in six still lit. `riteNow()`: `rite` reaches 1 in 7 game seconds, every cage
+to the horizon is lit, `#chHud .line` says so, and after 46 game seconds
+`riteT` is -1 and they are dark. Unprompted it first comes 25 game seconds
+into a flight, then every 260. With stage `done` seeded `era` reads 0 and the
+world is as 5.7.4 left it: compare a screenshot. `EZ_LIGHT` is a constant in
+`src/constants.js`: `'hole'` and `'none'` need the file edited and a reload.

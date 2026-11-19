@@ -26,6 +26,7 @@ import { C } from '../src/constants.js';
 import { Q, onQualityChange } from '../src/quality.js';
 import { makeGlowSprite } from '../src/starburst.js';
 import { holeDirection } from './farhole.js';
+import { ERA, RITE, DAY } from '../src/era.js';
 import groundVert from '../src/shaders/megaGround.vert?raw';
 import groundFrag from '../src/shaders/megaGround.frag?raw';
 import towerVert from '../src/shaders/megaTower.vert?raw';
@@ -107,6 +108,11 @@ function buildGround() {
     uR: { value: C.FAR_RADIUS },
     uS: { value: C.FAR_CAGE_SPACING },
     uAged: { value: 0 }, // 0 as the pilot found it .. 1 a thousand years on (GDD 5.7.4)
+    // a million years on (GDD 5.7.5): shared, set by src/farside.js
+    uEra: ERA,
+    uRite: RITE,
+    uDayCol: DAY.col,
+    uDayK: DAY.k,
     uOffPlate: { value: new THREE.Vector2() },
     uOffBlock: { value: new THREE.Vector2() },
     uOffDistrict: { value: new THREE.Vector2() },
@@ -208,6 +214,8 @@ function buildTowers(sunDir, o) {
     uWin: { value: o.win },
     uTime: { value: 0 },
     uCore: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uEra: ERA,
+    uDayK: DAY.k,
     uS: { value: C.FAR_CAGE_SPACING },
     uTileOff: { value: new THREE.Vector2() },
     uOffCage: { value: new THREE.Vector2() },
@@ -364,6 +372,8 @@ function buildCages(sunDir) {
     uWin: { value: 0.011 },
     uTime: { value: 0 },
     uCore: { value: new THREE.Vector4(0, H, 0, 2.6) },
+    uEra: ERA,
+    uDayK: DAY.k,
   };
   const frameMat = new THREE.ShaderMaterial({ vertexShader: FRAME_VERT, fragmentShader: hullFrag, uniforms: frameU });
   const starGeo = new THREE.SphereGeometry(C.FAR_CAGE_STAR_R, 40, 24);
@@ -378,7 +388,7 @@ function buildCages(sunDir) {
     glow.position.y = H;
     group.add(new THREE.Mesh(frameGeo, frameMat), star, glow);
     group.visible = false;
-    cages.push({ group, glow });
+    cages.push({ group, glow, star });
   }
   return { cages, starU, frameU };
 }
@@ -447,6 +457,37 @@ function buildPoints() {
   return { points, attr, uniforms };
 }
 
+// The one star that was kept (GDD 5.7.5, EZ_LIGHT 'sun'): uncaged, a long way
+// off, and the megaworld goes round it. One point, drawn as a disc and its
+// glare; src/farside.js puts it where the day's light comes from.
+const SUN_VERT = /* glsl */ `
+  uniform float uSize;
+  void main() {
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = uSize;
+  }
+`;
+const SUN_FRAG = /* glsl */ `
+  uniform vec3 uCol;
+  uniform float uFade;
+  void main() {
+    float r = length(gl_PointCoord * 2.0 - 1.0);
+    if (r > 1.0) discard;
+    float core = 1.0 - smoothstep(0.1, 0.14, r);
+    float glare = pow(1.0 - r, 3.2);
+    gl_FragColor = vec4(uCol * (core * 5.0 + glare * 0.9) * uFade, 1.0);
+  }
+`;
+function buildSun() {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3));
+  const uniforms = { uSize: { value: 220 }, uCol: DAY.col, uFade: { value: 0 } };
+  const points = new THREE.Points(geo, new THREE.ShaderMaterial({ vertexShader: SUN_VERT, fragmentShader: SUN_FRAG, uniforms, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  points.frustumCulled = false;
+  points.visible = false;
+  return { points, uniforms };
+}
+
 // Everything, unplaced and hidden. `sunDir`: the live unit vector toward the
 // light (src/farside.js keeps it), shared by every hull material here.
 export function buildMegaworld(sunDir) {
@@ -465,7 +506,8 @@ export function buildMegaworld(sunDir) {
   });
   const cage = buildCages(sunDir);
   const stars = buildPoints();
-  root.add(ground.mesh, towers.mesh, spires.mesh, stars.points);
+  const kept = buildSun();
+  root.add(ground.mesh, towers.mesh, spires.mesh, stars.points, kept.points);
   for (const c of cage.cages) root.add(c.group);
-  return { root, ground, towers, spires, cage, stars, collectors: collectorSpots() };
+  return { root, ground, towers, spires, cage, stars, kept, collectors: collectorSpots() };
 }

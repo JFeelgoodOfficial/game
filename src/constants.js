@@ -636,6 +636,10 @@ export const C = {
   EZ_RISE_AT: 1560.0, // this far over the first world, climbing, the way up begins
   EZ_ASCENT_BURN: 3.0, // seconds of every band on the underside of the firewall: it opens for them
   EZ_EMERGE_TIME: 36.0, // how long the emergence lasts
+  // A million years on (src/era.js, src/farside.js).
+  EZ_RITE_FIRST: 25.0, // seconds of flight over the old megaworld before the rite is first seen
+  EZ_RITE_EVERY: 260.0, // ...and between one showing of it and the next
+  EZ_RITE_TIME: 46.0, // how long the cages stay lit
 };
 
 // How far each band of the lamp reaches, in units, by what it is shining

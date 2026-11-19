@@ -323,6 +323,8 @@ export const ASCENT = {
 
 // --- 9. a million years on --------------------------------------------------------
 export const ERA = {
+  // the yearly rite, over the megaworld: said when the cages light
+  rite: 'ONCE A YEAR THEY LIGHT EVERY CAGE, AND THEN THEY LET IT GO DARK.',
   // {ship} {world} {crew}: the three clocks, in a line (as RETURN.clocks)
   clocks: 'THE SHIP WAS GONE {ship}. HERE IT HAS BEEN {world}. YOU WERE GONE {crew}.',
 };
