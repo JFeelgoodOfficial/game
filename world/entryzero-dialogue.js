@@ -318,7 +318,7 @@ export const ASCENT = {
     [23, 'vask', 'One million, forty-eight thousand, five hundred and seventy-six years.'],
     [29, 'marrow', 'The cage is open. There is nothing in it.'],
   ],
-  clocks: ['US', 'THE SURFACE'],
+  clocks: ['US', 'SURFACE'], // (ten letters at most: the panel's columns)
 };
 
 // --- 9. a million years on --------------------------------------------------------

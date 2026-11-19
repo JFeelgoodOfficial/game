@@ -643,3 +643,19 @@ Vask's closing line, bars out. Afterwards `hollow.shown` follows the lamp:
 toward 1 with every band on the planet, toward 0 with the lamp off. Poll it
 (`reveal` every half second) rather than sleeping: it takes several minutes
 of real time under SwiftShader.
+
+The ascent and the emergence (stage `ez_ascent` through the firewall, `ez_era`
+at the end; seed `ez: {log: 63, node: 5, stay, frags: 7}` with stage
+`ez_reveal`): at the centre, `subSet` 1,500 over the planet's top and rise
+(`input.brake`); past 1,560 a fall-style `sub.ride` sets the vessel down in
+zone 3 under the wall (`hollow.wall.rising` and `passed` true, 420 below
+`wall.y`). The hull is held 55 under it. One band leaves `wall.burn` at 0;
+Z down, 230 below and pitched +1.3, takes it to 1 in 3 game seconds (Marrow's
+line). `subSet` 70 under `wall.hole` and rise: stage `ez_ascent`, and
+`sub.emerge` counts 0 → 36 with `body.ch-cine` set. Poll it: by 2.5 s
+`sub.audio.weather.rain` is above 0 with the view still dark; the vessel is
+on the surface (`sub.at[1]` about 1.5) by 4 s; `sub.pitch` is level until 13
+s and 0.95 by 23 s; `#chHud .clocks` shows `US` and `SURFACE 1048576Y …` from
+17 s; five lines. At the end: stage `ez_era`, the hop back to the city, bars
+and clocks gone. Boarding with stage `ez_ascent` saved starts the emergence
+at once (`sub.emerge` 0); with `ez_era` it is the well again.
