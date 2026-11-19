@@ -172,8 +172,10 @@ const TOWER_FRAG = /* glsl */ `
     col += vec3(1.0, 0.25, 0.2) * smoothstep(0.988, 1.0, vUp) * step(0.6, fract(uTime * 0.45 + vSeed * 7.0)) * 2.5;
     col += vec3(0.50, 0.78, 1.0) * pow(1.0 - max(dot(N, V), 0.0), 3.0) * 0.5;
     col += vec3(1.0, 0.97, 0.9) * pow(sunward, 6.0) * 0.35;
+    // a million years on: the glass is still there, and most of what was lit on it is not
+    col = mix(col, glass * 1.5 + (col - glass) * 0.28, uEra);
     // feet lost in the light of the streets
-    col = mix(col, vec3(0.45, 0.70, 1.0), (1.0 - smoothstep(0.0, 0.14, vUp)) * 0.4);
+    col = mix(col, vec3(0.45, 0.70, 1.0), (1.0 - smoothstep(0.0, 0.14, vUp)) * 0.4 * (1.0 - 0.7 * uEra));
     float d = length(vWorld.xz - cameraPosition.xz);
     col = mix(col, uHaze, smoothstep(1500.0, 3500.0, d) * 0.45);
     gl_FragColor = vec4(col, 1.0);
