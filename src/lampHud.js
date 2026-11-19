@@ -7,7 +7,8 @@
 // the same lamp is carried on foot later, where there is none. On a touch
 // screen it also carries the lamp's buttons, since there are no keys.
 //
-//   show(on, vehicle)   in / out; `vehicle` adds the SINK button on touch
+//   show(on, vehicle, keys)   in / out; `vehicle` adds the SINK button on touch;
+//                       `keys` replaces the line of keys under the levels
 //   update()            once a frame while it is in (writes only what changed)
 
 import { input } from './input.js';
@@ -43,6 +44,7 @@ body.ez-ride #walkHint, body.ez-ride #compass, body.ez-ride #equipBtn { opacity:
 let root = null, bandEl = null, keysEl = null;
 const meters = {};
 let shownBand = -1, shownOn = null, shownAll = null;
+let keysText = null;
 const shown = { energy: -1, dose: -1, cabin: -1 };
 
 function meter(name, label) {
@@ -111,7 +113,8 @@ function level(name, v, warn, bad, rising) {
 }
 
 export const lampHud = {
-  show(on, vehicle = false) {
+  show(on, vehicle = false, keys = null) {
+    keysText = keys;
     if (!on && !root) return;
     build();
     root.classList.toggle('on', on);
@@ -138,7 +141,7 @@ export const lampHud = {
       bandEl.style.color = lamp.all ? '#ffffff' : `#${b.tint.toString(16).padStart(6, '0')}`;
       root.classList.toggle('off', !live);
       root.classList.toggle('all', lamp.canAll);
-      keysEl.textContent = lamp.canAll ? `${LAMP.prompt} · ${LAMP.toggle} · ${LAMP.all}` : `${LAMP.prompt} · ${LAMP.toggle}`;
+      keysEl.textContent = keysText ? keysText : lamp.canAll ? `${LAMP.prompt} · ${LAMP.toggle} · ${LAMP.all}` : `${LAMP.prompt} · ${LAMP.toggle}`;
     }
     level('energy', lamp.energy, 0.3, 0.12, false);
     level('dose', lamp.dose, 0.5, 0.8, true);

@@ -49,7 +49,8 @@ export const lamp = {
   eaters: 0, // 0..1, how much of the beam light eaters are drinking
   feeders: 0, // 0..1, radiation feeders at the glass: the X-ray band costs more
   lineBeam: false, // at the firewall the H-alpha band is a beam too (world/hollow.js says why)
-  medium: 'void', // 'void' | 'water': what the lamp is shining through
+  power: 1, // how far it reaches against what the medium allows (the one carried by hand is weaker)
+  medium: 'void', // 'void' | 'water' | 'fog': what the lamp is shining through
   pos: new THREE.Vector3(),
   dir: new THREE.Vector3(0, 0, 1),
   reach: 0, // of the band it is on, in this medium
@@ -103,7 +104,8 @@ function refresh() {
     reach = Infinity;
     for (let i = 0; i < R.length; i++) if (i !== BAND.RADIO && R[i] < reach) reach = R[i];
   }
-  lamp.reach = reach;
+  lamp.reach = reach * lamp.power;
+  reach = lamp.reach;
   LAMP_U.uBand.value = lamp.band;
   LAMP_U.uAll.value = lamp.all ? 1 : 0;
   LAMP_U.uLampOn.value = lamp.on && lamp.energy > 0 ? 1 : 0;

@@ -249,6 +249,40 @@ export const CENTRE = {
   },
 };
 
+// --- 6. on the ground ---------------------------------------------------------------
+// `{who}` is a captain's short name. Lines given to 'keeper' are said by
+// whoever was left at the lamp.
+export const GROUND = {
+  hatch: {
+    speaker: { name: 'Shift-Captain Orrin Vask', species: 'Rustia', cityId: 'The vessel' },
+    lines: ['The ground holds. The tether is rigged.'],
+    offer: {
+      kind: 'choice',
+      prompt: 'GO DOWN TO THE GROUND?',
+      options: [
+        { label: 'OPEN THE HATCH', outcomeTag: 'ez:hatch' },
+        { label: 'NOT YET', outcomeTag: 'ez:hold' },
+      ],
+    },
+  },
+  keys: 'Q — CHANGE BAND · L — LAMP',
+  up: 'E — BACK UP THE TETHER',
+  arrive: [
+    [2, 'keeper', 'I have the light on you. It is solid as far as the edge and nothing after.'],
+    [9, 'keeper', 'The lamp will not last. Find what is here. Keep the others inside it.'],
+  ],
+  found: 'FOUND — {name}',
+  all: ['keeper', 'That is three. Come up, all of you, while there is ground to stand on.'],
+  // the lamp overhead, wearing down
+  warn: ['keeper', 'They are on the beam again. The edge is coming in.'],
+  edge: ['keeper', '{who}. The edge. Move.'],
+  lost: ['keeper', '{who} is not there. {who} was past the light.'],
+  // PLACEHOLDER: what is said for a captain who is lost, by the one who chose to bring them
+  lostAfter: ['keeper', 'PLACEHOLDER — WHAT IS SAID WHEN ONE OF THEM IS GONE.'],
+  haul: ['keeper', 'Lamp is done. I am pulling you up. Now.'],
+  tether: 'THE TETHER GOES BACK UP TO THE VESSEL',
+};
+
 // --- 7. the reveal ----------------------------------------------------------------
 // PLACEHOLDER, all of it but the theme: curiosity is what stands up to fear.
 export const REVEAL = {

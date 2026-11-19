@@ -620,6 +620,14 @@ export const C = {
   EZ_HOVER_HOLD: 4.0, // seconds held over solid ground before the hatch can be opened
   EZ_SOLID_IN: 3.0, // seconds of every band at once for the ground to come solid
   EZ_SOLID_OUT: 2.0, // ...and to go again without it
+  // On the ground (world/zeroground.js): the pool of it the vessel's light holds solid.
+  EZ_POOL_R: 90.0, // how wide the pool is with a full lamp overhead
+  EZ_POOL_MIN: 9.0, // ...and with none: under the hatch, and no more
+  EZ_POOL_TIME: 170.0, // seconds a full lamp lasts overhead, before whoever stayed and the eaters are counted
+  EZ_POOL_EATERS: 120.0, // every this many seconds the eaters double what the lamp is losing
+  EZ_HAND_POWER: 0.4, // the lamp carried by hand reaches this much of what the vessel's does
+  EZ_RELIC_NEAR: 16.0, // as near as a relic has to be for the lamp to read it
+  EZ_CREW_SPEED: 6.5, // u/s the captains walk at: a pilot who runs leaves them behind
 };
 
 // How far each band of the lamp reaches, in units, by what it is shining

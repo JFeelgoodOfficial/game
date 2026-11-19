@@ -608,3 +608,23 @@ choice the lamp stays on every band without the key while `alt` < 260; `l`
 turns it off and `solid` falls to 0 in 2 game seconds. Light eaters reach a
 lit lamp over the top in about 20 game seconds and only take the ground when
 `lamp.eaters` reads 1.
+
+The relics (`world/zeroground.js`, stage `ez_relics` on arrival): with
+`ez.stay` saved, the next time the ground holds for 4 game seconds the
+question is the hatch (`e`, then `1`), and the hop `'ground'` puts the walker
+on the ground (`'groundup'` hops back; `far().state()` adds `onGround`,
+`ground`, `groundSet`). `ground` → `{light, pool, clock, hauling, relics:
+[{id, band, at, found}], crew: [{id, at, dying}], lamp, stay, lost}`. `light`
+runs 1 → 0 in about two minutes and `pool` 90 → 9 with it. On foot `q` steps
+the band and `l` is the lamp (`ground.lamp`). To find a relic, `capital.place`
+the walker 9 short of its `at` facing it (`cWalk.yaw = atan2(x, z)`,
+`cWalk.pitch = -0.12`), step to its band, and wait for its bit in `ez.frags`
+(writing 1, hearth 2, buried 4; line `FOUND — …`). The pilot cannot leave the
+pool: `place(0, 0, 300)` comes back at `pool - 0.8`. The crew are the two
+captains who did not stay and are not lost. To lose one:
+`groundSet({light: 0.45})`, then `groundSet({crew: {id, at: [pool + 4, 0]}})`;
+the id joins `ez.lost` (saved) and the keeper says so. `groundSet({light:
+0.004})` hauls everyone up after 2.6 game seconds: back aboard at zone 5, 80
+over the ground, already solid, with a fresh lamp. A second descent has one
+fewer in `crew` and `light` 1 again. `interact()` at the hatch (0, 1) goes up
+the tether.

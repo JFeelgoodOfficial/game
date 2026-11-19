@@ -43,7 +43,7 @@ import { BANDS, WELL, DESCENT, DEEP } from './entryzero-dialogue.js';
 import { createHollow, LAST_ZONE } from './hollow.js';
 import { createCentre } from './zeroplanet.js';
 import { openDialogue } from '../src/dialogue.js';
-import { CENTRE, STAY } from './entryzero-dialogue.js';
+import { CENTRE, STAY, GROUND } from './entryzero-dialogue.js';
 
 const CENTRE_ZONE = LAST_ZONE + 1; // under the last zone of the hollow: the first world
 
@@ -222,7 +222,7 @@ const MOTE_FRAG = /* glsl */ `
 `;
 
 // The beam itself, as the mist shows it: a cone of light from the lamp.
-const BEAM_VERT = /* glsl */ `
+export const BEAM_VERT = /* glsl */ `
   varying float vAlong;
   varying vec3 vVN;
   varying vec3 vVP;
@@ -234,7 +234,7 @@ const BEAM_VERT = /* glsl */ `
     gl_Position = projectionMatrix * mv;
   }
 `;
-const BEAM_FRAG = /* glsl */ `
+export const BEAM_FRAG = /* glsl */ `
   uniform vec3 uLampTint;
   uniform float uLampOn;
   uniform float uLampLit;
@@ -398,6 +398,7 @@ export function createSubmersible(ctx) {
   let centre = null; // world/zeroplanet.js, built with the hollow
   let env = null; // whichever of the two the vessel is in
   let choosing = false; // the pilot is being asked who stays
+  let resumed = false; // boarded from the ground, not the city
   let gate = 0; // the gap in the membrane, 0..1
   let shutT = 0;
   // a pulse along the lattice: one clock, and everything from it
@@ -526,6 +527,20 @@ export function createSubmersible(ctx) {
   // --- the pilot's choice at the centre: who stays at the lamp ---
   function ask() {
     choosing = true;
+    if (chapter.ez.stay()) {
+      // that is settled: the question now is the hatch (world/zeroground.js)
+      openDialogue(GROUND.hatch, {
+        onOffer: (offer) => {
+          if (offer.outcomeTag === 'ez:hatch') site.portal = 'ground';
+          return null;
+        },
+        onClose: () => {
+          choosing = false;
+          centre.unask(20);
+        },
+      });
+      return;
+    }
     openDialogue({ ...CENTRE.ask, offer: CENTRE.choice }, {
       onOffer: (offer) => {
         const id = String(offer.outcomeTag || '').replace('ez:stay:', '');
@@ -537,7 +552,7 @@ export function createSubmersible(ctx) {
       onClose: () => {
         choosing = false;
         if (chapter.ez.stay()) speak(CENTRE.after, 6);
-        else centre.unask(); // (left unanswered: asked again when the ground next holds)
+        centre.unask(chapter.ez.stay() ? 5 : 0); // (unanswered: asked again when the ground next holds; answered: the hatch is next)
       },
     });
   }
@@ -564,7 +579,12 @@ export function createSubmersible(ctx) {
     npcs: [],
     consoles: [],
     onChoice: () => null,
-    portal: null, // 'wellup' once it has risen through the ring
+    portal: null, // 'wellup' once it has risen through the ring; 'ground' through the hatch at the centre
+    // The next boarding is from the ground, up the tether (world/zeroground.js):
+    // not at the top of the well but where the vessel was left.
+    resume() {
+      resumed = true;
+    },
     held: () => true, // one seat, and it is not left
     act: () => nextBand(1), // E
     heldPrompt: () => null, // (the lamp's own readout carries the keys: src/lampHud.js)
@@ -610,6 +630,16 @@ export function createSubmersible(ctx) {
       hold.fill(0);
       u = 0;
       lampHud.show(true, true);
+      if (resumed && buildHollow()) {
+        // up the tether: over the ground it was holding, not at the top of the well
+        well.visible = false;
+        env = centre;
+        zone = CENTRE_ZONE;
+        centre.arrive(at);
+        pitch = -1.35;
+        lamp.medium = 'fog';
+      }
+      resumed = false;
     },
     onLeave() {
       if (!inside) return;
