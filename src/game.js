@@ -140,6 +140,8 @@ import { initStations, updateStations, stations } from './stations.js';
 import { createSkyCity } from '../world/skycity.js';
 import { createReachShip } from '../world/reachship.js';
 import { createShatter } from '../world/shatter.js';
+import { createWreckSite } from '../world/wrecksite.js';
+import { relicWaiting } from './crownErrand.js';
 import { CHARGE_QUEST } from '../world/reachtube.js';
 import { createCoinWorld, HEADS } from '../world/coinworld.js';
 import { initMenu, showMenu, hideMenu, updateHeatUI } from './menu.js';
@@ -232,6 +234,9 @@ const reachSea = reachShip.sea;
 // ...and what Neptunia becomes when the governor's charge goes off. Applied at
 // boot for a save in which it already has (see the initJournal call below).
 const shatter = createShatter(neptunia, reachDef.site, reachShip);
+// ...and the wreck as a place to set down on and walk (world/wrecksite.js).
+const wreckSite = createWreckSite({ reachShip, shatter, planet: neptunia, scene });
+const _wreckPos = new THREE.Vector3();
 // stevenlacey, the coin world: likewise seen (tumbling) long before it is landed on.
 const coin = createCoinWorld(scene);
 
@@ -631,6 +636,32 @@ if (import.meta.env.DEV) {
       },
       state: () => ({ doorT, doorTo, dock: dock.id, platform: platformDock ? platformDock.id : null, isolated: { active: isolated.active, surface: isolated.surface }, far: camera.far }),
     },
+    // The wreck of the Indigo Reach (needs reachBlow() or a 'blown' save):
+    // fly the approach / park on her deck / step out / read the state.
+    wreckApproach() {
+      if (!shatter.active) return false;
+      const p = WRECK_DOCK.planet.body.position.clone();
+      const out = p.clone().sub(neptunia.body.position).normalize();
+      ship.position.copy(p).addScaledVector(out, skyShellRadius(WRECK_DOCK) + 150);
+      ship.velocity.copy(out).multiplyScalar(-120);
+      WRECK_DOCK.armed = true;
+      return true;
+    },
+    wreckDock() {
+      if (!shatter.active) return false;
+      setOnSkyPad(WRECK_DOCK);
+      return true;
+    },
+    wreckStepOut() {
+      if (dock !== WRECK_DOCK || !WRECK_DOCK.stepOut()) return false;
+      platformDock = WRECK_DOCK;
+      landState = null;
+      landedPlanet = null;
+      skyLanding = false;
+      phase = 'walk';
+      return true;
+    },
+    wreckState: () => ({ ...wreckSite.state(), dock: dock?.id, landState, platform: platformDock ? platformDock.id : null }),
     vesselStepOut() {
       if (dock !== VESSEL_DOCK || !VESSEL_DOCK.stepOut()) return false;
       platformDock = VESSEL_DOCK;
@@ -1432,10 +1463,37 @@ const DOCKS = [
     },
     stepOut: () => enterCapitalWalk(farSite('pad')),
   },
+  {
+    // The wreck of the Indigo Reach (world/shatter.js, world/wrecksite.js):
+    // what is left of Neptunia's factory ship, adrift in the debris. Landed
+    // on exactly like the Sky City: come close and the autopilot sets the
+    // ship down on her old flight deck. `planet` is a stand-in centred on the
+    // hull, read live (the hull rides its planet's group through origin
+    // rebases); checkSkyCapture skips it until the planet has been broken.
+    id: 'wreck', armed: true, freeze: false,
+    planet: {
+      body: { get position() { return _wreckPos.copy(neptunia.body.position).add(shatter.wreckPivot.position); } },
+      radius: C.WRECK_CAPTURE, cfg: { name: 'wreck' },
+    },
+    approach: 'THE INDIGO REACH — NO ANSWER ON ANY CHANNEL. SETTING DOWN ON HER DECK',
+    welcome: 'THE WRECK OF THE INDIGO REACH — NO LIGHTS, NO AIR TRAFFIC',
+    label: 'AUTO-LANDING · THE WRECK',
+    pose() {
+      const g = shatter.wreckPivot;
+      _skyUp.set(0, 1, 0).applyQuaternion(g.quaternion);
+      _skyPad.copy(reachShip.pad).applyQuaternion(g.quaternion).addScaledVector(_skyUp, C.PARK_LIFT);
+      _skyHover.copy(_skyPad).addScaledVector(_skyUp, C.WRECK_HOVER);
+      _landUprightQuat.copy(g.quaternion);
+      _skyPadLive.copy(_skyPad);
+      _skyQuatLive.copy(_landUprightQuat);
+    },
+    stepOut: () => enterCapitalWalk(wreckSite, { yaw: 0 }), // facing forward, at the house
+  },
 ];
 const CAPITAL_DOCK = DOCKS[2];
 const VESSEL_DOCK = DOCKS[3];
 const LANDING_DOCK = DOCKS[4];
+const WRECK_DOCK = DOCKS[5];
 // Point the landing's stand-in at the platform. False while there is none.
 function aimLandingDock() {
   const s = farSite('pad');
@@ -1625,6 +1683,7 @@ function checkSkyCapture() {
       d.planet.radius = v.cls.radius * 0.8;
     }
     if (d === LANDING_DOCK && !aimLandingDock()) continue; // not on the far side
+    if (d === WRECK_DOCK && (!shatter.active || neptunia.removed)) continue; // no wreck (yet, or any more)
     if (d.planet.removed) continue; // the worldship has eaten it
     const r = ship.position.distanceTo(d.planet.body.position);
     if (!d.armed) {
@@ -2978,7 +3037,10 @@ function frame(now) {
   }
   // On foot (isolated) as much as in flight: the sea keeps running either way.
   reachShip.update(delta, now / 1000, camera.position);
+  // a hull the pilot is coming in to, parked on or walking does not tumble
+  shatter.holdWreck((skyLanding && dock === WRECK_DOCK) || (capitalActive() && platformDock === WRECK_DOCK));
   shatter.update(delta, now / 1000, camera.position);
+  if (shatter.active) reachShip.setRelicVisible(relicWaiting());
   // nav AFTER the stations are placed: a reset snaps orbiting stations back
   // to their snapshot spot for one frame, and a discovery check reading that
   // stale position would log everything sitting at the spawn point

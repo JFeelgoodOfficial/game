@@ -972,6 +972,30 @@ Rules this chapter keeps to, beyond those of 5.7.4:
 - The light ship's build loop is not disturbed: its new cells are a third
   mesh over the cells the loop skipped, so every older cell is where it was.
 
+### 5.7.6 The Crown errand: the story spine (owner's story)
+
+One thread, given by Patron Axilo in Meridian Crown, that explains every gate between the worlds. It is the journal quest `terra-errand`, owned by `src/crownErrand.js`; every walker that takes part calls in there to move it on, and the words live with the speakers.
+
+| Stage | What has happened | Where the next beat is |
+|---|---|---|
+| (none) | Not met | Axilo, governor's penthouse, Meridian Crown |
+| `mall` | Axilo welcomed the pilot home and sent them for his chair | Maribel, ground floor of the WaveMall Flagship |
+| `pick` | Maribel gave the tour and the chair (`crownFurniture`); six pieces stand on lit rings | Take one (`world/mallPicks.js`), then back to Maribel |
+| `car` | Piece chosen (inventory `decor`), race car aboard (`raceCar`), `ally-wavemall` set | High Cantor Oriel Vane, pad pier of the Sky City |
+| `race` | Car delivered; Vex Halcyon heads the poster | Win the Rim Circuit from the booth |
+| `won` | `ally-saturnia` set | Axilo |
+| `rest` | Debriefed; chair stands in his penthouse | The bed in the pilot's suite |
+| `morning` | Slept | Axilo |
+| `sent` | The Neptunia mission | Madame Ossva, then the riser, then the wreck |
+| `relic` | Crown Seal (`crownSeal`) taken from the wrecked bridge | Axilo |
+| `done` | Seal on its plinth in the suite | — |
+
+- **Home.** Meridian Crown has a second, taller tower (registry `homeTower`, `world/city.js` `buildTower({home})`): the pilot's suite, with a bed. `E — SLEEP` fades to black and turns the day round to the next morning (`src/walk.js` `beginSleep`; it adds to `planet.spinPhase`, which is re-derived on lift-off). The suite shows the chosen WaveMall piece and, at the end, the Seal.
+- **Order of the gates.** Ossva offers the charge to a pilot at `sent`, whatever her survey stands at, and says what the riser is and that the Seal is the price; her survey's jetpack is granted on accepting, because she does not survive to hand it over. The Emberdeep cage on Rustia is chained until `neptunia-charge` is `blown` (a save that already rode it keeps it). Baron Rynva withholds his secret until the errand is `done`, because the Tenretni event takes Terra off the map.
+- **The wreck.** After the blast the Indigo Reach is a dock like the Sky City (`DOCKS` entry `wreck`, `src/game.js`): come within `WRECK_CAPTURE × 1.25` and the autopilot sets the ship down on her flight deck. The hull stops tumbling from capture until lift-off. On foot it is a `capitalWalk` site over the hull's own decks (`world/wrecksite.js`): sun and ambient go out, and the pilot carries one real SpotLight, `L` to switch. The Seal hangs lit over the captain's chair on the bridge.
+- **Old saves.** Charge already accepted or blown with no errand: Axilo's first talk goes straight to `sent`. Tenretni already past: Ossva keeps her old terms (survey, then charge) and the codex files the Seal as having no one left to take it.
+- **Alliances** are story flags only in this pass; nothing in the fleet war reads them yet.
+
 ### 5.8 The Sky City (Saturnia)
 
 Saturnia has no surface, so it gets a place instead: a floating city 320 units

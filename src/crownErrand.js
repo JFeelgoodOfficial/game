@@ -49,7 +49,7 @@ export function errandObjective() {
     case 'rest': return 'Sleep in your suite: the tall tower in Meridian Crown';
     case 'morning': return 'See Patron Axilo';
     case 'sent':
-      if (charge === 'blown') return 'Fly back to the wreck of the Indigo Reach: the Seal is on the bridge';
+      if (charge === 'blown') return 'Wreck of the Reach: the Seal is on the bridge';
       if (charge === 'go') return 'Ride the riser down and arm the charge';
       return 'Go to Neptunia: Madame Ossva holds the Crown Seal';
     case 'relic': return 'Return the Crown Seal to Patron Axilo';

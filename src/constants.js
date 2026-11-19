@@ -218,6 +218,8 @@ export const C = {
   SKY_FALL_FLASH: 0.6, // seconds of ramp to white
   SKY_FALL_FADE: 1.4, // seconds of white fading off the start
   SKY_HOVER: 190.0, // auto-land arrives this far above the pad, then descends
+  WRECK_CAPTURE: 520, // the wreck of the Reach takes the helm inside 1.25x this (src/game.js DOCKS)
+  WRECK_HOVER: 150, // how far above her flight deck the approach levels out
   CHARGE_FLASH: 0.45, // seconds from the arm button to full white (world/reachtube.js)
   REACH_HOVER: 120.0, // the same, over the Indigo Reach's flight deck (world/reachship.js)
   SKY_DESCEND_TIME: 3.2, // seconds for that last vertical leg

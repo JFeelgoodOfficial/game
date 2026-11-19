@@ -52,6 +52,21 @@ export function createShatter(planet, siteDir, reachShip) {
   const _o = new THREE.Object3D();
   const _v = new THREE.Vector3();
   const _q = new THREE.Quaternion();
+  // The wreck hangs off planet.group (not the debris group) so that it can be
+  // landed on and walked: src/capitalWalk.js wants a platform positioned
+  // relative to its planet's group with a world orientation. Its place in the
+  // debris and its slow tumble are written into it every update.
+  const wreckLocal = new THREE.Vector3(); // where it lies, in the surface's frame
+  const _yAxis = new THREE.Vector3(0, 1, 0);
+  const _qs = new THREE.Quaternion();
+  let tumbleT = 0, hold = false;
+  function poseWreck() {
+    const ang = planet.surface.rotation.y;
+    wreckPivot.position.copy(wreckLocal).applyAxisAngle(_yAxis, ang);
+    wreckPivot.quaternion.setFromAxisAngle(_yAxis, ang)
+      .multiply(_qs.setFromAxisAngle(_v.set(0.3, 0.2, 0.93).normalize(), tumbleT * 0.035))
+      .multiply(_q.setFromAxisAngle(_v.set(1, 0, 0), 0.9 + tumbleT * 0.012));
+  }
 
   // Is this object-space direction in the missing half?
   function gone(dir) {
@@ -245,8 +260,9 @@ export function createShatter(planet, siteDir, reachShip) {
 
     // ---- the Reach: adrift in the middle of it ----
     wreckPivot = new THREE.Group();
-    wreckPivot.position.copy(N).multiplyScalar(R * 1.12).addScaledVector(T1, -R * 0.34).addScaledVector(T2, R * 0.12);
-    group.add(wreckPivot);
+    wreckLocal.copy(N).multiplyScalar(R * 1.12).addScaledVector(T1, -R * 0.34).addScaledVector(T2, R * 0.12);
+    planet.group.add(wreckPivot);
+    poseWreck();
 
     planet.surface.add(group);
   }
@@ -276,6 +292,7 @@ export function createShatter(planet, siteDir, reachShip) {
       return gone(_d) ? -R * 0.9 : g0(worldDir);
     };
     reachShip.wreck(wreckPivot);
+    poseWreck();
   }
 
   function update(dt, t, camWorld) {
@@ -284,6 +301,12 @@ export function createShatter(planet, siteDir, reachShip) {
     if (planet.atmosphere) planet.atmosphere.visible = false;
     const far = _v.copy(camWorld).sub(planet.group.position).lengthSq() > (R * 14) * (R * 14);
     group.visible = !far;
+    wreckPivot.visible = !far;
+    // The hull stops turning while a ship is coming in to it, parked on it or
+    // being walked (holdWreck): nobody lands on, or keeps a torch steady in,
+    // a deck that wheels.
+    if (!hold) tumbleT += Math.min(dt, 0.1);
+    poseWreck();
     if (far) return;
     for (let i = 0; i < chunkData.length; i++) {
       const c = chunkData[i];
@@ -294,10 +317,13 @@ export function createShatter(planet, siteDir, reachShip) {
       chunks.setMatrixAt(i, _o.matrix);
     }
     chunks.instanceMatrix.needsUpdate = true;
-    wreckPivot.quaternion.setFromAxisAngle(_v.set(0.3, 0.2, 0.93).normalize(), t * 0.035)
-      .multiply(_q.setFromAxisAngle(_v.set(1, 0, 0), 0.9 + t * 0.012));
     dust.rotation.y = 0; // static: the cloud has stopped expanding
   }
 
-  return { apply, update, gone, get active() { return active; }, N, T1, T2 };
+  return {
+    apply, update, gone, get active() { return active; }, N, T1, T2,
+    get wreckPivot() { return wreckPivot; },
+    holdWreck(v) { hold = !!v; },
+    get held() { return hold; },
+  };
 }
