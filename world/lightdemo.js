@@ -19,7 +19,7 @@ import { C } from '../src/constants.js';
 import { MOTION_SCALE } from '../src/motion.js';
 import { uiSound, setEventRumble } from '../src/sfx.js';
 import { chapterHud } from '../src/chapterHud.js';
-import { buildRobot } from './capital.js';
+import { buildRobot, tenretniMat } from './capital.js';
 import { createPlace } from './holoplace.js';
 import { WORLDS, DEMO } from './chapter-dialogue.js';
 
@@ -50,8 +50,8 @@ export function createDemo(group, hangar, chapter, at, showCity) {
   for (let t = T_GO, gap = 2.7; t < T_BACK - 0.2; t += gap, gap = Math.max(0.26, gap * 0.8)) jumps.push(t);
 
   // --- the one at the helm: on the bow, very tall, facing the way it means to go ---
-  const helmMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x3a3426 });
-  const pilot = buildRobot(helmMat, hangar.glowMat, { body: 0xf3eede, dark: 0xc7a255, glow: 0xfff0c0 });
+  const helmMat = tenretniMat();
+  const pilot = buildRobot(helmMat, hangar.glowMat);
   pilot.group.scale.setScalar(9);
   pilot.group.position.copy(hangar.helm);
   hangar.vessel.add(pilot.group);

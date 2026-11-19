@@ -9,7 +9,7 @@
 // uniform write.
 
 import * as THREE from 'three';
-import { buildRobot, trackRobot, tint, box, cyl, mergedMesh } from './capital.js';
+import { buildRobot, trackRobot, tint, box, cyl, mergedMesh, tenretniMat } from './capital.js';
 import { WELL } from './entryzero-dialogue.js';
 
 const COLS = 30, ROWS = 11; // records shown (the archive holds rather more)
@@ -97,7 +97,7 @@ export function createEntryOffer(k) {
   root.add(wall);
 
   // --- the one who hung it there ---
-  const rig = buildRobot(k.robotMat, k.glowMat, { body: 0xf3eede, dark: 0xc7a255, glow: 0xfff0c0 });
+  const rig = buildRobot(tenretniMat(), k.glowMat, undefined, 'archivist');
   const A = k.at;
   const face = Math.atan2(k.wall.x - A.x, k.wall.z - A.z); // it is looking at the dark cell
   rig.group.position.set(A.x, 0, A.z);

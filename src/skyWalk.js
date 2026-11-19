@@ -171,7 +171,7 @@ export function enterSkyWalk(cityRef) {
       colliders: city.colliders.filter((c) => c.bottom === undefined).map((c) => ({ x: c.x, z: c.z, radius: c.r })),
       cityId: 'skycity',
     },
-    { population: 44, maxRigs: 18, questChance: 0, seed: 7341 }
+    { population: 44, maxRigs: 18, questChance: 0, seed: 7341, species: 'saturnia' }
   );
   city.group.add(crowd.group);
 

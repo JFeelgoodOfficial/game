@@ -29,6 +29,9 @@
 
 import * as THREE from 'three';
 import { createCrowd } from './people.js';
+import { createSpeciesCrowd } from './speciesCrowd.js';
+import { buildCaptain, liveCaptain } from './captainDress.js';
+import { SPECIES_BY_WORLD } from './species.js';
 import { VENDOR_TREES, ROLE_TITLES, ROLE_DEFAULT_VARS } from './vendor-dialogue.js';
 
 const FACE_DIST = 6; // citizens turn to face the player inside this range
@@ -196,7 +199,26 @@ export function createCitizens(planet, cityDef, city, opts = {}) {
 
   // --- realistic humans (world/people.js) ----------------------------------
   const _yUp = new THREE.Vector3(0, 1, 0);
-  const crowd = createCrowd({
+  // A world whose people are not human (world/species.js) is drawn as that
+  // people instead, each carrying the world's signature; its governor is one
+  // of the named figures (world/captainDress.js). Terra and Wyattmattoe keep
+  // the humans below.
+  const speciesId = SPECIES_BY_WORLD[cityDef.world] ?? null;
+  const GOVERNOR = { rustia: 'rynva', neptunia: 'governor' };
+  const governorPose = (rig, dt, t, talking) => liveCaptain(rig, dt, t, talking, 0);
+  const crowd = speciesId ? createSpeciesCrowd({
+    count: citizens.length,
+    seed: (cityDef.seed ^ 0x51ec1e5) >>> 0,
+    species: speciesId,
+    maxRigs: Math.max(citizens.length, 1),
+    place: (i) => ({ pos: new THREE.Vector3(citizens[i].pos.x, citizens[i].y, citizens[i].pos.y) }),
+    build: (i) => {
+      if (citizens[i].role !== 'governor' || !GOVERNOR[speciesId]) return null;
+      const rig = buildCaptain(GOVERNOR[speciesId]);
+      rig.pose = governorPose;
+      return rig;
+    },
+  }) : createCrowd({
     count: citizens.length,
     rng,
     materials,
@@ -462,6 +484,7 @@ export function createCitizens(planet, cityDef, city, opts = {}) {
 
       const moving = c.mode === 'stroll' && !c.path?.dwell;
       crowd.setPersonPose(c.idx, c.pos.x, c.y, c.pos.y, c.heading, moving ? 0.55 : 0, clock);
+      if (crowd.setTalking) crowd.setTalking(c.idx, c.mode === 'talk');
 
       if (c.sigil) {
         c.sigil.position.y += Math.sin(c.t * 1.3) * 0.002;

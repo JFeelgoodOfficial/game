@@ -32,6 +32,8 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { SPECIES } from './species.js';
+import { buildSignature, liveSignature } from './signatures.js';
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -216,40 +218,77 @@ function speciesForCity(cityId) {
 // with { joints, dims }. Meshes it hangs on the joints (or on joints of its
 // own, which it may add to `joints`) are fused with the rest; a material of
 // its own costs one more draw. (world/captainDress.js)
+//
+// `opts.species`: one of world/species.js SPECIES. The figure is then one of
+// that people: its measures are drawn inside the people's ranges instead of
+// the open ranges in C, it has no antennae, crest or tail, its cloth is one
+// of the people's own colours, and it carries their signature
+// (world/signatures.js, kept as `rig.signature`). `opts.over` forces any of
+// { height, build, skin, eyeScale, seamBrightness, ringWidth, lightSpeed,
+// flicker } on a named figure. `opts.noEyes`: place no eyes (a dress that
+// draws a face draws them). With no species nothing below changes: the same
+// seed makes the same figure it always did.
 export function buildRig(seed, cityId, opts) {
   const rng = mulberry32(seed);
+  const sp = opts && opts.species ? SPECIES[opts.species] : null;
+  const over = (opts && opts.over) || {};
+  const span = (v) => (Array.isArray(v) ? THREE.MathUtils.lerp(v[0], v[1], rng()) : v);
 
-  const height = THREE.MathUtils.lerp(C.heightMin, C.heightMax, rng());
-  const headScale = THREE.MathUtils.lerp(C.headScaleMin, C.headScaleMax, rng());
-  const limbScale = THREE.MathUtils.lerp(C.limbScaleMin, C.limbScaleMax, rng());
-  const buildWidth = THREE.MathUtils.lerp(0.8, 1.25, rng());
+  let height, headScale, limbScale, buildWidth, skinColor, skinMetal, accent;
+  let eyeCount, headShape, hasAntennae, hasCrest, hasTail, gaitSpeed, gaitPhase, eyeScale = 1;
+  if (sp) {
+    height = over.height ?? span(sp.height);
+    headScale = span(sp.headScale);
+    limbScale = span(sp.limb);
+    buildWidth = over.build ?? span(sp.build);
+    skinColor = new THREE.Color(sp.skin[0]).lerp(new THREE.Color(sp.skin[1]), rng());
+    if (over.skin) skinColor.set(over.skin);
+    skinMetal = false;
+    accent = new THREE.Color(pick(rng, sp.dress));
+    eyeCount = sp.eyes;
+    eyeScale = over.eyeScale ?? span(sp.eyeScale);
+    headShape = sp.headShape;
+    hasAntennae = hasCrest = hasTail = false;
+    gaitSpeed = span(sp.gait);
+    gaitPhase = rng() * Math.PI * 2;
+  } else {
+    height = THREE.MathUtils.lerp(C.heightMin, C.heightMax, rng());
+    headScale = THREE.MathUtils.lerp(C.headScaleMin, C.headScaleMax, rng());
+    limbScale = THREE.MathUtils.lerp(C.limbScaleMin, C.limbScaleMax, rng());
+    buildWidth = THREE.MathUtils.lerp(0.8, 1.25, rng());
 
-  const skinColor = new THREE.Color().setHSL(rng(), 0.35 + rng() * 0.3, 0.35 + rng() * 0.25);
-  const skinMetal = rng() < 0.3;
-  const accent = new THREE.Color(pick(rng, C.palette));
+    skinColor = new THREE.Color().setHSL(rng(), 0.35 + rng() * 0.3, 0.35 + rng() * 0.25);
+    skinMetal = rng() < 0.3;
+    accent = new THREE.Color(pick(rng, C.palette));
 
-  const eyeCount = weightedIndex(rng, C.eyeCountWeights) + 1;
-  const headShape = pick(rng, ['round', 'elongated', 'angular', 'crested']);
-  const hasAntennae = rng() < C.antennaeChance;
-  const hasCrest = !hasAntennae && rng() < C.crestChance;
-  const hasTail = rng() < C.tailChance;
+    eyeCount = weightedIndex(rng, C.eyeCountWeights) + 1;
+    headShape = pick(rng, ['round', 'elongated', 'angular', 'crested']);
+    hasAntennae = rng() < C.antennaeChance;
+    hasCrest = !hasAntennae && rng() < C.crestChance;
+    hasTail = rng() < C.tailChance;
 
-  const gaitSpeed = THREE.MathUtils.lerp(C.gaitSpeedMin, C.gaitSpeedMax, rng());
-  const gaitPhase = rng() * Math.PI * 2;
+    gaitSpeed = THREE.MathUtils.lerp(C.gaitSpeedMin, C.gaitSpeedMax, rng());
+    gaitPhase = rng() * Math.PI * 2;
+  }
+  if (opts && opts.noEyes) eyeCount = 0;
+  const eyeColor = sp && sp.eyeColor !== 'followsLights' ? new THREE.Color(sp.eyeColor) : accent.clone();
 
   const skinMat = new THREE.MeshStandardMaterial({
-    color: skinColor, roughness: skinMetal ? 0.35 : 0.75, metalness: skinMetal ? 0.6 : 0.05,
+    color: skinColor, roughness: sp ? sp.skinRoughness : skinMetal ? 0.35 : 0.75, metalness: skinMetal ? 0.6 : 0.05,
   });
+  // (a people's cloth is the colour it is; the open figures wear theirs dimmed and lit)
   const clothMat = new THREE.MeshStandardMaterial({
-    color: accent.clone().multiplyScalar(0.5), roughness: 0.6, metalness: 0.1,
-    emissive: accent.clone(), emissiveIntensity: C.trimEmissiveDay,
+    color: sp ? accent.clone() : accent.clone().multiplyScalar(0.5), roughness: sp ? 0.75 : 0.6, metalness: sp ? 0.05 : 0.1,
+    emissive: sp ? accent.clone().multiplyScalar(0.12) : accent.clone(), emissiveIntensity: C.trimEmissiveDay,
   });
   const eyeMat = new THREE.MeshStandardMaterial({
-    color: accent.clone(), roughness: 0.3, metalness: 0.0,
-    emissive: accent.clone(), emissiveIntensity: C.eyeEmissiveDay,
+    color: eyeColor, roughness: 0.3, metalness: 0.0,
+    emissive: eyeColor.clone(), emissiveIntensity: C.eyeEmissiveDay,
   });
 
-  const scaleY = height / 1.9;
+  // (a people's figure stands a neck taller in the same measure, so the same
+  // height asks a smaller scale of it)
+  const scaleY = height / (sp ? 2.03 : 1.9);
 
   const root = new THREE.Group();
 
@@ -264,18 +303,27 @@ export function buildRig(seed, cityId, opts) {
   const torso = new THREE.Group();
   torso.position.y = 0.18 * scaleY;
   pelvis.add(torso);
+  // The open figures carry the head sunk in the top of the chest. A people is
+  // known by its face and its neck, so theirs ends at the shoulder, however
+  // broad the build, and a neck stands on it.
+  const chestR = 0.24 * buildWidth * scaleY;
   const torsoMesh = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.24 * buildWidth * scaleY, 0.42 * scaleY, 4, 6), clothMat
+    new THREE.CapsuleGeometry(chestR, sp ? Math.max(0.02 * scaleY, 0.7 * scaleY - 2 * chestR) : 0.42 * scaleY, 4, sp ? 10 : 6), clothMat
   );
   torsoMesh.position.y = 0.28 * scaleY;
   torso.add(torsoMesh);
+  if (sp) {
+    const neckMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.058 * scaleY, 0.07 * scaleY, 0.14 * scaleY, 8), skinMat);
+    neckMesh.position.y = 0.585 * scaleY;
+    torso.add(neckMesh);
+  }
 
   const shoulders = new THREE.Group();
   shoulders.position.y = 0.5 * scaleY;
   torso.add(shoulders);
 
   const neck = new THREE.Group();
-  neck.position.y = 0.52 * scaleY;
+  neck.position.y = (sp ? 0.6 : 0.52) * scaleY;
   torso.add(neck);
 
   const head = new THREE.Group();
@@ -283,18 +331,21 @@ export function buildRig(seed, cityId, opts) {
   let headGeo;
   if (headShape === 'round') headGeo = new THREE.IcosahedronGeometry(0.16 * headScale * scaleY, 1);
   else if (headShape === 'elongated') headGeo = new THREE.CapsuleGeometry(0.11 * headScale * scaleY, 0.18 * headScale * scaleY, 3, 6);
+  else if (headShape === 'angular' && sp) headGeo = new THREE.IcosahedronGeometry(0.165 * headScale * scaleY, 0).scale(0.94, 1.12, 1); // cut in facets, like the rock
+  else if (headShape === 'block') headGeo = new THREE.BoxGeometry(0.27 * headScale * scaleY, 0.3 * headScale * scaleY, 0.27 * headScale * scaleY);
   else if (headShape === 'angular') headGeo = new THREE.ConeGeometry(0.17 * headScale * scaleY, 0.3 * headScale * scaleY, 5);
   else headGeo = new THREE.IcosahedronGeometry(0.15 * headScale * scaleY, 0);
   const headMesh = new THREE.Mesh(headGeo, skinMat);
   headMesh.position.y = 0.14 * headScale * scaleY;
   head.add(headMesh);
 
-  const eyeGeo = new THREE.SphereGeometry(0.025 * headScale * scaleY, 6, 6);
+  const eyeGeo = new THREE.SphereGeometry((sp ? 0.03 : 0.025) * eyeScale * headScale * scaleY, sp ? 8 : 6, 6);
   const eyeR = 0.13 * headScale * scaleY;
   for (let i = 0; i < eyeCount; i++) {
     const t = eyeCount === 1 ? 0 : (i / (eyeCount - 1)) - 0.5;
     const eye = new THREE.Mesh(eyeGeo, eyeMat);
-    eye.position.set(t * eyeR * 1.6, 0.16 * headScale * scaleY + (eyeCount > 2 ? (i % 2) * 0.05 * scaleY : 0), eyeR);
+    if (sp) eye.position.set(t * 0.136 * (1 + 0.38 * (eyeScale - 1)) * headScale * scaleY, 0.165 * headScale * scaleY, (headShape === 'elongated' ? 0.1 : 0.128) * headScale * scaleY); // set in the face, as a captain's are
+    else eye.position.set(t * eyeR * 1.6, 0.16 * headScale * scaleY + (eyeCount > 2 ? (i % 2) * 0.05 * scaleY : 0), eyeR);
     head.add(eye);
   }
 
@@ -374,7 +425,9 @@ export function buildRig(seed, cityId, opts) {
   // works as before; the materials are the same three objects, so a world
   // that recolours them still does. Three draws a figure.
   const joints = { pelvis, torso, head, shoulders, armL, armR, legL, legR, tail };
-  if (opts && opts.dress) opts.dress({ joints, dims: { scaleY, limbScale, buildWidth, headScale } });
+  const dims = { scaleY, limbScale, buildWidth, headScale, eyeScale };
+  const signature = sp ? buildSignature({ joints, dims, mats: { skinMat, eyeMat }, rng, species: sp, over }) : null;
+  if (opts && opts.dress) opts.dress({ joints, dims, signature, mats: { skinMat, clothMat, eyeMat } });
   root.updateMatrixWorld(true);
   const bones = [];
   const parts = [[], [], []]; // skin, cloth, eye (and then any a dress brought)
@@ -440,6 +493,8 @@ export function buildRig(seed, cityId, opts) {
     joints,
     materials: { skinMat, clothMat, eyeMat },
     body,
+    signature,
+    species: opts && opts.species ? opts.species : null,
     params: {
       height, gaitSpeed, gaitPhase, scaleY, groundOffset,
       // the legs' own measure (world/rigGround.js plants the feet with it)
@@ -575,6 +630,8 @@ export function createCrowd(host, opts = {}) {
   // Per-instance (was mutating the module-global C.questChance, which leaked
   // between concurrent crowds — street + interiors all share this module).
   const questChance = opts.questChance ?? C.questChance;
+  // a crowd of one people (world/species.js), or the open figures
+  const species = opts.species && SPECIES[opts.species] ? opts.species : null;
 
   const waypoints = (host.plazaCenters && host.plazaCenters.length)
     ? host.plazaCenters
@@ -598,7 +655,7 @@ export function createCrowd(host, opts = {}) {
   const rigPool = [];
   const rigAssignments = new Map(); // citizenIndex -> pool slot index
   for (let i = 0; i < maxRigs; i++) {
-    const rig = buildRig(citySeed ^ Math.imul(i + 1, 0x9e3779b1), cityId);
+    const rig = buildRig(citySeed ^ Math.imul(i + 1, 0x9e3779b1), cityId, species ? { species } : undefined);
     rig.group.visible = false;
     group.add(rig.group);
     rigPool.push({ rig, assignedIndex: -1, t: rng() * 10 });
@@ -612,10 +669,11 @@ export function createCrowd(host, opts = {}) {
   impostorMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(population * 3), 3);
   group.add(impostorMesh);
 
-  const colorTmp = new THREE.Color();
+  const colorTmp = new THREE.Color(), _skinB = new THREE.Color();
   for (let i = 0; i < population; i++) {
     const localRng = mulberry32(citizens[i].seed ^ 0x1234);
-    colorTmp.setHSL(localRng(), 0.4, 0.5);
+    if (species) colorTmp.set(SPECIES[species].skin[0]).lerp(_skinB.set(SPECIES[species].skin[1]), localRng());
+    else colorTmp.setHSL(localRng(), 0.4, 0.5);
     impostorMesh.setColorAt(i, colorTmp);
   }
   impostorMesh.instanceColor.needsUpdate = true;
@@ -763,6 +821,7 @@ export function createCrowd(host, opts = {}) {
       poseRig(rig, dt, slot.t, c.mode, speed01);
       rig.materials.eyeMat.emissiveIntensity = eyeEm;
       rig.materials.clothMat.emissiveIntensity = trimEm;
+      liveSignature(rig, dt, slot.t, c.mode === 'talk');
     }
 
     // Update impostors for everyone NOT currently an active rig

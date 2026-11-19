@@ -79,8 +79,19 @@ export function mergedMesh(list, material) {
 // One robot: a body mesh and a head that turns. Feet at the group's origin.
 // `pal`: { body, dark, glow } hex colours; the capital's green by default (the
 // far side's greeter, world/lightcity.js, is the same figure in another metal).
-const GREEN = { body: COL.robot, dark: COL.robotDark, glow: GLOW.green };
-export function buildRobot(litMat, glowMat, pal = GREEN) {
+// One body for all the Tenretni, green on the capital deck and on the far
+// side alike (world/species.js). Only the eye bar changes, by `role`:
+//   warden (and everyone else)   green
+//   archivist                    a cyan light at the chest, and an eye bar
+//                                that runs through the spectrum (trackRobot)
+//   keeper                       amber
+export const GREEN = { body: COL.robot, dark: COL.robotDark, glow: GLOW.green };
+// the lit material every Tenretni body is drawn in
+export const tenretniMat = () => new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x0c3a1e });
+export function buildRobot(litMat, glowMat, pal = GREEN, role = null) {
+  const spectrum = role === 'archivist';
+  const chest = spectrum ? GLOW.cyan : pal.glow;
+  const bar = spectrum ? 0xffffff : role === 'keeper' ? GLOW.amber : pal.glow;
   const g = new THREE.Group();
   const b = [];
   // legs: long and thin, a knee block each
@@ -105,7 +116,8 @@ export function buildRobot(litMat, glowMat, pal = GREEN) {
   g.add(mergedMesh(b, litMat));
 
   // chest light
-  g.add(mergedMesh([tint(box(0.2, 0.06, 0.02, 0, 2.5, 0.27), pal.glow, 1.4)], glowMat));
+  // (proud of the chest's front edge: at 0.27 it sat inside the chest and was never seen)
+  g.add(mergedMesh([tint(box(0.2, 0.06, 0.1, 0, 2.5, 0.4), chest, 1.4)], glowMat));
 
   const head = new THREE.Group();
   head.position.y = 3.1;
@@ -114,10 +126,10 @@ export function buildRobot(litMat, glowMat, pal = GREEN) {
     tint(box(0.5, 0.06, 0.46, 0, 0.25, 0), pal.dark),
     tint(box(0.03, 0.5, 0.03, 0.17, 0.5, -0.1), pal.dark), // aerial
   ], litMat));
-  const eye = mergedMesh([tint(box(0.36, 0.055, 0.02, 0, 0.08, 0.21), pal.glow, 1.8)], glowMat.clone());
+  const eye = mergedMesh([tint(box(0.36, 0.055, 0.02, 0, 0.08, 0.21), bar, 1.8)], glowMat.clone());
   head.add(eye);
   g.add(head);
-  return { group: g, head, eye };
+  return { group: g, head, eye, spectrum };
 }
 
 // A robot at rest and watching: a slow lean, and the head coming round to the
@@ -140,7 +152,9 @@ export function trackRobot(r, walker, dt, t) {
   }
   r.look += (want - r.look) * Math.min(1, dt * 2.2);
   r.head.rotation.y = r.look;
-  r.eye.material.color.setScalar(0.9 * lit * (0.85 + 0.15 * Math.sin(t * 7 + r.seed)));
+  const k = 0.9 * lit * (0.85 + 0.15 * Math.sin(t * 7 + r.seed));
+  if (r.spectrum) r.eye.material.color.setHSL((t * 0.11 + r.seed) % 1, 0.95, 0.5).multiplyScalar(k * 1.5);
+  else r.eye.material.color.setScalar(k);
 }
 
 // A walkable floor from a list of surfaces (the site contract's floorYAt):

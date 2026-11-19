@@ -46,7 +46,7 @@ import { uiSound } from '../src/sfx.js';
 import { lampHud } from '../src/lampHud.js';
 import { lamp, LAMP_U, LAMP_GLSL, BAND, nextBand, toggleLamp, stepLamp, lampShows, lampLive, resetLamp, lampState } from '../src/lamp.js';
 import { tint, box, mergedMesh, floorOf } from './capital.js';
-import { setHum, bandClick, setRadio, doseTicks, logChime, hush, ezAudioState } from './entryzero-audio.js';
+import { setHum, bandClick, setRadio, doseTicks, hullTick, logChime, hush, ezAudioState } from './entryzero-audio.js';
 import { CAPTAINS } from './chapter-dialogue.js';
 import { BANDS, WELL, DESCENT, DEEP } from './entryzero-dialogue.js';
 import { createHollow, LAST_ZONE } from './hollow.js';
@@ -208,12 +208,16 @@ const MOTE_VERT = /* glsl */ `
   uniform float uBox;
   uniform float uScale;
   uniform float uTime;
+  uniform float uShiver; // a caller is calling: every speck trembles in time with it
+  uniform vec3 uDrift;   // the listener is near: every speck goes the same way
   attribute float aSeed;
   varying float vLit;
   void main() {
     vec3 p = position * uBox;
     p.y += uTime * (0.6 + 1.2 * aSeed); // they rise, very slowly
+    p += uDrift * (0.6 + 0.8 * aSeed);
     p = mod(p - uAt + 0.5 * uBox, uBox) - 0.5 * uBox + uAt;
+    p += uShiver * vec3(sin(uTime * 31.0 + aSeed * 90.0), sin(uTime * 27.0 + aSeed * 50.0), cos(uTime * 29.0 + aSeed * 70.0));
     vec4 mv = viewMatrix * vec4(p, 1.0);
     float edge = 1.0 - smoothstep(0.4 * uBox, 0.5 * uBox, length(p - uAt));
     vLit = (0.012 + lampBeam(p) * uLampOn * uLampLit) * edge;
@@ -461,7 +465,13 @@ export function createSubmersible(ctx) {
   mGeo.setAttribute('position', new THREE.BufferAttribute(mPos, 3));
   mGeo.setAttribute('aSeed', new THREE.BufferAttribute(mSeed, 1));
   const at = new THREE.Vector3(0, TOP - 45, 0); // where the vessel is
-  const moteU = { ...LAMP_U, uAt: { value: at }, uBox: { value: MOTE_BOX }, uScale: { value: 600 }, uTime: time };
+  const moteU = { ...LAMP_U, uAt: { value: at }, uBox: { value: MOTE_BOX }, uScale: { value: 600 }, uTime: time, uShiver: { value: 0 }, uDrift: { value: new THREE.Vector3() } };
+  // What the unseen do to everything else (the hollow writes it each frame;
+  // world/hollow.js): `shiver` 0..1 as a caller calls; near the listener
+  // `drift` (a direction) and `near` 0..1; `flash` for the one frame its bone
+  // fills the glass.
+  const fx = { shiver: 0, drift: new THREE.Vector3(), near: 0, flash: false };
+  const driftSum = new THREE.Vector3();
   const motes = new THREE.Points(mGeo, new THREE.ShaderMaterial({ uniforms: moteU, vertexShader: MOTE_VERT, fragmentShader: MOTE_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
   motes.frustumCulled = false;
   motes.renderOrder = 6;
@@ -502,6 +512,13 @@ export function createSubmersible(ctx) {
   ride.renderOrder = 8;
   ride.visible = false;
   hull.add(ride);
+  // the listener, on every band at once and close: a wall of bone-white on
+  // X-ray that fills the glass, for one frame. It is never drawn otherwise.
+  const bone = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 3.6), new THREE.MeshBasicMaterial({ color: 0xf3eddc, fog: false, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
+  bone.position.set(0, 0.25, 1.62);
+  bone.renderOrder = 9;
+  bone.visible = false;
+  hull.add(bone);
   group.add(hull);
 
   // --- the body ---
@@ -680,7 +697,7 @@ export function createSubmersible(ctx) {
   function buildHollow() {
     if (hollow || hollowBroken) return hollow;
     try {
-      const k = { group, time, tier, chapter, speak, say: (text, sec) => chapterHud.say(text, sec), chime: logChime, panel: (text) => chapterHud.panel(text), cine: (on) => chapterHud.cine(on) };
+      const k = { group, time, tier, hull, fx, chapter, speak, say: (text, sec) => chapterHud.say(text, sec), chime: logChime, panel: (text) => chapterHud.panel(text), cine: (on) => chapterHud.cine(on) };
       hollow = createHollow(k);
       centre = createCentre(k);
     } catch (err) {
@@ -980,7 +997,15 @@ export function createSubmersible(ctx) {
       const keeper = zone === CENTRE_ZONE && (choosing || shown || (!!chapter.ez.stay() && lamp.on && centre.info().alt < 260));
       stepLamp(d, input.allBands || keeper);
       beam.scale.setScalar(lamp.reach * 0.75);
-      stripMat.color.copy(LAMP_U.uLampTint.value).multiplyScalar(lampLive() ? 1.5 : 0.1);
+      // (the sill light dims as the listener closes)
+      stripMat.color.copy(LAMP_U.uLampTint.value).multiplyScalar((lampLive() ? 1.5 : 0.1) * (1 - 0.85 * fx.near));
+      moteU.uShiver.value = fx.shiver * 1.6;
+      driftSum.addScaledVector(fx.drift, fx.near * 26 * d);
+      if (fx.near <= 0) driftSum.multiplyScalar(Math.max(0, 1 - d * 0.5));
+      moteU.uDrift.value.copy(driftSum);
+      bone.visible = fx.flash;
+      fx.flash = false;
+      hullTick(fx.near, d);
       moteU.uScale.value = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((C.FOV * Math.PI) / 360);
       if (lamp.changed !== lastChanged) {
         lastChanged = lamp.changed;

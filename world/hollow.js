@@ -339,6 +339,7 @@ export function createHollow(k) {
   const slabs = []; // { c, inv: Quaternion, q, h: half extents }
   const callerAt = new THREE.Vector3(), callerTo = new THREE.Vector3(), callerHome = new THREE.Vector3();
   let hasCaller = false, quietT = 0, coming = false, holdT = 0, callerD = Infinity;
+  let flashed = false, calls = 0; // (looks: the listener's one frame; how many callers this zone has)
   let saidCaller = false, saidHeard = false, saidClose = false, saidLost = false, saidPull = 0, saidBuried = false, buriedT = 0;
   const _l = new THREE.Vector3();
 
@@ -360,6 +361,9 @@ export function createHollow(k) {
     globes.length = 0;
     hasWall = false;
     hasCaller = false;
+    flashed = false;
+    calls = 0;
+    if (k.fx) { k.fx.near = 0; k.fx.shiver = 0; k.fx.flash = false; }
     slabs.length = 0;
     setDread(0);
     guards = null;
@@ -553,7 +557,8 @@ export function createHollow(k) {
       // asleep by the water the X-ray band has to be used in
       feederAt.push(globes[0].c.clone().add(new THREE.Vector3(globes[0].r + 120, 0, 0)), globes[2].c.clone().add(new THREE.Vector3(0, globes[2].r + 120, 0)));
     }
-    life = createLife({ group: root, time: k.time, tier: k.tier, schools, callers, eaters: eaterAt, leeches: cfg.leeches ? leechAt : [], feeders: feederAt, seed: cfg.seed + 17 });
+    life = createLife({ group: root, time: k.time, tier: k.tier, hull: k.hull, schools, callers, eaters: eaterAt, leeches: cfg.leeches ? leechAt : [], feeders: feederAt, seed: cfg.seed + 17 });
+    calls = callers.length;
     guards = life.groups.find((g) => g.kind === 'guard') ? life.groups.filter((g) => g.kind === 'guard') : null;
     wallT = 0;
     u = 0;
@@ -704,6 +709,13 @@ export function createHollow(k) {
       }
       inWater = water;
       life.step(dt, t, at, speed);
+      // The callers stay unseen. When one calls (each to its own slow time),
+      // the motes round the vessel shiver with it.
+      if (k.fx) {
+        let call = 0;
+        for (let i = 0; i < calls; i++) call = Math.max(call, Math.pow(Math.max(0, Math.sin(t * (0.43 + i * 0.11) + i * 2.4)), 14));
+        k.fx.shiver = call;
+      }
 
       // --- the log ---
       for (const g of life.groups) {
@@ -902,6 +914,18 @@ export function createHollow(k) {
         }
         if (callerD > 1500) saidClose = saidLost = false; // (it can come again)
         setDread(Math.pow(Math.max(0, 1 - callerD / 1300), 2));
+        // It is never seen. What it does to everything else as it closes: the
+        // motes all go one way (from it), the cabin dims, the hull ticks.
+        if (k.fx) {
+          k.fx.near = Math.pow(Math.max(0, 1 - callerD / 1300), 2);
+          if (callerD > 1) k.fx.drift.subVectors(at, callerAt).multiplyScalar(1 / callerD);
+          // ...and once as it comes close, on every band at once: bone, for a frame
+          if (callerD > 900) flashed = false;
+          if (!flashed && lamp.all && callerD < 420) {
+            flashed = true;
+            k.fx.flash = true;
+          }
+        }
         holdT = callerD < C.EZ_CALLER_REACH ? holdT + dt : 0;
         if (holdT > C.EZ_CALLER_HOLD) {
           holdT = 0;
