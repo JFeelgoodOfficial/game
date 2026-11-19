@@ -531,3 +531,27 @@ it. To find a target, `subSet` the vessel to 0.55 of the target's x and z,
 target is never drawn: `sub.audio.radio.near` goes to 1 as the lamp points
 at it. Rising through the ring (`subSet({at: [0, 120, 0]})`, `input.brake`)
 returns to the city at (7.5, 0, -4) with `#ezHud` hidden.
+
+The hollow (`world/hollow.js`, `world/hollowlife.js`): the membrane under the
+well opens (`sub.gate` → 1) once every target is found (`subSet({found: 63})`)
+or the stage is `ez_descent` already. `subSet({at: [0, -720, 0]})` then starts
+the lattice pulse (`sub.ride` ≥ 0 for 5.5 game seconds, -1 when over) into
+zone `max(1, ez.node)`: `sub.zone`, stage `ez_descent`, `ez.node` saved.
+`sub.hollow` → `{zone, entry, exit, globes: [{c, r}], need, life: {groups:
+[{kind, band, at, radius}], eaters, leeches, drinking, attached, eaterAt,
+leechAt}}`. To log a group, `subSet` the vessel `radius + 40` to one side of
+its `at`, `look` at it, step to its band, and wait for the band's bit in
+`chapter().state().ez.log` (line `LOGGED — …`); a caller (radio) is logged
+from anywhere by `look`ing at it. Zone 1 asks for blue-green and ultraviolet
+(log 3), zone 2 for the other four (log 63). At `hollow.exit` with bands
+missing Vask names them; with none missing the pulse takes the vessel down a
+zone, and under zone 2 the lattice is dark. Do not `subSet` further than 2,600
+from the line between the nodes: the zone's limit moves the vessel back.
+Eaters: lamp on a beam band 150 from `eaterAt` → `life.drinking` climbs and
+the lamp drains about five times faster; on H-alpha they leave. Leeches (zone
+2): sit still 60 from `leechAt` → `life.attached` > 0 and `lamp.cabin` falls;
+`input.forward` until `sub.vel` > 47 shakes them off. `subSet({lamp: {energy:
+0.002}})` (or `dose: 1`, `cabin: 0`) sends the vessel back to the upper node
+with a fresh lamp and the log kept. The whole descent takes about ten minutes
+of real time under SwiftShader: run it in the background, and never edit a
+source file while it runs.
