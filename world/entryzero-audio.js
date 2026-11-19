@@ -161,6 +161,17 @@ export function doseTicks(rate, dt) {
   tone('square', 3400, 2600, 0.035, 0.006, 0.03);
 }
 
+// The hull, under something's attention: a tick now and then, more often the
+// nearer it is. `level` 0..1.
+let hullDue = 1;
+export function hullTick(level, dt) {
+  if (level <= 0.02) return;
+  hullDue -= dt * (0.25 + 3.2 * level);
+  if (hullDue > 0) return;
+  hullDue = 0.35 - Math.log(1 - rnd() * 0.95);
+  tone('triangle', 190 + rnd() * 90, 70, 0.09, 0.004, 0.06 + 0.1 * level);
+}
+
 export function setRoar(level) {
   if (level <= 0 && !roar) return;
   const c = ensure();
