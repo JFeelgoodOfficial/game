@@ -22,6 +22,7 @@ import { C } from './constants.js';
 import { walkCombatActive, coinActive, currentBoardable } from './walkLazy.js';
 import { promptActions, ACTION_KEYS } from './touchText.js';
 import { toggleCameraBar } from './capture.js';
+import { toggleCodex } from './codexPanel.js';
 import { toggleVehicleMenu } from './vehicleMenu.js';
 
 // Same sniff the rest of the touch HUD uses (touchText.js).
@@ -420,6 +421,7 @@ export function initTouchControls() {
   panelRows = {
     view: panelRow('VIEW', 'SWITCH FIRST / THIRD PERSON', () => { input.toggleView = true; }),
     pics: panelRow('CAMERA', 'TAKE PHOTOS, RECORD VIDEO, SEE YOUR GALLERY', () => toggleCameraBar()),
+    codex: panelRow('CODEX', 'WHAT YOU HAVE LEARNED, AND WHERE TO GO NEXT', () => toggleCodex()),
     equip: panelRow('EQUIPMENT', 'CHOOSE A VEHICLE OR YOUR SNOWBOARD', () => toggleVehicleMenu()),
   };
   const pause = panelRow('PAUSE', 'FREEZE THE GAME', () => { input.togglePause = true; });

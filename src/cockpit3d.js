@@ -33,6 +33,8 @@ import { toggleCameraBar, isCameraBarOpen } from './capture.js';
 import { toggleHolo, isHoloOpen, holoPick } from './holonav.js';
 import { initNavMenu, setNavMenuOpen, isNavMenuOpen, navMenuPick } from './navmenu.js';
 import { isTouch } from './touchText.js';
+import { toggleCodex, isCodexOpen } from './codexPanel.js';
+import { codexUnread } from './journal.js';
 
 const CYAN = 0x82f7ff,
   CYAN2 = 0xa9f7ff,
@@ -53,6 +55,8 @@ let lever, leverArm, leverGlowMat; // the throttle: its base group, the swinging
 let leverDrag = null; // { id, y, oy } — a pointer holding the throttle
 let leverShown = 0; // eased handle position, -1..1
 let buttons = [];
+let codexBtn = null, codexFaceMat = null, codexRingMat = null; // the centre disc (CODEX)
+let codexFlash = 0;
 const flashByCode = new Map(); // KeyG/etc -> button, for keyboard flashes
 let curPhase = 'menu';
 let lastNarrow = -1; // touch row layout last applied for this squareness
@@ -141,17 +145,43 @@ function buildConsole() {
     // one now and the wheel rises from the right)
   });
 
-  // holo projector disc + ring + faint emitter cone at the console centre
+  // The disc at the console centre: the holo projector (the NAV hologram still
+  // rises from here) and, since the owner asked for it, the CODEX button —
+  // press it for what has been learned and where to go next (codexPanel.js).
+  // It is not one of the six row buttons and is kept out of `buttons`.
+  codexBtn = new THREE.Group();
+  codexBtn.position.set(0, 0.74, -0.25);
   const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, 0.06, 48), dark);
-  disc.position.set(0, 0.74, -0.25);
-  g.add(disc);
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.4, 0.02, 12, 48),
-    new THREE.MeshBasicMaterial({ color: new THREE.Color(CYAN).multiplyScalar(0.45) })
-  );
-  ring.position.set(0, 0.78, -0.25);
+  codexBtn.add(disc);
+  // the lit face: dim at rest, bright when pressed or open, beating gently
+  // while there is something new to read. Kept under the bloom threshold.
+  codexFaceMat = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(GOLD).multiplyScalar(0.5), transparent: true, opacity: 0.14, depthWrite: false,
+  });
+  const lit = new THREE.Mesh(new THREE.CircleGeometry(0.38, 48), codexFaceMat);
+  lit.rotation.x = -Math.PI / 2;
+  lit.position.y = 0.032;
+  codexBtn.add(lit);
+  codexRingMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(GOLD).multiplyScalar(0.45) });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.02, 12, 48), codexRingMat);
+  ring.position.y = 0.04;
   ring.rotation.x = Math.PI / 2;
-  g.add(ring);
+  codexBtn.add(ring);
+  // camera-facing icon and name, like the row buttons' keycaps and labels
+  const cap = keycap('K', GOLD, 'codex'); // the picture on every device: an open book
+  // (bigger on a phone, where the dash is a small part of a small screen)
+  const k = isTouch ? 1.55 : 1;
+  cap.scale.set(0.24 * k, 0.24 * k, 1);
+  cap.position.set(-0.2 * k, 0.1 * k, 0);
+  codexBtn.add(cap);
+  const lab = nameLabel('CODEX', GOLD, 0.36 * k);
+  lab.position.set(0.13 * k, 0.1 * k, 0);
+  codexBtn.add(lab);
+  const hit = new THREE.Sprite(new THREE.SpriteMaterial({ visible: false, depthTest: false }));
+  hit.scale.set(0.9 * k, 0.34 * k, 1);
+  hit.position.y = 0.09 * k;
+  codexBtn.add(hit);
+  g.add(codexBtn);
   // The additive emitter cone that used to rise from the projector is gone —
   // it was pure haze over the dash. The hologram it projects still glows.
 
@@ -394,6 +424,14 @@ function drawIcon(g, name) {
       g.fillRect(-7, -28, 14, 24);
       g.fillRect(-26, 22, 52, 7);
       break;
+    case 'codex': // an open book
+      g.lineWidth = 6;
+      g.beginPath();
+      g.moveTo(0, -18); g.lineTo(0, 24);
+      g.moveTo(0, -18); g.quadraticCurveTo(-16, -28, -32, -20); g.lineTo(-32, 20); g.quadraticCurveTo(-16, 12, 0, 24);
+      g.moveTo(0, -18); g.quadraticCurveTo(16, -28, 32, -20); g.lineTo(32, 20); g.quadraticCurveTo(16, 12, 0, 24);
+      g.stroke();
+      break;
     case 'nav': // compass star
       tri([0, -32, 9, -9, 0, 0, -9, -9]);
       g.globalAlpha = 0.55;
@@ -583,6 +621,12 @@ function flash(b) {
   b.userData._flash = 1;
 }
 
+function pressCodex() {
+  uiSound('toggle');
+  codexFlash = 1;
+  toggleCodex();
+}
+
 // A pointer/touch press on a button. `on` distinguishes press (true) from
 // release (false); only hold buttons care about release.
 function pressButton(b, on) {
@@ -661,6 +705,13 @@ function beginAt(id, cx, cy, type) {
   // destination menu: sits above the NAV button, so it must win over the wheel
   // (whose screen-space bounds reach up into the same area).
   if (isNavMenuOpen() && navMenuPick(raycaster)) {
+    lastConsumed = true;
+    return true;
+  }
+
+  // the CODEX disc at the centre of the dash
+  if (codexBtn && raycaster.intersectObject(codexBtn, true).length) {
+    pressCodex();
     lastConsumed = true;
     return true;
   }
@@ -916,6 +967,16 @@ export function updateCockpit3d(ship, delta, phase) {
   // The destination menu rides the hologram: NAV (button or N) raises both.
   setNavMenuOpen(isHoloOpen());
 
+  // the CODEX disc: lit while its panel is open, a slow beat while there is
+  // something unread, a flash on the press
+  if (codexFaceMat) {
+    codexFlash = Math.max(0, codexFlash - dt * 2.5);
+    const beat = codexUnread() ? 0.3 + 0.3 * (0.5 + 0.5 * Math.sin(elapsed * 3.2)) : 0;
+    const on = Math.max(isCodexOpen() ? 1 : 0, codexFlash, beat);
+    codexFaceMat.opacity += (0.12 + on * 0.6 - codexFaceMat.opacity) * Math.min(dt * 8, 1);
+    codexRingMat.color.set(GOLD).multiplyScalar(0.4 + on * 0.45);
+  }
+
   // button lit state: held buttons track their input flag, NAV tracks the
   // hologram, everything else only flashes on press
   for (let i = 0; i < buttons.length; i++) {
@@ -951,6 +1012,8 @@ export function cockpitDebug() {
       return b ? b.userData.screenMat.opacity : null;
     },
     wheelRot: () => (wheel ? wheel.rotation.z : 0),
+    pressCodex, // the centre disc
+    codexLit: () => (codexFaceMat ? codexFaceMat.opacity : null),
     // the throttle: what it is set to, whether a pointer holds it, where the
     // handle is drawn; setLever(v) holds it at v as a finger would (null lets go)
     lever: () => ({ value: input.throttle, held: !!leverDrag, shown: leverShown }),
@@ -963,7 +1026,7 @@ export function cockpitDebug() {
     // verification
     screenPos(name) {
       const b =
-        name === 'LEVER' ? leverArm.children[2] : name === 'WHEEL' ? wheel : buttons.find((x) => x.userData.def.name === name);
+        name === 'CODEX' ? codexBtn : name === 'LEVER' ? leverArm.children[2] : name === 'WHEEL' ? wheel : buttons.find((x) => x.userData.def.name === name);
       if (!b || !dom) return null;
       const v = b.getWorldPosition(new THREE.Vector3()).project(camera);
       const r = dom.getBoundingClientRect();

@@ -66,7 +66,9 @@ import { addShiftable } from './origin.js';
 import { createCapital } from '../world/capital.js';
 import coreFrag from './shaders/tenretniCore.frag?raw';
 import shellFrag from './shaders/tenretniShell.frag?raw';
-import { showNavToast, hideNavToast, setNavHidden, addNavBody } from './nav.js';
+import { showNavToast, hideNavToast, setNavHidden, addNavBody, getBodies } from './nav.js';
+import { openDialogue, isDialogueOpen } from './dialogue.js';
+import { cineOnce } from './cineTalk.js';
 import { showViewToast } from './walkview.js';
 import { setEventRumble, uiSound } from './sfx.js';
 import commonVert from './shaders/tenretni.vert?raw';
@@ -751,10 +753,12 @@ const STORY = {
     }
     if (role === 'warden' && eaten.length) {
       const left = Object.keys(WATER_WORLDS).filter((k) => !eaten.includes(k));
-      return { speaker, lines: left.length
+      return { speaker, cine: cineOnce(`warden:ate:${eaten.length}`), lines: left.length
         ? [
           `${WATER_WORLDS[eaten[eaten.length - 1]]} is part of this world now. We are larger. The count is correct.`,
           `One world with water remains in your log: ${WATER_WORLDS[left[0]]}. The navigation deck is open to you.`,
+          // the war has started by now: say where the pilot's next errand is
+          'The other worlds have launched their fleets. Iron, song and commerce. Their captains will want a word with you.',
         ]
         : [
           'Two oceans. Both ours. This world has air again, and a shield over its heart.',
@@ -765,13 +769,13 @@ const STORY = {
     }
     if (role === 'warden') {
       if (at !== 'terra') {
-        return { speaker, lines: [
+        return { speaker, cine: cineOnce(`warden:at:${at}`), lines: [
           `${hereName()}. Water confirmed. The count is correct.`,
           'We hold here. What happens next is not yours to choose.',
           'The navigation deck remains open to you. There is one other world with water in your log.',
         ] };
       }
-      return { speaker, lines: [
+      return { speaker, cine: cineOnce('warden:intro'), lines: [
         'Pilot. Your vessel was read on approach. Its navigation log has been copied. All of it.',
         'This world has been recompiled. Its core is the engine. It moves now.',
         'It does not move without a heading. The heading is yours to give. That is the arrangement.',
@@ -918,6 +922,7 @@ function ateOne(name, k1) {
   thank();
   if (!fleets && !ended) {
     startWar();
+    hailT = 3; // a captain calls once the pilot is back at the helm (stepHail)
     showNavToast('THE OTHER WORLDS HAVE SEEN IT. FLEETS ARE LAUNCHING.', 8);
   }
   if (PROGRAMS.some((p) => p.id === name) && hasUpgrade('holodeck')) {
@@ -1166,6 +1171,65 @@ const captainOf = (ship) => {
   const i = Number(ship.id.slice(-1)) % c.names.length;
   return { name: `${c.title} ${c.names[i]}`, species: LABELS[ship.faction], cityId: ship.name };
 };
+// The pilot's errand in the war (the CODEX reads this stage): undefined until
+// a captain has hailed, then the number of channels open, 0..3.
+const FLEETS_QUEST = 'fleets';
+const commCount = () => Object.keys(VOICE).filter((f) => comms[f]).length;
+let hailT = 3; // seconds of free flight before the hail comes in
+
+// The first captain to see it calls the pilot (owner request: one toast was
+// all that said "go to the fleets"). A transmission, shown as a scene, the
+// first time the pilot is back at the helm with the war on.
+function hailPayload() {
+  const lead = fleets.ships.find((s) => s.alive && s.kind === 'warship' && s.faction === 'rustia')
+    || fleets.ships.find((s) => s.alive && s.kind === 'warship');
+  if (!lead) return null;
+  const others = Object.keys(VOICE).filter((f) => f !== lead.faction).map((f) => LABELS[f]);
+  return {
+    speaker: captainOf(lead),
+    cine: { kind: 'comm', from: lead.name.toUpperCase() },
+    lines: [
+      'Freighter pilot. This is a warship of the fleet. We saw what that world did, and we saw you on its deck.',
+      `Three fleets are up: ours, ${others[0]} and ${others[1]}. Three peoples, and nobody we all trust to speak for us.`,
+      'Come aboard one ship of each fleet and ask its captain for a channel. Your chart has us under FLEETS.',
+      'When you hold all three, stand in front of that thing and call. We will come.',
+    ],
+  };
+}
+
+let markT = 0;
+function stepHail(delta, flying, onDeck, aboard) {
+  // keep the chart's marks true as ships are lost and channels open
+  if (fleets && (markT -= delta) <= 0) {
+    markT = 1;
+    markFleetObjectives();
+    // the war is over, one way or another: the errand goes with it
+    if (ended && typeof questStage(FLEETS_QUEST) === 'number') setQuestStage(FLEETS_QUEST, 'over');
+  }
+  if (!fleets || ended || questStage(FLEETS_QUEST) !== undefined) return;
+  if (!flying || onDeck || aboard || holding() || isDialogueOpen()) return;
+  hailT -= delta;
+  if (hailT > 0) return;
+  const p = hailPayload();
+  if (!p) return;
+  setQuestStage(FLEETS_QUEST, commCount());
+  markFleetObjectives();
+  uiSound('toggle');
+  openDialogue(p);
+}
+
+// Warships whose people have not been spoken to yet are marked on the chart
+// (navmenu.js, holonav.js read `objective` off the nav body).
+function markFleetObjectives() {
+  if (!fleets) return;
+  const live = !ended && questStage(FLEETS_QUEST) !== undefined;
+  for (const b of getBodies()) {
+    if (b.kind !== 'ship') continue;
+    const s = fleets.ships.find((x) => x.id === b.id);
+    b.objective = !!(live && s && s.alive && s.kind === 'warship' && !comms[s.faction]);
+  }
+}
+
 const FLEET_STORY = {
   captain(ship) {
     const v = VOICE[ship.faction];
@@ -1177,6 +1241,7 @@ const FLEET_STORY = {
     }
     return {
       speaker,
+      cine: cineOnce(`fleet:hello:${ship.faction}`), // each people's first captain is a scene
       lines: v.hello.slice(),
       offer: {
         kind: 'choice',
@@ -1196,6 +1261,8 @@ const FLEET_STORY = {
     if (!m || !VOICE[m[1]] || m[1] !== ship.faction) return null;
     comms[m[1]] = true;
     save();
+    setQuestStage(FLEETS_QUEST, commCount());
+    markFleetObjectives();
     showViewToast(`COMM CHANNEL OPEN — ${ship.label}`, 6);
     return { speaker: captainOf(ship), lines: VOICE[m[1]].yes.slice() };
   },
@@ -1614,6 +1681,7 @@ export function stepHold(dt) {
 
 export function update(delta, t, onDeck, flying, aboard) {
   time = t;
+  stepHail(delta, flying, onDeck, aboard);
   wormU.uTime.value = t;
   sphereU.uTime.value = t;
   tubeU.uTime.value = t;

@@ -19,6 +19,11 @@ let waypoint = null; // { targetHint } — session-only
 // logic (which wonder is next, re-arming the beacon on re-land) lives with
 // the city spawn code — the journal only stores the stage.
 let quests = {};
+// Everyone spoken to (persisted), for the CODEX: name -> { role, place }.
+let people = {};
+// Something new is in the codex that the player has not opened it to see
+// (persisted): the dash CODEX button pulses while this is true.
+let unread = false;
 
 function load() {
   try {
@@ -28,6 +33,8 @@ function load() {
     if (Array.isArray(data.codex)) codex = new Set(data.codex);
     if (Array.isArray(data.outcomes)) outcomes = new Set(data.outcomes);
     if (data.quests && typeof data.quests === 'object') quests = { ...data.quests };
+    if (data.people && typeof data.people === 'object') people = { ...data.people };
+    unread = !!data.unread;
   } catch {
     /* corrupt or unavailable — start empty, session-only */
   }
@@ -36,7 +43,7 @@ function load() {
 function save() {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify({
-      codex: [...codex], outcomes: [...outcomes], quests,
+      codex: [...codex], outcomes: [...outcomes], quests, people, unread,
     }));
   } catch {
     /* session-only */
@@ -52,6 +59,7 @@ export function initJournal() {
 export function addCodex(subject) {
   if (!subject || codex.has(subject)) return false;
   codex.add(subject);
+  unread = true;
   save();
   showViewToast('CODEX UPDATED — ' + subject.toUpperCase().slice(0, 40), 4);
   return true;
@@ -93,11 +101,34 @@ export function questStage(cityId) {
 
 export function setQuestStage(cityId, stage) {
   if (!cityId) return;
+  if (quests[cityId] !== stage) unread = true;
   quests[cityId] = stage;
+  save();
+}
+
+// A conversation was opened with someone (dialogue.js). First meetings are
+// kept for the CODEX's PEOPLE page; a repeat only fills in what was missing.
+export function addMet(name, role, place) {
+  if (!name) return false;
+  const had = people[name];
+  if (had && (had.role || !role) && (had.place || !place)) return false;
+  people[name] = { role: role || had?.role || '', place: place || had?.place || '' };
+  if (!had) unread = true;
+  save();
+  return !had;
+}
+
+export const peopleMet = () => Object.entries(people).map(([name, p]) => ({ name, ...p }));
+export const codexSubjects = () => [...codex];
+export const allQuestStages = () => ({ ...quests });
+export const codexUnread = () => unread;
+export function markCodexRead() {
+  if (!unread) return;
+  unread = false;
   save();
 }
 
 // Debug/inspection hook (__debug.journal()).
 export function journalState() {
-  return { codex: [...codex], outcomes: [...outcomes], waypoint, quests: { ...quests } };
+  return { codex: [...codex], outcomes: [...outcomes], waypoint, quests: { ...quests }, people: { ...people }, unread };
 }

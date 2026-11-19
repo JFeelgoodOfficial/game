@@ -519,7 +519,7 @@ function drawDialogueOverlay(ctx, w, h) {
   if (!d) return;
 
   const PAD_X = 22, PAD_TOP = 14, PAD_BOT = 12;
-  const MAXW = 620, MINW = 340;
+  const MAXW = 720, MINW = 340;
   const textMax = MAXW - PAD_X * 2; // 576, matches the DOM max-width minus padding
 
   ctx.textBaseline = 'top';
@@ -530,23 +530,23 @@ function drawDialogueOverlay(ctx, w, h) {
   rows.push({
     text: null, // speaker is name + meta, drawn specially
     speaker: d.speaker, meta: d.meta,
-    font: `12px ${DLG_FONT}`, lh: 16, gapBefore: 0,
+    font: `13px ${DLG_FONT}`, lh: 17, gapBefore: 0,
   });
-  ctx.font = `14px ${DLG_FONT}`;
+  ctx.font = `17px ${DLG_FONT}`;
   const lineRows = wrapText(ctx, d.line, textMax);
   lineRows.forEach((t, i) => rows.push({
-    text: t, font: `14px ${DLG_FONT}`, color: '#a9f7ff',
-    glow: 'rgba(130,247,255,0.5)', lh: 21, gapBefore: i === 0 ? 8 : 0,
+    text: t, font: `17px ${DLG_FONT}`, color: '#e6fdff',
+    glow: 'rgba(130,247,255,0.35)', lh: 25, gapBefore: i === 0 ? 8 : 0,
   }));
   if (d.options) {
     d.options.forEach((t, i) => rows.push({
-      text: t, font: `13px ${DLG_FONT}`, color: '#ffc9ec',
-      glow: 'rgba(212,64,143,0.7)', lh: 22, gapBefore: i === 0 ? 8 : 0,
+      text: t, font: `15px ${DLG_FONT}`, color: '#ffc9ec',
+      glow: 'rgba(212,64,143,0.7)', lh: 25, gapBefore: i === 0 ? 8 : 0,
     }));
   }
   rows.push({
-    text: d.hint, font: `10px ${DLG_FONT}`, color: '#7ad7e0',
-    glow: 'rgba(130,247,255,0.4)', lh: 14, gapBefore: 10,
+    text: d.hint, font: `12px ${DLG_FONT}`, color: '#7ad7e0',
+    glow: 'rgba(130,247,255,0.4)', lh: 16, gapBefore: 10,
   });
 
   // widest row → panel width
@@ -573,7 +573,7 @@ function drawDialogueOverlay(ctx, w, h) {
   const r = 4;
   if (ctx.roundRect) ctx.roundRect(panelX, panelY, panelW, panelH, r);
   else ctx.rect(panelX, panelY, panelW, panelH);
-  ctx.fillStyle = 'rgba(4,10,16,0.72)';
+  ctx.fillStyle = 'rgba(4,10,16,0.9)';
   ctx.fill();
   ctx.lineWidth = 1;
   ctx.strokeStyle = 'rgba(130,247,255,0.45)';

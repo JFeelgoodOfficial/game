@@ -96,6 +96,32 @@ a context with `hasTouch: true`, then CDP `Input.dispatchTouchEvent` at
 `screenPos('LEVER')` and a touchMove 80 px up or down; check the wheel is
 still on screen while the lever is held. Look at 16:9, 4:3 and a phone shape.
 
+The disc at the centre of the dash is the CODEX button (also K, and the on-foot
+≡ panel). It is not in `buttonNames()`: `cockpit.pressCodex()`,
+`cockpit.screenPos('CODEX')`, `cockpit.codexLit()`. `__debug.codex` →
+`open(tab)`, `close()`, `isOpen()`, `data()` → `{next, done, people, lore,
+places}`, `text()`. Objectives are derived from `journal().quests` on open, so
+seed `localStorage['fgsf.journal']` BEFORE load to test one. On touch the NAV
+destination list is a DOM panel (`#navList`, `.nl-tab`, `.nl-row`), not the 3D
+one; desktop keeps the 3D panel.
+
+## Cinematic talks
+A dialogue payload with `cine` is shown by src/cineTalk.js: bars, camera on
+the speaker, big subtitles, the walker held. `__debug.cine` → `active()`,
+`kind()` (`talk` | `comm`), `shot()`, `text()` → `{speaker, line, options,
+from}`, `advance()`, `skip()` (stops at a choice, never picks), `pick(i)`.
+Story beats use `cineOnce(key)` (saved in `fgsf.cineSeen`), so a second visit
+is the plain panel: clear that key to see a scene again. Governor: land at the
+town, stand 2 to the -x side of the governor (`promptText()` must read
+`E — TALK`; the elevator button is nearer on the other side), key `e`. Holding
+`w` during a scene must not move `ship.position`. Fleet hail: seed
+`fgsf.journal` quests `{tenretni: 'ship'}` and `fgsf.tenretni`
+`{at: 'wyattmattoe', eaten: ['wyattmattoe'], size: 1.5}` before load; about 3 s
+into flight a `comm` scene opens, `journal().quests.fleets` becomes 0, and it
+counts up as channels open. Warship captain: `vesselDock(id)`,
+`vesselStepOut()`, then scan `capital.place()` round `places.bridge` until
+`capital.focus === 'talk'`.
+
 ## Flight audio and lighting
 `__debug.sfx.state()` → `{built, running, active, warpLevel, uiCount, duck, uiGain}`; the context only
 exists after a real key or pointer press (`page.mouse.click` / `keyboard.down`).

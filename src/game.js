@@ -34,6 +34,8 @@ import {
   startPaintingNebulaBuild,
   paintingNebulae,
 } from './paintingnebula.js';
+import { cineDebug, cineComm } from './cineTalk.js';
+import { initCodexPanel, closeCodex, toggleCodex, codexDebug } from './codexPanel.js';
 import { cockpitScene, CockpitOverlayPass } from './cockpit.js';
 import {
   initCockpit3d,
@@ -53,6 +55,7 @@ import {
   initTenretni, updateTenretni, tenretniHolding, stepTenretniHold, resetTenretni,
   tenretniFx, tenretniDebug, capitalDock, tenretniSailVelocity, holoPrograms, holoWorld,
   nearestVessel, vesselSite, holdVessel, placeFleets, wormholeCapture, farGate, enterFar, farSite, farDoor, farBeyond, farWantsLanding, farMarkLanded,
+  engageWarp,
 } from './tenretniLazy.js';
 import {
   interiorScene,
@@ -253,6 +256,13 @@ initTuning();
 initCockpit3d(renderer.domElement);
 initInterior();
 initRadioPopup();
+// The CODEX (codexPanel.js): the dash disc, K, or the on-foot ≡ panel. SET
+// COURSE hands a chart body to the autopilot, as picking it in NAV would.
+initCodexPanel({ setCourse: (body) => { if (phase === 'fly') engageWarp(body); } });
+window.addEventListener('keydown', (e) => {
+  if (e.repeat || e.code !== 'KeyK') return;
+  if (phase === 'fly' || phase === 'walk') toggleCodex();
+});
 initVehicleMenu();
 initNav();
 initHolonav(cockpitShell);
@@ -754,6 +764,8 @@ if (import.meta.env.DEV) {
       spot: () => holoPanelSpot(),
     },
     cockpit: cockpitDebug(),
+    codex: codexDebug(), // the CODEX panel: open(tab), close(), data(), text()
+    cine: cineDebug(), // cinematic talks (cineTalk.js): active(), text(), shot(), skip(), advance(), pick(i)
     holo: holonavDebug(),
     navMenu: navMenuDebug(),
     autopilot: {
@@ -1215,6 +1227,7 @@ function enterHeaven() {
   closeHoloPanel();
   setCockpitStanding(false);
   closeRadioPopup();
+  closeCodex();
   closeVehicleMenu();
   // Whatever the flight sim was saying, it stops saying it here — a contact-
   // logged banner from the dive has no business hanging over the garden.
@@ -2394,6 +2407,12 @@ function frame(now) {
         // nav auto-warp drives the ship (turn + warp) before the normal step;
         // it suppresses player input, so stepShip flies the plotted course
         if (autopilotActive()) stepAutopilot(DT, heat);
+        // a transmission is being shown (cineTalk.js): hands off the controls
+        if (cineComm()) {
+          input.mouseX = input.mouseY = 0;
+          input.forward = input.reverse = input.warp = false;
+          input.throttle = 0;
+        }
         stepShip(DT, piloted);
         if (piloted && !autopilotActive()) checkTouchdown();
         if (landState === null) checkSkyCapture();
