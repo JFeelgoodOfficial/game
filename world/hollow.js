@@ -261,8 +261,8 @@ export function createHollow(k) {
       const f = (i + 0.7) / (gN + 0.4);
       const r = 380 + 420 * rnd();
       const a = rnd() * Math.PI * 2;
-      // the first one is close to the way, so nobody misses that these can be entered
-      const off = i === 0 ? r * 0.75 : r + 250 + 900 * rnd();
+      // the first one is right beside the way, so nobody misses that these can be entered
+      const off = i === 0 ? r + 60 : r + 250 + 900 * rnd();
       const c = new THREE.Vector3().lerpVectors(entry, exit, f);
       c.x += Math.cos(a) * off;
       c.z += Math.sin(a) * off;
