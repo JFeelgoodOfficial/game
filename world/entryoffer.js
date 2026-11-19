@@ -33,6 +33,7 @@ const WALL_VERT = /* glsl */ `
 const WALL_FRAG = /* glsl */ `
   uniform float uTime;
   uniform float uShow;
+  uniform float uZero; // a million years on: entry zero has been found, and its cell is lit
   varying vec2 vUv;
   varying float vSeed;
   varying float vDark;
@@ -49,7 +50,9 @@ const WALL_FRAG = /* glsl */ `
     vec3 col = lit * 1.25 + frame * vec3(1.0, 0.95, 0.8) * 0.9;
     // the one that is not: nothing in it, and a frame that has been waiting
     vec3 dark = vec3(0.004, 0.005, 0.007) + frame * vec3(0.5, 0.56, 0.62) * (0.35 + 0.25 * sin(uTime * 0.9));
-    col = mix(col, dark, vDark);
+    // (found: it is the one cell that does not change colour)
+    vec3 found = vec3(0.9, 0.95, 1.0) * (0.8 + 0.2 * sin(uTime * 0.9)) * (0.6 + 0.4 * (1.0 - edge)) + frame * vec3(1.0, 0.95, 0.8) * 0.9;
+    col = mix(col, mix(dark, found, uZero), vDark);
     float alpha = mix(0.9, 0.97, vDark) * uShow * (1.0 - smoothstep(0.985, 1.0, edge));
     gl_FragColor = vec4(col, alpha);
   }
@@ -67,7 +70,7 @@ export function createEntryOffer(k) {
   const n = COLS * ROWS;
   const geo = new THREE.PlaneGeometry(CELL_W, CELL_H);
   const seeds = new Float32Array(n), darks = new Float32Array(n);
-  const uniforms = { uTime: { value: 0 }, uShow: { value: 0 } };
+  const uniforms = { uTime: { value: 0 }, uShow: { value: 0 }, uZero: { value: 0 } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: WALL_VERT, fragmentShader: WALL_FRAG, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false });
   const wall = new THREE.InstancedMesh(geo, mat, n);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1), up = new THREE.Vector3(0, 1, 0);
@@ -141,6 +144,7 @@ export function createEntryOffer(k) {
       show = Math.min(1, show + dt * 0.4); // the wall comes up as the pilot comes in
       uniforms.uShow.value = show * show * (3 - 2 * show);
       uniforms.uTime.value = t;
+      uniforms.uZero.value = k.chapter.reached('ez_era') ? 1 : 0;
       trackRobot(archivist, walker, dt, t);
       // the vessel is there once it has been given, and rides the air a little
       vessel.visible = k.chapter.reached('ez_offer');

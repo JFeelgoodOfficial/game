@@ -208,13 +208,17 @@ export function buildHangar(group) {
   const taken = new Uint8Array(NX * NY * NZ);
   const at = (x, y, z) => x + NX * (y + NY * z);
   const list = []; // [x, y, z, sx, sy, sz]
+  const unbuilt = []; // the cells of the ragged corner that are not there yet
   for (let z = 0; z < NZ; z++) {
     for (let y = 0; y < NY; y++) {
       for (let x = 0; x < NX; x++) {
         if (taken[at(x, y, z)]) continue;
         // unbuilt: toward the top at the forward (+z) end
         const raw = (y / NY) * 0.9 + (z / NZ) * 0.9 - 1.15;
-        if (raw > 0 && r() < raw * 2.2) continue;
+        if (raw > 0 && r() < raw * 2.2) {
+          unbuilt.push([x, y, z]); // (finished a million years on: finishCorner())
+          continue;
+        }
         if ((y === NY - 1 || z === NZ - 1 || z === 0) && r() < 0.14) continue;
         let sz = 1, sy = 1;
         const roll = r();
@@ -416,7 +420,91 @@ export function buildHangar(group) {
   glass.renderOrder = 2;
   yard.add(glass);
 
+  // --- a million years on (GDD 5.7.5): the ship went into the hole and came
+  // back, about a thousand years older by its own clock, and on the way it
+  // finished itself. The corner that was never built is there now, in cells
+  // unlike any of the others: not rooms taken from the archive, but the first
+  // thing the Tenretni imagined. Round ones. And the yard it stands in has had
+  // a million years. Built the first time it is wanted. ---
+  let corner = null;
+  function finishCorner() {
+    if (corner) return;
+    const geo = new THREE.IcosahedronGeometry(0.5, 3);
+    const cu = { uTime: uniforms.uTime };
+    const mat = new THREE.ShaderMaterial({
+      uniforms: cu, fog: false,
+      vertexShader: /* glsl */ `
+        attribute float aSeed;
+        varying vec3 vL;
+        varying vec3 vN;
+        varying vec3 vW;
+        varying float vSeed;
+        void main() {
+          vL = position;
+          vSeed = aSeed;
+          vec4 w = modelMatrix * instanceMatrix * vec4(position, 1.0);
+          vW = w.xyz;
+          vN = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
+          gl_Position = projectionMatrix * viewMatrix * w;
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform float uTime;
+        varying vec3 vL;
+        varying vec3 vN;
+        varying vec3 vW;
+        varying float vSeed;
+        void main() {
+          vec3 v = normalize(cameraPosition - vW);
+          float face = max(dot(normalize(vN), v), 0.0);
+          // no rooms, no frames: colour that moves through it like weather
+          vec3 q = vL * 5.0 + vSeed * 20.0;
+          float f = sin(q.x + uTime * 0.4) + sin(q.y * 1.3 - uTime * 0.31 + sin(q.z + uTime * 0.2) * 1.5) + sin(q.z * 0.8 + uTime * 0.23);
+          vec3 a = 0.5 + 0.5 * cos(6.2832 * (vSeed + f * 0.11 + vec3(0.0, 0.33, 0.67)));
+          vec3 col = a * (0.55 + 0.6 * face) + vec3(1.0, 0.97, 0.9) * pow(1.0 - face, 2.5) * 0.9;
+          gl_FragColor = vec4(col * 1.15, 1.0);
+        }
+      `,
+    });
+    const mesh = new THREE.InstancedMesh(geo, mat, unbuilt.length);
+    const cs = new Float32Array(unbuilt.length);
+    unbuilt.forEach(([x, y, z], i) => {
+      dummy.position.set((x + 0.5 - NX / 2) * CELL, (y + 0.5 - NY / 2) * CELL, BZ0 - (z + 0.5) * CELL);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(CELL * (0.82 + 0.3 * ((i * 0.618) % 1)));
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+      cs[i] = (i * 0.7548) % 1;
+    });
+    geo.setAttribute('aSeed', new THREE.InstancedBufferAttribute(cs, 1));
+    mesh.frustumCulled = false;
+    vessel.add(mesh);
+    // the yard: sagging, and what has come down off the roof lying where it fell
+    const fallen = [];
+    let s = 0x0fa11e;
+    const rr = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
+    for (let i = 0; i < 46; i++) {
+      const g = new THREE.BoxGeometry(6 + rr() * 10, 5 + rr() * 8, 60 + rr() * 170);
+      g.rotateY(rr() * Math.PI).rotateZ((rr() - 0.5) * 0.5);
+      g.translate((rr() - 0.5) * 380, -226 + rr() * 8, -70 + (rr() - 0.5) * 900);
+      fallen.push(tint(g, rr() < 0.4 ? 0x24402a : 0x2a2f33));
+    }
+    const debris = mergedMesh(fallen, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    debris.frustumCulled = false;
+    root.add(debris);
+    corner = { mesh, debris, count: unbuilt.length };
+  }
+
   return {
+    // a million years on: the corner finished, the yard fallen in (`on` false: as it was)
+    era(on) {
+      if (on) finishCorner();
+      if (!corner) return;
+      corner.mesh.visible = corner.debris.visible = on;
+      yard.rotation.z = on ? 0.03 : 0;
+      yard.position.y = on ? -9 : 0;
+    },
+    corner: () => (corner && corner.mesh.visible ? corner.count : 0),
     cells: list.length + hexN,
     // for the flight (world/lightdemo.js): the hull, the yard round it, the
     // cells' uniforms, and where the helm is, in the vessel's own frame

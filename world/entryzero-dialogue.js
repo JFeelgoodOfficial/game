@@ -326,7 +326,22 @@ export const ERA = {
   // the yearly rite, over the megaworld: said when the cages light
   rite: 'ONCE A YEAR THEY LIGHT EVERY CAGE, AND THEN THEY LET IT GO DARK.',
   // {ship} {world} {crew}: the three clocks, in a line (as RETURN.clocks)
-  clocks: 'THE SHIP WAS GONE {ship}. HERE IT HAS BEEN {world}. YOU WERE GONE {crew}.',
+  clocks: 'THE LIGHT SHIP WAS GONE {ship}. HERE IT HAS BEEN {world}. YOU WERE GONE {crew}.',
+  // the Archivist, at the rail, with the wall behind it: every cell lit
+  archivist: {
+    speaker: { name: 'The Archivist', species: 'Tenretni', cityId: 'The City of Light' },
+    lines: [
+      'You found it. We have had a long time with what you sent up.',
+      'We let the stars go. We are not afraid of the dark they left.',
+      'The ship came back. It made something while it was away. Go and see.',
+    ],
+  },
+  // the captains who are left, in the city a million years on
+  talk: {
+    vask: ['A million years. I have stopped trying to count what that cost.', 'They are still here. That is the part I did not expect.'],
+    marrow: ['It is quiet. Listen. Nothing in this city is working, and nothing is wrong.'],
+    lux: ['There is moss on my bridge. I think I like it better.'],
+  },
 };
 
 // --- 10. the launch ---------------------------------------------------------------
