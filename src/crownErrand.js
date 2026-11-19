@@ -173,6 +173,15 @@ export const isAlly = (id) => questStage(id) === 'yes';
 // Madame Ossva offers the charge to a pilot Axilo sent, tour or no tour.
 export const chargeOpen = () => errandStage() === 'sent' && questStage(CHARGE_QUEST) === undefined;
 
+// Saves from before this story whose Terra is already gone (the Tenretni
+// event) can never be sent by Axilo: for them she keeps her old terms, the
+// charge once her survey is filed.
+const TENRETNI_QUEST = 'tenretni'; // src/mineWalk.js SECRET_QUEST
+export function chargeOpenLegacy() {
+  const t = questStage(TENRETNI_QUEST);
+  return questStage(CHARGE_QUEST) === undefined && (t === 'done' || t === 'ship');
+}
+
 // The Seal lies on the wrecked bridge until somebody carries it off.
 export function relicWaiting() {
   const st = errandStage();
@@ -187,5 +196,13 @@ export function sealTaken() {
 
 // The Emberdeep cage stays chained until Neptunia has broken. A save that
 // already rode it down keeps its mine.
+// Baron Rynva's secret starts the Tenretni event, which takes Terra off the
+// map. He keeps it until the Seal is home, so the story cannot strand itself.
+// A save that has already heard it is left alone.
+export const secretHeld = () => questStage(TENRETNI_QUEST) === undefined && errandStage() !== 'done';
+// True from the blast until the pilot first rides the reopened cage.
+export const emberdeepJustOpened = () =>
+  questStage(CHARGE_QUEST) === 'blown' && questStage(EMBER_QUEST) === undefined;
+
 export const emberdeepOpen = () =>
   questStage(CHARGE_QUEST) === 'blown' || questStage(EMBER_QUEST) !== undefined;

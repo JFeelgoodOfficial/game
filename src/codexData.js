@@ -12,6 +12,7 @@
 
 import { CITIES } from '../world/cityRegistry.js';
 import { allQuestStages, codexSubjects, peopleMet } from './journal.js';
+import { errandObjective, errandWorld, relicWaiting, isAlly, ALLY_WAVEMALL, ALLY_SATURNIA, emberdeepJustOpened } from './crownErrand.js';
 import { getBodies, isLogged } from './nav.js';
 
 const body = (id) => getBodies().find((b) => b.id === id && isLogged(b.id)) || null;
@@ -54,10 +55,31 @@ export function objectives() {
     next.push({ text: 'Speak to the Warden on the worldship', detail: 'Terra moves now. Land at its capital; the Warden wants a heading from your log.', target: body('terra') });
   }
 
+  // --- the Crown errand (src/crownErrand.js): Patron Axilo's long way round ---
+  const er = q['terra-errand'];
+  const terraGone = t === 'done' || t === 'ship';
+  if (er === 'done') done.push('The Crown Seal, brought home to Meridian Crown');
+  else if (terraGone && (er !== undefined || relicWaiting())) done.push('The Crown Seal: no one left to give it to');
+  else {
+    const line = errandObjective();
+    if (line) {
+      next.push({
+        text: line,
+        detail: 'Patron Axilo’s errand. He is in the penthouse of the governor’s tower in Meridian Crown; your own suite is at the top of the taller tower beside it.',
+        target: body(errandWorld()),
+      });
+    }
+  }
+  if (isAlly(ALLY_WAVEMALL)) done.push('WaveMall Prime stands with Terra');
+  if (isAlly(ALLY_SATURNIA)) done.push('Saturnia stands with Terra: Vex Halcyon beaten');
+  if (emberdeepJustOpened()) next.push({ text: 'The Emberdeep on Rustia has reopened', detail: 'The blast woke the seam. The cage at Redline Claim is unchained.', target: body('rustia') });
+
   // --- each town's governor: the wonder tour, then anything after it ---
   for (const def of CITIES) {
     if (!def.quest) continue;
     const st = q[def.id];
+    // Nobody is left on the Reach to meet or to finish a survey for.
+    if (def.charge && (q['neptunia-charge'] ?? q.charge) === 'blown' && st !== 'done') continue;
     const gov = governorOf(def);
     const world = body(def.world);
     const total = (def.wonders || []).length;
@@ -81,6 +103,7 @@ export function objectives() {
 
   // --- Neptunia: the Reach's charge ---
   const ch = q['neptunia-charge'] ?? q.charge;
+  if (ch === 'go' && er === 'sent') { /* the errand's own line already says it */ } else
   if (ch === 'go') next.push({ text: 'Arm the charge under the Reach', detail: 'Ride the riser down amidships, arm the charge, then report to Madame Ossva.', target: body('neptunia') });
   else if (ch === 'blown') done.push('The Reach: the charge was fired');
 

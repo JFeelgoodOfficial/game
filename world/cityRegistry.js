@@ -171,6 +171,9 @@ export const CITIES = [
     mine: {
       name: 'Emberdeep No. 1',
       // one aside appended to his usual lines until the patio is fitted...
+      // ...while the cage is chained (until Neptunia breaks, crownErrand.js)...
+      sealed: 'The Emberdeep is chained, pilot. The seam went cold, and I do not send a cage down a cold seam. It would take something shaking this whole system to wake it.',
+      reopened: 'You felt it? Something broke, out past the ring, and the seam is glowing again. I have had the chain off the cage since morning.',
       hint: 'And if you ever ride the cage down the Emberdeep — the headframe by the pad road — bring me up a piece of ember ore. I miss the glow up here.',
       // ...the hand-over, carrying ore...
       deliver: [
@@ -255,6 +258,16 @@ export const CITIES = [
         'It will open the crust and let the deep out. That is this ship’s whole errand, and it wants one thing more: a hand to arm it.',
         'Ride the lift down. Find the charge. Arm it for detonation, then come back up and tell me it is ready. We fire from the bridge, once you are clear.',
       ],
+      // To the pilot Patron Axilo sent (the Crown errand, src/crownErrand.js):
+      // she says what the lift is, why it is sealed and what he gets for it,
+      // survey or no survey.
+      errandOffer: [
+        'Axilo’s pilot. I know why he sent you. The Crown Seal sits on my bridge, behind this chair, and it has sat there since before he was Patron.',
+        'He may have it back. But the Reach does not fish. The riser amidships runs two hundred fathoms to the floor, and at its foot we have seated a mining charge in the bedrock.',
+        'It will open the crust and let the deep out, and it wants one thing more: a hand to arm it. The riser lift is sealed on my order. Say yes and I unseal it for you.',
+        'Ride it down, arm the charge, come back up and tell me it is ready. Then the Seal leaves with you.',
+      ],
+      surveyFirst: 'Tell me about the survey first.',
       prompt: 'Go down the riser?',
       accept: 'I’ll arm it.',
       decline: 'Not yet.',
@@ -262,7 +275,7 @@ export const CITIES = [
         'The lift is unsealed for you. Midships, under the derrick.',
         'You will have company on the way down. The glass is thick. Look as long as you like.',
       ],
-      remind: 'The charge is not armed until you arm it. The lift waits under the derrick. Come and tell me when it is ready.',
+      remind: 'The charge is not armed until you arm it. The lift waits under the derrick, unsealed. Come and tell me when it is ready, and the Seal is yours.',
       objective: 'RIDE THE RISER DOWN — ARM THE CHARGE — REPORT TO THE GOVERNOR',
     },
     citizens: [

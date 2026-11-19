@@ -928,7 +928,10 @@ function spawnWorldEntities(planet) {
     // of the cover as well as the houses; it joins city.structures the same
     // way the cover does, so walls, deck and ballistics all just work.
     if (cityDef.mine) {
-      mineHead = createMineHead(city, { onDescend: descendMine, seed: cityDef.seed ^ 0x3b3a11 });
+      mineHead = createMineHead(city, {
+        onDescend: descendMine, seed: cityDef.seed ^ 0x3b3a11,
+        locked: () => !errand.emberdeepOpen(), cityId: cityDef.id,
+      });
       city.group.add(mineHead.group);
       city.structures.push(mineHead.structure);
     }
@@ -2321,12 +2324,28 @@ function governorInteract(c, { fill, speakerFor }) {
   const secret = mineWalk.secretOffer(def) ?? undefined;
   if (!q) return { speaker, lines: [fill('Welcome to {{cityName}}.', c), ...aside], offer: secret };
   const st = questStage(def.id);
+  // Towns with a second errand (registry `charge` — Neptunia's Reach). To the
+  // pilot Axilo sent she offers it at once, wherever her own survey stands.
+  const ch = def.charge;
+  if (ch) {
+    const cs = questStage(CHARGE_QUEST);
+    if (cs === 'go') return { speaker, lines: [fill(ch.remind, c)] };
+    if (errand.chargeOpen()) {
+      const options = [{ label: ch.accept, outcomeTag: `menu:${def.id}:gov:charge` }];
+      if (st === undefined) options.push({ label: ch.surveyFirst, outcomeTag: `menu:${def.id}:gov:survey` });
+      options.push({ label: ch.decline, outcomeTag: `menu:${def.id}:gov:later` });
+      return {
+        speaker,
+        cine: true,
+        lines: ch.errandOffer.map((l) => fill(l, c)),
+        offer: { kind: 'choice', prompt: ch.prompt, options },
+      };
+    }
+  }
   if (st === 'done') {
-    // Towns with a second errand (registry `charge` — Neptunia's Reach).
-    const ch = def.charge;
     if (ch) {
       const cs = questStage(CHARGE_QUEST);
-      if (cs === undefined) {
+      if (cs === undefined && errand.chargeOpenLegacy()) {
         return {
           speaker,
           cine: true,
@@ -2341,7 +2360,6 @@ function governorInteract(c, { fill, speakerFor }) {
           },
         };
       }
-      if (cs === 'go') return { speaker, lines: [fill(ch.remind, c)] };
     }
     return { speaker, lines: [fill(q.thanks, c), ...aside], offer: secret };
   }
@@ -2424,8 +2442,27 @@ governorInteract.onOutcome = (tag) => {
   }
   if (m[2] === 'charge' && def.charge) {
     setQuestStage(CHARGE_QUEST, 'go'); // unseals the riser lift (world/reachtube.js)
+    removeBeacon(); // a half-walked survey gives way to this
+    clearWaypoint();
     setObjective(def.charge.objective);
+    // Her survey's reward goes with the job: nobody will be left to hand it over.
+    if (def.quest?.reward) grantItem(def.quest.reward);
     return { speaker: citizens.speakerFor(gov), lines: def.charge.go.map((l) => citizens.fill(l, gov)) };
+  }
+  if (m[2] === 'survey' && def.quest) {
+    // "Tell me about the survey first": her tour pitch, with its own choice.
+    return {
+      speaker: citizens.speakerFor(gov),
+      lines: def.quest.offer.map((l) => citizens.fill(l, gov)),
+      offer: {
+        kind: 'choice',
+        prompt: 'Walk the tour?',
+        options: [
+          { label: 'I’ll walk the tour.', outcomeTag: `menu:${def.id}:gov:accept` },
+          { label: 'Another time.', outcomeTag: `menu:${def.id}:gov:later` },
+        ],
+      },
+    };
   }
   if (m[2] !== 'accept') return null; // 'later' just closes the panel
   setQuestStage(def.id, 0);
