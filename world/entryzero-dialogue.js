@@ -286,6 +286,11 @@ export const GROUND = {
 // --- 7. the reveal ----------------------------------------------------------------
 // PLACEHOLDER, all of it but the theme: curiosity is what stands up to fear.
 export const REVEAL = {
+  // back aboard with every fragment: what the lamp is for, one more time
+  ready: ['marrow', 'We have all of it now. Six bands. Three pieces. Show it everything at once.'],
+  hold: 'HOLD Z — EVERY BAND',
+  after: ['vask', 'That is entry zero. It is in the log. Now we go up.'],
+  codex: 'What Was Feared',
   lines: [
     [0, null, 'PLACEHOLDER — ONE OF THEM WAS AFRAID OF LOSING SOMETHING.'],
     [7, null, 'PLACEHOLDER — WHAT IT WAS.'],

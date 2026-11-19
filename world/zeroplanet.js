@@ -23,6 +23,14 @@
 // Held still over solid ground for a few seconds, the pilot is asked who
 // stays aboard at the lamp (world/entryzero-dialogue.js CENTRE.choice, STAY).
 //
+// Once the three relics have given up their fragments (world/zeroground.js),
+// every band held on it again is the reveal: for half a minute the vessel is
+// carried up over the first world as it was, alive, lit by the ones who made
+// the machine, and then the lights go out one at a time, without hurry. It
+// is one clock and a pose from it, so a vessel that comes back after it has
+// played finds the world as the scene left it. The words are REVEAL, and are
+// placeholders: what the one who was afraid had lost is not written yet.
+//
 // Same shape as a zone of the hollow (world/hollow.js), so the submersible
 // flies it the same way.
 
@@ -30,7 +38,8 @@ import * as THREE from 'three';
 import { C } from '../src/constants.js';
 import { lamp, LAMP_U, LAMP_GLSL, BAND, lampLive } from '../src/lamp.js';
 import { createLife } from './hollowlife.js';
-import { CENTRE } from './entryzero-dialogue.js';
+import { addCodex } from '../src/journal.js';
+import { CENTRE, REVEAL } from './entryzero-dialogue.js';
 
 const PLANET_VERT = /* glsl */ `
   varying vec3 vW;
@@ -49,6 +58,8 @@ const PLANET_FRAG = /* glsl */ `
   uniform float uTime;
   uniform float uSeen;  // every band is on it: the whole, faint
   uniform float uSolid; // ...and near enough that it is ground
+  uniform float uReveal; // as it was
+  uniform float uLights; // ...with the makers still on it
   varying vec3 vW;
   varying vec3 vN;
   varying vec3 vL;
@@ -92,12 +103,21 @@ const PLANET_FRAG = /* glsl */ `
     float grain = 0.55 + 0.45 * vnoise(vL * 0.35) + 0.25 * (vnoise(vL * 1.7) - 0.5);
     float cracks = mix(1.0, smoothstep(0.0, 0.05, abs(vnoise(vL * 0.11 + 5.0) - 0.5)), 1.0 - land);
     col += body * grain * cracks * 1.5 * lampBeam(vW) * uSolid * uAll;
+    // as it was: sea, land, weather, and at the warm places the lights of the
+    // ones who lived there
+    float glint = pow(face, 6.0) * (1.0 - land);
+    vec3 was = mix(vec3(0.02, 0.1, 0.22) + vec3(0.2, 0.3, 0.35) * glint, mix(vec3(0.09, 0.2, 0.07), vec3(0.3, 0.25, 0.16), smoothstep(0.56, 0.72, h)), land);
+    float cloud = smoothstep(0.55, 0.78, vnoise(n * 4.2 + vec3(uTime * 0.012, 0.0, 0.0)) * 0.7 + vnoise(n * 11.0) * 0.3);
+    was = mix(was, vec3(0.75, 0.8, 0.85), cloud * 0.55) * (0.22 + 0.9 * face);
+    was += vec3(1.0, 0.72, 0.35) * smoothstep(0.8, 0.9, vnoise(n * 11.0 + 3.0)) * land * uLights * 1.6;
+    was += vec3(0.15, 0.3, 0.55) * pow(1.0 - face, 3.0); // air
+    col = mix(col, was, uReveal);
     if (dot(col, vec3(1.0)) < 0.004) discard;
     gl_FragColor = vec4(col, 1.0);
   }
 `;
 
-// k: { group, time, tier, chapter, speak(pair, sec), say(text, sec), panel(text) }
+// k: { group, time, tier, chapter, speak(pair, sec), say(text, sec), panel(text), cine(on) }
 export function createCentre(k) {
   const root = new THREE.Group();
   root.visible = false;
@@ -105,7 +125,19 @@ export function createCentre(k) {
   const R = C.EZ_PLANET_R;
   const entry = new THREE.Vector3();
   const centre = new THREE.Vector3(0, -C.EZ_PLANET_DOWN, 0);
-  const u = { ...LAMP_U, uTime: k.time, uSeen: { value: 0 }, uSolid: { value: 0 } };
+  const u = { ...LAMP_U, uTime: k.time, uSeen: { value: 0 }, uSolid: { value: 0 }, uReveal: { value: 0 }, uLights: { value: 1 } };
+  // the reveal: its clock (-1: not playing), and what leads up to it
+  let rv = -1, rvSaid = -1, rvHold = 0, rvReady = 0, rvFrom = 0;
+  const ease = (a, b, x) => {
+    const f = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    return f * f * (3 - 2 * f);
+  };
+  // everything the reveal shows, from its clock alone (x past the end: as it is left)
+  function poseReveal(x) {
+    u.uReveal.value = ease(1.5, 9, x);
+    u.uLights.value = 1 - ease(22, 31, x);
+    return rvFrom + (R * C.EZ_REVEAL_RISE - rvFrom) * ease(0, 27, x); // the height it is carried to
+  }
   let planet = null, life = null;
   let seen = 0, solid = 0, alt = Infinity, holdT = 0, clock = 0, said = -1;
   let askWait = 0;
@@ -137,6 +169,11 @@ export function createCentre(k) {
     seen = solid = holdT = 0;
     wasSolid = false;
     u.uSeen.value = u.uSolid.value = 0;
+    rv = -1;
+    rvHold = rvReady = 0;
+    // (seen already: the world is as the scene left it)
+    if (k.chapter.reached('ez_reveal')) poseReveal(C.EZ_REVEAL_TIME);
+    else u.uReveal.value = 0;
   }
 
   return {
@@ -158,8 +195,12 @@ export function createCentre(k) {
       at.y -= 80;
       reset();
     },
+    // the reveal has the vessel (it is carried, not flown)
+    busy: () => rv >= 0,
     leave() {
       root.visible = false;
+      if (rv >= 0) k.cine(false);
+      rv = -1;
       k.panel(null);
       free();
     },
@@ -189,7 +230,30 @@ export function createCentre(k) {
     },
     // Once a frame. `held`: the pilot is being asked (the light is kept on for
     // them). Returns 'choose' when the pilot is to be asked who stays.
-    tick(dt, t, at, speed, push, held) {
+    tick(dt, t, at, speed, push, held, key) {
+      // --- the reveal: one clock, and the vessel carried up over what it shows ---
+      if (rv >= 0) {
+        rv += dt;
+        const h = poseReveal(rv);
+        at.set(centre.x, centre.y + R + h, centre.z);
+        u.uSeen.value = 1;
+        u.uSolid.value = 0;
+        while (rvSaid + 1 < REVEAL.lines.length && rv >= REVEAL.lines[rvSaid + 1][0]) {
+          rvSaid++;
+          const l = REVEAL.lines[rvSaid];
+          if (l[1]) k.speak([l[1], l[2]], 7.5);
+          else k.say(l[2], 7.5);
+        }
+        if (rv >= C.EZ_REVEAL_TIME) {
+          rv = -1;
+          seen = 1;
+          solid = 0;
+          k.cine(false);
+          if (k.chapter.advance('ez_reveal')) addCodex(REVEAL.codex);
+          k.speak(REVEAL.after, 8);
+        }
+        return null;
+      }
       life.step(dt, t, at, speed);
       _v.subVectors(centre, at);
       const d = _v.length();
@@ -203,6 +267,8 @@ export function createCentre(k) {
       solid = reach ? Math.min(1, solid + dt / C.EZ_SOLID_IN) : Math.max(0, solid - dt / C.EZ_SOLID_OUT);
       u.uSeen.value = seen;
       u.uSolid.value = solid;
+      // (once it has been shown, it is what every band at once shows: as it was, and gone dark)
+      if (k.chapter.reached('ez_reveal')) u.uReveal.value = seen;
 
       // --- what is said ---
       clock += dt;
@@ -229,8 +295,26 @@ export function createCentre(k) {
         goneT = 12;
         k.speak(eaten ? CENTRE.eaten : CENTRE.gone, 5);
       }
+      // --- with every fragment found: every band on it once more is the reveal ---
+      const whole = k.chapter.ez.foundAll() && !k.chapter.reached('ez_reveal');
+      if (whole) {
+        if (rvReady >= 0 && (rvReady += dt) > 4) {
+          rvReady = -1;
+          k.speak(REVEAL.ready, 8);
+        }
+        rvHold = key && all && aimed ? rvHold + dt : 0;
+        if (rvHold > C.EZ_REVEAL_HOLD && !held) {
+          rv = 0;
+          rvSaid = -1;
+          rvFrom = Math.max(alt, C.EZ_HOVER_MIN);
+          k.cine(true);
+          k.panel(null);
+          panelAlt = panelPct = -1;
+          return null;
+        }
+      }
       // the height, while there is anything to be a height over
-      if (seen > 0.3 && alt < 900) {
+      if (seen > 0.3 && alt < 900 && !k.chapter.reached('ez_reveal')) {
         const a = Math.round(alt / 5) * 5, pc = Math.round(solid * 20) * 5;
         if (a !== panelAlt || pc !== panelPct) {
           panelAlt = a;
@@ -246,7 +330,8 @@ export function createCentre(k) {
       // (asked first who stays; after that, each time, whether to go down)
       askWait = Math.max(0, askWait - dt);
       holdT = solid >= 1 && speed < 14 ? holdT + dt : 0;
-      if (!asked && !held && askWait <= 0 && holdT > C.EZ_HOVER_HOLD) {
+      // (with the story whole there is nothing left to go down for)
+      if (!asked && !held && askWait <= 0 && holdT > C.EZ_HOVER_HOLD && !k.chapter.ez.foundAll()) {
         asked = true;
         return 'choose';
       }
@@ -281,6 +366,7 @@ export function createCentre(k) {
     info: () => ({
       zone: 5, centre: centre.toArray(), r: R, alt: Math.round(alt), seen: +seen.toFixed(2), solid: +solid.toFixed(2), hold: +holdT.toFixed(1),
       reach: lamp.reach, asked, stay: k.chapter.ez.stay(), life: life ? life.info() : null,
+      reveal: +rv.toFixed(1), shown: +u.uReveal.value.toFixed(2), lights: +u.uLights.value.toFixed(2), rvHold: +rvHold.toFixed(1),
     }),
   };
 }

@@ -455,7 +455,8 @@ export function createSubmersible(ctx) {
   const hold = new Float32Array(N);
   let heardRadio = false, heardXray = false, heardLow = false, doseSaid = 0, doneAt = -1;
   const speak = (pair, sec = 6) => {
-    const who = CAPTAINS.find((c) => c.id === pair[0]);
+    // (a line written for a captain who has been lost is said by one who has not)
+    const who = CAPTAINS.find((c) => c.id === pair[0] && !chapter.ez.isLost(c.id)) || CAPTAINS.find((c) => !chapter.ez.isLost(c.id));
     chapterHud.say(who ? `${who.short} — ${pair[1]}` : pair[1], sec);
   };
   let lastChanged = -1, lastBand = -1;
@@ -465,7 +466,7 @@ export function createSubmersible(ctx) {
   function buildHollow() {
     if (hollow || hollowBroken) return hollow;
     try {
-      const k = { group, time, tier, chapter, speak, say: (text, sec) => chapterHud.say(text, sec), chime: logChime, panel: (text) => chapterHud.panel(text) };
+      const k = { group, time, tier, chapter, speak, say: (text, sec) => chapterHud.say(text, sec), chime: logChime, panel: (text) => chapterHud.panel(text), cine: (on) => chapterHud.cine(on) };
       hollow = createHollow(k);
       centre = createCentre(k);
     } catch (err) {
@@ -668,7 +669,8 @@ export function createSubmersible(ctx) {
 
       // --- the controls: the walker has turned the mouse into a look; take it
       // back and lean on the hull with it instead ---
-      const talk = isDialogueOpen() || rideT >= 0; // (in the pulse there is nothing to steer)
+      const shown = zone === CENTRE_ZONE && centre.busy(); // the reveal: the vessel is carried
+      const talk = isDialogueOpen() || rideT >= 0 || shown; // (in the pulse there is nothing to steer)
       const dYaw = cWalk.yaw - baseYaw, dPitch = cWalk.pitch;
       cWalk.yaw = baseYaw;
       cWalk.pitch = 0;
@@ -684,7 +686,11 @@ export function createSubmersible(ctx) {
       const lift = talk ? 0 : (input.brake ? 1 : 0) - (input.sink || (input.sprint && !stick) ? 1 : 0);
       const fwd = talk ? 0 : axes.fwd, strafe = talk ? 0 : axes.strafe;
       // (while the pilot is being asked who stays, the vessel is held where it is)
-      if (choosing) vel.set(0, 0, 0);
+      if (shown) {
+        vel.set(0, 0, 0);
+        pitch += (-1.5 - pitch) * Math.min(1, d * 0.8); // looking straight down at it
+        avY = avX = 0;
+      } else if (choosing) vel.set(0, 0, 0);
       else for (let rem = d; rem > 1e-5; rem -= 1 / 60) step(Math.min(rem, 1 / 60), fwd, strafe, lift);
       push += (Math.min(1, Math.hypot(fwd, strafe, lift)) - push) * Math.min(1, d * 4);
       setHum(rideT >= 0 ? 1 : 0.25 + 0.75 * push);
@@ -728,7 +734,8 @@ export function createSubmersible(ctx) {
       const cp = Math.cos(pitch);
       lamp.dir.set(Math.sin(yaw) * cp, Math.sin(pitch), Math.cos(yaw) * cp);
       // every band at once: the key, or whoever is at the lamp once that has been settled
-      const keeper = zone === CENTRE_ZONE && (choosing || (!!chapter.ez.stay() && lamp.on && centre.info().alt < 260));
+      if (shown) lamp.energy = Math.max(lamp.energy, 0.5); // (nothing runs out while it is being shown)
+      const keeper = zone === CENTRE_ZONE && (choosing || shown || (!!chapter.ez.stay() && lamp.on && centre.info().alt < 260));
       stepLamp(d, input.allBands || keeper);
       beam.scale.setScalar(lamp.reach * 0.75);
       stripMat.color.copy(LAMP_U.uLampTint.value).multiplyScalar(lampLive() ? 1.5 : 0.1);
@@ -776,13 +783,13 @@ export function createSubmersible(ctx) {
 
       // --- the hollow: what lives there, the log, the nodes; and being sent back ---
       if (zone && rideT < 0) {
-        const ev = env.tick(d, t, at, vel.length(), push, choosing);
+        const ev = env.tick(d, t, at, vel.length(), push, choosing, input.allBands);
         if (ev === 'ride') startRide(zone + 1, false);
         else if (ev === 'fall' && startRide(CENTRE_ZONE, false, true)) speak(CENTRE.fall, 5);
         else if (ev === 'choose') ask();
         else if (ev === 'caller' && startRide(zone, true)) speak(DEEP.caught, 6);
         const why = lamp.on && lamp.energy <= 0 ? 'lamp' : lamp.dose >= 1 ? 'dose' : lamp.cabin <= 0 ? 'cabin' : null;
-        if (why && !choosing && startRide(zone, true)) speak(DESCENT.back[why], 6);
+        if (why && !choosing && !shown && startRide(zone, true)) speak(DESCENT.back[why], 6);
       }
 
       // --- what the lamp finds in the well ---
