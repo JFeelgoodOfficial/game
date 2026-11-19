@@ -1440,6 +1440,9 @@ const FAR_HOPS = {
   // Entry Zero (GDD 5.7.5): down the well under the city in the submersible, and back
   well: ['sub', 'spawn', 'spawnYaw', 'hollow'],
   wellup: ['city', 'fromWell', 'fromWellYaw', 'lightcity'],
+  // ...and at the centre, through the vessel's hatch to the ground and back up the tether
+  ground: ['ground', 'spawn', 'spawnYaw', 'hollow'],
+  groundup: ['sub', 'spawn', 'spawnYaw', 'hollow'],
 };
 let doorT = -1;
 let doorTo = null;

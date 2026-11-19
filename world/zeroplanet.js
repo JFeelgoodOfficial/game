@@ -108,6 +108,7 @@ export function createCentre(k) {
   const u = { ...LAMP_U, uTime: k.time, uSeen: { value: 0 }, uSolid: { value: 0 } };
   let planet = null, life = null;
   let seen = 0, solid = 0, alt = Infinity, holdT = 0, clock = 0, said = -1;
+  let askWait = 0;
   let saidAppear = false, saidNear = 0, saidSolid = false, wasSolid = false, goneT = 0, asked = false, panelAlt = -1, panelPct = -1;
   const _v = new THREE.Vector3();
 
@@ -147,7 +148,8 @@ export function createCentre(k) {
       reset();
       clock = 0;
       said = k.chapter.ez.stay() ? 99 : -1; // (been here before: nothing to say)
-      asked = !!k.chapter.ez.stay();
+      asked = false;
+      askWait = 0;
       lamp.canAll = true; // what the descent was for
       return true;
     },
@@ -241,8 +243,10 @@ export function createCentre(k) {
       }
 
       // --- held still over ground that holds: the hatch, and who stays at the lamp ---
+      // (asked first who stays; after that, each time, whether to go down)
+      askWait = Math.max(0, askWait - dt);
       holdT = solid >= 1 && speed < 14 ? holdT + dt : 0;
-      if (!asked && !held && holdT > C.EZ_HOVER_HOLD) {
+      if (!asked && !held && askWait <= 0 && holdT > C.EZ_HOVER_HOLD) {
         asked = true;
         return 'choose';
       }
@@ -253,10 +257,26 @@ export function createCentre(k) {
       _v.subVectors(centre, lamp.pos).normalize();
       return Math.max(0, (_v.dot(lamp.dir) - 0.55) / 0.45);
     },
-    // (the pilot left the question unanswered: it is asked again the next time the ground holds)
-    unask() {
-      if (!k.chapter.ez.stay()) asked = false;
+    // (a question left unanswered, or answered `not yet`: asked again, the next
+    // time the ground has held for a while)
+    unask(wait = 0) {
+      asked = false;
+      askWait = wait;
       holdT = 0;
+    },
+    // Back from the ground, up the tether: the vessel is where it was left,
+    // low over the place, with whoever stayed still at the lamp.
+    arrive(at) {
+      build();
+      root.visible = true;
+      at.copy(centre);
+      at.y += R + 80;
+      reset();
+      solid = seen = 1;
+      said = 99;
+      asked = false;
+      askWait = 14;
+      lamp.canAll = true;
     },
     info: () => ({
       zone: 5, centre: centre.toArray(), r: R, alt: Math.round(alt), seen: +seen.toFixed(2), solid: +solid.toFixed(2), hold: +holdT.toFixed(1),

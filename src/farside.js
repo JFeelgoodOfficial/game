@@ -47,6 +47,7 @@ import { createLightShip } from '../world/lightship.js';
 import { createDiveBridge } from '../world/divebridge.js';
 import { createShuttle } from '../world/shuttle.js';
 import { createSubmersible } from '../world/submersible.js';
+import { createZeroGround } from '../world/zeroground.js';
 import commonVert from './shaders/tenretni.vert?raw';
 import wormFrag from './shaders/wormhole.frag?raw';
 
@@ -208,6 +209,20 @@ export function createFarside(ctx) {
       console.warn('[farside] the submersible could not be built', err);
     }
     return sub;
+  }
+
+  // ...and the ground under it, at the centre (world/zeroground.js)
+  let ground = null;
+  let groundBroken = false;
+  function buildGround() {
+    if (ground || groundBroken || !ctx.chapter || !buildSub()) return ground;
+    try {
+      ground = createZeroGround({ scene, camera, hideFleet: () => ctx.fleets()?.show(false), chapter: ctx.chapter, resume: () => sub.resume() });
+    } catch (err) {
+      groundBroken = true;
+      console.warn('[farside] the ground could not be built', err);
+    }
+    return ground;
   }
 
   // Take a walked place out of the scene and free what it made. (Geometry
@@ -560,13 +575,14 @@ export function createFarside(ctx) {
     // last two are built on first asking. Null if there is nothing to walk.
     site(kind) {
       if (!active) return null;
-      return kind === 'city' ? buildCity() : kind === 'ship' ? buildShip() : kind === 'bridge' ? buildBridge() : kind === 'shuttle' ? buildShuttle() : kind === 'sub' ? buildSub() : landing;
+      return kind === 'city' ? buildCity() : kind === 'ship' ? buildShip() : kind === 'bridge' ? buildBridge() : kind === 'shuttle' ? buildShuttle() : kind === 'sub' ? buildSub() : kind === 'ground' ? buildGround() : landing;
     },
     // A door has been walked through since this was last asked: 'city' (into
     // the City of Light), 'pad' (back out of it), 'ship' (aboard the light
     // ship), 'gallery' (off it again), 'bridge' / 'hall' (forward to
     // its bridge and back), 'well' / 'wellup' (down the well in the
-    // submersible and back), or null. Asking clears it.
+    // submersible and back), 'ground' / 'groundup' (through its hatch to the
+    // first world, and back up the tether), or null. Asking clears it.
     door() {
       // once the light ship has left for good, nothing aboard it can be
       // visited again: let it all go
@@ -575,7 +591,7 @@ export function createFarside(ctx) {
         bridge = retire(bridge);
         shuttle = retire(shuttle);
       }
-      const s = sub && sub.inside() ? sub : shuttle && shuttle.inside() ? shuttle : bridge && bridge.inside() ? bridge : lship && lship.inside() ? lship : city && city.inside() ? city : landing;
+      const s = ground && ground.inside() ? ground : sub && sub.inside() ? sub : shuttle && shuttle.inside() ? shuttle : bridge && bridge.inside() ? bridge : lship && lship.inside() ? lship : city && city.inside() ? city : landing;
       const to = s.portal;
       s.portal = null;
       return to;
@@ -606,6 +622,9 @@ export function createFarside(ctx) {
       inSub: !!(sub && sub.inside()),
       sub: sub ? sub.info() : null,
       subSet: sub ? sub.set : null,
+      onGround: !!(ground && ground.inside()),
+      ground: ground ? ground.info() : null,
+      groundSet: ground ? ground.set : null,
       offer: city ? city.info().offer : null,
       fade,
       altitude: alt,
