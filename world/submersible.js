@@ -34,7 +34,7 @@ import { lamp, LAMP_U, LAMP_GLSL, BAND, nextBand, toggleLamp, stepLamp, lampShow
 import { tint, box, mergedMesh, floorOf } from './capital.js';
 import { setHum, bandClick, setRadio, doseTicks, logChime, hush, ezAudioState } from './entryzero-audio.js';
 import { CAPTAINS } from './chapter-dialogue.js';
-import { BANDS, WELL, DESCENT } from './entryzero-dialogue.js';
+import { BANDS, WELL, DESCENT, DEEP } from './entryzero-dialogue.js';
 import { createHollow, LAST_ZONE } from './hollow.js';
 
 const ZERO = new THREE.Vector3();
@@ -406,6 +406,7 @@ export function createSubmersible(ctx) {
     if (n > 1) _w.multiplyScalar(1 / n);
     const drag = lamp.medium === 'water' ? C.EZ_SUB_DRAG_WATER : C.EZ_SUB_DRAG;
     vel.addScaledVector(_w, C.EZ_SUB_THRUST * h).multiplyScalar(Math.exp(-drag * h));
+    if (zone) vel.y -= hollow.pull(at) * h; // weight, where there is any
     at.addScaledVector(vel, h);
     if (zone) {
       hollow.bound(at, vel);
@@ -479,6 +480,7 @@ export function createSubmersible(ctx) {
       zone = rideTo;
       chapter.advance('ez_descent');
       if (zone >= 3) chapter.advance('ez_firewall');
+      if (zone >= 4) chapter.advance('ez_deep');
       chapter.ez.setNode(zone);
     }
     vel.set(0, 0, 0);
@@ -696,7 +698,9 @@ export function createSubmersible(ctx) {
 
       // --- the hollow: what lives there, the log, the nodes; and being sent back ---
       if (zone && rideT < 0) {
-        if (hollow.tick(d, t, at, vel.length()) === 'ride') startRide(zone + 1, false);
+        const ev = hollow.tick(d, t, at, vel.length(), push);
+        if (ev === 'ride') startRide(zone + 1, false);
+        else if (ev === 'caller' && startRide(zone, true)) speak(DEEP.caught, 6);
         const why = lamp.on && lamp.energy <= 0 ? 'lamp' : lamp.dose >= 1 ? 'dose' : lamp.cabin <= 0 ? 'cabin' : null;
         if (why && startRide(zone, true)) speak(DESCENT.back[why], 6);
       }

@@ -149,6 +149,10 @@ export const DESCENT = {
       [2, 'marrow', 'It is quieter here. That is not the same as empty.'],
       [9, 'vask', 'Four bands still blank in the log. Infrared. The red line. X-ray. Radio.'],
     ],
+    4: [
+      [2, 'marrow', 'These are the first things it took. Before the oceans.'],
+      [9, 'vask', 'Strata. The deeper, the older. This is the bottom of the pile.'],
+    ],
     3: [
       [2, 'marrow', 'One wall. All the way across.'],
       [8, 'lux', 'That is not rock. That is burning.'],
@@ -192,6 +196,23 @@ export const FIREWALL = {
   lost: ['vask', 'It closed. Hold the lamp on one place.'],
   through: ['lux', 'It shut behind us.'],
   kept: ['marrow', 'It was not built to keep anyone out. It was built to keep this side in.'],
+};
+
+// --- 4b. the oldest strata ----------------------------------------------------------
+export const DEEP = {
+  // X-rays through a slab of the first worlds
+  buried: ['lux', 'There are things in the rock. Shapes. Do not tell me what they are.'],
+  // weight, coming back: the first sign of how near the centre is
+  pull: ['lux', 'We are sinking. I am not touching anything.'],
+  pullWhy: ['vask', 'Weight. Inside a shell there is none. So there is something under us that is not shell.'],
+  // the one on the radio band that comes closer
+  caller: ['marrow', 'There is one more on the radio. Nearer than the others were.'],
+  heard: ['marrow', 'It heard the drive. It is coming.'],
+  close: ['marrow', 'Close. Stop the drive. It cannot find us if we are quiet.'],
+  lost: ['marrow', 'It has lost us. Go, while it is turning.'],
+  caught: ['vask', 'It has the lamp. All of it. Back to the node.'],
+  // the lower node: the lattice ends here
+  end: ['marrow', 'The lattice stops at this node. It does not go in. Nothing of theirs does.'],
 };
 
 // --- 5. the centre ----------------------------------------------------------------

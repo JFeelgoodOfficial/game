@@ -21,6 +21,18 @@
 //   zone 3   the firewall         one sheet of burning hydrogen across the
 //                                 whole hollow, between the newer strata and
 //                                 the oldest. Its guards; light eaters
+//   zone 4   the oldest strata    pieces of the first worlds it took, adrift;
+//                                 light eaters, heat leeches, and the one
+//                                 on the radio band that comes closer
+//
+// Two things change in the oldest strata. Weight comes back: inside a hollow
+// shell there is no net pull, so a pull that grows with depth means there is
+// mass under the vessel that is not shell. It is the first sign of how near
+// the centre is. And something very large is listening. It is never drawn; on
+// the radio band it is heard, louder as it nears and as the lamp points at
+// it. It hears the drive: push the vessel and it comes, at about half the
+// vessel's speed; go quiet and it loses the place. If it gets to the hull it
+// takes everything in the lamp, and the lattice takes the vessel back.
 //
 // The firewall is the test of what the first two zones taught. It is hydrogen
 // plasma, so it is opaque at hydrogen's own line and nowhere else: every
@@ -39,17 +51,18 @@ import * as THREE from 'three';
 import { C } from '../src/constants.js';
 import { lamp, LAMP_U, LAMP_GLSL } from '../src/lamp.js';
 import { createLife } from './hollowlife.js';
-import { setRoar } from './entryzero-audio.js';
+import { setRoar, setDread } from './entryzero-audio.js';
 import { BAND, lampLive } from '../src/lamp.js';
-import { BANDS, LIFE, DESCENT, FIREWALL } from './entryzero-dialogue.js';
+import { BANDS, LIFE, DESCENT, FIREWALL, DEEP } from './entryzero-dialogue.js';
 
 // kinds whose bands a zone's lower node asks for
 const ZONES = {
   1: { len: () => C.EZ_ZONE1_LEN, seed: 0x10ce01, globes: 5, roof: true, asks: ['drifter', 'painted'], leeches: false },
   2: { len: () => C.EZ_ZONE2_LEN, seed: 0x10ce02, globes: 3, roof: false, asks: ['warm', 'line', 'boned', 'caller'], leeches: true },
   3: { len: () => C.EZ_ZONE3_LEN, seed: 0x10ce03, globes: 0, roof: false, asks: [], leeches: false, wall: 0.5 },
+  4: { len: () => C.EZ_ZONE4_LEN, seed: 0x10ce04, globes: 0, roof: false, asks: [], leeches: true, slabs: true, caller: true, pull: true },
 };
-export const LAST_ZONE = 3; // (the oldest strata are under the firewall: not built yet)
+export const LAST_ZONE = 4; // (the centre is under the oldest strata: not built yet)
 
 const NOISE_GLSL = /* glsl */ `
   float h31(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
@@ -212,6 +225,49 @@ const ROOF_FRAG = /* glsl */ `
   }
 `;
 
+// A piece of one of the first worlds: strata, cut across.
+const SLAB_VERT = /* glsl */ `
+  attribute float aSeed;
+  varying vec3 vW;
+  varying vec3 vN;
+  varying vec3 vL;
+  varying float vSeed;
+  void main() {
+    vec4 w = modelMatrix * instanceMatrix * vec4(position, 1.0);
+    vW = w.xyz;
+    // (local, but in world units: the strata are the same thickness whatever the piece's size)
+    vL = position * vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
+    vN = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
+    vSeed = aSeed;
+    gl_Position = projectionMatrix * viewMatrix * w;
+  }
+`;
+const SLAB_FRAG = /* glsl */ `
+  ${LAMP_GLSL}
+  ${NOISE_GLSL}
+  varying vec3 vW;
+  varying vec3 vN;
+  varying vec3 vL;
+  varying float vSeed;
+  void main() {
+    float y = vL.y + 9.0 * vnoise(vL * 0.02 + vSeed * 9.0);
+    float layer = floor(y / 11.0), f = fract(y / 11.0);
+    float albedo = (0.16 + 0.34 * h31(vec3(layer, vSeed * 50.0, 1.0))) * (0.7 + 0.3 * smoothstep(0.0, 0.1, f));
+    float beam = lampBeam(vW) * uLampOn * uLampLit;
+    vec3 col = albedo * uLampTint * beam * 0.55 + vec3(0.003, 0.004, 0.005);
+    // ultraviolet: a seam of something in every few layers gives light back
+    col += vec3(0.4, 1.0, 0.35) * step(0.8, h31(vec3(layer, 4.0, vSeed))) * smoothstep(0.5, 0.9, vnoise(vL * 0.08)) * lampLit(1.0, vW);
+    // X-ray: rock is thin enough to it here, and what is in the rock is not
+    vec3 c = vL * 0.035 + vSeed * 13.0;
+    vec3 cell = fract(c) - 0.5;
+    float in1 = step(0.72, h31(floor(c)));
+    float rib = smoothstep(0.06, 0.02, abs(length(cell.xz) - 0.28)) * step(abs(cell.y), 0.3) + smoothstep(0.05, 0.015, length(cell.xy)) * step(abs(cell.z), 0.4);
+    vec3 x = vec3(0.8, 0.86, 1.0) * (0.1 * albedo + 1.3 * in1 * min(rib, 1.0)) * lampBeam(vW);
+    col = mix(col, x, lampBand(4.0) * (1.0 - uAll) * uLampLit);
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
 // The firewall: a sheet of burning hydrogen, seen from either side.
 const FIRE_FRAG = /* glsl */ `
   ${LAMP_GLSL}
@@ -273,6 +329,12 @@ export function createHollow(k) {
   let burn = 0, holeR = 0, passed = false, inSlab = false, wallT = 0, burnPeak = 0;
   let saidNear = false, saidHint = false, saidGuards = false, saidBurn = false, saidOpen = false, saidThrough = 0;
   let guards = null;
+  // the oldest strata (zone 4): the pieces adrift, and the one that listens
+  const slabs = []; // { c, inv: Quaternion, q, h: half extents }
+  const callerAt = new THREE.Vector3(), callerTo = new THREE.Vector3(), callerHome = new THREE.Vector3();
+  let hasCaller = false, quietT = 0, coming = false, holdT = 0, callerD = Infinity;
+  let saidCaller = false, saidHeard = false, saidClose = false, saidLost = false, saidPull = 0, saidBuried = false, buriedT = 0;
+  const _l = new THREE.Vector3();
 
   const add = (m) => {
     m.frustumCulled = false;
@@ -291,6 +353,9 @@ export function createHollow(k) {
     made = [];
     globes.length = 0;
     hasWall = false;
+    hasCaller = false;
+    slabs.length = 0;
+    setDread(0);
     guards = null;
     lamp.lineBeam = false;
     setRoar(0);
@@ -349,6 +414,30 @@ export function createHollow(k) {
       wallY = -len * cfg.wall;
       const fire = add(new THREE.Mesh(new THREE.CircleGeometry(7000, 96).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({ uniforms: { ...LAMP_U, uTime: k.time, uHole: holeU }, vertexShader: ROOT_VERT, fragmentShader: FIRE_FRAG, side: THREE.DoubleSide, fog: false })));
       fire.position.y = wallY;
+    }
+
+    // --- pieces of the first worlds, adrift round the way down ---
+    if (cfg.slabs) {
+      const n = C.EZ_SLABS;
+      const sGeo = new THREE.BoxGeometry(2, 2, 2);
+      const sSeed = new Float32Array(n);
+      const sMesh = new THREE.InstancedMesh(sGeo, new THREE.ShaderMaterial({ uniforms: LAMP_U, vertexShader: SLAB_VERT, fragmentShader: SLAB_FRAG, fog: false }), n);
+      const m = new THREE.Matrix4(), e = new THREE.Euler();
+      for (let i = 0; i < n; i++) {
+        const f = (i + 0.5) / n;
+        const a = rnd() * Math.PI * 2, off = 260 + 1700 * rnd();
+        const c = new THREE.Vector3().lerpVectors(entry, exit, 0.04 + 0.92 * f);
+        c.x += Math.cos(a) * off;
+        c.z += Math.sin(a) * off;
+        c.y += (rnd() - 0.5) * 300;
+        const h = new THREE.Vector3(120 + 330 * rnd(), 22 + 60 * rnd(), 100 + 300 * rnd());
+        const q = new THREE.Quaternion().setFromEuler(e.set((rnd() - 0.5) * 1.4, rnd() * 6.28, (rnd() - 0.5) * 1.4));
+        slabs.push({ c, q, inv: q.clone().invert(), h });
+        sMesh.setMatrixAt(i, m.compose(c, q, h));
+        sSeed[i] = rnd();
+      }
+      sGeo.setAttribute('aSeed', new THREE.InstancedBufferAttribute(sSeed, 1));
+      add(sMesh);
     }
 
     // --- the lattice: three roots from node to node, bending round the globes ---
@@ -420,7 +509,18 @@ export function createHollow(k) {
       return p;
     };
     const feederAt = [];
-    if (z === 3) {
+    if (z === 4) {
+      eaterAt.push(mid(0.3, 320, 2.0), mid(0.7, 300, 5.0));
+      leechAt.push(mid(0.45, 400, 0.6), mid(0.85, 380, 3.3));
+      // a long way off to one side, to begin with
+      callerHome.copy(mid(0.45, 3000, 4.1));
+      callerAt.copy(callerHome);
+      callerTo.copy(callerHome);
+      hasCaller = true;
+      quietT = holdT = 0;
+      coming = false;
+      callerD = Infinity;
+    } else if (z === 3) {
       // going through the fire and back, where the lattice goes through it
       const f = cfg.wall;
       for (const a of [0.4, 2.5, 4.6]) schools.push({ kind: 'guard', at: mid(f, 300, a).setY(wallY), range: 300, size: 9 });
@@ -465,6 +565,13 @@ export function createHollow(k) {
     return out;
   }
 
+  // weight: how hard the vessel is pulled toward the centre, there (u/s^2, down)
+  function pullAt(at) {
+    if (!cfg || !cfg.pull) return 0;
+    const f = Math.min(1, Math.max(0, -at.y / cfg.len()));
+    return C.EZ_PULL_MAX * f * f;
+  }
+
   return {
     // Build zone `z` and put the vessel at its upper node. Returns false if there is no such zone.
     enter(z, at) {
@@ -481,7 +588,14 @@ export function createHollow(k) {
       at.copy(entry);
       at.y -= 80;
       resetWall();
+      if (hasCaller) {
+        callerAt.copy(callerHome);
+        callerTo.copy(callerHome);
+        coming = false;
+        holdT = quietT = 0;
+      }
     },
+    pull: pullAt,
     leave() {
       root.visible = false;
       free();
@@ -519,6 +633,22 @@ export function createHollow(k) {
         at.y = -len - 500;
         if (vel.y < 0) vel.y = 0;
       }
+      // rock: pushed back out of any piece it is inside of, the short way
+      for (let i = 0; i < slabs.length; i++) {
+        const s = slabs[i];
+        _l.subVectors(at, s.c).applyQuaternion(s.inv);
+        const px = s.h.x + 12 - Math.abs(_l.x), py = s.h.y + 12 - Math.abs(_l.y), pz = s.h.z + 12 - Math.abs(_l.z);
+        if (px <= 0 || py <= 0 || pz <= 0) continue;
+        _v.set(0, 0, 0);
+        if (py <= px && py <= pz) _v.y = Math.sign(_l.y || 1);
+        else if (px <= pz) _v.x = Math.sign(_l.x || 1);
+        else _v.z = Math.sign(_l.z || 1);
+        const depth = Math.min(px, py, pz);
+        _v.applyQuaternion(s.q);
+        at.addScaledVector(_v, depth);
+        const into = vel.dot(_v);
+        if (into < 0) vel.addScaledVector(_v, -into);
+      }
       if (hasWall) {
         // the fire stops the hull, except through the hole while there is one
         const stand = C.EZ_WALL_STAND;
@@ -534,8 +664,10 @@ export function createHollow(k) {
         }
       }
     },
-    // Once a frame. Returns 'ride' when the lower node takes the vessel.
-    tick(dt, t, at, speed) {
+    // Once a frame. `push`: how hard the drive is being driven, 0..1. Returns
+    // 'ride' when the lower node takes the vessel, 'caller' when the one that
+    // listens has it.
+    tick(dt, t, at, speed, push) {
       shardAt.value.copy(at);
       for (const m of made) if (m.userData.spin) m.rotation.set(t * 0.3, t * 0.41, 0);
       const water = lamp.medium === 'water';
@@ -660,6 +792,69 @@ export function createHollow(k) {
         setRoar(Math.min(1, Math.max(0, 1 - (Math.abs(above) - C.EZ_WALL_STAND) / 1100) * 0.7 + burn * 0.3));
       }
 
+      // --- the oldest strata: weight, what is in the rock, and the one that listens ---
+      if (cfg.pull) {
+        const g = pullAt(at);
+        if (!saidPull && g > 1.2) {
+          saidPull = 0.001;
+          k.speak(DEEP.pull);
+        } else if (saidPull > 0 && (saidPull += dt) > 8) {
+          saidPull = -1;
+          k.speak(DEEP.pullWhy, 8);
+        }
+      }
+      if (slabs.length && !saidBuried && lampLive() && lamp.band === BAND.XRAY) {
+        // the X-ray beam on rock, for a moment
+        let hit = false;
+        for (let i = 0; i < slabs.length && !hit; i++) {
+          _v.subVectors(slabs[i].c, lamp.pos);
+          const d = _v.length();
+          hit = d < lamp.reach && _v.dot(lamp.dir) / d > 0.9;
+        }
+        buriedT = hit ? buriedT + dt : 0;
+        if (buriedT > 1.5) {
+          saidBuried = true;
+          k.speak(DEEP.buried, 7);
+        }
+      }
+      if (hasCaller) {
+        // it comes to where it last heard the drive
+        if (push > C.EZ_CALLER_HEARS) {
+          callerTo.copy(at);
+          quietT = 0;
+          coming = true;
+        } else quietT += dt;
+        if (coming && quietT > C.EZ_CALLER_LOSES) {
+          coming = false;
+          if (callerD < 1400 && !saidLost) {
+            saidLost = true;
+            k.speak(DEEP.lost);
+          }
+        }
+        _v.subVectors(coming ? callerTo : callerHome, callerAt);
+        const dd = _v.length();
+        const sp = coming ? C.EZ_CALLER_SPEED : C.EZ_CALLER_SPEED * 0.35;
+        if (dd > 1) callerAt.addScaledVector(_v, Math.min(sp * dt, dd) / dd);
+        callerD = callerAt.distanceTo(at);
+        if (!saidCaller && u > 16) {
+          saidCaller = true;
+          k.speak(DEEP.caller);
+        } else if (!saidHeard && coming && callerD < 2300 && saidCaller && u > 24) {
+          saidHeard = true;
+          k.speak(DEEP.heard);
+        } else if (!saidClose && coming && callerD < 800) {
+          saidClose = true;
+          k.speak(DEEP.close, 7);
+        }
+        if (callerD > 1500) saidClose = saidLost = false; // (it can come again)
+        setDread(Math.pow(Math.max(0, 1 - callerD / 1300), 2));
+        holdT = callerD < C.EZ_CALLER_REACH ? holdT + dt : 0;
+        if (holdT > C.EZ_CALLER_HOLD) {
+          holdT = 0;
+          return 'caller';
+        }
+      }
+
       // --- the nodes: the upper one feeds the lamp, the lower one is the way on ---
       if (at.distanceTo(entry) < C.EZ_NODE_R * 2) lamp.energy = Math.min(1, lamp.energy + C.EZ_NODE_CHARGE * dt);
       const need = missing();
@@ -672,16 +867,27 @@ export function createHollow(k) {
         if (open) return 'ride';
         if (askT <= 0) {
           askT = 14;
-          k.speak(need ? [DESCENT.need[0], DESCENT.need[1].replace('{bands}', need)] : DESCENT.dark, 7);
+          k.speak(need ? [DESCENT.need[0], DESCENT.need[1].replace('{bands}', need)] : zone === 4 ? DEEP.end : DESCENT.dark, 7);
         }
       }
       return null;
     },
-    radioNear: () => (life ? life.radioNear() : 0),
+    radioNear() {
+      let near = life ? life.radioNear() : 0;
+      if (hasCaller) {
+        // louder as the lamp points at it, and as it comes
+        _v.subVectors(callerAt, lamp.pos).normalize();
+        const aim = Math.max(0, (_v.dot(lamp.dir) - 0.55) / 0.45);
+        near = Math.max(near, aim * (0.2 + 0.8 * Math.max(0, 1 - callerD / 3200)));
+      }
+      return near;
+    },
     info: () => (zone ? {
       zone, entry: entry.toArray().map(Math.round), exit: exit.toArray().map(Math.round),
       globes: globes.map((g) => ({ c: g.c.toArray().map(Math.round), r: Math.round(g.r) })),
       need: missing(), life: life.info(), meshes: made.length,
+      slabs: slabs.length, pull: +pullAt(shardAt.value).toFixed(2),
+      caller: hasCaller ? { at: callerAt.toArray().map(Math.round), dist: Math.round(callerD), coming, hold: +holdT.toFixed(1) } : null,
       wall: hasWall ? { y: Math.round(wallY), burn: +burn.toFixed(2), hole: holeU.value.toArray().map(Math.round), passed } : null,
     } : null),
   };
