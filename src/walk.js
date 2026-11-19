@@ -18,6 +18,7 @@
 import * as THREE from 'three';
 import { C } from './constants.js';
 import { input, moveAxes } from './input.js';
+import { cineHeld, cineCamera } from './cineTalk.js';
 import { ship } from './ship.js';
 import { planets, SUN, setPlanetSpinFrozen } from './planet.js';
 import { Astronaut } from './astronaut.js';
@@ -1145,6 +1146,8 @@ export function stepWalk(dt) {
   _up.subVectors(ship.position, planet.body.position).normalize();
 
   // --- mouse look ---
+  // A cinematic talk (cineTalk.js) has the camera: no looking about.
+  if (cineHeld()) input.mouseX = input.mouseY = 0;
   wzLookDX += input.mouseX;
   wzLookDY += input.mouseY;
   // Aiming down sights slows the look, the way a magnified sight picture does.
@@ -1220,6 +1223,7 @@ export function stepWalk(dt) {
   // --- planar movement: velocity approaches the wish direction ---
   _right.crossVectors(walk.heading, _up).normalize();
   const axes = moveAxes(); // WASD, or the analog touch stick when it's pushed
+  if (cineHeld()) axes.fwd = axes.strafe = axes.mag = 0; // stood still, being spoken to
   const fwd = axes.fwd;
   const strafe = axes.strafe;
   const moveMag = axes.mag; // scales speed, so a half-pushed stick walks
@@ -1859,7 +1863,8 @@ export function updateWalkVisuals(dt, t) {
   astronaut.update(dt, walk.mode, walk.speed01, walk.carve, walk.vehicle);
   // The body is only drawn in third person: the FP camera sits inside the
   // helmet and the rig has no first-person-safe arms.
-  astronaut.group.visible = viewMode() === 'tp';
+  // (a cinematic talk shoots over the walker's shoulder, so it shows too)
+  astronaut.group.visible = viewMode() === 'tp' || cineHeld();
 
   // planet.sunDir, not SUN: while you walk, the planet's spin is frozen and
   // its sun swings instead, so the day still passes over rigid ground.
@@ -1973,6 +1978,26 @@ export function updateWalkVisuals(dt, t) {
   }
 }
 
+// World position of the entity being talked to, for the cinematic camera.
+// Citizens keep (x, z) in a Vector2 and a height in `y`, in the city's frame;
+// anything else is a Vector3 in its module group's frame. Falls back to a
+// point ahead of the walker when the frame is not known.
+const _cinePlayer = new THREE.Vector3();
+const _cineSpeaker = new THREE.Vector3();
+function talkWorld(out) {
+  const e = talkEntity;
+  const group = e.pos.isVector2 ? city?.group : talkModule?.group;
+  if (!group) return out.copy(ship.position).addScaledVector(walk.heading, 2.6);
+  if (e.pos.isVector2) out.set(e.pos.x, e.y ?? 0, e.pos.y);
+  else out.copy(e.pos);
+  group.localToWorld(out);
+  // feet on the walker's level: the shots are built up from the ground
+  _up.subVectors(ship.position, walk.planet.body.position).normalize();
+  const dh = out.clone().sub(ship.position).dot(_up);
+  if (Math.abs(dh) < 2.5) out.addScaledVector(_up, -dh);
+  return out;
+}
+
 // Squared distance from _playerLocal (the module's frame) to an entity.
 // Citizens store (x, z) in a Vector2; creatures use a group-local Vector3.
 function entityDistSq(entity) {
@@ -1989,6 +2014,7 @@ function entityDistSq(entity) {
 // bids the module's nearest interactable for this frame's focus.
 function scanModule(module, maxDist) {
   if (isDialogueOpen()) {
+    if (cineHeld()) return; // nobody walks away from a scene
     // Hang up past 2× the module's talk range (never inside it), so long-reach
     // worlds keep a sensible walk-away hysteresis gap.
     const breakDist = Math.max(TALK_BREAK_DIST, maxDist * 2);
@@ -2172,6 +2198,7 @@ function governorInteract(c, { fill, speakerFor }) {
       if (cs === undefined) {
         return {
           speaker,
+          cine: true,
           lines: ch.offer.map((l) => fill(l, c)),
           offer: {
             kind: 'choice',
@@ -2190,6 +2217,7 @@ function governorInteract(c, { fill, speakerFor }) {
   if (st === undefined) {
     return {
       speaker,
+      cine: true,
       lines: q.offer.map((l) => fill(l, c)),
       offer: {
         kind: 'choice',
@@ -2207,7 +2235,7 @@ function governorInteract(c, { fill, speakerFor }) {
     setQuestStage(def.id, 'done');
     removeBeacon();
     clearWaypoint();
-    return { speaker, lines: [fill(q.complete, c)], offer: secret };
+    return { speaker, cine: true, lines: [fill(q.complete, c)], offer: secret };
   }
   // Mid-tour reminder, with the next stop's flavor line.
   const nextLine = q.wonderLines?.[st]
@@ -2583,6 +2611,12 @@ export function updateWalkCamera(camera, delta = 0) {
   if (sub) return sub.camera(camera, delta);
   const planet = walk.planet;
   _up.subVectors(ship.position, planet.body.position).normalize();
+  // A cinematic talk frames the speaker (cineTalk.js). The walker's own
+  // camera resumes on a snap when it ends.
+  if (cineHeld() && talkEntity && cineCamera(camera, _cinePlayer.copy(ship.position), talkWorld(_cineSpeaker), _up, delta)) {
+    camSnap = true;
+    return;
+  }
   _right.crossVectors(walk.heading, _up).normalize();
   _look.copy(walk.heading).applyAxisAngle(_right, walk.pitch);
 
@@ -2753,7 +2787,7 @@ function viewMode() {
 
 // Viewmodel overlay (game.js, right after composer.render()).
 export function walkPostRender(renderer) {
-  if (warzone && walk.active && !sub) warzone.renderViewmodel(renderer); // no rifle underground
+  if (warzone && walk.active && !sub && !cineHeld()) warzone.renderViewmodel(renderer); // no rifle underground, or in a scene
 }
 
 // A coarse pointer means thumbs on a look stick — the warzone gives those
