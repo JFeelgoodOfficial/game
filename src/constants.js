@@ -552,6 +552,36 @@ export const C = {
   // --- Entry Zero (src/chapter.js, GDD 5.7.5) ---
   EZ_YEARS_GONE: 1048576, // 2^20: what the surface's clock reads when the crew come back up (CH_YEARS_GONE is 2^10)
   EZ_SHIP_YEARS: 1024, // ...and the light ship's own, out to the hole and back
+  // The submersible (world/submersible.js): weightless, in water or in the dark between.
+  EZ_SUB_THRUST: 62.0, // u/s^2 on any axis
+  EZ_SUB_DRAG: 0.95, // 1/s: it comes to rest by itself (top speed is thrust / drag)
+  EZ_SUB_TURN: 6.0, // how hard the mouse leans on it: rad/s of turn per radian of mouse travel
+  EZ_SUB_TURN_DAMP: 3.7, // 1/s (the flight ship's 0.94 a tick)
+  EZ_SUB_PITCH: 1.35, // rad: as far up or down as the nose goes
+  // The lamp (src/lamp.js).
+  EZ_LAMP_CONE: 0.34, // rad, half angle of the beam
+  EZ_LAMP_DRAIN: 1 / 240, // of a full charge per second, lit on one band
+  EZ_LAMP_ALL: 4.0, // ...times this on every band at once
+  EZ_LAMP_RECHARGE: 1 / 75, // per second with the lamp off
+  EZ_LAMP_EATEN: 5.0, // extra drain, times this, with a light eater at the glass
+  EZ_DOSE_RATE: 1 / 90, // of a full dose per second on the X-ray band
+  EZ_LOOK_TIME: 0.8, // seconds something must be held in a band before it is logged
+  // The well (world/submersible.js): the shaft under the city, where the lamp is tried.
+  EZ_WELL_R: 620.0, // its radius
+  EZ_WELL_UP: 150.0, // the ring back up to the city, above the start
+  EZ_WELL_DOWN: 700.0, // the membrane below it
+  EZ_WELL_RING: 62.0, // the ring's radius
+};
+
+// How far each band of the lamp reaches, in units, by what it is shining
+// through (BANDS order: blue-green, ultraviolet, infrared, H-alpha, X-ray,
+// radio). Water passes blue-green best and swallows infrared within metres;
+// vacuum and thin mist pass everything, and dust scatters the short
+// wavelengths first, so out there the infrared goes furthest. Radio is not
+// seen at all: it is heard, from a long way off (world/entryzero-audio.js).
+export const EZ_REACH = {
+  water: [900, 280, 70, 520, 420, 4000],
+  void: [650, 480, 1500, 950, 700, 4000],
 };
 
 // What lights the megaworld a million years on (src/era.js). Not decided:
@@ -575,12 +605,13 @@ export const EZ_NEW_WORLDS = true;
 // that come round the bridge in the archive flood; dream: bodies in the dream;
 // lanterns: lights adrift over the city's walks; birds: the flock at the monument;
 // rivals: other worlds on the grid in a race; wake: lights in each world's
-// lingering wake; crowd: people at the rails while a race is on.
+// lingering wake; crowd: people at the rails while a race is on. Entry Zero
+// (GDD 5.7.5): motes: specks adrift round the submersible, which the beam shows in.
 export const CH_TIER = {
-  low: { people: 8, rigNear: 0, flood: 3, dream: 3, lanterns: 80, birds: 40, rivals: 3, wake: 50, crowd: 60 },
-  medium: { people: 14, rigNear: 38, flood: 6, dream: 6, lanterns: 220, birds: 110, rivals: 5, wake: 100, crowd: 150 },
-  high: { people: 19, rigNear: 60, flood: 6, dream: 6, lanterns: 360, birds: 180, rivals: 5, wake: 130, crowd: 240 },
-  ultra: { people: 19, rigNear: 90, flood: 6, dream: 6, lanterns: 480, birds: 240, rivals: 6, wake: 160, crowd: 320 },
+  low: { people: 8, rigNear: 0, flood: 3, dream: 3, lanterns: 80, birds: 40, rivals: 3, wake: 50, crowd: 60, motes: 500 },
+  medium: { people: 14, rigNear: 38, flood: 6, dream: 6, lanterns: 220, birds: 110, rivals: 5, wake: 100, crowd: 150, motes: 1400 },
+  high: { people: 19, rigNear: 60, flood: 6, dream: 6, lanterns: 360, birds: 180, rivals: 5, wake: 130, crowd: 240, motes: 2200 },
+  ultra: { people: 19, rigNear: 90, flood: 6, dream: 6, lanterns: 480, birds: 240, rivals: 6, wake: 160, crowd: 320, motes: 3000 },
 };
 
 export const TIERS = {

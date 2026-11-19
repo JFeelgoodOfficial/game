@@ -514,3 +514,20 @@ pilot and take the E prompt from any further off). E opens the offer; `e`
 three times then `1` accepts: stage `ez_offer`, codex `Entry Zero`. The wall
 is 330 cells beyond the west rail, the dark one at column 19, row 5
 (`far().state()` city `info().offer`).
+
+The submersible and the well (`world/submersible.js`, `src/lamp.js`): with
+`ez_offer` seeded, the console at (10, 0, -4) on the balcony reads `E — BOARD
+THE VESSEL`; `interact()` there, or `farLanding.door('well')` from inside the
+city, hops under the white (`'wellup'` hops back). Then `far().state()` has
+`inSub`, `sub` → `{at, vel, yaw, pitch, lamp: {band, on, all, energy, dose,
+cabin, medium, reach}, found, targets: [{band, p}], motes, hud, audio}` and
+`subSet({at, look, yaw, pitch})`, which puts the vessel somewhere pointed
+somewhere. `farLanding.state().far` reads 9000 in the well and 4000 back in
+the city. Keys: `e` / `q` step the band (`sub.lamp.band`), `l` is the lamp;
+`input.forward` / `left` / `right` / `brake` (rise) / `sprint` (sink) drive
+it. To find a target, `subSet` the vessel to 0.55 of the target's x and z,
+30 above it, `look` at its `p`, step to its band and wait for its bit in
+`sub.found` (0.8 game seconds; the line is `CALIBRATED — …`). The radio
+target is never drawn: `sub.audio.radio.near` goes to 1 as the lamp points
+at it. Rising through the ring (`subSet({at: [0, 120, 0]})`, `input.brake`)
+returns to the city at (7.5, 0, -4) with `#ezHud` hidden.

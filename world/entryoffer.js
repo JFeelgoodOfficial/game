@@ -9,7 +9,8 @@
 // uniform write.
 
 import * as THREE from 'three';
-import { buildRobot, trackRobot } from './capital.js';
+import { buildRobot, trackRobot, tint, box, cyl, mergedMesh } from './capital.js';
+import { WELL } from './entryzero-dialogue.js';
 
 const COLS = 30, ROWS = 11; // records shown (the archive holds rather more)
 const CELL_W = 1.05, CELL_H = 1.05, GAP = 0.16;
@@ -54,8 +55,10 @@ const WALL_FRAG = /* glsl */ `
   }
 `;
 
-// k: { group, robotMat, glowMat, npcs, colliders, chapter, at: { x, z }, wall: { x, y, z } }
-// The wall faces +x (toward `at`), centred on wall.{x, y, z}.
+// k: { group, robotMat, glowMat, npcs, colliders, consoles, chapter, at: { x, z },
+//      wall: { x, y, z }, vessel: { x, z }, board() }
+// The wall faces +x (toward `at`), centred on wall.{x, y, z}. The vessel hangs
+// off the opposite rail once the offer is taken; `board` is called at its console.
 export function createEntryOffer(k) {
   const root = new THREE.Group();
   k.group.add(root);
@@ -104,6 +107,34 @@ export function createEntryOffer(k) {
   const npc = { x: A.x, y: 0, z: A.z, role: 'archivist', talk: () => k.chapter.archivistTalk() };
   k.npcs.push(npc);
 
+  // --- what it gives the pilot: a vessel, moored off the other rail ---
+  // (the lamp is on its nose; the well it goes down is under the balcony)
+  const V = k.vessel;
+  const vessel = new THREE.Group();
+  const lit = [
+    tint(cyl(1.5, 1.5, 5.2, 0, 0, 0, 20).rotateX(Math.PI / 2), 0xe4e0d2),
+    tint(cyl(1.5, 0.7, 1.6, 0, 0, 0, 20).rotateX(Math.PI / 2).translate(0, 0, -3.4), 0xc7a255),
+    tint(box(0.18, 1.5, 1.6, 0, 1.9, -2.2), 0xc7a255),
+    tint(box(3.6, 0.14, 1.0, 0, 0, -2.6), 0xc7a255),
+    tint(box(1.0, 0.1, 4.4, -1.9, 0.9, 0), 0xc7a255), // the plank to the rail
+  ];
+  vessel.add(mergedMesh(lit, k.robotMat));
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(1.5, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 0.22, depthWrite: false, fog: false }));
+  nose.position.z = 2.6;
+  vessel.add(nose);
+  const lampMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.4, 1.9, 1.6), fog: false });
+  const lampLight = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 8), lampMat);
+  lampLight.position.set(1.0, -0.9, 3.0);
+  vessel.add(lampLight);
+  vessel.position.set(V.x, 0.9, V.z);
+  vessel.rotation.y = Math.PI;
+  root.add(vessel);
+  k.consoles.push({
+    x: V.x - 3.6, y: 0, z: V.z, r: 3.2, prompt: WELL.board,
+    off: () => !k.chapter.reached('ez_offer'),
+    use: () => (k.board(), null),
+  });
+
   let show = 0;
   return {
     tick(dt, t, walker) {
@@ -111,6 +142,10 @@ export function createEntryOffer(k) {
       uniforms.uShow.value = show * show * (3 - 2 * show);
       uniforms.uTime.value = t;
       trackRobot(archivist, walker, dt, t);
+      // the vessel is there once it has been given, and rides the air a little
+      vessel.visible = k.chapter.reached('ez_offer');
+      vessel.position.y = 0.9 + 0.12 * Math.sin(t * 0.8);
+      lampMat.color.setHSL((t * 0.05) % 1, 1, 0.6).multiplyScalar(1.6);
     },
     reset() {
       show = 0;
