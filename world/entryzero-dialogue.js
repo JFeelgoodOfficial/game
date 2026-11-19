@@ -217,8 +217,29 @@ export const DEEP = {
 
 // --- 5. the centre ----------------------------------------------------------------
 export const CENTRE = {
+  // falling the last of the way, past where the lattice ends
+  fall: ['lux', 'We are falling. There is nothing here to fall toward.'],
+  arrive: [
+    [2, 'marrow', 'There is something under us. Every band says so, and every band says something else.'],
+    [10, 'vask', 'Six bands. Six pieces of one thing. Give it all of them at once.'],
+  ],
+  all: 'HOLD Z — EVERY BAND',
+  // every band on it at once: the whole of it, for the first time
   appear: ['lux', "It's only there while we look at it."],
+  // ...and near enough that the shortest band reaches the ground
+  near: ['vask', 'Every band at once only goes as far as the shortest. Infrared. A hundred units. Get lower.'],
+  solid: ['marrow', 'That is ground. Hold the light on it. Hold us still.'],
+  gone: ['lux', 'It went. The ground went.'],
+  eaten: ['vask', 'They are eating all of it. No light, no ground. Lamp off, let them go, and light it again.'],
+  altitude: 'ALTITUDE {alt}\nGROUND {pct}%',
+  // the pilot's choice, once it holds
+  ask: {
+    speaker: { name: 'Shift-Captain Orrin Vask', species: 'Rustia', cityId: 'The vessel' },
+    lines: ['It holds while the light holds. So one of us stays at the lamp.', 'Two go down with you. Your choice. Say who stays.'],
+  },
+  after: ['vask', 'The hatch is yours when you want it.'],
   choice: {
+    kind: 'choice',
     prompt: 'ONE OF US HOLDS THE LIGHT. WHO STAYS ABOARD?',
     options: [
       { label: 'VASK', outcomeTag: 'ez:stay:vask' },
