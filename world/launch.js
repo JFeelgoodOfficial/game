@@ -196,8 +196,8 @@ export function createLaunch(ctx) {
   sky.frustumCulled = false;
   sky.renderOrder = -5;
   group.add(sky);
-  // lit by the day the megaworld has now (src/era.js): from astern and to one side, out here
-  const sunDir = new THREE.Vector3(0.75, 0.3, 0.6).normalize();
+  // lit by the day the megaworld has now (src/era.js)
+  const sunDir = new THREE.Vector3(-0.5, 0.5, -0.25).normalize(); // (so the face of it the ship is leaving is the lit one)
   const megaU = { uTime: time, uSun: { value: sunDir }, uSunCol: DAY.col, uDay: { value: Math.max(DAY.k.value, 0.12) }, uFade: { value: 1 } };
   const world = new THREE.Group();
   const mega = new THREE.Mesh(new THREE.IcosahedronGeometry(MEGA_R, 6), new THREE.ShaderMaterial({ uniforms: megaU, vertexShader: VERT, fragmentShader: MEGA_FRAG, fog: false }));
@@ -240,7 +240,7 @@ export function createLaunch(ctx) {
   group.add(rail);
   // the archive: an arc of it, astern, as tall as the bridge is wide
   const wall = new THREE.Mesh(
-    new THREE.CylinderGeometry(R + 2.5, R + 2.5, 9, 48, 1, true, -0.95, 1.9).translate(0, 4.2, 0),
+    new THREE.CylinderGeometry(R + 2.5, R + 2.5, 9, 48, 1, true, -0.62, 1.24).translate(0, 4.2, 0),
     new THREE.ShaderMaterial({ uniforms: { uTime: time }, vertexShader: VERT, fragmentShader: WALL_FRAG, side: THREE.DoubleSide, fog: false }),
   );
   wall.frustumCulled = false;
@@ -265,7 +265,8 @@ export function createLaunch(ctx) {
   // --- the scene ---
   let u = -1, said = -1, lastSaid = false; // its clock: -1 over (or never begun)
   let inside = false, prev = null, walker = null;
-  const megaFrom = new THREE.Vector3(0.28, -0.5, 0.82).normalize(), megaTo = new THREE.Vector3(0.05, -0.08, 1).normalize();
+  // (it falls away off the starboard quarter: clear of the archive, which is dead astern)
+  const megaFrom = new THREE.Vector3(0.86, -0.42, 0.3).normalize(), megaTo = new THREE.Vector3(0.9, -0.1, 0.42).normalize();
   const _a = new THREE.Vector3(), _b = new THREE.Vector3();
   const speak = (id, text, sec = 7) => {
     // (a line written for a captain who was lost is said by one who was not)
@@ -328,12 +329,12 @@ export function createLaunch(ctx) {
     onChoice: () => null,
     portal: null, // (there is no way off)
     held: () => u >= 0,
-    // Watched, while it happens: over the heads at the rail, astern at what is
-    // being left and then round to what is ahead.
+    // Watched, while it happens: from the port side across the bridge at what is
+    // being left, and then round over the heads at the rail to what is ahead.
     camera(pos, target) {
       if (u < 0) return false;
       const turn = ease(24, 33, u);
-      pos.set(1.4 - 2.4 * turn, 2.5, 2.2 + 3.0 * turn);
+      pos.set(-4.4 + 3.4 * turn, 2.6, 0.6 + 4.6 * turn);
       _a.copy(world.position);
       _b.copy(AHEAD).multiplyScalar(2000);
       target.lerpVectors(_a, _b, turn);

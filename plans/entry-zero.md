@@ -1,4 +1,4 @@
-# Nova7: Entry Zero (GDD 5.7.5) build plan
+# Nova7: Entry Zero (GDD 5.7.5) build plan (IMPLEMENTED)
 
 ## Context
 
@@ -105,3 +105,21 @@ No dependencies, no assets, no allocation in the frame loop, `InstancedMesh` or 
 ## Verification
 
 Per `.claude/skills/verify/SKILL.md`: headless Chromium with SwiftShader, `__debug.quality.set('medium')`, wait on state and never on timeouts. For each step: seed `fgsf.tenretni` with the stage before it, drive it through `__debug.ez`, screenshot at medium, and check draw calls and live geometries against the `AUDIT.md` method. Old-save check on every step: a 5.7.4 `done` save must load to the same state as on `main`. `npm run build` must pass before each PR.
+
+## As built
+
+Twelve steps, twelve pull requests (#107 to #118). GDD 5.7.5 describes the result; this is what differs from the plan above.
+
+- **Files.** `world/firewall.js` was not written: the wall is zone 3 of `world/hollow.js`. `src/shaders/` gained nothing: every new shader is a template string in the module that uses it, as the chapter before did. `megaGround.frag` and `tenretniHull.frag` were extended in place.
+- **Stages.** `ez_era` begins when the emergence ends, not when the city is first entered. `ez_ascent` is the stretch between the firewall (going up) and the end of the emergence.
+- **H-alpha.** Seen and not a beam, except at the firewall, where it is a beam. The plan did not foresee that the key band would have to be both.
+- **Lower nodes ask for the zone's bands** before they take the vessel. Not in the plan; added so the log is whole by the centre.
+- **The way up skips zone 4.**
+- **The reveal** is played aboard the vessel, carried up over the planet, not on the ground.
+- **The rite** is on a timer (first at 25 s of flight, then every 260 s).
+- **The corner of the light ship** is upper aft in the ship's own frame, as conflict 10 said.
+- **Coming back at `ez_beyond`** is done in `src/game.js`: park, step out, hop.
+
+Still placeholders, all in `world/entryzero-dialogue.js`: the three relic fragments, the four lines of the reveal, what each captain says when chosen, what is said when one is lost, and the `STAY` numbers.
+
+Not verified, and said so in the pull requests: frame rate anywhere (the test rig is a software rasteriser), the feel of the submersible and of every chase, `EZ_LIGHT` at `'hole'` and `'none'`, `EZ_NEW_WORLDS` off, and a captain led past the edge on foot rather than placed there.

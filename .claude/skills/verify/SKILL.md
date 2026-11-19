@@ -694,3 +694,24 @@ the yard floor; `place(-5.3, 0, -4.9)` yaw -π/2 for the Archivist, whose
 first line is `You found it`, and the wall behind it with entry zero's cell
 (column 19, row 5) lit white. With a stage before `ez_era` the city is as
 5.7.4 left it: `districts` and `race` build, and the ship is gone.
+
+The launch (`world/launch.js`, stage `ez_launch` on boarding, `ez_beyond` at
+the end): in the era city the console at the gallery (-124, 0, -77) reads `E
+— BOARD THE LIGHT SHIP` and opens the Archivist's last question; `e` three
+times, then `2` leaves it (asked again on the next press), `1` hops
+`'launch'` (or `farLanding.door('launch')` from inside the city). Then
+`far().state()` has `onLaunch`, `launch` → `{u, end: 74, cross: 56, hole,
+inside, mega, megaShown, worlds, crew, day}` and `launchSeek(sec)`. The scene
+is 74 game seconds and far too slow to play through under SwiftShader:
+`launchSeek` it. At 5 the megaworld is off the starboard quarter, lit, beside
+the archive wall; at 21 the ring of young worlds shows (`worlds` 9; with
+`EZ_NEW_WORLDS` false, 0 and Marrow's other line); by 40 `hole` is past 0.8
+and the camera has come round to it; at 57.5 `inside` has begun to rise; the
+last line comes at 61; `megaShown` goes false by 60. `launchSeek(72.5)`, then
+`u` reads -1: stage `ez_beyond` saved, codex `Into the Hole`, bars out,
+`inside` 1. On the bridge afterwards `place(2.2, 0, -5.4)` and `interact()`
+talk to a captain. Come back to the game with `ez_beyond` seeded and no
+docking is needed: after `launch()` the game parks on the landing, steps out
+and hops to the bridge by itself (`onLaunch` true, `launch.u` -1,
+`farLanding.state().far` 4000). With any earlier stage the ship stays in
+flight (`farLanding.state().dock` `'sky'`).
