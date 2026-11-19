@@ -48,7 +48,7 @@ body.ch-race #walkHint, body.ch-race #compass { opacity: 0 !important; }
 /* ...and the line sits under the race's own panel */
 body.ch-race #chHud:not(.on) .line { top: 27vh; }
 #chHud .white { position: absolute; inset: 0; background: #fff; opacity: 0; }
-body.ch-cine > *:not(canvas):not(#chHud):not(#flash) { opacity: 0 !important; pointer-events: none !important; }
+body.ch-cine > *:not(canvas):not(#chHud):not(#flash):not(#cineTalk) { opacity: 0 !important; pointer-events: none !important; }
 @media (prefers-reduced-motion: reduce) { #chHud .bar { transition: none; } }
 `;
 

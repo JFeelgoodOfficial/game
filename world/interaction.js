@@ -7,6 +7,10 @@
  * @property {{name: string, species: string, cityId: (string|null)}} speaker
  * @property {string[]} lines
  * @property {Quest} [offer]
+ * @property {(boolean|{kind: 'comm', from: string})} [cine] a story moment:
+ *   the host shows it as a cinematic (src/cineTalk.js) — camera on the
+ *   speaker, large subtitles, the player held — instead of the panel
+ * @property {Array<('two'|'close'|undefined)>} [shots] per-line camera hint
  *
  * @typedef {
  *   {kind: 'codex', subject: string} |

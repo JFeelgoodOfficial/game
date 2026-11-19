@@ -13,36 +13,39 @@
 // pick it, tap LEAVE to go.
 
 import { isTouch } from './touchText.js';
+import { cineOpen, cineRender, cineClose } from './cineTalk.js';
+import { addMet } from './journal.js';
 
 const CSS = `
 #dlgPanel {
   position: fixed; left: 50%; bottom: 12%; transform: translateX(-50%);
   z-index: 14; pointer-events: none; opacity: 0; transition: opacity 0.25s;
-  min-width: min(340px, 92vw); max-width: min(620px, 92vw);
-  box-sizing: border-box; padding: 14px 22px 12px;
+  min-width: min(340px, 92vw); max-width: min(720px, 92vw);
+  box-sizing: border-box; padding: 16px 24px 14px;
   font-family: 'Courier New', ui-monospace, monospace; color: #a9f7ff;
-  background: rgba(4,10,16,0.72); border: 1px solid rgba(130,247,255,0.45);
+  background: rgba(4,10,16,0.9); border: 1px solid rgba(130,247,255,0.45);
   border-radius: 4px; box-shadow: 0 0 24px rgba(130,247,255,0.15);
   user-select: none;
 }
 #dlgPanel.open { opacity: 1; }
 #dlgPanel .dlg-speaker {
-  font-size: 12px; letter-spacing: 0.3em; color: #ffc9ec;
+  font-size: 13px; letter-spacing: 0.3em; color: #ffc9ec;
   text-shadow: 0 0 10px rgba(212,64,143,0.8); margin-bottom: 8px;
 }
 #dlgPanel .dlg-speaker .dlg-meta {
   color: #7ad7e0; text-shadow: 0 0 6px rgba(130,247,255,0.5);
 }
 #dlgPanel .dlg-line {
-  font-size: 14px; line-height: 1.5; letter-spacing: 0.06em;
-  text-shadow: 0 0 6px rgba(130,247,255,0.5); min-height: 1.5em;
+  font-size: 17px; line-height: 1.5; letter-spacing: 0.04em; color: #e6fdff;
+  text-shadow: 0 0 6px rgba(130,247,255,0.35); min-height: 1.5em;
 }
-#dlgPanel .dlg-options { margin-top: 8px; font-size: 13px; line-height: 1.7; }
+#dlgPanel .dlg-options { margin-top: 8px; font-size: 15px; line-height: 1.7; }
 #dlgPanel .dlg-options .dlg-opt {
   color: #ffc9ec; text-shadow: 0 0 8px rgba(212,64,143,0.7); letter-spacing: 0.1em;
 }
 /* Touch: the panel takes taps, and keeps clear of the two sticks. */
-body.touch-ui #dlgPanel { max-width: min(620px, calc(100vw - 300px)); bottom: 8%; }
+body.touch-ui #dlgPanel { max-width: min(720px, calc(100vw - 300px)); bottom: 8%; }
+body.touch-ui #dlgPanel .dlg-line { font-size: 16px; line-height: 1.4; }
 body.touch-ui #dlgPanel.open { pointer-events: auto; z-index: 20; }
 body.touch-ui #dlgPanel .dlg-opt {
   padding: 8px 10px; margin-top: 6px; border-radius: 3px;
@@ -53,7 +56,7 @@ body.touch-ui #dlgPanel .dlg-opt {
   border: 1px solid rgba(212,64,143,0.6); border-radius: 3px; letter-spacing: 0.24em;
 }
 #dlgPanel .dlg-hint {
-  margin-top: 10px; font-size: 10px; letter-spacing: 0.3em; color: #7ad7e0;
+  margin-top: 10px; font-size: 12px; letter-spacing: 0.26em; color: #7ad7e0;
   text-shadow: 0 0 6px rgba(130,247,255,0.4);
 }
 `;
@@ -72,6 +75,7 @@ let lineIndex = 0;
 let choosing = false; // showing a 'choice' offer's options
 let onOffer = null;
 let onClose = null;
+let cine = null; // the payload's `cine` field while a cinematic talk is up (cineTalk.js)
 
 function ensureDom() {
   if (!styled) {
@@ -109,6 +113,18 @@ function ensureDom() {
 }
 
 function render() {
+  if (cine) {
+    const d = getDialogueDisplay();
+    cineRender({
+      speaker: d.speaker,
+      meta: ' · ' + payload.speaker.species, // the place is in the picture
+      line: d.line,
+      options: choosing ? payload.offer.options.map((o) => o.label) : null,
+      last: lineIndex >= payload.lines.length - 1 && !(payload.offer && payload.offer.kind === 'choice'),
+      shotHint: payload.shots ? payload.shots[lineIndex] : undefined,
+    });
+    return;
+  }
   const s = payload.speaker;
   speakerEl.innerHTML = '';
   const name = document.createElement('span');
@@ -200,14 +216,28 @@ export function openDialogue(p, callbacks = {}) {
   choosing = false;
   onOffer = callbacks.onOffer ?? null;
   onClose = callbacks.onClose ?? null;
+  cine = p.cine || null;
+  if (p.speaker && p.speaker.name) addMet(p.speaker.name, p.speaker.species, p.speaker.cityId);
   keyHandler = (e) => {
     if (e.code === 'KeyX') { closeDialogue(); return; }
     if (choosing && e.code.startsWith('Digit')) pickOption(Number(e.code.slice(5)) - 1);
   };
   document.addEventListener('keydown', keyHandler);
+  if (cine) cineOpen(cine, { advance: advanceDialogue, pick: pickOption, skip: skipDialogue });
   render();
-  panel.classList.add('open');
+  if (!cine) panel.classList.add('open');
 }
+
+// SKIP in a cinematic talk: straight to the end. A choice is never made for
+// the player — skipping stops at it. With no choice, the offer (a codex
+// entry, a waypoint) is still handed over, exactly as if every line was read.
+export function skipDialogue() {
+  if (!payload || choosing) return;
+  lineIndex = payload.lines.length - 1;
+  advanceDialogue();
+}
+
+export const isCinematic = () => cine !== null;
 
 // E pressed while open (routed from walk.js). Steps lines, then resolves the
 // offer: 'choice' switches to option-picking; codex/waypoint offers fire
@@ -242,5 +272,9 @@ export function closeDialogue() {
     keyHandler = null;
   }
   if (panel) panel.classList.remove('open');
+  if (cine) {
+    cine = null;
+    cineClose();
+  }
   if (cb) cb();
 }

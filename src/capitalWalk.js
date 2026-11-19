@@ -42,6 +42,7 @@ import { input, moveAxes } from './input.js';
 import { ship } from './ship.js';
 import { createShip as createParkedShip } from '../world/ship.js';
 import { openDialogue, advanceDialogue, isDialogueOpen, closeDialogue } from './dialogue.js';
+import { cineHeld, cineCamera } from './cineTalk.js';
 import { gun, enterGun, leaveGun, stepGun, pullTrigger, updateGunVisuals, gunCamera } from './turretGun.js';
 import {
   getViewPref,
@@ -192,6 +193,7 @@ export function stepCapitalWalk(dt) {
     ship.velocity.set(0, 0, 0);
     return;
   }
+  if (cineHeld()) input.mouseX = input.mouseY = 0; // a scene has the camera
   cWalk.yaw -= input.mouseX * LOOK_SENS;
   cWalk.pitch -= input.mouseY * LOOK_SENS;
   cWalk.pitch = Math.min(Math.max(cWalk.pitch, -MAX_PITCH), MAX_PITCH);
@@ -372,8 +374,10 @@ export function capitalInteract() {
   }
   const payload = f.kind === 'use' ? f.it.use() : f.it.talk();
   if (!payload || !payload.lines || !payload.lines.length) return undefined;
+  talkAt = f.kind === 'talk' ? f.it : null; // who the cinematic camera frames
   openDialogue(payload, {
     onOffer: (offer) => (offer.kind === 'choice' ? site?.onChoice(offer.outcomeTag) ?? null : null),
+    onClose: () => { talkAt = null; },
   });
   return undefined;
 }
@@ -430,6 +434,10 @@ export function padBearing() {
 // Camera — worked out platform-local, then carried to world
 // ---------------------------------------------------------------------------
 
+let talkAt = null; // the npc being spoken to, while a dialogue is open
+const _cineP = new THREE.Vector3();
+const _cineS = new THREE.Vector3();
+
 export function updateCapitalCamera(camera, delta = 0) {
   const cosP = Math.cos(cWalk.pitch);
   _look.set(Math.sin(cWalk.yaw) * cosP, Math.sin(cWalk.pitch), Math.cos(cWalk.yaw) * cosP);
@@ -438,6 +446,16 @@ export function updateCapitalCamera(camera, delta = 0) {
     gunCamera(camera, toWorld, _up);
     camSnap = true;
     return;
+  }
+  // a cinematic talk frames whoever is speaking (cineTalk.js)
+  if (cineHeld() && talkAt && site) {
+    toWorld(cWalk.pos, _cineP);
+    toWorld(_cineS.set(talkAt.x, talkAt.y ?? cWalk.pos.y, talkAt.z), _cineS);
+    // deck figures (robots, fleet captains) stand taller than a citizen
+    if (cineCamera(camera, _cineP, _cineS, _up, delta, talkAt.h ?? 2.7)) {
+      camSnap = true;
+      return;
+    }
   }
   // the place has the camera (a scene being shown): take its word for it
   if (site.camera && site.camera(_desired, _target)) {

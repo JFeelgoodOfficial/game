@@ -426,6 +426,16 @@ export function updateHolonav(ship, delta, active) {
     if (!m.group.visible) continue;
     chartPos(m.body.pos, _p);
     m.group.position.copy(_p);
+    // somewhere the pilot has been asked to go (body.objective): a gold ring
+    // beating round the marker, so the chart itself says "here"
+    if (m.body.objective) {
+      if (!m.want) {
+        m.want = ring(0.075, GOLD, 0.95);
+        m.group.add(m.want);
+      }
+      m.want.visible = true;
+      m.want.scale.setScalar(1 + 0.3 * (0.5 + 0.5 * Math.sin(performance.now() * 0.006)));
+    } else if (m.want) m.want.visible = false;
   }
 
   // selection follow: reticle, prompt, and the curved cyan course arrow
