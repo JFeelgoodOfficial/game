@@ -252,9 +252,9 @@ const SLAB_FRAG = /* glsl */ `
   void main() {
     float y = vL.y + 9.0 * vnoise(vL * 0.02 + vSeed * 9.0);
     float layer = floor(y / 11.0), f = fract(y / 11.0);
-    float albedo = (0.16 + 0.34 * h31(vec3(layer, vSeed * 50.0, 1.0))) * (0.7 + 0.3 * smoothstep(0.0, 0.1, f));
+    float albedo = (0.3 + 0.5 * h31(vec3(layer, vSeed * 50.0, 1.0))) * (0.6 + 0.4 * smoothstep(0.0, 0.1, f));
     float beam = lampBeam(vW) * uLampOn * uLampLit;
-    vec3 col = albedo * uLampTint * beam * 0.55 + vec3(0.003, 0.004, 0.005);
+    vec3 col = albedo * uLampTint * beam * 0.7 + vec3(0.004, 0.006, 0.008) * (0.5 + albedo);
     // ultraviolet: a seam of something in every few layers gives light back
     col += vec3(0.4, 1.0, 0.35) * step(0.8, h31(vec3(layer, 4.0, vSeed))) * smoothstep(0.5, 0.9, vnoise(vL * 0.08)) * lampLit(1.0, vW);
     // X-ray: rock is thin enough to it here, and what is in the rock is not
@@ -425,7 +425,7 @@ export function createHollow(k) {
       const m = new THREE.Matrix4(), e = new THREE.Euler();
       for (let i = 0; i < n; i++) {
         const f = (i + 0.5) / n;
-        const a = rnd() * Math.PI * 2, off = 260 + 1700 * rnd();
+        const a = rnd() * Math.PI * 2, off = 170 + 950 * rnd() * rnd() + 500 * rnd(); // (most of them near the way)
         const c = new THREE.Vector3().lerpVectors(entry, exit, 0.04 + 0.92 * f);
         c.x += Math.cos(a) * off;
         c.z += Math.sin(a) * off;
@@ -513,7 +513,7 @@ export function createHollow(k) {
       eaterAt.push(mid(0.3, 320, 2.0), mid(0.7, 300, 5.0));
       leechAt.push(mid(0.45, 400, 0.6), mid(0.85, 380, 3.3));
       // a long way off to one side, to begin with
-      callerHome.copy(mid(0.45, 3000, 4.1));
+      callerHome.copy(mid(0.45, 2100, 4.1));
       callerAt.copy(callerHome);
       callerTo.copy(callerHome);
       hasCaller = true;
@@ -886,7 +886,7 @@ export function createHollow(k) {
       zone, entry: entry.toArray().map(Math.round), exit: exit.toArray().map(Math.round),
       globes: globes.map((g) => ({ c: g.c.toArray().map(Math.round), r: Math.round(g.r) })),
       need: missing(), life: life.info(), meshes: made.length,
-      slabs: slabs.length, pull: +pullAt(shardAt.value).toFixed(2),
+      slabs: slabs.length, slabAt: slabs.slice(0, 3).map((x) => ({ c: x.c.toArray().map(Math.round), h: x.h.toArray().map(Math.round) })), pull: +pullAt(shardAt.value).toFixed(2),
       caller: hasCaller ? { at: callerAt.toArray().map(Math.round), dist: Math.round(callerD), coming, hold: +holdT.toFixed(1) } : null,
       wall: hasWall ? { y: Math.round(wallY), burn: +burn.toFixed(2), hole: holeU.value.toArray().map(Math.round), passed } : null,
     } : null),
