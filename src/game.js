@@ -996,6 +996,9 @@ if (import.meta.env.DEV) {
     },
     reachQuest(id, stage) { setQuestStage(id, stage); return questStage(id); },
     reachCharge(stage) { setQuestStage(CHARGE_QUEST, stage); return questStage(CHARGE_QUEST); },
+    // The Crown errand (src/crownErrand.js): errand('rest') sets the stage,
+    // errand() reads it. Stages are saved, so clear with errand(undefined).
+    errand(...a) { if (a.length) setQuestStage('terra-errand', a[0]); return questStage('terra-errand'); },
     reachPlace(x, y, z) {
       const a = reachShip.anchor;
       a.updateWorldMatrix(true, false);

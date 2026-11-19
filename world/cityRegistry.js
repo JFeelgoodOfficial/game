@@ -83,6 +83,41 @@ export const CITIES = [
       complete: 'You’ve walked the valley’s two hearts. Take the Meridian ultralight — the sky between them is yours now.',
       thanks: 'The valley looks better from your altitude, pilot. The Crown keeps your berth open.',
     },
+    // The pilot's own tower (world/city.js buildTower `home`): taller than the
+    // governor's, a suite on top with a bed.
+    homeTower: { top: 66, speed: 4.4 },
+    // The Crown errand (src/crownErrand.js owns the stages; these are his words).
+    errand: {
+      welcome: [
+        'Pilot. Welcome home. Meridian Crown kept your berth, and more than a berth.',
+        'The tall tower across the plaza is yours. The suite at the top has a bed that does not move. Stay a while.',
+        'One small thing first. I ordered a chair from the WaveMall Flagship, and they will not ship it past their own doors.',
+        'Fetch it for me. Ask for Maribel. And while you are there, pick out something for your own rooms.',
+      ],
+      welcomeLate: [
+        'Pilot. Welcome home. The tall tower across the plaza is yours, and the suite at the top.',
+        'You have been to Neptunia already, I hear. Then you know the Indigo Reach.',
+        'Its governor held the Crown Seal, this city’s founding seal, lent out long ago and never returned. Bring it home.',
+      ],
+      remind: 'The errand stands, pilot.',
+      debrief: [
+        'The chair. And two worlds that answer when Terra calls.',
+        'The mall I expected. Saturnia swore against this valley before you were born, and you raced them out of it.',
+        'You did very well. Get some rest; your suite is waiting. In the morning I have a new assignment for you.',
+      ],
+      restRemind: 'Sleep first, pilot. The tall tower. I will not brief a tired flyer.',
+      mission: [
+        'You slept. Good. Now the hard one.',
+        'Madame Ossva, on the Indigo Reach over Neptunia, holds the Crown Seal: this city’s founding seal, lent out long ago and never returned.',
+        'She will give it up for one thing. Her mining project needs a pilot to ride the riser to the sea floor and arm a charge.',
+        'Help her with it, and bring the Seal home.',
+      ],
+      deliver: [
+        'The Seal. Unmarked. A world broke around it and it did not notice.',
+        'Keep it in your suite, pilot, where the plaza can see its light. The Crown is in your debt.',
+      ],
+      after: 'The Seal burns in your window every night. The valley sleeps better for it.',
+    },
     citizens: [
       { name: 'Patron Axilo', role: 'governor', dialogue: 'governor', home: 'penthouse' },
       { name: 'Voss Enterin', role: 'merchant', dialogue: 'vendor', vars: { goods: 'valley amber and hull ceramic' } },

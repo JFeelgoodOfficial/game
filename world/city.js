@@ -590,6 +590,26 @@ export function createCity(planet, worldUp, opts = {}) {
   }
   const towerBearing = Math.atan2(towerSpot.z, towerSpot.x);
 
+  // The pilot's home tower (registry `homeTower`, terra only): a second, taller
+  // tower on a cardinal square to the governor's, on dry ground clear of the
+  // gate walkway. Same builder, same distance from the plaza.
+  let homeSpot = null, homeU = null;
+  if (opts.homeTower) {
+    const clear = C.TOWER_HALF + 3 + C.WALKWAY_W;
+    const cands = [[towerU[1], -towerU[0]], [-towerU[1], towerU[0]], [towerU[0], towerU[1]]];
+    for (const c of cands) {
+      const tx = c[0] * towerDist, tz = c[1] * towerDist;
+      if (Math.hypot(tx - towerSpot.x, tz - towerSpot.z) < 1) continue;
+      if (isWetLocal(tx, tz)) continue;
+      if (walkwayPts.some((w) => Math.hypot(w.x - tx, w.z - tz) < clear)) continue;
+      homeSpot = { x: tx, z: tz }; homeU = [-c[0], -c[1]];
+      break;
+    }
+    if (homeSpot) {
+      flattenPads.push({ x: homeSpot.x, z: homeSpot.z, r: C.TOWER_HALF + 6, y: sampleGroundLocalY(homeSpot.x, homeSpot.z) });
+    }
+  }
+
   // House slots: one per grounded citizen, ringed around the plaza, keeping
   // clear of the walkway corridor and the tower.
   const groundedCitizens = [];
@@ -975,13 +995,16 @@ export function createCity(planet, worldUp, opts = {}) {
   // CAB is its own small group so update() can slide it.
   // -------------------------------------------------------------------------
   let elevator = null;
+  let homeTower = null;
   let penthouseHome = null;
-  {
-    const cx = towerSpot.x, cz = towerSpot.z;
+  // `home` builds the pilot's suite instead of the governor's: a bed you can
+  // sleep in, no governor manifest, and the things the pilot brings home.
+  const buildTower = ({ spot, U, top, speed, home }) => {
+    const cx = spot.x, cz = spot.z;
     const by = flattenedHeight(cx, cz);
-    const EH = C.TOWER_HALF, TOP = C.TOWER_TOP;
+    const EH = C.TOWER_HALF, TOP = top;
     const totalH = TOP + C.PENT_H + C.PARAPET;
-    const [ux, uz] = towerU; // +U looks from the tower toward the plaza
+    const [ux, uz] = U; // +U looks from the tower toward the plaza
     const vxAxis = -uz, vzAxis = ux;
     const faceYaw = Math.atan2(ux, uz);
 
@@ -1162,13 +1185,83 @@ export function createCity(planet, worldUp, opts = {}) {
       boxUV(trimGeos, u0, u1, v0, v1, TOP + C.PARAPET, TOP + C.PARAPET + 0.08);
     }
 
-    // Penthouse furnishing: the governor's suite.
-    boxUV(furnGeos, SU1 + 0.8, SU1 + 3.0, -EH + 0.8, -EH + 2.0, TOP + 0.3, TOP + 1.2); // lounge
-    boxUV(furnGeos, SU1 + 1.2, SU1 + 2.6, -0.7, 0.7, TOP + 0.3, TOP + 0.8); // low table
-    boxUV(warmGeos, SU1 + 1.7, SU1 + 2.1, -0.2, 0.2, TOP + 0.8, TOP + 1.1); // lamp
-    boxUV(furnGeos, EH - 3.0, EH - 1.4, EH - 2.4, EH - 1.0, TOP + 0.3, TOP + 1.0); // desk
-    boxUV(metalGeos, EH - 2.6, EH - 1.8, EH - 3.0, EH - 2.4, TOP + 0.3, TOP + 1.6); // telescope-ish
-    boxUV(plantGeos, -EH + 0.8, -EH + 1.8, EH - 1.8, EH - 0.8, TOP + 0.3, TOP + 1.4); // planter
+    // Things that come and go with the story (src/crownErrand.js): each is a
+    // small group of its own, hidden until setProps names it. Parts are
+    // [material, u0, u1, v0, v1, y0, y1] above the penthouse floor.
+    const props = {};
+    const F = TOP + 0.3;
+    const prop = (id, parts) => {
+      const g = new THREE.Group();
+      const byMat = new Map();
+      for (const [mat, u0, u1, v0, v1, y0, y1] of parts) {
+        const r = rect(u0, u1, v0, v1);
+        const geo = new THREE.BoxGeometry(r.x1 - r.x0, y1 - y0, r.z1 - r.z0);
+        geo.translate(cx + (r.x0 + r.x1) / 2, by + F + (y0 + y1) / 2, cz + (r.z0 + r.z1) / 2);
+        if (!byMat.has(mat)) byMat.set(mat, []);
+        byMat.get(mat).push(geo);
+      }
+      for (const [mat, geos] of byMat) {
+        const m = new THREE.Mesh(mergeGeometries(geos), mat);
+        m.frustumCulled = false;
+        g.add(m);
+      }
+      g.visible = false;
+      group.add(g);
+      props[id] = g;
+    };
+    if (home) {
+      // The pilot's suite: bed against the -V glass, wardrobe behind the shaft.
+      boxUV(furnGeos, 0.6, 3.8, -EH + 0.7, -EH + 2.7, F, F + 0.45, true); // bed frame
+      boxUV(wallGeos, 0.7, 3.7, -EH + 0.8, -EH + 2.6, F + 0.45, F + 0.7); // mattress
+      boxUV(warmGeos, 0.75, 1.4, -EH + 1.0, -EH + 2.4, F + 0.7, F + 0.82); // pillow
+      boxUV(furnGeos, 0.45, 0.6, -EH + 0.7, -EH + 2.7, F, F + 1.3); // headboard
+      boxUV(metalGeos, -EH + 0.5, -EH + 1.5, 2.6, 4.8, F, F + 2.6, true); // wardrobe
+      boxUV(furnGeos, 0.4, 1.0, -EH + 2.9, -EH + 3.5, F, F + 0.55); // bedside table
+      boxUV(warmGeos, 0.6, 0.8, -EH + 3.1, -EH + 3.3, F + 0.55, F + 0.85); // bedside lamp
+      // What the pilot chose at the WaveMall (inventory DECOR ids).
+      prop('sofa', [
+        [furnMat, 0.2, 3.4, EH - 2.0, EH - 0.9, 0, 0.5], [furnMat, 0.2, 3.4, EH - 1.15, EH - 0.9, 0.5, 1.15],
+        [furnMat, 0.2, 0.5, EH - 2.0, EH - 0.9, 0.5, 0.85], [furnMat, 3.1, 3.4, EH - 2.0, EH - 0.9, 0.5, 0.85],
+      ]);
+      prop('floorLamp', [
+        [metalMat, 4.5, 4.7, 2.3, 2.5, 0, 2.0], [metalMat, 4.3, 4.9, 2.1, 2.7, 0, 0.08],
+        [warmMat, 4.35, 4.85, 2.15, 2.65, 2.0, 2.5],
+      ]);
+      prop('rug', [[trimMat, 0.4, 3.8, -1.7, 1.7, 0.01, 0.04], [wallMat, 0.6, 3.6, -1.5, 1.5, 0.02, 0.06]]);
+      prop('wallArt', [
+        [metalMat, SU1 + 0.36, SU1 + 0.44, -1.95, -1.1, 1.0, 2.6],
+        [trimMat, SU1 + 0.44, SU1 + 0.47, -1.85, -1.2, 1.1, 2.5],
+        [warmMat, SU1 + 0.47, SU1 + 0.49, -1.7, -1.45, 1.5, 2.1],
+      ]);
+      prop('plant', [
+        [metalMat, 4.2, 5.0, 4.2, 5.0, 0, 0.6], [plantMat, 4.3, 4.9, 4.3, 4.9, 0.6, 1.9],
+        [plantMat, 4.1, 5.1, 4.45, 4.75, 1.1, 1.5], [plantMat, 4.45, 4.75, 4.1, 5.1, 1.3, 1.7],
+      ]);
+      prop('telescope', [
+        [metalMat, 4.55, 4.75, -4.75, -4.55, 0, 1.3], [metalMat, 4.3, 5.0, -5.0, -4.3, 0, 0.06],
+        [metalMat, 4.0, 5.2, -4.8, -4.5, 1.3, 1.6], [trimMat, 5.2, 5.26, -4.78, -4.52, 1.32, 1.58],
+      ]);
+      // The Crown Seal, once it is home.
+      prop('crownSeal', [
+        [metalMat, 4.4, 5.0, -2.2, -1.6, 0, 1.1], [trimMat, 4.35, 5.05, -2.25, -1.55, 1.1, 1.14],
+        [warmMat, 4.5, 4.9, -1.95, -1.85, 1.2, 1.6], [trimMat, 4.46, 4.94, -1.93, -1.87, 1.16, 1.64],
+      ]);
+    } else {
+      // Penthouse furnishing: the governor's suite.
+      boxUV(furnGeos, SU1 + 0.8, SU1 + 3.0, -EH + 0.8, -EH + 2.0, TOP + 0.3, TOP + 1.2); // lounge
+      boxUV(furnGeos, SU1 + 1.2, SU1 + 2.6, -0.7, 0.7, TOP + 0.3, TOP + 0.8); // low table
+      boxUV(warmGeos, SU1 + 1.7, SU1 + 2.1, -0.2, 0.2, TOP + 0.8, TOP + 1.1); // lamp
+      boxUV(furnGeos, EH - 3.0, EH - 1.4, EH - 2.4, EH - 1.0, TOP + 0.3, TOP + 1.0); // desk
+      boxUV(metalGeos, EH - 2.6, EH - 1.8, EH - 3.0, EH - 2.4, TOP + 0.3, TOP + 1.6); // telescope-ish
+      boxUV(plantGeos, -EH + 0.8, -EH + 1.8, EH - 1.8, EH - 0.8, TOP + 0.3, TOP + 1.4); // planter
+      // The piece the pilot fetched from the WaveMall for the governor: a
+      // high-backed cabinet chair by the +V glass.
+      prop('crownFurniture', [
+        [furnMat, 0.4, 1.9, EH - 2.0, EH - 0.8, 0, 0.55], [furnMat, 0.4, 1.9, EH - 1.05, EH - 0.8, 0.55, 2.2],
+        [trimMat, 0.4, 1.9, EH - 1.07, EH - 1.05, 2.1, 2.2],
+        [furnMat, 0.4, 0.6, EH - 2.0, EH - 0.8, 0.55, 0.95], [furnMat, 1.7, 1.9, EH - 2.0, EH - 0.8, 0.55, 0.95],
+      ]);
+    }
     // warm cove around the penthouse ceiling
     boxUV(warmGeos, SU1 + 0.4, EH - 0.4, -EH + 0.5, -EH + 0.62, P1 - 0.28, P1 - 0.18);
     boxUV(warmGeos, SU1 + 0.4, EH - 0.4, EH - 0.62, EH - 0.5, P1 - 0.28, P1 - 0.18);
@@ -1266,6 +1359,11 @@ export function createCity(planet, worldUp, opts = {}) {
       { kind: 'cab', pos: new THREE.Vector2(pC.x, pC.z), y: by + 1.4, prompt: 'E — PENTHOUSE' },
       { kind: 'callTop', pos: new THREE.Vector2(pB.x, pB.z), y: by + TOP + 1.4, prompt: 'E — CALL ELEVATOR' },
     ];
+    const UP_PROMPT = home ? 'E — YOUR SUITE' : 'E — PENTHOUSE';
+    if (home) {
+      const pBed = btnPt(2.2, -EH + 3.3); // standing beside the bed
+      entities.push({ kind: 'bed', pos: new THREE.Vector2(pBed.x, pBed.z), y: by + TOP + 1.0, prompt: 'E — SLEEP' });
+    }
 
     // State machine — stepped from walk.js stepWalk (physics-synced).
     const cabMidU = (SU0 + SU1) / 2;
@@ -1274,6 +1372,14 @@ export function createCity(planet, worldUp, opts = {}) {
       cabY: 0,
       baseY: by,
       topY: TOP,
+      x: cx, z: cz,
+      // Show exactly the named story props (see `prop` above); unknown ids
+      // are ignored, so one list can be offered to both towers.
+      setProps(ids) {
+        for (const id of Object.keys(props)) props[id].visible = ids.includes(id);
+      },
+      propIds: () => Object.keys(props).filter((id) => props[id].visible),
+      bedSpot: home ? btnPt(2.2, -EH + 3.3) : null,
       // Standing point inside the cab (absolute city-local) — verification
       // and NPC use.
       cabSpot: { x: cx + cabMidU * ux, z: cz + cabMidU * uz },
@@ -1289,9 +1395,9 @@ export function createCity(planet, worldUp, opts = {}) {
         if (best) {
           // live prompt per state
           if (best.kind === 'cab') {
-            best.prompt = elev.state === 'parkedBottom' ? 'E — PENTHOUSE'
+            best.prompt = elev.state === 'parkedBottom' ? UP_PROMPT
               : elev.state === 'parkedTop' ? 'E — GROUND FLOOR' : 'ELEVATOR MOVING';
-          } else {
+          } else if (best.kind !== 'bed') {
             const here = best.kind === 'callBottom' ? 'parkedBottom' : 'parkedTop';
             best.prompt = elev.state === here ? 'E — ELEVATOR READY' : 'E — CALL ELEVATOR';
           }
@@ -1299,7 +1405,9 @@ export function createCity(planet, worldUp, opts = {}) {
         return best;
       },
       interact(e) {
-        if (e.kind === 'cab') {
+        if (e.kind === 'bed') {
+          opts.onSleep?.();
+        } else if (e.kind === 'cab') {
           if (elev.state === 'parkedBottom') elev.state = 'rising';
           else if (elev.state === 'parkedTop') elev.state = 'descending';
         } else if (e.kind === 'callBottom') {
@@ -1313,10 +1421,10 @@ export function createCity(planet, worldUp, opts = {}) {
       // step(dt): move the cab, keep records + visuals in lockstep.
       step(dt) {
         if (elev.state === 'rising') {
-          elev.cabY = Math.min(elev.cabY + C.CAB_RIDE_SPEED * dt, TOP);
+          elev.cabY = Math.min(elev.cabY + speed * dt, TOP);
           if (elev.cabY >= TOP) elev.state = 'parkedTop';
         } else if (elev.state === 'descending') {
-          elev.cabY = Math.max(elev.cabY - C.CAB_RIDE_SPEED * dt, 0);
+          elev.cabY = Math.max(elev.cabY - speed * dt, 0);
           if (elev.cabY <= 0) elev.state = 'parkedBottom';
         }
         const y = elev.cabY;
@@ -1340,7 +1448,6 @@ export function createCity(planet, worldUp, opts = {}) {
       },
     };
     elev.step(0); // initialize gates for parkedBottom
-    elevator = elev;
 
     structures.push(makeStructure(cx, cz, by, surfaces, walls, EH + BAL + 0.6));
     collidersLocal.push({
@@ -1351,7 +1458,7 @@ export function createCity(planet, worldUp, opts = {}) {
     colliders.push({ center: worldPosScratch.clone(), radius: EH * Math.SQRT2 + 0.5, height: totalH });
 
     // Penthouse home manifest for the governor.
-    if (penthouseCitizen) {
+    if (penthouseCitizen && !home) {
       const au = SU1 + 2.0, av = 0;
       penthouseHome = {
         idx: penthouseCitizen.idx, role: penthouseCitizen.role, kind: 'penthouse',
@@ -1366,6 +1473,14 @@ export function createCity(planet, worldUp, opts = {}) {
       };
       homes.push(penthouseHome);
     }
+    return elev;
+  };
+  elevator = buildTower({ spot: towerSpot, U: towerU, top: C.TOWER_TOP, speed: C.CAB_RIDE_SPEED });
+  if (homeSpot) {
+    homeTower = buildTower({
+      spot: homeSpot, U: homeU, home: true,
+      top: opts.homeTower.top ?? C.TOWER_TOP, speed: opts.homeTower.speed ?? C.CAB_RIDE_SPEED,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -1570,7 +1685,7 @@ export function createCity(planet, worldUp, opts = {}) {
     new THREE.BoxGeometry(0.5, 0.18, 2.6), trafficMat, C.TRAFFIC_COUNT
   );
   trafficMesh.frustumCulled = false;
-  const laneAlt = C.TOWER_TOP + C.PENT_H + 16;
+  const laneAlt = Math.max(C.TOWER_TOP, homeTower?.topY ?? 0) + C.PENT_H + 16;
   const trafficSeeds = [];
   for (let i = 0; i < C.TRAFFIC_COUNT; i++) {
     trafficSeeds.push({
@@ -1726,6 +1841,7 @@ export function createCity(planet, worldUp, opts = {}) {
     traffic,
     homes, // per-citizen manifests {idx,role,kind,x,z,floorY,half,anchor,...}
     elevator, // interaction module + {state,cabY} (see walk.js scan)
+    homeTower, // the pilot's own tower (terra): same module, plus a bed
   };
 }
 

@@ -91,6 +91,8 @@ export { enterCoinWalk, coinActive, coinBeginLeave, coinLeft } from './coinWalk.
 // The Emberdeep under rustia's town (src/mineWalk.js): a flat walker NESTED in
 // the planet walk — you ride a cage down and come back up to the same spot.
 import * as mineWalk from './mineWalk.js';
+import * as errand from './crownErrand.js';
+import { fadeTo } from './fade.js';
 import { createMineHead } from '../world/minehead.js';
 
 const LOOK_SENS = 0.0022; // radians of look per pixel of mouse travel
@@ -770,10 +772,13 @@ function spawnWorldEntities(planet) {
         padLocal: cityDef.pad,
         citizens: cityDef.citizens,
         metro: cityDef.metro,
+        homeTower: cityDef.homeTower, // the pilot's own tower (terra)
+        onSleep: beginSleep,
         quality: settings.quality,
         materials: surfaceMaterials, // shared PBR registry — city NEVER disposes it
       });
     city.def = cityDef;
+    syncSuiteProps();
     if (!city.persistent) planet.surface.add(city.group);
     _cityInvQuat.copy(city.group.quaternion).invert();
 
@@ -886,6 +891,11 @@ function spawnWorldEntities(planet) {
       if (tourStage < cityDef.wonders.length) armTourBeacon(tourStage);
       else armReturnBeacon();
     }
+    // A second errand already accepted here (the Reach's charge) is the thing
+    // to be reminded of when no tour beacon is.
+    if (!objectiveText && cityDef.charge && questStage(CHARGE_QUEST) === 'go') {
+      setObjective(cityDef.charge.objective);
+    }
 
     // The town is under siege: first-person combat over the whole city. The
     // civilians stay put in their homes; the quests above keep working.
@@ -939,6 +949,9 @@ function spawnWorldEntities(planet) {
   creatures.group.position.copy(_localUp).multiplyScalar(creatR);
   planet.surface.add(creatures.group);
   _creatInvQuat.copy(creatures.group.quaternion).invert();
+
+  // Nothing local asking for attention: show what the Crown errand wants next.
+  if (!objectiveText) setObjective(errand.errandObjective());
 }
 
 // Board the ship: lift back to disembark altitude, nose pointed away from the
@@ -948,6 +961,7 @@ export function exitWalk(camera) {
   // The cottage's exit is a phase transition (white flash -> resetToStart), so
   // game.js owns it. Here we only tear the world down.
   if (cottageWalk.cottageActive()) return cottageWalk.exitCottageWalk();
+  if (sleepT >= 0) { sleepT = -1; fadeTo(0, 0); }
   if (capitalWalk.capitalActive()) return capitalWalk.exitCapitalWalk();
   if (skyWalk.skyActive()) return skyWalk.exitSkyWalk();
   if (coinWalk.coinActive()) return coinWalk.exitCoinWalk(camera);
@@ -1119,6 +1133,8 @@ export function stepWalk(dt) {
   // physics step, so the rising floor and the walker stay in exact lockstep
   // (city.update only handles visuals: neon, motes, traffic).
   if (city?.elevator) city.elevator.step(dt);
+  if (city?.homeTower) city.homeTower.step(dt);
+  stepSleep(dt);
 
   // Co-rotate with the planet's spin so the ground doesn't slide underfoot —
   // you turn with the planet's day, the way standing on a world works. The
@@ -1147,7 +1163,7 @@ export function stepWalk(dt) {
 
   // --- mouse look ---
   // A cinematic talk (cineTalk.js) has the camera: no looking about.
-  if (cineHeld()) input.mouseX = input.mouseY = 0;
+  if (cineHeld() || sleepT >= 0) input.mouseX = input.mouseY = 0;
   wzLookDX += input.mouseX;
   wzLookDY += input.mouseY;
   // Aiming down sights slows the look, the way a magnified sight picture does.
@@ -1223,7 +1239,7 @@ export function stepWalk(dt) {
   // --- planar movement: velocity approaches the wish direction ---
   _right.crossVectors(walk.heading, _up).normalize();
   const axes = moveAxes(); // WASD, or the analog touch stick when it's pushed
-  if (cineHeld()) axes.fwd = axes.strafe = axes.mag = 0; // stood still, being spoken to
+  if (cineHeld() || sleepT >= 0) axes.fwd = axes.strafe = axes.mag = 0; // stood still, being spoken to (or asleep)
   const fwd = axes.fwd;
   const strafe = axes.strafe;
   const moveMag = axes.mag; // scales speed, so a half-pushed stick walks
@@ -1895,6 +1911,7 @@ export function updateWalkVisuals(dt, t) {
     // Citizens and the elevator buttons share the city's flat local frame.
     playerLocalInto(city.group, _cityInvQuat, _playerLocal);
     if (city.elevator) scanModule(city.elevator, 2.6);
+    if (city.homeTower && sleepT < 0) scanModule(city.homeTower, 2.6);
     if (mineHead) {
       mineHead.update(t);
       scanModule(mineHead.module, 1.9); // inside the cage
@@ -2172,6 +2189,63 @@ function advanceTour() {
   // st === n means the tower-door return beacon — the governor takes it from here.
 }
 
+// What stands in the two penthouses follows the story (crownErrand.js).
+function syncSuiteProps() {
+  const ids = errand.suiteProps();
+  city?.elevator?.setProps?.(ids);
+  city?.homeTower?.setProps?.(ids);
+}
+
+// ---------------------------------------------------------------------------
+// The bed in the pilot's suite (world/city.js home tower, 'E — SLEEP'): a cut
+// to black, the sun brought round to the next morning, and back. The ground is
+// frozen while you walk and planet.js swings the SUN instead (spinPhase feeds
+// sunDrift), so the night passes by adding to spinPhase; it is re-derived from
+// the real rotation on lift-off, so nothing of this survives into flight.
+// ---------------------------------------------------------------------------
+const SLEEP_DARK = 1.0, SLEEP_WAKE = 1.6, SLEEP_END = 3.0;
+let sleepT = -1;
+const _sleepSun = new THREE.Vector3();
+function beginSleep() {
+  if (sleepT >= 0 || !walk.active || !walk.planet) return false;
+  closeDialogue();
+  walk.vel.set(0, 0, 0);
+  sleepT = 0;
+  fadeTo(1, SLEEP_DARK * 0.9);
+  return true;
+}
+// The smallest turn of the day that puts the sun low in the morning sky here.
+function morningTurn(planet) {
+  const base = planet.sunBase ?? SUN;
+  const drift = planet.sunDrift || 0;
+  const N = 144, at = (i) => {
+    _sleepSun.copy(base).applyAxisAngle(_yAxisV, -(drift + (i / N) * Math.PI * 2));
+    return _up.dot(_sleepSun);
+  };
+  let best = 0, bestDot = -Infinity;
+  for (let i = 1; i <= N; i++) {
+    const d0 = at(i - 1), d1 = at(i);
+    if (d1 > d0 && d0 < 0.22 && d1 >= 0.22) return (i / N) * Math.PI * 2; // rising through morning
+    if (d1 > bestDot) { bestDot = d1; best = i; }
+  }
+  return (best / N) * Math.PI * 2; // polar site: no sunrise, take the brightest hour
+}
+function stepSleep(dt) {
+  if (sleepT < 0) return;
+  const before = sleepT;
+  sleepT += dt;
+  if (before < SLEEP_WAKE && sleepT >= SLEEP_WAKE) {
+    const planet = walk.planet;
+    planet.spinPhase = (planet.spinPhase || 0) + morningTurn(planet);
+    const moved = errand.slept();
+    fadeTo(0, SLEEP_END - SLEEP_WAKE);
+    showViewToast(`MORNING — ${(city?.def?.name ?? 'HOME').toUpperCase()}`, 5);
+    if (moved || !objectiveText) setObjective(errand.errandObjective());
+  }
+  if (sleepT >= SLEEP_END) sleepT = -1;
+}
+export const walkSleep = () => beginSleep(); // dev/verification (__debug.sleep)
+
 // Governor dialogue (world/citizens.js setGovernorHandler): offer, reminder,
 // completion + reward, thanks — all from the registry quest block.
 function governorInteract(c, { fill, speakerFor }) {
@@ -2184,7 +2258,15 @@ function governorInteract(c, { fill, speakerFor }) {
   const fillLine = (l) => fill(l, c);
   const ember = mineWalk.emberDelivery(def, speaker, fillLine);
   if (ember) return ember;
-  const aside = mineWalk.emberAside(def, fillLine);
+  // The Crown errand (src/crownErrand.js, terra): its beats outrank the tour
+  // too, and between beats it adds one reminder to whatever he says.
+  const story = errand.errandTalk(def, speaker, fillLine);
+  if (story) {
+    syncSuiteProps();
+    if (typeof questStage(def.id) !== 'number') setObjective(errand.errandObjective());
+    return story;
+  }
+  const aside = [...mineWalk.emberAside(def, fillLine), ...errand.errandAside(def)];
   // The secret rides on any of his lines that do not already end in a choice
   // (undefined until the patio is fitted, and again once he has told it).
   const secret = mineWalk.secretOffer(def) ?? undefined;
@@ -2218,7 +2300,7 @@ function governorInteract(c, { fill, speakerFor }) {
     return {
       speaker,
       cine: true,
-      lines: q.offer.map((l) => fill(l, c)),
+      lines: [...errand.errandAside(def), ...q.offer.map((l) => fill(l, c))],
       offer: {
         kind: 'choice',
         prompt: 'Walk the tour?',
@@ -2483,6 +2565,9 @@ export function walkSite() {
     coin: coinWalk.coinSite(),
     minehead: mineHead,
     mine: mineWalk.mineSite(),
+    // The bed (walkSite().sleep()): { asleep, sunDot } to assert the night passed.
+    sleep: () => beginSleep(),
+    sleepState: () => ({ asleep: sleepT >= 0, sunDot: walk.planet ? _up.dot(walk.planet.sunDir ?? SUN) : null }),
     // Governor-tour beacon internals, for headless verification. The up vector
     // is here because the tilt bug it fixes is invisible to a position-only
     // payload — assert it against the true surface normal at the base.
