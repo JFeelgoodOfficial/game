@@ -37,6 +37,7 @@ import { SUITE, PAV } from './lightpavilion.js';
 import { DISTRICT_DIRS } from './lightdistricts.js';
 import { loadFirstEntry, worldFrom } from './firstcreature.js';
 import { CAPTAINS, EPILOGUE } from './chapter-dialogue.js';
+import { ERA } from './entryzero-dialogue.js';
 
 const VIEW = -Math.PI / 2 + 0.5; // the way the suite's seat faces (world/lightpavilion.js)
 const FAR = 560; // the monument, this far from the suite
@@ -414,7 +415,7 @@ export function createEpilogue(k) {
     rig.group.position.set(x, S.y, z);
     standRig(rig, S.y);
     root.add(rig.group);
-    const npc = { x, y: S.y, z, role: 'captain', talk: () => ({ speaker: { name: c.name, species: c.species, cityId: 'The City of Light' }, lines: EPILOGUE.talk[c.id] || [] }) };
+    const npc = { x, y: S.y, z, role: 'captain', talk: () => ({ speaker: { name: c.name, species: c.species, cityId: 'The City of Light' }, lines: (chapter.reached('ez_era') ? ERA.talk[c.id] : EPILOGUE.talk[c.id]) || [] }) };
     k.npcs.push(npc);
     return { c, rig, npc, yaw: Math.atan2(dir.x, dir.z), want: Math.atan2(dir.x, dir.z), slot: (i / CAPTAINS.length) * Math.PI * 2 + 0.6, moving: false, floor: S.y, pace: 0 };
   });
@@ -439,7 +440,8 @@ export function createEpilogue(k) {
   function shipAt(x) {
     // x: seconds since it let go (< 0: in its yard; gone for good once the story says so)
     if (x < 0) {
-      const gone = chapter.epilogue();
+      // (a million years on it is back: GDD 5.7.5)
+      const gone = chapter.epilogue() && !chapter.reached('ez_era');
       hangar.vessel.visible = !gone;
       hangar.vessel.position.set(0, 0, 0);
       hangar.vessel.quaternion.copy(qRest);
@@ -478,6 +480,15 @@ export function createEpilogue(k) {
   }
 
   return {
+    // Entry Zero: a captain lost at the centre does not come back to the city
+    era() {
+      for (const m of crew) {
+        if (m.gone || !chapter.ez.isLost(m.c.id)) continue;
+        m.gone = true;
+        m.rig.group.visible = false;
+        m.npc.x = m.npc.z = 1e6;
+      }
+    },
     built: !!monument,
     way,
     hit: (p, rad) => !!hit && hit(p, rad),
@@ -536,6 +547,7 @@ export function createEpilogue(k) {
       const west = u >= EPILOGUE.launchAt - 1;
       for (let i = 0; i < crew.length; i++) {
         const m = crew[i];
+        if (m.gone) continue;
         const g = m.rig.group.position;
         m.moving = false;
         if (!chapter.epilogue()) {

@@ -676,3 +676,21 @@ to the horizon is lit, `#chHud .line` says so, and after 46 game seconds
 into a flight, then every 260. With stage `done` seeded `era` reads 0 and the
 world is as 5.7.4 left it: compare a screenshot. `EZ_LIGHT` is a constant in
 `src/constants.js`: `'hole'` and `'none'` need the file edited and a reload.
+
+The City of Light a million years on (stage `ez_era`; seed `ez: {…, lost:
+['marrow'], clock: 2460}` to see a captain missing): on coming through the
+door `#chHud .line` gives the three clocks (`THE LIGHT SHIP WAS GONE 1,024
+YEARS. HERE IT HAS BEEN 1,048,576 YEARS. YOU WERE GONE 41 MINUTES.`), once a
+session. `far().state()`: `districts` and `race` are null (not built), and
+`epi` has `ship: true`, `people` as before, and `crew` of three positions of
+which a lost captain's stays where it was (hidden; the other two follow the
+pilot). Among `capital.consoles` there is no race stand and nothing from the
+districts. Frames: `place(0, 0, -2)` yaw π for the skyline (dim, few lit
+panes) and the growth on the balcony; `place(0, 0, -70)` yaw π pitch -0.45
+for the terrace floor (standing water, cracks, moss in the seams, most of the
+inlay out); `place(-112, 0, -77)` yaw -π/2 pitch 0.12 for the light ship,
+back in its yard with round cells at its upper aft corner and fallen beams on
+the yard floor; `place(-5.3, 0, -4.9)` yaw -π/2 for the Archivist, whose
+first line is `You found it`, and the wall behind it with entry zero's cell
+(column 19, row 5) lit white. With a stage before `ez_era` the city is as
+5.7.4 left it: `districts` and `race` build, and the ship is gone.

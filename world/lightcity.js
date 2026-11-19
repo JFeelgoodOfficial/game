@@ -38,6 +38,8 @@ import { chapterHud } from '../src/chapterHud.js';
 import { loadFirstEntry, worldFrom } from './firstcreature.js';
 import { createEntryOffer } from './entryoffer.js';
 import { OFFER } from './entryzero-dialogue.js';
+import { ERA } from '../src/era.js';
+import { createEraCity } from './eracity.js';
 
 const SNAP = 1.2;
 const DOOR_Z = 10; // the way back
@@ -108,6 +110,7 @@ const TOWER_FRAG = /* glsl */ `
   uniform vec3 uHaze;
   uniform vec3 uLight; // toward the white hole
   uniform float uAged; // a thousand years on: three peoples have built here too
+  uniform float uEra; // a million years on: most panes dark, and growth up the lower storeys
   varying float vUp;
   varying vec3 vWorld;
   varying vec3 vN;
@@ -129,7 +132,10 @@ const TOWER_FRAG = /* glsl */ `
     vec2 g = vec2(vFace.x * (5.0 + floor(vSeed * 4.0)), vWorld.y * 0.085);
     vec2 cell = floor(g), f = fract(g);
     float pane = step(0.12, f.x) * step(0.22, f.y) * step(f.x, 0.88) * step(f.y, 0.86);
-    float on = step(0.34, hash(cell + vSeed * 17.0));
+    float on = step(mix(0.34, 0.9, uEra), hash(cell + vSeed * 17.0));
+    // (growth: up from the foot of each tower, higher on some than others)
+    float moss = uEra * (1.0 - smoothstep(0.1, 0.35 + 0.45 * vSeed, vUp + 0.25 * hash(cell * 0.5)));
+    glass = mix(glass * mix(1.0, 0.6, uEra), vec3(0.05, 0.13, 0.06) * (0.6 + 0.4 * sunward), moss * 0.8);
     float px = max(fwidth(g.x), fwidth(g.y));
     float fine = 1.0 - smoothstep(0.3, 0.9, px); // panes merge to a sheen far off
     vec3 cyan = vec3(0.50, 0.88, 1.0), gold = vec3(1.0, 0.80, 0.42);
@@ -166,8 +172,10 @@ const TOWER_FRAG = /* glsl */ `
     col += vec3(1.0, 0.25, 0.2) * smoothstep(0.988, 1.0, vUp) * step(0.6, fract(uTime * 0.45 + vSeed * 7.0)) * 2.5;
     col += vec3(0.50, 0.78, 1.0) * pow(1.0 - max(dot(N, V), 0.0), 3.0) * 0.5;
     col += vec3(1.0, 0.97, 0.9) * pow(sunward, 6.0) * 0.35;
+    // a million years on: the glass is still there, and most of what was lit on it is not
+    col = mix(col, glass * 1.5 + (col - glass) * 0.28, uEra);
     // feet lost in the light of the streets
-    col = mix(col, vec3(0.45, 0.70, 1.0), (1.0 - smoothstep(0.0, 0.14, vUp)) * 0.4);
+    col = mix(col, vec3(0.45, 0.70, 1.0), (1.0 - smoothstep(0.0, 0.14, vUp)) * 0.4 * (1.0 - 0.7 * uEra));
     float d = length(vWorld.xz - cameraPosition.xz);
     col = mix(col, uHaze, smoothstep(1500.0, 3500.0, d) * 0.45);
     gl_FragColor = vec4(col, 1.0);
@@ -228,6 +236,7 @@ const FLOOR_FRAG = /* glsl */ `
   uniform float uTime;
   uniform vec3 uDir;
   uniform vec2 uA, uB, uC, uD, uE; // the round floors' centres (xz): prow, terrace, gallery, Pavilion, suite
+  uniform float uEra; // a million years on: cracked, standing water in the low places, the inlay mostly dark
   varying vec3 vWorld;
   ${SKY_GLSL}
   float hash(vec2 p) {
@@ -259,13 +268,28 @@ const FLOOR_FRAG = /* glsl */ `
     vec3 R = reflect(-V, vec3(0.0, 1.0, 0.0));
     R.xz += (tone - 0.5) * 0.03; // no two plates lie quite level
     float fres = 0.16 + 0.84 * pow(1.0 - max(V.y, 0.0), 3.0);
-    vec3 col = plate + skyBase(normalize(R)) * fres * 0.5;
+    // a million years on: standing water where the plates have sunk (a truer
+    // mirror than the floor ever was), cracks across the rest, moss in the seams
+    float n1 = hash(floor(p * 0.21)), n2 = hash(floor(p * 0.21) + vec2(1.0, 0.0)), n3 = hash(floor(p * 0.21) + vec2(0.0, 1.0)), n4 = hash(floor(p * 0.21) + vec2(1.0, 1.0));
+    vec2 nf = fract(p * 0.21);
+    nf = nf * nf * (3.0 - 2.0 * nf);
+    float low = mix(mix(n1, n2, nf.x), mix(n3, n4, nf.x), nf.y);
+    float water = uEra * smoothstep(0.56, 0.62, low);
+    vec2 cp = p * 0.55 + vec2(low * 3.0, tone);
+    float crack = uEra * (1.0 - water) * (1.0 - smoothstep(0.0, 0.03, abs(fract(cp.x + sin(cp.y * 1.7) * 0.35) - 0.5))) * step(0.55, hash(floor(cp.yy)));
+    plate = mix(plate, vec3(0.045, 0.1, 0.05), uEra * seam * 0.8);
+    plate *= 1.0 - 0.75 * crack;
+    R.xz *= 1.0 - water; // (water lies level)
+    fres = mix(fres, 0.35 + 0.65 * pow(1.0 - max(V.y, 0.0), 2.0), water);
+    vec3 col = mix(plate, vec3(0.01, 0.025, 0.035), water) + skyBase(normalize(R)) * fres * mix(0.5, 0.85, water);
     // the inlay
     float d1 = max(dial(p - uA, 9.0), dial(p - uE, 14.0)), d2 = max(max(dial(p - uB, 19.0), dial(p - uC, 15.0)), dial(p - uD, 28.0));
     float runs = line(p.x / 1.6, 0.02) * step(abs(p.x), 2.6) * step(-21.0, p.y) + line(p.x / 6.4 + 0.5, 0.006) * 0.6;
     float pulse = 0.75 + 0.25 * sin(uTime * 1.4 - length(p - uA) * 0.5);
     vec3 cyan = vec3(0.45, 0.90, 1.0), gold = vec3(1.0, 0.80, 0.42);
-    col += cyan * (d1 + d2) * 0.8 * pulse + gold * runs * 0.7;
+    // (most of the inlay is out; what is left comes and goes)
+    float left = mix(1.0, 0.16 * step(0.6, fract(tone * 7.0 + floor(uTime * 0.3) * 0.37)), uEra) * (1.0 - 0.8 * water);
+    col += (cyan * (d1 + d2) * 0.8 * pulse + gold * runs * 0.7) * left;
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -378,7 +402,7 @@ function buildCity(group, lightDir) {
   const heart = new THREE.Vector2(lightDir.x, lightDir.z).normalize().multiplyScalar(1250);
   const n = TOWERS[Q.tier] || TOWERS.medium;
   const nSpire = Math.round(n * 0.62), nSlab = n - nSpire;
-  const uniforms = { uTime: { value: 0 }, uHaze: { value: HAZE }, uLight: { value: lightDir }, uAged: { value: 0 } };
+  const uniforms = { uTime: { value: 0 }, uHaze: { value: HAZE }, uLight: { value: lightDir }, uAged: { value: 0 }, uEra: ERA };
   const mat = new THREE.ShaderMaterial({ vertexShader: TOWER_VERT, fragmentShader: TOWER_FRAG, uniforms, fog: false });
   const spires = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.34, 1, 1, 6).translate(0, 0.5, 0), mat, nSpire);
   const slabs = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), mat, nSlab);
@@ -654,6 +678,7 @@ export function createLightCity(ctx) {
 
   // the polished floor laid over all of it (FLOOR_FRAG)
   const floorU = {
+    uEra: ERA,
     uTime: { value: 0 }, uDir: { value: lightDir },
     uA: { value: new THREE.Vector2(0, -12) }, uB: { value: new THREE.Vector2(0, TERR_Z) },
     uC: { value: new THREE.Vector2(GALL_X, TERR_Z) },
@@ -846,6 +871,17 @@ export function createLightCity(ctx) {
   let districts = null; // world/lightdistricts.js, built with it
   let race = null; // src/worldRace.js: the worlds raced round the city, once the story is told
   let offer = null; // world/entryoffer.js: the Archivist at the rail, once the ship has been seen off
+  // a million years on (GDD 5.7.5): the city of 5.7.4 is not come back to. Its
+  // districts and its racing are not built, or are put out of use if they were.
+  let grown = null; // world/eracity.js
+  let eraSaid = false;
+  const eraNow = () => !!ctx.chapter && ctx.chapter.reached('ez_era');
+  const retire = (from) => {
+    for (let i = from; i < consoles.length; i++) {
+      const c = consoles[i], was = c.off;
+      c.off = () => eraNow() || (was ? was() : false);
+    }
+  };
   // Entry Zero's offer, the first frame it can be made (the suite scene may end mid-visit)
   const openOffer = () => {
     const ch = ctx.chapter;
@@ -931,9 +967,11 @@ export function createLightCity(ctx) {
       // ship in colours the archive never held
       const ch = ctx.chapter;
       if (ch && ch.home()) {
-        if (!districts) {
+        if (!districts && !eraNow()) {
           try {
+            const n0 = consoles.length;
             districts = createDistricts({ group, surfaces, colliders, consoles, chapter: ch });
+            retire(n0);
           } catch (err) {
             console.warn('[lightcity] the districts could not be built', err);
           }
@@ -945,9 +983,11 @@ export function createLightCity(ctx) {
             console.warn('[lightcity] the epilogue could not be built', err);
           }
         }
-        if (!race && ch.epilogue()) {
+        if (!race && ch.epilogue() && !eraNow()) {
           try {
+            const n0 = consoles.length;
             race = createWorldRace({ group, camera: ctx.camera, colliders, consoles, way: epi ? epi.way : null, towers: city.parts.slice(0, 2), hit: epi ? epi.hit : null });
+            retire(n0);
           } catch (err) {
             console.warn('[lightcity] the race could not be built', err);
           }
@@ -958,6 +998,25 @@ export function createLightCity(ctx) {
           if (ch.before('ez_offer')) chapterHud.say(OFFER.found, 8);
         }
         openOffer();
+        // a million years on
+        const era = eraNow();
+        ERA.value = era ? 1 : 0;
+        hangar.era(era);
+        if (era) {
+          if (epi) epi.era();
+          if (!grown) {
+            try {
+              grown = createEraCity({ group });
+            } catch (err) {
+              console.warn('[lightcity] the growth could not be built', err);
+            }
+          }
+          if (!eraSaid && ch.stage() === 'ez_era') {
+            eraSaid = true;
+            chapterHud.say(ch.eraLine(), 12);
+          }
+        }
+        if (grown) grown.show(era);
         if (!ch.reached('done')) chapterHud.say(ch.returnLine(), 9);
         const entry = loadFirstEntry();
         if (entry) {
@@ -998,9 +1057,11 @@ export function createLightCity(ctx) {
       if (epi) epi.tick(dt, t, walker);
       if (districts) districts.tick(dt, t);
       // (the race is offered the visit after the suite scene has played)
-      if (!race && ctx.chapter && ctx.chapter.epilogue() && epi && !epi.held()) {
+      if (!race && ctx.chapter && ctx.chapter.epilogue() && epi && !epi.held() && !eraNow()) {
         try {
+          const n0 = consoles.length;
           race = createWorldRace({ group, camera: ctx.camera, colliders, consoles, way: epi ? epi.way : null, towers: city.parts.slice(0, 2), hit: epi ? epi.hit : null });
+          retire(n0);
         } catch (err) {
           console.warn('[lightcity] the race could not be built', err);
           race = { held: () => false, running: () => false, camera: () => false, onChoice: () => undefined, tick() {}, stop() {}, quitPrompt: () => null, state: () => null };
@@ -1028,7 +1089,7 @@ export function createLightCity(ctx) {
       terrace: [0, 0, TERR_Z + 8], greeter: [0, 0, GREET.z + 2.6], gallery: [GALL_X, 0, TERR_Z],
       ...pavilion.places,
     },
-    info: () => ({ towers: city.towers, cells: hangar.cells, demo: demo ? demo.state() : null, districts: districts ? districts.state() : null, race: race ? race.state() : null, raceSet: race ? race.debugSet : null, raceProbe: race ? race.debugProbe : null, epi: epi ? epi.state() : null, offer: offer ? offer.state() : null }),
+    info: () => ({ towers: city.towers, cells: hangar.cells, demo: demo ? demo.state() : null, districts: districts ? districts.state() : null, race: race ? race.state() : null, raceSet: race ? race.debugSet : null, raceProbe: race ? race.debugProbe : null, epi: epi ? epi.state() : null, offer: offer ? offer.state() : null, era: ERA.value, grown: grown ? grown.state() : null, corner: hangar.corner(), ship: hangar.vessel.visible }),
   };
   return site;
 }

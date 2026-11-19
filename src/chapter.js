@@ -32,7 +32,7 @@ import { uiSound } from './sfx.js';
 import { LAYERS } from '../world/layerplanet.js';
 import { C } from './constants.js';
 import { WORLDS, CAPTAINS, SUITE_OFFER, SUITE_ACCEPT, SUITE_WAIT, SUITE_REMIND, RETURN } from '../world/chapter-dialogue.js';
-import { BANDS, RELICS, OFFER } from '../world/entryzero-dialogue.js';
+import { BANDS, RELICS, OFFER, ERA } from '../world/entryzero-dialogue.js';
 
 // Append only: a saved stage this list does not hold loads as 'suite'.
 export const STAGES = [
@@ -177,7 +177,12 @@ export function createChapter(ctx) {
     // (the two happen in either order).
     ezOpen: () => at(stage) >= at('done') && epilogue,
     // the Archivist, at the rail (world/entryoffer.js)
-    archivistTalk: () => (at(stage) < at('ez_offer') ? OFFER.ask : OFFER.remind),
+    archivistTalk: () => (at(stage) >= at('ez_era') ? ERA.archivist : at(stage) < at('ez_offer') ? OFFER.ask : OFFER.remind),
+    // the three clocks, in a line, said on coming back into the city a million years on
+    eraLine() {
+      const m = Math.max(1, Math.round(ez.clock / 60));
+      return ERA.clocks.replace('{ship}', `${C.EZ_SHIP_YEARS.toLocaleString('en-US')} YEARS`).replace('{world}', `${C.EZ_YEARS_GONE.toLocaleString('en-US')} YEARS`).replace('{crew}', `${m} MINUTE${m === 1 ? '' : 'S'}`);
+    },
     ez: {
       // Something has been looked at in band `i` (BANDS). True the first time.
       log(i) {
