@@ -16,6 +16,7 @@ import { C } from './constants.js';
 import { input, moveAxes } from './input.js';
 import { setDrone, playHook, playSetDown } from '../world/skycity-audio.js';
 import { nextRival, engineLevel, engineName, recordRace, standing } from '../world/skyrace-roster.js';
+import { raceWon } from './crownErrand.js';
 
 const R = {
   laps: 3,
@@ -186,6 +187,7 @@ export function startRace(cityRef) {
   star.mesh.traverse((o) => { if (o.material && o.material.metalness === 0.5) o.material.color.set(rival.color); });
   race.rival = rival.name;
   race.won = false;
+  race.story = false;
   race.bumps = 0;
   race.engineWon = '';
   race.level = engineLevel();
@@ -393,6 +395,8 @@ export function stepRace(dt) {
     race.place = 1 + race.cars.filter((c) => !c.player && c.done && c.finishT < me.finishT).length;
     // A win moves the card on: a faster engine for you, a new name on the poster.
     race.won = race.place === 1;
+    // Beating Halcyon while the High Cantor's challenge stands settles it.
+    race.story = race.won && raceWon();
     recordRace(race.won);
     race.engineWon = race.won ? engineName() : '';
     city.refreshPoster();

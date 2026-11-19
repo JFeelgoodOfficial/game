@@ -273,7 +273,13 @@ function setObjective(target) {
 export function walkObjective() {
   // Nothing is asked of you in the cottage — a quest line left over from the
   // last town would be exactly the wrong thing to read there.
-  if (cottageWalk.cottageActive() || skyWalk.skyActive() || capitalWalk.capitalActive() || coinWalk.coinActive() || sub) return null;
+  if (cottageWalk.cottageActive() || coinWalk.coinActive() || sub) return null;
+  // The flat walkers (the Sky City, decks and the wreck) have no tour of their
+  // own, but the Crown errand passes through them.
+  if (skyWalk.skyActive() || capitalWalk.capitalActive()) {
+    const o = errand.errandObjective();
+    return o ? `OBJECTIVE — ${o.toUpperCase()}` : null;
+  }
   return objectiveText;
 }
 const TALK_DIST_CROWD = 2.6; // ~ aliens talkTriggerDist
