@@ -549,7 +549,18 @@ export const C = {
   CH_DREAM_TIME: 50.0, // seconds the dream lasts (world/shuttle.js)
   CH_DEMO_BACK: 25.0, // seconds into the hangar demo that the ship is home again (world/lightdemo.js)
   CH_HOME_DONE: 0.93, // how much of it the archive has drawn: all but the end
+  // --- Entry Zero (src/chapter.js, GDD 5.7.5) ---
+  EZ_YEARS_GONE: 1048576, // 2^20: what the surface's clock reads when the crew come back up (CH_YEARS_GONE is 2^10)
+  EZ_SHIP_YEARS: 1024, // ...and the light ship's own, out to the hole and back
 };
+
+// What lights the megaworld a million years on (src/era.js). Not decided:
+// 'sun' is one kept, uncaged star the world goes round; 'hole' the black
+// hole's disc; 'none' only what the world gives off itself.
+export const EZ_LIGHT = 'sun';
+// Whether the Tenretni made a ring of young planets from the shell's strata
+// (world/launch.js). Not decided: off, they rest.
+export const EZ_NEW_WORLDS = true;
 
 // --- quality tiers (src/quality.js) ---
 // Kept out of C on purpose: tuning.js binds C to the dev panel, and these are

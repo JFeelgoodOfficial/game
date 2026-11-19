@@ -280,9 +280,11 @@ export function buildPavilion(k) {
   vrig.group.scale.setScalar(1.15);
   k.group.add(vrig.group);
   const visitor = { ...vrig, ...VS, seed: 9.4, look: 0 };
-  colliders.push({ x: VS.x, z: VS.z, r: 0.85, top: Infinity });
+  const visitorSolid = { x: VS.x, z: VS.z, r: 0.85, top: Infinity };
+  colliders.push(visitorSolid);
   const chapter = k.chapter || null;
-  if (chapter) npcs.push({ x: VS.x, y: VS.y, z: VS.z, role: 'visitor', talk: () => chapter.visitorTalk() });
+  const visitorNpc = chapter ? { x: VS.x, y: VS.y, z: VS.z, role: 'visitor', talk: () => chapter.visitorTalk() } : null;
+  if (visitorNpc) npcs.push(visitorNpc);
   let lifeT = 0;
   let creature = null; // what the pilot gave the archive, once they are back (world/firstcreature.js)
 
@@ -304,6 +306,12 @@ export function buildPavilion(k) {
       for (const r of rigs) r.group.visible = false;
       for (const c of capSolids) c.x = c.z = 1e6;
       for (const n of npcs) if (n.table) n.x = n.z = 1e6;
+    },
+    // Entry Zero: the one by the window has gone down to the balcony (world/entryoffer.js)
+    hideVisitor() {
+      vrig.group.visible = false;
+      visitorSolid.x = visitorSolid.z = 1e6;
+      if (visitorNpc) visitorNpc.x = visitorNpc.z = 1e6;
     },
     tick(dt, t) {
       for (const r of rigs) {

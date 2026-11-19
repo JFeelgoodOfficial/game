@@ -496,3 +496,21 @@ The subtitle line is `#chHud .line.show`, the clocks `#chHud .clocks.show`.
 Under SwiftShader the city runs at about 4 fps, so anything timed in game
 seconds takes two to three times as long in real time: wait on state, never
 on a timeout.
+
+Entry Zero (GDD 5.7.5): the stages after `done` are `ez_offer`, `ez_descent`,
+`ez_firewall`, `ez_deep`, `ez_centre`, `ez_relics`, `ez_reveal`, `ez_ascent`,
+`ez_era`, `ez_launch`, `ez_beyond`; `chapter().go(stage)` takes them, and
+`chapter().ezOpen()` reads true once `done` and `epilogue` both hold. Seed
+`ch.ez = {log, frags, stay, lost, node, clock}` (`log`: one bit per lamp band,
+63 is all six; `frags`: one bit per relic, 7 is all three; `stay`: a captain
+id; `lost`: captain ids). `chapter().state().ez` reads it back. The story
+chunk only loads with `fgsf.journal` `quests.tenretni` `'armed'` or `'done'`:
+seed that too, `__debug.launch()`, then wait for `tenretni.chapter()` to be
+non-null. The offer (`world/entryoffer.js`): with `done` and `epilogue` seeded,
+entering the city says `OFFER.found` on `#chHud .line`, and
+`walkSite().capital` → `place(-5.3, 0, -4.9)` puts the walker beside the
+Archivist at (-6.5, 0, -5) on the balcony (the three captains follow the
+pilot and take the E prompt from any further off). E opens the offer; `e`
+three times then `1` accepts: stage `ez_offer`, codex `Entry Zero`. The wall
+is 330 cells beyond the west rail, the dark one at column 19, row 5
+(`far().state()` city `info().offer`).

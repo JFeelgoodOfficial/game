@@ -36,6 +36,8 @@ import { createWorldRace } from '../src/worldRace.js';
 import { DEMO } from './chapter-dialogue.js';
 import { chapterHud } from '../src/chapterHud.js';
 import { loadFirstEntry, worldFrom } from './firstcreature.js';
+import { createEntryOffer } from './entryoffer.js';
+import { OFFER } from './entryzero-dialogue.js';
 
 const SNAP = 1.2;
 const DOOR_Z = 10; // the way back
@@ -843,6 +845,20 @@ export function createLightCity(ctx) {
   let epi = null;
   let districts = null; // world/lightdistricts.js, built with it
   let race = null; // src/worldRace.js: the worlds raced round the city, once the story is told
+  let offer = null; // world/entryoffer.js: the Archivist at the rail, once the ship has been seen off
+  // Entry Zero's offer, the first frame it can be made (the suite scene may end mid-visit)
+  const openOffer = () => {
+    const ch = ctx.chapter;
+    if (offer || !ch || !ch.ezOpen() || (epi && epi.held())) return;
+    try {
+      offer = createEntryOffer({ group, robotMat, glowMat, npcs: site.npcs, colliders, chapter: ch, at: { x: -6.5, z: -5 }, wall: { x: -24, y: 7.2, z: -5 } });
+      pavilion.hideVisitor();
+      if (ch.before('ez_offer')) chapterHud.say(OFFER.found, 8);
+    } catch (err) {
+      console.warn('[lightcity] the offer could not be built', err);
+      offer = { tick() {}, reset() {}, state: () => null };
+    }
+  };
 
   // what this place changes in the scene, kept to put back
   let inside = false;
@@ -934,6 +950,11 @@ export function createLightCity(ctx) {
           }
         }
         if (epi) epi.stop(); // (puts the light ship where the story has it)
+        if (offer) {
+          offer.reset();
+          if (ch.before('ez_offer')) chapterHud.say(OFFER.found, 8);
+        }
+        openOffer();
         if (!ch.reached('done')) chapterHud.say(ch.returnLine(), 9);
         const entry = loadFirstEntry();
         if (entry) {
@@ -983,6 +1004,8 @@ export function createLightCity(ctx) {
         }
       }
       if (race) race.tick(dt, t);
+      if (!offer) openOffer();
+      if (offer) offer.tick(dt, t, walker);
       if (demo) demo.tick(dt, t);
       pavilion.tick(dt, t);
       // the sky goes where the eye goes: from the suite, half a kilometre up, it
@@ -1002,7 +1025,7 @@ export function createLightCity(ctx) {
       terrace: [0, 0, TERR_Z + 8], greeter: [0, 0, GREET.z + 2.6], gallery: [GALL_X, 0, TERR_Z],
       ...pavilion.places,
     },
-    info: () => ({ towers: city.towers, cells: hangar.cells, demo: demo ? demo.state() : null, districts: districts ? districts.state() : null, race: race ? race.state() : null, raceSet: race ? race.debugSet : null, raceProbe: race ? race.debugProbe : null, epi: epi ? epi.state() : null }),
+    info: () => ({ towers: city.towers, cells: hangar.cells, demo: demo ? demo.state() : null, districts: districts ? districts.state() : null, race: race ? race.state() : null, raceSet: race ? race.debugSet : null, raceProbe: race ? race.debugProbe : null, epi: epi ? epi.state() : null, offer: offer ? offer.state() : null }),
   };
   return site;
 }
