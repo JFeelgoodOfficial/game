@@ -55,6 +55,7 @@ let leverShown = 0; // eased handle position, -1..1
 let buttons = [];
 const flashByCode = new Map(); // KeyG/etc -> button, for keyboard flashes
 let curPhase = 'menu';
+let lastNarrow = -1; // touch row layout last applied for this squareness
 let elapsed = 0;
 
 // smoothed steering, so the wheel eases rather than jitters
@@ -409,28 +410,32 @@ function drawIcon(g, name) {
 // hologram, with wide margins), this sizes the text to FILL the canvas width so
 // the name reads large and clear on the dash. `worldW` is the sprite's width in
 // button units; the caller matches it to the rectangle plate.
+// On touch the canvas is taller and the font starts bigger, so the name is a
+// large block of text rather than a thin strip; every name gets the same size
+// (the one CAMERA, the widest, fits at) so the row reads evenly.
 function nameLabel(text, color, worldW) {
   const c = document.createElement('canvas');
   c.width = 512;
-  c.height = 120;
+  c.height = isTouch ? 176 : 120;
   const g = c.getContext('2d');
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  let fs = 96;
+  let fs = isTouch ? 150 : 96;
+  const fit = isTouch ? 'CAMERA' : text;
   do {
     g.font = '700 ' + fs + 'px "Courier New", ui-monospace, monospace';
     fs -= 4;
-  } while (g.measureText(text).width > 476 && fs > 34);
+  } while (g.measureText(fit).width > 490 && fs > 34);
   // Flat fill, no glow: additive text at full color still clears the bloom
   // threshold on its own, which is what made the labels smear on the dash.
   g.fillStyle = '#' + new THREE.Color(color).multiplyScalar(0.72).getHexString();
-  g.fillText(text, 256, 62);
+  g.fillText(text, 256, c.height / 2 + 2);
   const tex = new THREE.CanvasTexture(c);
   tex.anisotropy = 4;
   const s = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false })
   );
-  s.scale.set(worldW, (worldW * 120) / 512, 1);
+  s.scale.set(worldW, (worldW * c.height) / 512, 1);
   return s;
 }
 
@@ -442,7 +447,9 @@ function nameLabel(text, color, worldW) {
 function makeButton(def) {
   const g = new THREE.Group();
   g.position.set(def.x, def.y, def.z);
-  g.rotation.x = -0.32; // lie flush with the dash face, like the other console faces
+  // lie flush with the dash face, like the other console faces; on touch the
+  // row stands on the near-vertical front face instead
+  g.rotation.x = isTouch ? C.TOUCH_DASH_TILT : -0.32;
   const frameMat = new THREE.MeshStandardMaterial({ color: 0x3b414b, roughness: 0.4, metalness: 0.92 });
   const bevelMat = new THREE.MeshStandardMaterial({ color: 0x2a2f37, roughness: 0.5, metalness: 0.85 });
   const innerMat = new THREE.MeshStandardMaterial({ color: 0x090c11, roughness: 0.55, metalness: 0.5 });
@@ -465,11 +472,14 @@ function makeButton(def) {
     opacity: 0.16,
     depthWrite: false,
   });
+  // Touch gives the name plate more of the button (rectH), and the icon circle
+  // a little less, so the words are big enough to read on a phone.
   const W = 0.3,
-    H = 0.34;
-  const cy = 0.086, // circle centre (upper)
-    ry = -0.094, // rectangle centre (lower)
-    cR = 0.07; // circle radius
+    H = isTouch ? 0.4 : 0.34;
+  const cy = isTouch ? 0.098 : 0.086, // circle centre (upper)
+    ry = isTouch ? -0.086 : -0.094, // rectangle centre (lower)
+    cR = isTouch ? 0.06 : 0.07, // circle radius
+    rectH = isTouch ? 0.15 : 0.12; // name plate border height
 
   const glow = new THREE.Mesh(new THREE.PlaneGeometry(W + 0.05, H + 0.05), glowMat);
   glow.position.z = -0.026;
@@ -511,10 +521,10 @@ function makeButton(def) {
     opacity: 0.3,
     depthWrite: false,
   });
-  const rectBorder = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.03, 0.12), rectMat);
+  const rectBorder = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.03, rectH), rectMat);
   rectBorder.position.set(0, labelY, 0.028);
   g.add(rectBorder);
-  const plate = new THREE.Mesh(new THREE.BoxGeometry(W - 0.05, 0.1, 0.02), plateMat);
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(W - 0.05, rectH - 0.02, 0.02), plateMat);
   plate.position.set(0, labelY, 0.031);
   g.add(plate);
   const lab = nameLabel(def.name, def.color, W - 0.03);
@@ -541,18 +551,24 @@ function buildButtons() {
   // button there is. THRUST and REVERSE became the lever; ROLL and BRAKE are
   // gone from the game. `icon` is the keycap picture on touch, where key
   // letters mean nothing.
-  const Y = 0.5, Z = 0.17, PITCH = 0.39, SCALE = 1.2;
+  // On touch the row moves down to the console's front face, the bottom band
+  // of a phone screen, and grows (C.TOUCH_DASH_*).
+  const X0 = isTouch ? C.TOUCH_DASH_X : 0,
+    Y = isTouch ? C.TOUCH_DASH_Y : 0.5,
+    Z = isTouch ? C.TOUCH_DASH_Z : 0.17,
+    PITCH = isTouch ? C.TOUCH_DASH_PITCH : 0.39,
+    SCALE = isTouch ? C.TOUCH_DASH_SCALE : 1.2;
   const defs = [
     { name: 'WARP', key: 'F', icon: 'warp', color: 0xff9ad5, mode: 'hold', flag: 'warp', code: 'KeyF' },
     { name: 'RADIO', key: ', .', icon: 'radio', color: 0x8cffd1, mode: 'fn', fn: toggleRadioPopup },
-    { name: 'CAMERA', key: 'P', icon: 'camera', color: 0xa9f7ff, mode: 'fn', fn: toggleCameraBar, lit: isCameraBarOpen },
+    { name: 'CAMERA', key: 'P', icon: 'camera', color: 0xa9f7ff, mode: 'fn', fn: () => toggleCameraBar(true), lit: isCameraBarOpen },
     { name: 'STAND', key: 'C', icon: 'stand', color: 0xcfe6ff, mode: 'edge', flag: 'toggleInterior', code: 'KeyC' },
     { name: 'LAND', key: 'G', icon: 'land', color: 0xffc9ec, mode: 'edge', flag: 'toggleWalk', code: 'KeyG' },
     { name: 'NAV', key: 'N', icon: 'nav', color: 0xffd75a, mode: 'nav' },
   ];
   buttons = [];
   defs.forEach(function (d, i) {
-    d.x = (i - (defs.length - 1) / 2) * PITCH;
+    d.x = X0 + (i - (defs.length - 1) / 2) * PITCH;
     d.y = Y;
     d.z = Z;
     const b = makeButton(d);
@@ -857,6 +873,16 @@ export function updateCockpit3d(ship, delta, phase) {
   const narrow = Math.max(0, Math.min(1, (1.65 - window.innerWidth / window.innerHeight) / 0.35));
   stick.position.x = WHEEL_X - 0.12 * narrow;
   lever.position.x = LEVER_X + 0.1 * narrow;
+  // The touch button row spans the console face up to the wheel; close it up
+  // with the wheel so the last button doesn't run under the rim.
+  if (isTouch && narrow !== lastNarrow) {
+    lastNarrow = narrow;
+    const k = 1 - 0.1 * narrow;
+    for (let i = 0; i < buttons.length; i++) {
+      buttons[i].position.x = C.TOUCH_DASH_X + (i - (buttons.length - 1) / 2) * C.TOUCH_DASH_PITCH * k;
+      buttons[i].scale.setScalar(C.TOUCH_DASH_SCALE * k);
+    }
+  }
 
   // The throttle. A held pointer sets it by how far it is from where it took
   // hold (up the screen is thrust), every frame, so a parked finger keeps the

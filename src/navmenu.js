@@ -21,6 +21,7 @@ import * as THREE from 'three';
 import { getBodies, isLogged } from './nav.js';
 import { engageWarp } from './tenretniLazy.js';
 import { toggleHolo } from './holonav.js';
+import { isTouch } from './touchText.js';
 
 const PANEL_W = 0.66;
 const HEAD_H = 0.075;
@@ -195,7 +196,9 @@ export function initNavMenu(shell) {
   // it took the wheel away. Over the throttle it only covers an idle lever.
   root.position.set(-1.34, 1.24, -0.12);
   root.rotation.set(-0.12, 0.34, 0);
-  root.scale.setScalar(1.5);
+  // Bigger on a phone so the destination names can be read; the buttons moved
+  // down to the console face, so the larger menu doesn't cover them.
+  root.scale.setScalar(isTouch ? 1.9 : 1.5);
   root.visible = false;
   shell.add(root);
 }

@@ -80,8 +80,17 @@ const CSS = `
 @media (max-width: 640px) {
   #radioPanel { width: 92vw; max-height: 78vh; padding: 14px; }
 }
+/* Phones: bigger type throughout so the panel reads at arm's length. */
 @media (pointer: coarse) {
-  #radioPanel .rp-track { min-height: 44px; }
+  /* a landscape phone is short: give the panel the height and drop the
+     keyboard hint so the track list keeps room to scroll */
+  #radioPanel { width: min(440px, 92vw); max-height: 94vh; gap: 8px; padding: 12px 18px; }
+  #radioPanel .rp-foot { display: none; }
+  #radioPanel .rp-title { font-size: 15px; }
+  #radioPanel .rp-now { font-size: 14px; letter-spacing: 0.12em; }
+  #radioPanel .rp-controls button { font-size: 20px; min-width: 60px; min-height: 48px; }
+  #radioPanel .rp-track { font-size: 14px; letter-spacing: 0.08em; min-height: 48px; }
+  #radioPanel .rp-close { font-size: 15px; padding: 8px 34px; }
 }
 `;
 

@@ -40,6 +40,17 @@ export const C = {
   // The old half-way "nudge on W, dashboard stays visible" state is gone — W is
   // the boost now, so thrusting at all goes straight to the full-window view.
   COCKPIT_SCALE: 0.5, // rig scale from prototype units to world units
+  // Touch layout of the six dash buttons (cockpit3d.js buildButtons), in shell
+  // units. On a phone the row comes off the raked dash top and stands along the
+  // console's front face, which is the bottom band of the screen, spread from
+  // the left end of the face to just short of the wheel, with bigger name plates.
+  // Desktop keeps the row on the dash top.
+  TOUCH_DASH_X: -0.2, // row centre, pulled left because the wheel takes the right end
+  TOUCH_DASH_Y: 0.24, // button centre height: on the front face (face spans -0.03..0.67)
+  TOUCH_DASH_Z: 0.34, // just proud of the face (front at 0.24)
+  TOUCH_DASH_PITCH: 0.5, // centre-to-centre spacing
+  TOUCH_DASH_SCALE: 1.5,
+  TOUCH_DASH_TILT: -0.14, // tipped back a little toward the eye above
   COCKPIT_FULL_Y: 0.06, // rise over the wheel at full-window zoom
   COCKPIT_FULL_Z: -1.25, // forward push past the console at full-window zoom
   WHEEL_DRAG_GAIN: 2.0, // touch-drag on the wheel -> mouse-equivalent steer travel
