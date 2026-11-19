@@ -44,6 +44,11 @@
 // alone while it works. The hole closes when the lamp comes off it, and
 // behind the vessel once it is through.
 //
+// On the way back up the vessel comes at it from below, carrying the makers'
+// story, and it is not a stranger any more: every band at once on the
+// underside opens it, quickly, and above it the lattice takes the vessel all
+// the way to the surface (world/submersible.js).
+//
 // One zone is built at a time and the last one freed. Everything in a zone is
 // placed from its seed, so it is the same every visit.
 
@@ -53,7 +58,7 @@ import { lamp, LAMP_U, LAMP_GLSL } from '../src/lamp.js';
 import { createLife } from './hollowlife.js';
 import { setRoar, setDread } from './entryzero-audio.js';
 import { BAND, lampLive } from '../src/lamp.js';
-import { BANDS, LIFE, DESCENT, FIREWALL, DEEP } from './entryzero-dialogue.js';
+import { BANDS, LIFE, DESCENT, FIREWALL, DEEP, ASCENT } from './entryzero-dialogue.js';
 
 // kinds whose bands a zone's lower node asks for
 const ZONES = {
@@ -329,6 +334,7 @@ export function createHollow(k) {
   let burn = 0, holeR = 0, passed = false, inSlab = false, wallT = 0, burnPeak = 0;
   let saidNear = false, saidHint = false, saidGuards = false, saidBurn = false, saidOpen = false, saidThrough = 0;
   let guards = null;
+  let rising = false, riseT = 0, riseSaid = -1, saidRiseBurn = false; // coming back up, from under the wall
   // the oldest strata (zone 4): the pieces adrift, and the one that listens
   const slabs = []; // { c, inv: Quaternion, q, h: half extents }
   const callerAt = new THREE.Vector3(), callerTo = new THREE.Vector3(), callerHome = new THREE.Vector3();
@@ -574,10 +580,21 @@ export function createHollow(k) {
 
   return {
     // Build zone `z` and put the vessel at its upper node. Returns false if there is no such zone.
-    enter(z, at) {
+    // `below`: arriving under the firewall, on the way back up (zone 3 only)
+    enter(z, at, below) {
       if (!ZONES[z]) return false;
       build(z);
       root.visible = true;
+      rising = !!below && hasWall;
+      if (rising) {
+        at.set(exit.x * 0.6, wallY - 420, exit.z * 0.6);
+        passed = true;
+        riseT = 0;
+        riseSaid = -1;
+        saidRiseBurn = false;
+        said = 99;
+        return true;
+      }
       at.copy(entry);
       at.y -= 80;
       saidWater = k.chapter.reached('ez_descent') && k.chapter.ez.node() > 1;
@@ -585,6 +602,12 @@ export function createHollow(k) {
     },
     // back at the upper node (pulled back along the lattice): the wall is whole again
     home(at) {
+      if (rising) {
+        resetWall();
+        passed = true;
+        at.set(exit.x * 0.6, wallY - 420, exit.z * 0.6);
+        return;
+      }
       at.copy(entry);
       at.y -= 80;
       resetWall();
@@ -662,7 +685,7 @@ export function createHollow(k) {
         if (!passed && at.y < wallY + stand && !fits) {
           at.y = wallY + stand;
           if (vel.y < 0) vel.y = 0;
-        } else if (passed && at.y > wallY - stand) {
+        } else if (passed && at.y > wallY - stand && !(rising && fits)) {
           at.y = wallY - stand;
           if (vel.y > 0) vel.y = 0;
         }
@@ -741,6 +764,33 @@ export function createHollow(k) {
       // --- the firewall ---
       if (hasWall) {
         const above = at.y - wallY;
+        if (rising) {
+          // from below, with the story aboard: every band on it, and it opens
+          riseT += dt;
+          while (riseSaid + 1 < ASCENT.wall.length && riseT >= ASCENT.wall[riseSaid + 1][0]) {
+            riseSaid++;
+            k.speak([ASCENT.wall[riseSaid][1], ASCENT.wall[riseSaid][2]], 6.5);
+          }
+          let on = false;
+          if (lampLive() && lamp.all && lamp.dir.y > 0.05) {
+            const s = (wallY - lamp.pos.y) / lamp.dir.y;
+            if (s > 0 && s < lamp.reach) {
+              const hx = lamp.pos.x + lamp.dir.x * s, hz = lamp.pos.z + lamp.dir.z * s;
+              if (burn <= 0.001) holeU.value.set(hx, hz, 0);
+              on = Math.hypot(hx - holeU.value.x, hz - holeU.value.y) < Math.max(holeR, 40) + 50;
+            }
+          }
+          burn = on ? Math.min(1, burn + dt / C.EZ_ASCENT_BURN) : inSlab ? burn : Math.max(0, burn - dt / C.EZ_BURN_HEAL);
+          if (on && !saidRiseBurn && burn > 0.3) {
+            saidRiseBurn = true;
+            k.speak(ASCENT.burn, 8);
+          }
+          holeR = C.EZ_HOLE_R * burn * burn * (3 - 2 * burn);
+          holeU.value.z = holeR;
+          setRoar(Math.min(1, Math.max(0, 1 - (Math.abs(above) - C.EZ_WALL_STAND) / 1100) * 0.7 + burn * 0.3));
+          if (above > C.EZ_WALL_STAND * 0.7) return 'risen';
+          return null; // (nothing else on this side of it matters now)
+        }
         if (!passed) {
           wallT += dt;
           // where the lamp falls on the sheet, if it reaches it
@@ -895,7 +945,7 @@ export function createHollow(k) {
       need: missing(), life: life.info(), meshes: made.length,
       slabs: slabs.length, slabAt: slabs.slice(0, 3).map((x) => ({ c: x.c.toArray().map(Math.round), h: x.h.toArray().map(Math.round) })), pull: +pullAt(shardAt.value).toFixed(2),
       caller: hasCaller ? { at: callerAt.toArray().map(Math.round), dist: Math.round(callerD), coming, hold: +holdT.toFixed(1) } : null,
-      wall: hasWall ? { y: Math.round(wallY), burn: +burn.toFixed(2), hole: holeU.value.toArray().map(Math.round), passed } : null,
+      wall: hasWall ? { y: Math.round(wallY), burn: +burn.toFixed(2), hole: holeU.value.toArray().map(Math.round), passed, rising } : null,
     } : null),
   };
 }

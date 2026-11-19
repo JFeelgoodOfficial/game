@@ -10,12 +10,13 @@
 //   logChime()               something has been logged
 //   setRoar(level)           the firewall, 0..1 with how near it is and whether it is being burnt
 //   setDread(level)          something very large, near: felt more than heard, on any band
+//   setWeather(rain, wind)   open air: rain on the hull and wind over water, each 0..1
 //   hush()                   everything long-lived down to nothing (leaving)
 
 import { settings } from '../src/settings.js';
 
 let ctx = null, master = null, noise = null;
-let hum = null, radio = null, roar = null, dread = null;
+let hum = null, radio = null, roar = null, dread = null, weather = null;
 let plays = 0;
 let seed = 0x2e20e;
 const LEVEL = 0.8; // relative to the music slider
@@ -208,6 +209,40 @@ export function setDread(level) {
   dread.g.gain.setTargetAtTime(0.3 * level, c.currentTime, 0.4);
 }
 
+export function setWeather(rain, wind) {
+  if (rain <= 0 && wind <= 0 && !weather) return;
+  const c = ensure();
+  if (!c) return;
+  if (!weather) {
+    // rain: bright noise, a little uneven; wind: dark noise, slowly breathing
+    const r = loopNoise(c), w = loopNoise(c);
+    const hp = c.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 2600;
+    const rg = c.createGain();
+    rg.gain.value = 0;
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 340;
+    const wg = c.createGain();
+    wg.gain.value = 0;
+    const lfo = c.createOscillator(), depth = c.createGain();
+    lfo.frequency.value = 0.13;
+    depth.gain.value = 140;
+    lfo.connect(depth).connect(lp.frequency);
+    r.connect(hp).connect(rg).connect(master);
+    w.connect(lp).connect(wg).connect(master);
+    r.start(0, 0.7);
+    w.start();
+    lfo.start();
+    weather = { rg, wg, rain: 0, wind: 0 };
+  }
+  weather.rain = rain;
+  weather.wind = wind;
+  weather.rg.gain.setTargetAtTime(0.16 * rain, c.currentTime, 0.5);
+  weather.wg.gain.setTargetAtTime(0.3 * wind, c.currentTime, 0.8);
+}
+
 export function logChime() {
   tone('sine', 660, 660, 0.09, 0.25, 0.9);
   tone('sine', 990, 990, 0.06, 0.3, 1.1);
@@ -218,6 +253,10 @@ export function hush() {
   if (hum) hum.g.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
   if (roar) roar.g.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
   if (dread) dread.g.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
+  if (weather) {
+    weather.rg.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
+    weather.wg.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
+  }
   if (radio) {
     radio.sg.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
     radio.cg.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
@@ -226,4 +265,4 @@ export function hush() {
 }
 
 // headless verification
-export const ezAudioState = () => ({ built: !!ctx, running: !!ctx && ctx.state === 'running', plays, hum: hum ? +hum.level.toFixed(2) : null, radio: radio ? { on: radio.on, near: +radio.near.toFixed(2) } : null, roar: roar ? +roar.level.toFixed(2) : null, dread: dread ? +dread.level.toFixed(2) : null });
+export const ezAudioState = () => ({ built: !!ctx, running: !!ctx && ctx.state === 'running', plays, hum: hum ? +hum.level.toFixed(2) : null, radio: radio ? { on: radio.on, near: +radio.near.toFixed(2) } : null, roar: roar ? +roar.level.toFixed(2) : null, dread: dread ? +dread.level.toFixed(2) : null, weather: weather ? { rain: +weather.rain.toFixed(2), wind: +weather.wind.toFixed(2) } : null });

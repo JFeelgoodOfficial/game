@@ -297,6 +297,9 @@ export function createCentre(k) {
         goneT = 12;
         k.speak(eaten ? CENTRE.eaten : CENTRE.gone, 5);
       }
+      // --- seen, and nothing left here: climbing away from it is the way back up ---
+      if (k.chapter.reached('ez_reveal') && alt > C.EZ_RISE_AT && !held) return 'rise';
+
       // --- with every fragment found: every band on it once more is the reveal ---
       const whole = k.chapter.ez.foundAll() && !k.chapter.reached('ez_reveal');
       if (whole) {
