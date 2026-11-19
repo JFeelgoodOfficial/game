@@ -122,4 +122,6 @@ Twelve steps, twelve pull requests (#107 to #118). GDD 5.7.5 describes the resul
 
 Still placeholders, all in `world/entryzero-dialogue.js`: the three relic fragments, the four lines of the reveal, what each captain says when chosen, what is said when one is lost, and the `STAY` numbers.
 
-Not verified, and said so in the pull requests: frame rate anywhere (the test rig is a software rasteriser), the feel of the submersible and of every chase, `EZ_LIGHT` at `'hole'` and `'none'`, `EZ_NEW_WORLDS` off, and a captain led past the edge on foot rather than placed there.
+Not verified, and said so in the pull requests: frame rate anywhere (the test rig is a software rasteriser), the feel of the submersible and of every chase, a captain led past the edge on foot rather than placed there, and the saga played end to end in one sitting.
+
+Looked at after the last pull request, with the constants changed locally and put back: `EZ_LIGHT` at `'hole'` (the megaworld dimmer and warmer, lit from the hole's bearing) and at `'none'` (near dark, the growth and the few lit threads still readable), `EZ_NEW_WORLDS` off (no ring, and Marrow's other line), and the megaworld in the launch lit on the face the ship is leaving.
