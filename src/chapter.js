@@ -32,7 +32,7 @@ import { uiSound } from './sfx.js';
 import { LAYERS } from '../world/layerplanet.js';
 import { C } from './constants.js';
 import { WORLDS, CAPTAINS, SUITE_OFFER, SUITE_ACCEPT, SUITE_WAIT, SUITE_REMIND, RETURN } from '../world/chapter-dialogue.js';
-import { BANDS, RELICS } from '../world/entryzero-dialogue.js';
+import { BANDS, RELICS, OFFER } from '../world/entryzero-dialogue.js';
 
 // Append only: a saved stage this list does not hold loads as 'suite'.
 export const STAGES = [
@@ -86,6 +86,14 @@ export function createChapter(ctx) {
         return SUITE_ACCEPT;
       }
       if (tag === 'ch:wait') return SUITE_WAIT;
+      if (tag === 'ez:accept') {
+        if (at(stage) >= at('done') && epilogue && advance('ez_offer')) {
+          uiSound('engage');
+          addCodex(OFFER.codex);
+        }
+        return OFFER.accept;
+      }
+      if (tag === 'ez:wait') return OFFER.wait;
       return null;
     },
 
@@ -168,6 +176,8 @@ export function createChapter(ctx) {
     // The offer can be made: the Keeper has been heard and the ship seen off
     // (the two happen in either order).
     ezOpen: () => at(stage) >= at('done') && epilogue,
+    // the Archivist, at the rail (world/entryoffer.js)
+    archivistTalk: () => (at(stage) < at('ez_offer') ? OFFER.ask : OFFER.remind),
     ez: {
       // Something has been looked at in band `i` (BANDS). True the first time.
       log(i) {

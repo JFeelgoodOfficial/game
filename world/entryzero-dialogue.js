@@ -61,23 +61,27 @@ export const STAY = {
 
 // --- 1. the offer ---------------------------------------------------------------
 export const OFFER = {
-  speaker: TENRETNI('The Archivist'),
-  lines: [
-    'We searched the archive for ourselves.',
-    'Every record is lit. One is not. Entry zero.',
-    'We made this to look for ourselves. We see everything at once. That may be why we have never seen it.',
-  ],
-  offer: {
-    kind: 'choice',
-    prompt: 'It is below us. All the way down.',
-    options: [
-      { label: 'I WILL GO AND LOOK', outcomeTag: 'ez:accept' },
-      { label: 'NOT YET', outcomeTag: 'ez:wait' },
+  // said once, on coming into the city, while the offer has not been heard
+  found: 'THE ARCHIVIST HAS COME DOWN FROM THE SUITE. IT IS AT THE RAIL.',
+  ask: {
+    speaker: TENRETNI('The Archivist'),
+    lines: [
+      'We searched the archive for ourselves.',
+      'Every record is lit. One is not. Entry zero.',
+      'We made this to look for ourselves. We see everything at once. That may be why we have never seen it.',
     ],
+    offer: {
+      kind: 'choice',
+      prompt: 'It is below us. All the way down.',
+      options: [
+        { label: 'I WILL GO AND LOOK', outcomeTag: 'ez:accept' },
+        { label: 'NOT YET', outcomeTag: 'ez:wait' },
+      ],
+    },
   },
   accept: {
     speaker: TENRETNI('The Archivist'),
-    lines: ['A lamp. It shows one thing at a time. We cannot use it.', 'A vessel for the dark between the oceans.', 'Your three will not let you go alone. We asked.'],
+    lines: ['A lamp. It shows one thing at a time. We cannot use it.', 'A vessel, for the dark between the oceans.', 'Your three will not let you go alone. We asked.'],
   },
   wait: { speaker: TENRETNI('The Archivist'), lines: ['It has been dark a long time. It will keep.'] },
   remind: { speaker: TENRETNI('The Archivist'), lines: ['The vessel is at the well. The cell is still dark.'] },
