@@ -35,6 +35,9 @@ const CSS = `
 body.touch-ui #ezHud { bottom: auto; top: max(9vh, env(safe-area-inset-top)); }
 body.touch-ui #ezHud .keys { display: none; }
 body.touch-ui #ezHud .tap { display: flex; }
+/* on touch the readout is up top, where the spoken line would go: put the line
+   under the middle of the view instead, between the sticks and clear of the side buttons */
+body.touch-ui.ez-lamp #chHud:not(.on) .line { top: auto; bottom: 31vh; left: 27vw; right: 27vw; font-size: clamp(12px, 1.7vw, 18px); letter-spacing: 0.22em; }
 #ezHud:not(.vehicle) .sink { display: none; }
 #ezHud:not(.all) .every { display: none; }
 /* at a vehicle's controls the on-foot key list and the compass are not for this */
@@ -120,6 +123,7 @@ export const lampHud = {
     root.classList.toggle('on', on);
     root.classList.toggle('vehicle', on && vehicle);
     document.body.classList.toggle('ez-ride', on && vehicle);
+    document.body.classList.toggle('ez-lamp', on);
     if (!on) input.allBands = input.sink = false;
     shownBand = -1;
   },
