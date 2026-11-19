@@ -13,7 +13,11 @@
 // The well is the shaft under the City of Light, where the lamp is tried
 // before anything depends on it: six targets, one for each band (src/lamp.js
 // says why each shows where it does). A ring above goes back up to the city.
-// Below is a membrane, shut; the hollow is under it (world/hollow.js, to come).
+// Below is a membrane that opens once all six have been found, and under it
+// the hollow (world/hollow.js): going down through the gap, the lattice takes
+// the vessel as a pulse of light and sets it down at the node it last reached.
+// The same pulse brings it back to that node if the lamp dies, the dose
+// fills or the cabin freezes: nothing is lost but the distance.
 //
 // One clock for what is said on arrival; everything else is where the hull is.
 
@@ -30,7 +34,8 @@ import { lamp, LAMP_U, LAMP_GLSL, BAND, nextBand, toggleLamp, stepLamp, lampShow
 import { tint, box, mergedMesh, floorOf } from './capital.js';
 import { setHum, bandClick, setRadio, doseTicks, logChime, hush, ezAudioState } from './entryzero-audio.js';
 import { CAPTAINS } from './chapter-dialogue.js';
-import { BANDS, WELL } from './entryzero-dialogue.js';
+import { BANDS, WELL, DESCENT } from './entryzero-dialogue.js';
+import { createHollow, LAST_ZONE } from './hollow.js';
 
 const ZERO = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
@@ -87,9 +92,11 @@ const WALL_FRAG = /* glsl */ `
 const SEAL_FRAG = /* glsl */ `
   ${LAMP_GLSL}
   uniform float uTime;
+  uniform float uOpen; // the radius of the gap in it
   varying vec3 vW;
   varying vec3 vN;
   void main() {
+    if (length(vW.xz) < uOpen) discard;
     vec2 p = vW.xz / 38.0;
     // a hex weave
     vec2 q = vec2(p.x * 1.1547, p.y + p.x * 0.57735);
@@ -101,6 +108,7 @@ const SEAL_FRAG = /* glsl */ `
     vec3 col = vec3(0.04, 0.5, 0.62) * web * (0.25 + 0.55 * pulse);
     col += vec3(1.0, 0.42, 0.14) * web * lampSeen(2.0, vW);
     col += 0.12 * uLampTint * lampBeam(vW) * uLampOn * uLampLit;
+    col += vec3(0.5, 1.5, 1.8) * (1.0 - smoothstep(0.0, 9.0, r - uOpen)) * step(1.0, uOpen); // the lip of the gap
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -230,6 +238,23 @@ const BEAM_FRAG = /* glsl */ `
   }
 `;
 
+// A pulse along the lattice, from inside it: light going by.
+const RIDE_FRAG = /* glsl */ `
+  uniform float uTime;
+  uniform float uRide;
+  varying vec3 vVP;
+  varying float vAlong;
+  varying vec3 vVN;
+  float h(float n) { return fract(sin(n * 91.7) * 43758.5453); }
+  void main() {
+    float lane = floor(vVN.x * 23.0 + vVN.y * 31.0 + 40.0);
+    float on = step(0.55, h(lane));
+    float streak = pow(fract(vAlong * (1.0 + 2.0 * h(lane + 3.0)) + uTime * (2.0 + 5.0 * h(lane + 7.0))), 5.0);
+    vec3 col = mix(vec3(0.2, 0.9, 1.2), vec3(1.4, 1.3, 1.0), h(lane + 11.0));
+    gl_FragColor = vec4(col * on * streak * uRide, 1.0);
+  }
+`;
+
 // ctx: { scene, camera, hideFleet(), chapter }
 export function createSubmersible(ctx) {
   const { chapter } = ctx;
@@ -249,7 +274,7 @@ export function createSubmersible(ctx) {
   roof.position.y = TOP;
   const seal = new THREE.Mesh(
     new THREE.CircleGeometry(R, 96).rotateX(-Math.PI / 2),
-    new THREE.ShaderMaterial({ uniforms: { ...LAMP_U, uTime: time }, vertexShader: WORLD_VERT, fragmentShader: SEAL_FRAG, fog: false }),
+    new THREE.ShaderMaterial({ uniforms: { ...LAMP_U, uTime: time, uOpen: { value: 0 } }, vertexShader: WORLD_VERT, fragmentShader: SEAL_FRAG, fog: false }),
   );
   seal.position.y = BOT;
   // the way back up: a ring of the city's light, and the light coming down through it
@@ -287,7 +312,10 @@ export function createSubmersible(ctx) {
   tGeo.setAttribute('aBand', new THREE.InstancedBufferAttribute(bands, 1));
   targets.frustumCulled = false;
   targets.renderOrder = 5;
-  group.add(targets);
+  // (everything of the well in one group: it is put away below the membrane)
+  const well = new THREE.Group();
+  group.add(well);
+  for (const m of [wall, roof, seal, ring, shaft, targets]) well.add(m);
 
   // --- specks ---
   const tier = CH_TIER[Q.tier] || CH_TIER.medium;
@@ -335,6 +363,17 @@ export function createSubmersible(ctx) {
   beam.frustumCulled = false;
   beam.renderOrder = 7;
   hull.add(beam);
+  // the pulse, round the seat: streaks down a tube the vessel is inside of
+  const rideU = { uTime: time, uRide: { value: 0 } };
+  const ride = new THREE.Mesh(
+    new THREE.CylinderGeometry(7, 7, 1, 40, 1, true).translate(0, 0.5, 0).rotateX(Math.PI / 2).scale(1, 1, 420),
+    new THREE.ShaderMaterial({ uniforms: rideU, vertexShader: BEAM_VERT, fragmentShader: RIDE_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide, fog: false }),
+  );
+  ride.position.z = -60;
+  ride.frustumCulled = false;
+  ride.renderOrder = 8;
+  ride.visible = false;
+  hull.add(ride);
   group.add(hull);
 
   // --- the body ---
@@ -343,6 +382,14 @@ export function createSubmersible(ctx) {
   let baseYaw = 0;
   const _f = new THREE.Vector3(), _r = new THREE.Vector3(), _w = new THREE.Vector3();
   let push = 0; // how hard it is being driven, 0..1 (the hum)
+  // where it is: 0 the well, 1.. a zone of the hollow (world/hollow.js, built on the way down)
+  let zone = 0;
+  let hollow = null, hollowBroken = false;
+  let gate = 0; // the gap in the membrane, 0..1
+  let shutT = 0;
+  // a pulse along the lattice: one clock, and everything from it
+  let rideT = -1, rideTo = 0, rideBack = false, rideDone = false, rideSaid = -1, rideFirst = false;
+  const isOpen = () => cal === (1 << N) - 1 || chapter.reached('ez_descent');
 
   function step(h, fwd, strafe, lift) {
     yaw += avY * h;
@@ -357,8 +404,13 @@ export function createSubmersible(ctx) {
     _w.y += lift;
     const n = _w.length();
     if (n > 1) _w.multiplyScalar(1 / n);
-    vel.addScaledVector(_w, C.EZ_SUB_THRUST * h).multiplyScalar(Math.exp(-C.EZ_SUB_DRAG * h));
+    const drag = lamp.medium === 'water' ? C.EZ_SUB_DRAG_WATER : C.EZ_SUB_DRAG;
+    vel.addScaledVector(_w, C.EZ_SUB_THRUST * h).multiplyScalar(Math.exp(-drag * h));
     at.addScaledVector(vel, h);
+    if (zone) {
+      hollow.bound(at, vel);
+      return;
+    }
     // the shaft's wall, its roof and the membrane: it slides along them
     const rr = Math.hypot(at.x, at.z), lim = R - 26;
     if (rr > lim) {
@@ -371,7 +423,7 @@ export function createSubmersible(ctx) {
       at.x *= k;
       at.z *= k;
     }
-    if (at.y < BOT + 14) {
+    if (at.y < BOT + 14 && !(gate > 0.9 && rr < C.EZ_WELL_GATE - 12)) {
       at.y = BOT + 14;
       if (vel.y < 0) vel.y = 0;
     }
@@ -392,6 +444,62 @@ export function createSubmersible(ctx) {
   };
   let lastChanged = -1, lastBand = -1;
   let radioNear = 0;
+
+  // --- the pulse ---
+  function buildHollow() {
+    if (hollow || hollowBroken) return hollow;
+    try {
+      hollow = createHollow({ group, time, tier, chapter, speak, say: (text, sec) => chapterHud.say(text, sec), chime: logChime });
+    } catch (err) {
+      hollowBroken = true;
+      console.warn('[submersible] the hollow could not be built', err);
+    }
+    return hollow;
+  }
+  // `to`: the zone to be set down in; `back`: pulled back to the node it is already under
+  function startRide(to, back) {
+    if (rideT >= 0 || !buildHollow()) return false;
+    rideT = 0;
+    rideTo = to;
+    rideBack = back;
+    rideDone = false;
+    rideSaid = -1;
+    rideFirst = !back && !chapter.reached('ez_descent');
+    ride.visible = true;
+    return true;
+  }
+  function land() {
+    rideDone = true;
+    if (rideBack) {
+      at.copy(hollow.upper);
+      at.y -= 80;
+      resetLamp(true);
+    } else {
+      well.visible = false;
+      if (!hollow.enter(rideTo, at)) return;
+      zone = rideTo;
+      chapter.advance('ez_descent');
+      chapter.ez.setNode(zone);
+    }
+    vel.set(0, 0, 0);
+    avY = avX = 0;
+    pitch = -0.7;
+    doseSaid = Math.floor(lamp.dose * 4);
+  }
+  const fov = (v) => {
+    if (ctx.camera.fov === v) return;
+    ctx.camera.fov = v;
+    ctx.camera.updateProjectionMatrix();
+  };
+  // everything the pulse shows, from its clock alone
+  function poseRide(x) {
+    const T = C.EZ_RIDE_TIME;
+    const k = x < 0 ? 0 : Math.sin(Math.PI * Math.min(x / T, 1));
+    rideU.uRide.value = k * 1.6;
+    chapterHud.white(Math.pow(k, 10) * 0.85);
+    fov(C.FOV + 26 * k * k);
+    ride.visible = x >= 0;
+  }
 
   let inside = false;
   let prev = null;
@@ -438,6 +546,11 @@ export function createSubmersible(ctx) {
       sun.light.intensity = 0;
       sun.ambient.intensity = 0;
       ctx.hideFleet();
+      // (always boarded at the top of the well: the hollow is under its floor)
+      zone = 0;
+      well.visible = true;
+      rideT = -1;
+      gate = isOpen() ? 1 : 0;
       at.set(0, TOP - 45, 0);
       vel.set(0, 0, 0);
       yaw = 0.6;
@@ -461,6 +574,12 @@ export function createSubmersible(ctx) {
       lampHud.show(false);
       hush();
       chapterHud.clear();
+      chapterHud.white(0);
+      fov(C.FOV);
+      ride.visible = false;
+      rideT = -1;
+      if (hollow) hollow.leave();
+      zone = 0;
       ctx.scene.fog = prev.fog;
       sun.light.intensity = prev.lightI;
       sun.ambient.intensity = prev.ambI;
@@ -473,7 +592,7 @@ export function createSubmersible(ctx) {
 
       // --- the controls: the walker has turned the mouse into a look; take it
       // back and lean on the hull with it instead ---
-      const talk = isDialogueOpen();
+      const talk = isDialogueOpen() || rideT >= 0; // (in the pulse there is nothing to steer)
       const dYaw = cWalk.yaw - baseYaw, dPitch = cWalk.pitch;
       cWalk.yaw = baseYaw;
       cWalk.pitch = 0;
@@ -490,9 +609,39 @@ export function createSubmersible(ctx) {
       const fwd = talk ? 0 : axes.fwd, strafe = talk ? 0 : axes.strafe;
       for (let rem = d; rem > 1e-5; rem -= 1 / 60) step(Math.min(rem, 1 / 60), fwd, strafe, lift);
       push += (Math.min(1, Math.hypot(fwd, strafe, lift)) - push) * Math.min(1, d * 4);
-      setHum(0.25 + 0.75 * push);
-      // up through the ring: back to the city
-      if (at.y > TOP + 6 && !site.portal) site.portal = 'wellup';
+      setHum(rideT >= 0 ? 1 : 0.25 + 0.75 * push);
+      lamp.medium = zone ? hollow.medium(at) : 'void';
+
+      // --- the well: the ring above, the membrane below ---
+      if (!zone) {
+        // up through the ring: back to the city
+        if (at.y > TOP + 6 && !site.portal) site.portal = 'wellup';
+        const open = isOpen();
+        if (open && gate === 0) speak(DESCENT.open, 7);
+        gate = open ? Math.min(1, gate + d * 0.35) : 0;
+        seal.material.uniforms.uOpen.value = C.EZ_WELL_GATE * gate * gate * (3 - 2 * gate);
+        shutT = Math.max(0, shutT - d);
+        if (!open && at.y < BOT + 40 && shutT <= 0) {
+          shutT = 15;
+          chapterHud.say(DESCENT.shut, 5);
+        }
+        // down through the gap: the lattice has it
+        if (at.y < BOT - 12) startRide(Math.max(1, Math.min(chapter.ez.node(), LAST_ZONE)), false);
+      }
+
+      // --- a pulse along the lattice ---
+      if (rideT >= 0) {
+        rideT += d;
+        if (rideFirst) {
+          while (rideSaid + 1 < DESCENT.ride.length && rideT >= DESCENT.ride[rideSaid + 1][0]) {
+            rideSaid++;
+            speak([DESCENT.ride[rideSaid][1], DESCENT.ride[rideSaid][2]], 4);
+          }
+        }
+        if (!rideDone && rideT >= C.EZ_RIDE_TIME / 2) land();
+        if (rideT >= C.EZ_RIDE_TIME) rideT = -1;
+        poseRide(rideT);
+      }
 
       // --- the hull, and the lamp on it ---
       hull.position.copy(at);
@@ -522,7 +671,8 @@ export function createSubmersible(ctx) {
       // --- the radio band is an ear: louder the nearer the lamp points ---
       let near = 0;
       const live = lampLive();
-      if (live && lamp.band === BAND.RADIO) {
+      if (live && lamp.band === BAND.RADIO && zone) near = hollow.radioNear();
+      else if (live && lamp.band === BAND.RADIO) {
         for (let i = 0; i < N; i++) {
           if (targetAt[i].band !== BAND.RADIO) continue;
           _w.subVectors(targetAt[i].p, lamp.pos).normalize();
@@ -544,8 +694,15 @@ export function createSubmersible(ctx) {
         speak(WELL.low);
       } else if (lamp.energy > 0.6) heardLow = false;
 
-      // --- what the lamp finds ---
-      for (let i = 0; i < N; i++) {
+      // --- the hollow: what lives there, the log, the nodes; and being sent back ---
+      if (zone && rideT < 0) {
+        if (hollow.tick(d, t, at, vel.length()) === 'ride') startRide(zone + 1, false);
+        const why = lamp.on && lamp.energy <= 0 ? 'lamp' : lamp.dose >= 1 ? 'dose' : lamp.cabin <= 0 ? 'cabin' : null;
+        if (why && startRide(zone, true)) speak(DESCENT.back[why], 6);
+      }
+
+      // --- what the lamp finds in the well ---
+      for (let i = 0; i < N && !zone; i++) {
         if (cal & (1 << i)) continue;
         const tg = targetAt[i];
         hold[i] = lampShows(tg.band, tg.p) > 0 ? hold[i] + d : 0;
@@ -558,7 +715,7 @@ export function createSubmersible(ctx) {
       }
       // --- the arrival, the first time down, and the last word ---
       u += d;
-      if (!cal) {
+      if (!cal && !zone && !chapter.reached('ez_descent')) {
         while (said + 1 < WELL.enter.length && u >= WELL.enter[said + 1][0]) {
           said++;
           speak([WELL.enter[said][1], WELL.enter[said][2]], 6.5);
@@ -576,9 +733,12 @@ export function createSubmersible(ctx) {
       at: at.toArray().map((v) => +v.toFixed(1)), vel: +vel.length().toFixed(2), yaw: +yaw.toFixed(3), pitch: +pitch.toFixed(3),
       lamp: lampState(), found: cal, targets: targetAt.map((tg) => ({ band: BANDS[tg.band].id, p: tg.p.toArray() })), motes: mN,
       hud: lampHud.state(), audio: ezAudioState(),
+      zone, gate: +gate.toFixed(2), ride: +rideT.toFixed(2), hollow: hollow ? hollow.info() : null,
     }),
     // dev: put the vessel somewhere, pointed somewhere (far().state().subSet)
     set(o) {
+      if (o.found != null) cal = o.found; // (63: every target, so the membrane opens)
+      if (o.lamp) Object.assign(lamp, o.lamp);
       if (o.at) at.fromArray(o.at);
       if (o.look) {
         _w.fromArray(o.look).sub(at).normalize();

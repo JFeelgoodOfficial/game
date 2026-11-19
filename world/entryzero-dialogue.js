@@ -114,6 +114,60 @@ export const WELL = {
   board: 'E — BOARD THE VESSEL',
 };
 
+// --- 3. the descent -------------------------------------------------------------------
+// What lives in the hollow. `what` is saved to the vessel's log the first time
+// one is held in its band: the reason it shows there.
+export const LIFE = {
+  drifter: { band: 'bluegreen', what: 'DRIFTERS. THEY MAKE THEIR OWN LIGHT, IN THE ONE COLOUR WATER CARRIES.' },
+  painted: { band: 'uv', what: 'PAINTED SWIMMERS. THEIR SKIN GIVES ULTRAVIOLET BACK AS A PATTERN.' },
+  warm: { band: 'ir', what: 'GLASS DRIFTERS. NOTHING TO SEE BUT THE HEAT OF THEM.' },
+  line: { band: 'halpha', what: 'A VEIL OF HYDROGEN, ALIVE. IT GLOWS AT ONE WAVELENGTH AND NO OTHER.' },
+  boned: { band: 'xray', what: 'SOFT BODIES. ONLY THE BONES STOP THE BEAM.' },
+  caller: { band: 'radio', what: 'CALLERS. VERY LARGE, VERY SLOW, A LONG WAY OFF.' },
+};
+
+export const DESCENT = {
+  // the membrane under the well, opening
+  open: ['marrow', 'The floor of the well is opening. It was waiting for the lamp.'],
+  shut: 'THE MEMBRANE IS SHUT. FIND ALL SIX TARGETS.',
+  logged: 'LOGGED — {what}',
+  // the first ride along the lattice
+  ride: [
+    [0.6, 'vask', 'Light takes eight minutes nineteen from here to the centre.'],
+    [3.2, 'vask', 'The lattice carries us a piece at a time. Hold on.'],
+  ],
+  // by zone: said on arrival, the first time
+  zone: {
+    1: [
+      [2, 'lux', 'Those are oceans. Whole oceans, each in a shell of its own ice.'],
+      [9, 'marrow', 'One body of water this size would fall in on itself and light. So they kept them apart.'],
+      [16, 'vask', 'The lattice goes down past them. Follow it. Log what lives in the water.'],
+    ],
+    2: [
+      [2, 'marrow', 'It is quieter here. That is not the same as empty.'],
+      [9, 'vask', 'Four bands still blank in the log. Infrared. The red line. X-ray. Radio.'],
+    ],
+  },
+  water: ['vask', 'We are through the ice. Blue-green carries here. Infrared will not.'],
+  // the exit node will not take the vessel until this zone's bands are logged
+  need: ['vask', 'The node will not take us. Still blank in the log: {bands}.'],
+  dark: ['vask', 'The lattice is dark below this node. Something further down is holding it shut.'],
+  // light eaters
+  eaters: ['lux', 'Something is in the beam. It is drinking it.'],
+  eatersHint: ['marrow', 'They leave the red line alone. Whatever they are, they cannot eat that one.'],
+  // heat leeches
+  cold: ['vask', 'Cabin is losing heat. There is nothing on the glass that I can see.'],
+  coldHint: ['marrow', 'Try the infrared.'],
+  coldRun: ['lux', 'They are ON us. Go faster, they cannot hold on.'],
+  temp: ['vask', 'CABIN AT {n} DEGREES.'],
+  // pulled back along the lattice: lamp out, dose full, or cabin cold
+  back: {
+    lamp: ['vask', 'Lamp is dead. The lattice has us. Back to the node.'],
+    dose: ['vask', 'That is all the dose I will sign for. Back to the node.'],
+    cabin: ['vask', 'Too cold to work. Back to the node.'],
+  },
+};
+
 // --- 4. the firewall --------------------------------------------------------------
 export const FIREWALL = {
   first: ['vask', 'Everything burns except what glows like them.'],
