@@ -674,6 +674,10 @@ export function createWarzone(city, def, opts = {}) {
   const _s = new THREE.Vector3();
   const _zAxis = new THREE.Vector3(0, 0, 1);
   const _zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  const _dv = new THREE.Vector3();
+  // for things that are only looks (drips, the swarm's wing-beats): the town's
+  // own `rng` decides what happens, and must not be drawn on for these
+  const vr = mulberry32((def.seed ^ 0x100c5) >>> 0);
   for (let i = 0; i < TRACERS; i++) tracers.setMatrixAt(i, _zero);
 
   // W: the arsenal entry of the weapon that fired (colour and width).
@@ -1317,7 +1321,38 @@ export function createWarzone(city, def, opts = {}) {
 
     m.holder.position.set(m.x, m.y + m.air, m.z);
     m.holder.rotation.y = m.yaw;
+    // Looks only, below: where the player is from the way it faces (the head
+    // follows), and what runs from it. None of it draws on the town's rng.
+    m.look = Math.atan2(Math.sin(Math.atan2(player.x - m.x, player.z - m.z) - m.yaw), Math.cos(Math.atan2(player.x - m.x, player.z - m.z) - m.yaw));
+    monsterDrips(m, dt);
     kit.pose(m, t);
+  }
+
+  // Acid from a spitter's mouth at all times, leaving small lit spots that
+  // fade; drool off a brute and a titan; a titan's claws scoring the ground
+  // as it walks. Positions are the last frame's, which is near enough.
+  function monsterDrips(m, dt) {
+    m.dripT = (m.dripT ?? vr()) - dt;
+    if (m.dripT > 0) return;
+    const spit = m.type === 'spitter';
+    m.dripT = spit ? 0.22 + vr() * 0.4 : m.type === 'stalker' ? 9 : 0.8 + vr() * 1.6;
+    if (m.type !== 'stalker' && kit.mouthOf(m, _dv)) {
+      group.worldToLocal(_dv);
+      const floor = gy(_dv.x, _dv.z), fall = Math.sqrt(Math.max(0.02, 2 * (_dv.y - floor) / 12));
+      glow.emit(_dv.x, _dv.y, _dv.z, 0, 0, 0, fall, spit ? 0.11 : 0.07, spit ? 0.09 : 0.05,
+        GLOW.r * (spit ? 2.4 : 0.9), GLOW.g * (spit ? 2.4 : 0.9), GLOW.b * (spit ? 2.4 : 0.9), 0.9, 0, 12);
+      if (spit) addSpot(_dv.x, floor, _dv.z, 0.16 + vr() * 0.2, fall);
+    }
+    if (m.type === 'titan' && m.moving > 0.3) {
+      for (let i = 0; i < 2; i++) {
+        if (!kit.clawOf(m, i, _dv)) continue;
+        group.worldToLocal(_dv);
+        const floor = gy(_dv.x, _dv.z);
+        if (_dv.y - floor > 1.4) continue;
+        smoke.emit(_dv.x, floor + 0.15, _dv.z, (vr() - 0.5) * 1.5, 0.5 + vr(), (vr() - 0.5) * 1.5, 0.8, 0.4, 1.6, 0.5, 0.45, 0.38, 0.4, 2, -0.2);
+        glow.emit(_dv.x, floor + 0.1, _dv.z, (vr() - 0.5) * 3, 1 + vr() * 2, (vr() - 0.5) * 3, 0.25, 0.06, 0.02, 2.4, 1.8, 0.9, 0.9, 2, 9);
+      }
+    }
   }
 
   // The wind-up is over: commit.
@@ -1454,6 +1489,7 @@ export function createWarzone(city, def, opts = {}) {
         state: 'orbit', // orbit | tele | dive | climb | dead
         t: 2 + rng() * 4, ang: rng() * Math.PI * 2, dir: rng() < 0.5 ? -1 : 1,
         yaw: 0, pitch: 0, flap: rng() * 6, deadT: 0, bit: false,
+        beat: 0.85 + vr() * 0.3, big: 0.86 + vr() * 0.3, // (looks: its own wing-beat and size; the hit radius is the table's)
       });
     }
     sfx.playShriek(distToView(x, y0, z), panOf(x, z));
@@ -1515,13 +1551,13 @@ export function createWarzone(city, def, opts = {}) {
       const sp = Math.hypot(f.vx, f.vz);
       f.yaw = Math.atan2(f.vx, f.vz);
       f.pitch = -Math.atan2(f.vy, sp || 1e-3);
-      f.flap += dt * (f.state === 'dive' ? 34 : 22);
+      f.flap += dt * (f.state === 'dive' ? 34 : 22) * f.beat;
       _v.set(f.x, f.y, f.z);
       _eul.set(f.pitch, f.yaw, f.state === 'dead' ? f.deadT * 9 : 0, 'YXZ');
       _q.setFromEuler(_eul);
-      _s.set(1, 1, 1);
+      _s.set(f.big, f.big, f.big);
       swarmMesh.bodies.setMatrixAt(n, _m4.compose(_v, _q, _s));
-      _s.set(1, f.state === 'dead' ? 0.2 : Math.sin(f.flap) * 1.2, 1);
+      _s.set(f.big, (f.state === 'dead' ? 0.2 : Math.sin(f.flap) * 1.2) * f.big, f.big);
       swarmMesh.wings.setMatrixAt(n, _m4.compose(_v, _q, _s));
       n++;
     }
@@ -1610,6 +1646,47 @@ export function createWarzone(city, def, opts = {}) {
     p.x = x; p.y = y; p.z = z; p.r = r; p.life = life; p.life0 = life; p.dps = dps; p.hostile = hostile;
     patchMesh.setColorAt(patches.indexOf(p), _hot.copy(hostile ? GLOW : PLASMA).multiplyScalar(1.6));
     patchMesh.instanceColor.needsUpdate = true;
+  }
+  // What a spitter leaks: small lit spots that fade. Looks only. Their own
+  // pool, so a drip can never push a pool that burns out of `patches`.
+  const SPOTS = 16;
+  const spotMesh = new THREE.InstancedMesh(patchGeo, patchMat, SPOTS);
+  spotMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  spotMesh.frustumCulled = false;
+  spotMesh.renderOrder = 3;
+  const spots = [];
+  for (let i = 0; i < SPOTS; i++) {
+    spots.push({ on: false, x: 0, y: 0, z: 0, r: 0, life: 0, wait: 0 });
+    spotMesh.setMatrixAt(i, _zero);
+    spotMesh.setColorAt(i, GLOW);
+  }
+  group.add(spotMesh);
+  let spotNext = 0;
+  function addSpot(x, y, z, r, wait) {
+    const p = spots[spotNext];
+    spotNext = (spotNext + 1) % SPOTS;
+    p.on = true;
+    p.x = x; p.y = y; p.z = z; p.r = r; p.life = 2.6; p.wait = wait; // (it lands when the drop does)
+  }
+  function updateSpots(dt) {
+    let any = false;
+    for (let i = 0; i < SPOTS; i++) {
+      const p = spots[i];
+      if (!p.on) continue;
+      any = true;
+      if (p.wait > 0) { p.wait -= dt; continue; }
+      p.life -= dt;
+      if (p.life <= 0) { p.on = false; spotMesh.setMatrixAt(i, _zero); continue; }
+      _v.set(p.x, p.y + 0.05, p.z);
+      _q.identity();
+      _s.setScalar(p.r * (0.6 + 0.4 * Math.min(1, (2.6 - p.life) * 5)));
+      spotMesh.setMatrixAt(i, _m4.compose(_v, _q, _s));
+      spotMesh.setColorAt(i, _hot.copy(GLOW).multiplyScalar(1.5 * Math.min(1, p.life / 1.8)));
+    }
+    if (any) {
+      spotMesh.instanceMatrix.needsUpdate = true;
+      spotMesh.instanceColor.needsUpdate = true;
+    }
   }
   function updatePatches(dt) {
     let any = false;
@@ -2360,6 +2437,7 @@ export function createWarzone(city, def, opts = {}) {
     updateFlyers(dt, t);
     updateShells(dt);
     updatePatches(dt);
+    updateSpots(dt);
     updateBolts(dt);
 
     updatePickups(dt, t);
@@ -2465,6 +2543,7 @@ export function createWarzone(city, def, opts = {}) {
     holes.dispose();
     shellMesh.dispose();
     patchMesh.dispose();
+    spotMesh.dispose();
     boltMesh.dispose();
     swarmMesh.dispose();
     kit.dispose();
