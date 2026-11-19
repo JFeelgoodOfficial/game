@@ -217,8 +217,8 @@ export function buildPavilion(k) {
     at(3.6, 1.0, 0.4, x * 0.92, 1.1, z * 0.92, COL.cloth, -a + Math.PI / 2);
     solid(x, z, 1.5);
   }
-  put(cyl(1.5, 1.5, 0.12, S.x + 3.2, S.y + 0.85, S.z - 10.6, 20), COL.wood);
-  put(cyl(0.2, 0.5, 0.8, S.x + 3.2, S.y + 0.4, S.z - 10.6, 10), COL.gold);
+  put(cyl(1.5, 1.5, 0.12, S.x - 1.1, S.y + 0.85, S.z - 10.9, 20), COL.wood);
+  put(cyl(0.2, 0.5, 0.8, S.x - 1.1, S.y + 0.4, S.z - 10.9, 10), COL.gold);
   // a desk and a chair on the east side
   at(4.4, 0.14, 1.8, 10.6, 1.5, 2.5, COL.wood, 1.25);
   at(0.2, 1.5, 0.2, 9.9, 0.75, 0.9, COL.gold);
@@ -227,7 +227,9 @@ export function buildPavilion(k) {
   solid(10.6, 2.5, 2.2);
   solid(8.6, 3.3, 0.8);
   // a lamp or two, a rug of light, a light in the ceiling
-  for (const [x, z] of [[-4.2, 6.5], [6.5, -5.5]]) {
+  // (the second by the bed: beside the seat it stood between the captains at
+  // the glass and the camera that watches them, world/lightepilogue.js)
+  for (const [x, z] of [[-4.2, 6.5], [-10, -6]]) {
     put(cyl(0.07, 0.3, 3.4, S.x + x, S.y + 1.7, S.z + z, 8), COL.gold);
     glow.push(tint(cyl(0.5, 0.36, 0.7, S.x + x, S.y + 3.6, S.z + z, 12), GLOW.white, 1.6));
     solid(x, z, 0.35);
@@ -249,8 +251,8 @@ export function buildPavilion(k) {
   // left about: a hard hat on the desk, a hand bell on the low table, a headset on the seat
   put(new THREE.SphereGeometry(0.34, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2).translate(S.x + 10.2, S.y + 1.57, S.z + 2.0), COL.steel);
   glow.push(tint(cyl(0.07, 0.07, 0.05, S.x + 10.2, S.y + 1.72, S.z + 2.33, 8), 0xff8a3a, 1.8));
-  put(cyl(0.1, 0.26, 0.34, S.x + 3.5, S.y + 1.08, S.z - 10.3, 10), COL.gold);
-  put(cyl(0.03, 0.03, 0.2, S.x + 3.5, S.y + 1.35, S.z - 10.3, 6), COL.wood);
+  put(cyl(0.1, 0.26, 0.34, S.x - 0.8, S.y + 1.08, S.z - 10.6, 10), COL.gold);
+  put(cyl(0.03, 0.03, 0.2, S.x - 0.8, S.y + 1.35, S.z - 10.6, 6), COL.wood);
   glow.push(tint(cyl(2.4, 2.4, 0.08, S.x, S.y + SUITE_H - 0.06, S.z, 28), GLOW.white, 1.3));
 
   // --- what waits in it (GDD 5.7.4): the pilot's own world, turning outside

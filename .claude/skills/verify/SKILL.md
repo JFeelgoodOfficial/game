@@ -501,6 +501,13 @@ frame: gallery (-112, 0, -77), Pavilion centre (92, 0, -77), its lift pad
 (`walkSite().capital.prompt()` reads the pad's prompt; `.floor` reads 300 in
 the suite). Walking pace in the city is 10 u/s (twice the usual 5).
 
+City life (`world/lightlife.js`): `far().state().life` → `{people, figures,
+walking, at, lanes, craft, craftAt}`. Saturday's way in is its west end: from
+`place(46, 0, -152)` facing +x (`cWalk.yaw` ≈ π/2) with `input.forward`, the
+walker reaches x > 58 at y 0. The race state adds `missed` (the pilot's missed
+gates). GTAO (`__debug.ao`) reads normals: a ShaderMaterial floor whose
+geometry has no `normal` attribute renders black under it.
+
 The megaworld chapter (GDD 5.7.4): `tenretni.state().chapter` → `{stage, home,
 picks, seen, assigned, clock}`; `__debug.tenretni.chapter().go(stage)` jumps the
 story (`suite`, `demo`, `holo`, `dive`, `shuttle`, `stall`, `canvas`, `birth`,

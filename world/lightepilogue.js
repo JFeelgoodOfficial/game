@@ -30,6 +30,7 @@ import { label } from '../src/holoLabel.js';
 import { chapterHud } from '../src/chapterHud.js';
 import { tint, box, cyl, mergedMesh } from './capital.js';
 import { buildRig, poseRig } from './aliens.js';
+import { liveSignature } from './signatures.js';
 import { measureRig, standRig, footY } from './rigGround.js';
 import { buildCaptain, liveCaptain } from './captainDress.js';
 import { cWalk } from '../src/capitalWalk.js';
@@ -384,7 +385,9 @@ export function createEpilogue(k) {
   };
   const tier = CH_TIER[Q.tier] || CH_TIER.medium;
   const people = AREAS.slice(0, tier.people).map((area, i) => {
-    const rig = measureRig(buildRig(0x1000 + i * 977, 'fleet'));
+    // (one of the three peoples each, in turn: they are the ships' companies' descendants)
+    const species = ['rustia', 'saturnia', 'wavemall'][i % 3];
+    const rig = measureRig(buildRig(0x1000 + i * 977, species, { species }));
     const p = spot(area, { x: 0, z: 0 });
     rig.group.position.set(p.x, area.y || 0, p.z);
     rig.group.scale.setScalar(0.85 + rnd() * 0.3);
@@ -498,10 +501,15 @@ export function createEpilogue(k) {
     camera(pos, target) {
       if (u < 0) return false;
       const turnTo = ease(EPILOGUE.launchAt - 2.5, EPILOGUE.launchAt + 1, u);
-      _a.set(S.x + dir.x * 3 + side.x * (4.5 - u * 0.1), S.y + 2.5, S.z + dir.z * 3 + side.z * (4.5 - u * 0.1));
+      // (high, and looking down at them over the seat's back: at eye height
+      // the seat, the lamp beside it and the low table stood between the
+      // camera and the three of them, and the city filled the frame instead)
+      const drift = Math.min(u, EPILOGUE.launchAt) * 0.02;
+      _a.set(S.x + dir.x * (5.0 + drift) + side.x * -1.2, S.y + 4.1, S.z + dir.z * (5.0 + drift) + side.z * -1.2);
       _b.set(S.x - 10.5, S.y + 3.4, S.z + 2.5);
       pos.lerpVectors(_a, _b, turnTo);
-      _a.copy(center).setY(S.y + 30);
+      // at the three of them, chest high, with the city below them through the glass
+      _a.set(S.x + dir.x * 11.8 + side.x * 0.2, S.y + 1.35, S.z + dir.z * 11.8 + side.z * 0.2);
       _b.copy(hangar.root.position).add(hangar.vessel.position);
       target.lerpVectors(_a, _b, turnTo);
       return true;
@@ -610,7 +618,9 @@ export function createEpilogue(k) {
         if (p.wait > 0) p.wait -= dt;
         else {
           const dx = p.to.x - g.x, dz = p.to.z - g.z, d = Math.hypot(dx, dz);
-          if (d < 0.4) {
+          p.budget = (p.budget ?? d / p.speed + 3) - dt; // (somewhere inside a desk is given up on)
+          if (d < 0.4 || p.budget < 0) {
+            p.budget = undefined;
             spot(p.area, p.to, g);
             p.wait = 1.5 + ((p.to.x * 7.3) % 1 + 1) * 3;
           } else {
@@ -618,6 +628,18 @@ export function createEpilogue(k) {
             g.z += (dz / d) * p.speed * dt;
             p.rig.group.rotation.y = Math.atan2(dx, dz);
             walking = true;
+          }
+          // round anything solid in the way (a desk, a fountain, a furnace)
+          if (k.colliders) {
+            for (const c of k.colliders) {
+              if (c.r > 6) continue;
+              const ex = g.x - c.x, ez = g.z - c.z, rr = c.r + 0.35, e2 = ex * ex + ez * ez;
+              if (e2 < rr * rr && e2 > 1e-6) {
+                const e = Math.sqrt(e2);
+                g.x = c.x + (ex / e) * rr;
+                g.z = c.z + (ez / e) * rr;
+              }
+            }
           }
         }
         // near the pilot, the figure; far off, the capsule
@@ -627,6 +649,7 @@ export function createEpilogue(k) {
         if (near) {
           poseRig(p.rig, dt, t, walking ? 'walk' : 'idle', walking ? 0.6 : 0);
           standRig(p.rig, fy);
+          liveSignature(p.rig, dt, t, false);
           _s.setScalar(0);
         } else _s.setScalar(p.rig.group.scale.x);
         _q.setFromAxisAngle(_up, p.rig.group.rotation.y);

@@ -40,7 +40,7 @@ const pathVia = (g, d) => [
   [-70, 250, -160], [-60, 62, -150], [0, 44, -186], [80, 40, -150], [62, 42, -92],
 ];
 const FRAMES = 600;
-export const GATE_R = 11; // a gate's radius
+export const GATE_R = 14; // a gate's radius (11 was a needle's eye at race speed on a phone stick)
 export const LANE = 24; // how far off the middle a racer can get
 
 // `via`: { point, dir } from the monument (world/lightepilogue.js `way`), or nothing.
@@ -96,7 +96,7 @@ export function createCourse(group, via) {
       d = Math.min(d, 1 - d) * length;
       off = Math.min(Math.max((d - 90) / 160, 0), 1);
     }
-    gates.push({ s, across: Math.sin(i * 2.4) * 12 * off, up: Math.cos(i * 1.7) * 9 * off });
+    gates.push({ s, across: Math.sin(i * 2.4) * 20 * off, up: Math.cos(i * 1.7) * 12 * off });
   }
   const ring = new THREE.InstancedMesh(new THREE.TorusGeometry(GATE_R, 0.55, 8, 40), new THREE.MeshBasicMaterial({ fog: false, toneMapped: false }), n);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), pos = new THREE.Vector3(), z = new THREE.Vector3(0, 0, 1), dir = new THREE.Vector3();
@@ -136,7 +136,9 @@ export function createCourse(group, via) {
         mesh.getMatrixAt(i, m);
         m.decompose(p, qq, sc);
         const rad = spire ? Math.max(sc.x, sc.z) : Math.max(sc.x, sc.z) * 0.55;
-        const clear = 20 + rad, far = LANE + rad + 10;
+        // (clear of the gates, which stand up to 20 off the middle: a world can still
+        // meet a tower only by going past the outermost of them, toward it)
+        const clear = 27 + rad, far = LANE + rad + 10;
         let top = p.y + sc.y, close = false;
         for (let k = 0; k < FRAMES; k += 2) {
           const c = P[k], dx = c.x - p.x, dz = c.z - p.z, d2 = dx * dx + dz * dz;

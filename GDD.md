@@ -725,11 +725,29 @@ terrace's rail:
   round a well of light, eight bells on arches, a garden of pale trees, and a
   ninth bell that swings when rung.
 - **Saturday** (Wavemall Prime's), south-east: an arcade on two floors under a
-  ribbed roof, twenty-four lit shopfronts, a moving stair, and a desk.
+  ribbed glass roof, twenty-four shops (each a lit room behind glass: shelves
+  of stock, a rail of clothes and a figure in the window, or a counter and
+  stools), a moving stair, a desk, a fountain inside the way in, palms and
+  benches down the aisle. Its bridge comes down at the arcade's open west end
+  under a lit portal; the shops along its long sides are solid.
+- The district floors are one shader (`TILE_FRAG`): the Seam's bolted tread
+  plate with rust, the Ninth Bell's limestone flags with gold joints,
+  Saturday's veined marble checker with brass strips and lit bands, and setts
+  on the bridges.
 - Each shows the other two peoples inside it, has descendants walking it, and
   has one thing to find that adds a codex entry. Names, signs and the finds'
   lines are `DISTRICTS` in `world/chapter-dialogue.js`.
 - They sit inside the 240-unit circle the city's towers keep clear of.
+
+The city is lived in at every stage (`world/lightlife.js`): the three ships'
+companies walk the balcony, the terrace, the gallery and the Pavilion and the
+bridges between them (three `speciesCrowd` crowds, one per people; a few stop
+and talk), and their craft fly closed lanes round the platforms, above 36 and
+below -46 so they cross no floor, clear of the suite's tower and inside the
+towers' circle: Rustian ore haulers, Saturnian skiffs under a ring, Wavemall
+shuttles in pink and cyan. Counts by tier (people / craft): low 18/18, medium
+39/36, high 54/54, ultra 72/72. A million years on a third of the craft fly.
+The descendants in the districts after the epilogue are the three peoples too.
 
 World racing (`src/worldRace.js`, `world/racecourse.js`, `world/racers.js`),
 offered at the Starter's stand on the terrace once the epilogue has played:
@@ -739,11 +757,15 @@ offered at the Starter's stand on the terrace once the epilogue has played:
   flies three laps against the clock.
 - The course is one closed line, about 3,100 units, through air nothing
   stands in: over the Pavilion, up into the sky, west above the hangar, and
-  back low over the three districts. Twenty-seven gates, each set off the
-  middle.
+  back low over the three districts. Twenty-seven gates of radius 14, each
+  set off the middle (up to 20 across and 12 up).
 - A racer is held to the course and steered across and up within it. It goes
   forward on its own; boost is spent with Space and earned by clean gates; a
-  missed gate costs two seconds.
+  missed gate costs two seconds. A gate counts if the world's middle passes
+  within the ring plus a third of its own radius. While the stick is pushed, the
+  pilot is helped toward the middle of the next gate (`ASSIST`, strongest in
+  the last 220 units, giving way to a stick pushed hard); a world left alone
+  gets no help, and rivals get none.
 - The city holds the pilot and gives the race the camera. E leaves a race.
   Best time per world is saved under `fgsf.worldrace`.
 - The grid is the pilot and up to six others (`CH_TIER[tier].rivals`): the
