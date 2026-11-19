@@ -2259,10 +2259,15 @@ export function createCrowd(host, opts = {}) {
   function interact(citizen) {
     citizen.talking = true;
     if (citizen.head) {
+      // A story the host is running through this head (opts.headStory: the
+      // Crown errand's Maribel) speaks first: alone when it has a beat to
+      // play, otherwise as a line ahead of the usual greeting.
+      const story = opts.headStory?.(headSpeaker()) ?? null;
+      if (story?.only) return { speaker: headSpeaker(), cine: story.cine, lines: story.lines };
       const greet = citizen.head.greeting[headVariant()] ?? citizen.head.greeting.current;
       return {
         speaker: headSpeaker(),
-        lines: greet,
+        lines: [...(story?.lines ?? []), ...greet],
         offer: menuFor('root'),
       };
     }

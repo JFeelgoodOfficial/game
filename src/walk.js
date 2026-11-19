@@ -40,7 +40,9 @@ import { nearestCity, wonderLocalDir, citiesForWorld } from '../world/cityRegist
 import { createCreatures } from '../world/creatures.js';
 import { createWarzone, WARZONE_WORLDS } from '../world/warzone.js';
 import { createWavemallPrime, createCrowd as createWavemallCrowd } from '../world/wavemallprime.js';
-import { HEADS as WAVEMALL_HEADS } from '../world/wavemall-dialogue.js';
+import { HEADS as WAVEMALL_HEADS, CROWN_ERRAND as MALL_ERRAND } from '../world/wavemall-dialogue.js';
+import { createMallPicks } from '../world/mallPicks.js';
+import { DECOR, ownedDecor } from './inventory.js';
 import { createWyattmattoe } from '../world/wyattmattoe.js';
 import { createActuality, ACTUALITY_SITE } from '../world/actuality.js';
 import { settings } from './settings.js';
@@ -228,6 +230,7 @@ let surfaceMaterials = null;
 // Interior occupants (wavemall prime only): one small crowd per store lobby.
 // Each rides its wing's district-local frame.
 let interiorCrowds = []; // [{ module, groupParent }]
+let mallPicks = null; // the six pieces set out for the Crown errand (world/mallPicks.js)
 // Wave Mall's transfer chain — the "Your Call is Important to Us" quest.
 // stage 0..8 = the level currently holding your call (8 = Feluzia's win).
 // One shared object handed to every wavemall crowd so the department heads
@@ -661,6 +664,7 @@ function spawnWorldEntities(planet) {
           materials: surfaceMaterials, employeeRatio: 0.35,
           deptName: f.dept.name, deptAccent: f.dept.accent,
           level: f.level, chainState: wavemallChain,
+          headStory: f.level === 0 ? maribelStory : null,
         }
       );
       f.group.add(m.group);
@@ -668,6 +672,15 @@ function spawnWorldEntities(planet) {
       m.hostInvQuat = f.invQuat;
       interiorCrowds.push(m);
     }
+    mallPicks = createMallPicks(wavemall.floors, {
+      open: errand.canPickDecor,
+      take: (id) => {
+        if (!errand.pickDecor(id)) return false;
+        setObjective(errand.errandObjective());
+        return true;
+      },
+    });
+    setObjective(errand.errandObjective());
     return;
   }
 
@@ -1033,6 +1046,7 @@ export function exitWalk(camera) {
     citizens.dispose();
     citizens = null;
   }
+  if (mallPicks) { mallPicks.dispose(); mallPicks = null; }
   for (const m of interiorCrowds) {
     m.group.parent?.remove(m.group); // wavemall level frame
     m.dispose();
@@ -1962,6 +1976,13 @@ export function updateWalkVisuals(dt, t) {
       m.update(dt, playerLocalInto(m.hostGroup, m.hostInvQuat, _playerLocal), sunDot);
       scanModule(m, TALK_DIST_CROWD);
     }
+    if (mallPicks) {
+      mallPicks.update(t);
+      for (const m of mallPicks.modules) {
+        playerLocalInto(m.hostGroup, m.hostInvQuat, _playerLocal);
+        scanModule(m, 3.4);
+      }
+    }
   }
   if (actuality) {
     // anchor carries the surface-local landing transform (its parent group is
@@ -2187,6 +2208,28 @@ function advanceTour() {
     else armReturnBeacon();
   }
   // st === n means the tower-door return beacon — the governor takes it from here.
+}
+
+// Maribel's part in the Crown errand (wavemallprime.js `headStory`): the
+// welcome and the chair, the reminder while the pilot browses, then the race
+// car once a piece is chosen. Null when the story has no business with her.
+function maribelStory() {
+  const st = errand.errandStage();
+  if (st === 'mall') {
+    errand.mallTourDone();
+    setObjective(errand.errandObjective());
+    return { only: true, cine: true, lines: MALL_ERRAND.welcome };
+  }
+  if (st === 'pick') {
+    if (!errand.mallCarReady()) return { only: true, lines: MALL_ERRAND.remind };
+    const item = DECOR[ownedDecor()[0]]?.name ?? 'piece';
+    errand.mallCarGiven();
+    setObjective(errand.errandObjective());
+    return { only: true, cine: true, lines: MALL_ERRAND.car.map((l) => l.replace('{{item}}', item)) };
+  }
+  if (st === 'car') return { lines: [MALL_ERRAND.after] };
+  if (errand.isAlly(errand.ALLY_WAVEMALL)) return { lines: [MALL_ERRAND.ally] };
+  return null;
 }
 
 // What stands in the two penthouses follows the story (crownErrand.js).
@@ -2557,7 +2600,7 @@ export function vehicleState() {
 export function walkSite() {
   return {
     city, parked, citizens, wonders, dressing, wavemall, actuality,
-    shadowreach, interiorCrowds, warzone,
+    shadowreach, interiorCrowds, warzone, mallPicks,
     creatures, diamondRain, marineSnow, planetSky, wyattmattoe,
     cottage: cottageWalk.cottageSite(),
     sky: skyWalk.skySite(),
