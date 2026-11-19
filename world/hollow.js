@@ -226,15 +226,16 @@ const FIRE_FRAG = /* glsl */ `
     if (d < uHole.z) discard;
     float n = vnoise(vec3(p * 0.006, uTime * 0.25)) * 0.6 + vnoise(vec3(p * 0.019 + 3.0, uTime * 0.5)) * 0.4;
     float fil = pow(1.0 - abs(2.0 * vnoise(vec3(p * 0.011, uTime * 0.18 + 9.0)) - 1.0), 4.0);
-    vec3 col = mix(vec3(0.9, 0.12, 0.02), vec3(1.5, 0.85, 0.3), n) * (0.3 + 0.8 * n) + vec3(1.4, 0.9, 0.5) * fil * 0.4;
+    // (kept well under white: it fills the view, and the bloom would take the rest)
+    vec3 col = mix(vec3(0.5, 0.05, 0.01), vec3(0.75, 0.3, 0.07), n) * (0.12 + 0.5 * n * n) + vec3(0.8, 0.4, 0.15) * fil * 0.22;
     // on its own line the filaments are most of what there is
-    col += vec3(1.7, 0.1, 0.16) * fil * 1.4 * lampBand(3.0);
+    col += vec3(0.9, 0.04, 0.08) * fil * 0.6 * lampBand(3.0);
     // ...and that is the band it takes in: where the lamp falls, it brightens
-    col += vec3(2.0, 0.25, 0.35) * lampBeam(vW) * lampBand(3.0) * uLampLit;
+    col += vec3(1.1, 0.1, 0.16) * lampBeam(vW) * lampBand(3.0) * uLampLit;
     // in infrared there is nothing else to see
-    col += vec3(1.0, 0.8, 0.6) * 0.7 * lampBand(2.0);
+    col += vec3(0.5, 0.36, 0.22) * (0.3 + 0.5 * n) * lampBand(2.0);
     // the lip of the hole
-    col += vec3(2.4, 0.5, 0.7) * (1.0 - smoothstep(0.0, 16.0, d - uHole.z)) * step(1.0, uHole.z);
+    col += vec3(1.5, 0.3, 0.45) * (1.0 - smoothstep(0.0, 12.0, d - uHole.z)) * step(1.0, uHole.z);
     col *= 1.0 - smoothstep(4200.0, 6600.0, distance(p, cameraPosition.xz));
     gl_FragColor = vec4(col, 1.0);
   }
