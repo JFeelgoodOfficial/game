@@ -23,10 +23,19 @@
 // (world/zeroplanet.js), where every band at once is learned and the pilot
 // chooses who stays at the lamp.
 //
+// The way back is shorter. Climbing away from the first world once it has
+// been shown, the vessel comes up under the firewall, which opens for it; the
+// lattice takes it from there to the surface in one pulse, and it breaks out
+// into open air a million years later (EZ_YEARS_GONE: near the dense core the
+// clocks ran slow, and up here they did not). The emergence is one clock and
+// a pose from it: dark water, rain on the glass and the sound of weather
+// before anything is seen, then the sky, then the nearest cage overhead,
+// open and empty. It ends at the stage `ez_era`, back in the city.
+//
 // One clock for what is said on arrival; everything else is where the hull is.
 
 import * as THREE from 'three';
-import { C, CH_TIER } from '../src/constants.js';
+import { C, CH_TIER, EZ_LIGHT } from '../src/constants.js';
 import { Q } from '../src/quality.js';
 import { sun } from '../src/sun.js';
 import { input, moveAxes } from '../src/input.js';
@@ -43,7 +52,8 @@ import { BANDS, WELL, DESCENT, DEEP } from './entryzero-dialogue.js';
 import { createHollow, LAST_ZONE } from './hollow.js';
 import { createCentre } from './zeroplanet.js';
 import { openDialogue } from '../src/dialogue.js';
-import { CENTRE, STAY, GROUND } from './entryzero-dialogue.js';
+import { CENTRE, STAY, GROUND, ASCENT } from './entryzero-dialogue.js';
+import { setWeather } from './entryzero-audio.js';
 
 const CENTRE_ZONE = LAST_ZONE + 1; // under the last zone of the hollow: the first world
 
@@ -248,6 +258,114 @@ export const BEAM_FRAG = /* glsl */ `
   }
 `;
 
+const NOISE_GLSL = /* glsl */ `
+  float h31(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+  float vnoise(vec3 p) {
+    vec3 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(h31(i), h31(i + vec3(1, 0, 0)), f.x), mix(h31(i + vec3(0, 1, 0)), h31(i + vec3(1, 1, 0)), f.x), f.y),
+               mix(mix(h31(i + vec3(0, 0, 1)), h31(i + vec3(1, 0, 1)), f.x), mix(h31(i + vec3(0, 1, 1)), h31(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+  }
+`;
+// The emergence: weather, where there was never any. A sky of cloud that
+// opens (uClear), over a sea, with the megaworld's light behind it.
+const AIR_FRAG = /* glsl */ `
+  ${NOISE_GLSL}
+  uniform float uTime;
+  uniform float uClear;
+  uniform vec3 uSun;
+  uniform vec3 uSunCol;
+  varying vec3 vW;
+  varying vec3 vN;
+  void main() {
+    vec3 d = normalize(vW - cameraPosition);
+    float c = vnoise(d * 3.0 + vec3(uTime * 0.02, 0.0, uTime * 0.013)) * 0.6 + vnoise(d * 8.5 + 3.0) * 0.4;
+    vec3 cloud = mix(vec3(0.07, 0.08, 0.09), vec3(0.27, 0.29, 0.31), c);
+    float glow = max(dot(d, uSun), 0.0);
+    vec3 light = uSunCol * (pow(glow, 60.0) * 2.4 + pow(glow, 5.0) * 0.35);
+    vec3 sky = mix(vec3(0.03, 0.07, 0.16), vec3(0.2, 0.3, 0.42), pow(1.0 - max(d.y, 0.0), 3.0)) + light;
+    float open = smoothstep(0.62 - 0.4 * uClear, 0.8 - 0.3 * uClear, c + d.y * 0.35) * uClear;
+    vec3 col = mix(cloud + light * 0.25, sky, open);
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+const SEA_FRAG = /* glsl */ `
+  ${NOISE_GLSL}
+  uniform float uTime;
+  uniform float uRain;
+  uniform vec3 uSun;
+  uniform vec3 uSunCol;
+  varying vec3 vW;
+  varying vec3 vN;
+  void main() {
+    vec2 p = vW.xz;
+    float r = length(p - cameraPosition.xz);
+    float w = vnoise(vec3(p * 0.05, uTime * 0.6)) + 0.5 * vnoise(vec3(p * 0.17 + 9.0, uTime * 0.9));
+    vec3 v = normalize(cameraPosition - vW);
+    float fres = pow(1.0 - max(v.y, 0.0), 4.0);
+    vec3 col = mix(vec3(0.015, 0.035, 0.04), vec3(0.2, 0.22, 0.24), fres) * (0.7 + 0.3 * w);
+    // where the light is, a road of it on the water
+    vec3 refl = reflect(-v, normalize(vec3((w - 0.75) * 0.25, 1.0, 0.0)));
+    col += uSunCol * pow(max(dot(refl, uSun), 0.0), 40.0) * 0.8;
+    // rain: rings, near by
+    vec2 g = p * 0.35;
+    vec2 gi = floor(g), gf = fract(g) - 0.5;
+    float ph = fract(uTime * 1.3 + h31(vec3(gi, 1.0)));
+    float ring = smoothstep(0.05, 0.0, abs(length(gf) - ph * 0.45)) * (1.0 - ph) * step(0.4, h31(vec3(gi, 4.0)));
+    col += vec3(0.3, 0.33, 0.36) * ring * uRain * (1.0 - smoothstep(20.0, 160.0, r));
+    col = mix(col, vec3(0.1, 0.115, 0.125), smoothstep(900.0, 3600.0, r));
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+// The nearest cage: what held a star, standing open, with things growing on it.
+const CAGE_FRAG = /* glsl */ `
+  ${NOISE_GLSL}
+  uniform float uClear;
+  varying vec3 vW;
+  varying vec3 vN;
+  void main() {
+    float moss = smoothstep(0.42, 0.6, vnoise(vW * 0.004) * 0.6 + vnoise(vW * 0.013) * 0.4 + 0.25 * normalize(vN).y);
+    vec3 col = mix(vec3(0.05, 0.055, 0.06), vec3(0.06, 0.17, 0.07), moss) * (0.5 + 0.5 * max(normalize(vN).y, 0.0) + 0.2);
+    // (through cloud it is a shape and no more)
+    col = mix(vec3(0.16, 0.17, 0.18), col, 0.25 + 0.75 * uClear);
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+// Rain on the glass: drops that gather and run, each catching the sky.
+const GLASS_FRAG = /* glsl */ `
+  ${NOISE_GLSL}
+  uniform float uTime;
+  uniform float uRain;
+  varying vec3 vW;
+  varying vec3 vN;
+  varying vec2 vUvG;
+  void main() {
+    vec2 uv = vUvG * vec2(26.0, 15.0);
+    vec2 gi = floor(uv);
+    float seed = h31(vec3(gi.x, 0.0, 3.0));
+    // each column of the glass has its own run of drops
+    float fall = uTime * (0.25 + 0.6 * seed) + seed * 9.0;
+    vec2 q = vec2(fract(uv.x) - 0.5 + 0.18 * sin(uv.y * 0.9 + seed * 20.0), fract(uv.y + fall) - 0.5);
+    float on = step(0.45, h31(vec3(gi.x, floor(uv.y + fall), 7.0)));
+    float drop = smoothstep(0.2, 0.05, length(q * vec2(1.0, 0.6)));
+    float trail = smoothstep(0.07, 0.0, abs(q.x)) * smoothstep(0.5, 0.0, q.y) * step(0.0, q.y) * 0.35;
+    float a = (drop + trail) * on * uRain;
+    gl_FragColor = vec4(vec3(0.55, 0.6, 0.66) * a, a * 0.8);
+  }
+`;
+const GLASS_VERT = /* glsl */ `
+  varying vec3 vW;
+  varying vec3 vN;
+  varying vec2 vUvG;
+  void main() {
+    vUvG = uv;
+    vec4 w = modelMatrix * vec4(position, 1.0);
+    vW = w.xyz;
+    vN = normal;
+    gl_Position = projectionMatrix * viewMatrix * w;
+  }
+`;
+
 // A pulse along the lattice, from inside it: light going by.
 const RIDE_FRAG = /* glsl */ `
   uniform float uTime;
@@ -400,6 +518,101 @@ export function createSubmersible(ctx) {
   let choosing = false; // the pilot is being asked who stays
   let resumed = false; // boarded from the ground, not the city
   let shownDose = 0; // the dose as it stood when the reveal began
+  let riseNext = false; // the next pulse sets it down under the firewall, on the way up
+  // the emergence: its clock (-1: not playing) and what it is shown with (built when wanted)
+  let em = -1, emSaid = -1;
+  let surface = null;
+  const airU = { uTime: time, uClear: { value: 0 }, uRain: { value: 0 }, uSun: { value: new THREE.Vector3(-0.5, 0.2, 0.84).normalize() }, uSunCol: { value: new THREE.Color() } };
+  function buildSurface() {
+    if (surface) return;
+    surface = new THREE.Group();
+    // what lights the megaworld now is not decided (EZ_LIGHT): one kept star, the hole's disc, or nothing
+    if (EZ_LIGHT === 'sun') airU.uSunCol.value.setRGB(1.0, 0.9, 0.72);
+    else if (EZ_LIGHT === 'hole') airU.uSunCol.value.setRGB(1.0, 0.45, 0.15);
+    else airU.uSunCol.value.setRGB(0.05, 0.06, 0.09);
+    const air = new THREE.Mesh(new THREE.SphereGeometry(6000, 40, 24), new THREE.ShaderMaterial({ uniforms: airU, vertexShader: WORLD_VERT, fragmentShader: AIR_FRAG, side: THREE.BackSide, fog: false }));
+    const sea = new THREE.Mesh(new THREE.CircleGeometry(6000, 64).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({ uniforms: airU, vertexShader: WORLD_VERT, fragmentShader: SEA_FRAG, side: THREE.DoubleSide, fog: false }));
+    const cageMat = new THREE.ShaderMaterial({ uniforms: airU, vertexShader: WORLD_VERT, fragmentShader: CAGE_FRAG, fog: false });
+    const cage = new THREE.Group();
+    const CR = 1500;
+    for (let i = 0; i < 3; i++) {
+      const m = new THREE.Mesh(new THREE.TorusGeometry(CR, 55, 8, 72), cageMat);
+      m.rotation.y = (i / 3) * Math.PI;
+      cage.add(m);
+    }
+    for (const [yy, rr] of [[0, 1], [0.62, 0.78], [-0.62, 0.78]]) {
+      const m = new THREE.Mesh(new THREE.TorusGeometry(CR * rr, 45, 8, 72).rotateX(Math.PI / 2), cageMat);
+      m.position.y = CR * yy;
+      cage.add(m);
+    }
+    // the column it stands on, down into the sea
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(120, 170, 2600, 16), cageMat);
+    col.position.y = -CR - 1300;
+    cage.add(col);
+    cage.position.set(300, 3300, 2500);
+    cage.rotation.set(0.2, 0.4, 0.1);
+    for (const m of [air, sea, cage]) surface.add(m);
+    surface.traverse((o) => {
+      o.frustumCulled = false;
+    });
+    surface.visible = false;
+    group.add(surface);
+    // the rain on the glass rides with the hull
+    const glass = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 2.9), new THREE.ShaderMaterial({ uniforms: airU, vertexShader: GLASS_VERT, fragmentShader: GLASS_FRAG, transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide, fog: false }));
+    glass.position.set(0, 0.25, 1.6);
+    glass.renderOrder = 9;
+    glass.frustumCulled = false;
+    surface.userData.glass = glass;
+    glass.visible = false;
+    hull.add(glass);
+  }
+  const ease = (a, b, x) => {
+    const f = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    return f * f * (3 - 2 * f);
+  };
+  function startEmerge() {
+    buildSurface();
+    if (env) env.leave();
+    env = null;
+    zone = 0;
+    rideT = -1;
+    well.visible = false;
+    motes.visible = false;
+    beam.visible = false;
+    surface.visible = true;
+    surface.userData.glass.visible = true;
+    em = 0;
+    emSaid = -1;
+    lamp.on = false;
+    vel.set(0, 0, 0);
+    avY = avX = 0;
+    yaw = 0;
+    chapterHud.cine(true);
+    chapterHud.panel(null);
+  }
+  // everything the emergence shows, from its clock alone
+  function poseEmerge(x) {
+    const up = ease(0, 4, x);
+    // up through the last of the water, and then riding on it
+    at.set(0, -46 * (1 - up) + 1.5 * up + (x > 4 ? 0.35 * Math.sin(x * 0.9) : 0), 0);
+    pitch = 0.6 * (1 - ease(3, 6, x)) + 0.03 + 0.92 * ease(13, 23, x);
+    rideU.uRide.value = 1.2 * (1 - ease(0.5, 4, x));
+    ride.visible = x < 4.2;
+    chapterHud.white(Math.max(0, 1 - Math.abs(x - 4) / 0.5) * 0.45);
+    airU.uRain.value = ease(3.6, 6, x) * (1 - 0.65 * ease(14, 27, x));
+    airU.uClear.value = ease(10, 25, x);
+    // the first thing is the sound of it
+    setWeather(ease(1.2, 4, x) * (1 - 0.5 * ease(14, 27, x)), 0.25 + 0.4 * ease(3.5, 8, x));
+    surface.visible = x >= 3.2;
+  }
+  function endEmerge() {
+    em = -1;
+    chapterHud.cine(false);
+    chapterHud.clocks(null);
+    chapterHud.white(0);
+    chapter.advance('ez_era');
+    site.portal = 'wellup'; // back to the city: whatever it is now
+  }
   let gate = 0; // the gap in the membrane, 0..1
   let shutT = 0;
   // a pulse along the lattice: one clock, and everything from it
@@ -498,7 +711,10 @@ export function createSubmersible(ctx) {
       well.visible = false;
       if (env) env.leave();
       env = rideTo === CENTRE_ZONE ? centre : hollow;
-      if (!(env === centre ? centre.enter(at) : hollow.enter(rideTo, at))) return;
+      const below = riseNext; // (on the way up: under the firewall)
+      riseNext = false;
+      if (!(env === centre ? centre.enter(at) : hollow.enter(rideTo, at, below))) return;
+      if (below) pitch = 0.9;
       zone = rideTo;
       if (zone === CENTRE_ZONE) chapter.advance('ez_centre');
       chapter.advance('ez_descent');
@@ -614,6 +830,10 @@ export function createSubmersible(ctx) {
       well.visible = true;
       rideT = -1;
       gate = isOpen() ? 1 : 0;
+      em = -1;
+      riseNext = false;
+      motes.visible = beam.visible = true;
+      if (surface) surface.visible = surface.userData.glass.visible = false;
       env = null;
       choosing = false;
       lamp.canAll = chapter.reached('ez_centre'); // every band at once is learned at the centre
@@ -642,6 +862,8 @@ export function createSubmersible(ctx) {
         lamp.medium = 'fog';
       }
       resumed = false;
+      // the way up was begun and not finished: it is finished now
+      if (chapter.stage() === 'ez_ascent') startEmerge();
     },
     onLeave() {
       if (!inside) return;
@@ -651,6 +873,10 @@ export function createSubmersible(ctx) {
       hush();
       chapterHud.clear();
       chapterHud.white(0);
+      if (em >= 0) chapterHud.cine(false);
+      em = -1;
+      chapterHud.clocks(null);
+      if (surface) surface.visible = surface.userData.glass.visible = false;
       fov(C.FOV);
       ride.visible = false;
       rideT = -1;
@@ -671,7 +897,8 @@ export function createSubmersible(ctx) {
       // --- the controls: the walker has turned the mouse into a look; take it
       // back and lean on the hull with it instead ---
       const shown = zone === CENTRE_ZONE && centre.busy(); // the reveal: the vessel is carried
-      const talk = isDialogueOpen() || rideT >= 0 || shown; // (in the pulse there is nothing to steer)
+      const talk = isDialogueOpen() || rideT >= 0 || shown || em >= 0; // (in the pulse there is nothing to steer)
+      chapter.ez.addClock(d); // the crew's own clock: the only one of the three that is short
       const dYaw = cWalk.yaw - baseYaw, dPitch = cWalk.pitch;
       cWalk.yaw = baseYaw;
       cWalk.pitch = 0;
@@ -691,14 +918,24 @@ export function createSubmersible(ctx) {
         vel.set(0, 0, 0);
         pitch += (-1.5 - pitch) * Math.min(1, d * 0.8); // looking straight down at it
         avY = avX = 0;
+      } else if (em >= 0) {
+        // --- the emergence: one clock ---
+        em += d;
+        poseEmerge(em);
+        while (emSaid + 1 < ASCENT.emerge.length && em >= ASCENT.emerge[emSaid + 1][0]) {
+          emSaid++;
+          speak([ASCENT.emerge[emSaid][1], ASCENT.emerge[emSaid][2]], 5.5);
+        }
+        if (em >= 17) chapterHud.clocks(chapter.ez.clock(), C.EZ_YEARS_GONE * 365 * 86400 + (em - 17), ASCENT.clocks[0], ASCENT.clocks[1]);
+        if (em >= C.EZ_EMERGE_TIME) endEmerge();
       } else if (choosing) vel.set(0, 0, 0);
       else for (let rem = d; rem > 1e-5; rem -= 1 / 60) step(Math.min(rem, 1 / 60), fwd, strafe, lift);
       push += (Math.min(1, Math.hypot(fwd, strafe, lift)) - push) * Math.min(1, d * 4);
-      setHum(rideT >= 0 ? 1 : 0.25 + 0.75 * push);
+      setHum(em >= 0 ? 0 : rideT >= 0 ? 1 : 0.25 + 0.75 * push);
       lamp.medium = zone ? env.medium(at) : 'void';
 
       // --- the well: the ring above, the membrane below ---
-      if (!zone) {
+      if (!zone && em < 0) {
         // up through the ring: back to the city
         if (at.y > TOP + 6 && !site.portal) site.portal = 'wellup';
         const open = isOpen();
@@ -792,6 +1029,17 @@ export function createSubmersible(ctx) {
         if (ev === 'ride') startRide(zone + 1, false);
         else if (ev === 'fall' && startRide(CENTRE_ZONE, false, true)) speak(CENTRE.fall, 5);
         else if (ev === 'choose') ask();
+        else if (ev === 'rise') {
+          // away from the first world: the next thing overhead is the firewall, from below
+          riseNext = true;
+          if (startRide(LAST_ZONE - 1, false, true)) speak(ASCENT.rise, 5);
+          else riseNext = false;
+        } else if (ev === 'risen') {
+          // through it, with their story aboard: the lattice does the rest
+          chapter.advance('ez_ascent');
+          speak(ASCENT.through, 6);
+          startEmerge();
+        }
         else if (ev === 'caller' && startRide(zone, true)) speak(DEEP.caught, 6);
         const why = lamp.on && lamp.energy <= 0 ? 'lamp' : lamp.dose >= 1 ? 'dose' : lamp.cabin <= 0 ? 'cabin' : null;
         if (why && !choosing && !shown && startRide(zone, true)) speak(DESCENT.back[why], 6);
@@ -830,7 +1078,7 @@ export function createSubmersible(ctx) {
       at: at.toArray().map((v) => +v.toFixed(1)), vel: +vel.length().toFixed(2), yaw: +yaw.toFixed(3), pitch: +pitch.toFixed(3),
       lamp: lampState(), found: cal, targets: targetAt.map((tg) => ({ band: BANDS[tg.band].id, p: tg.p.toArray() })), motes: mN,
       hud: lampHud.state(), audio: ezAudioState(),
-      zone, gate: +gate.toFixed(2), ride: +rideT.toFixed(2), hollow: env ? env.info() : null, choosing,
+      zone, gate: +gate.toFixed(2), ride: +rideT.toFixed(2), emerge: +em.toFixed(1), hollow: env ? env.info() : null, choosing,
     }),
     // dev: put the vessel somewhere, pointed somewhere (far().state().subSet)
     set(o) {

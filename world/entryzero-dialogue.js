@@ -299,6 +299,28 @@ export const REVEAL = {
   ],
 };
 
+// --- 8. the ascent ------------------------------------------------------------------
+export const ASCENT = {
+  // climbing away from the first world
+  rise: ['vask', 'Nothing more to find here. Up.'],
+  // under the firewall
+  wall: [
+    [2, 'marrow', 'The wall. From underneath.'],
+    [9, 'vask', 'Every band, on the fire. It will know what we are carrying.'],
+  ],
+  burn: ['marrow', 'It is letting us by. We are not strangers to it now. We have their story.'],
+  through: ['vask', 'Through. The lattice has us. All the way up, this time.'],
+  // the emergence: [seconds, who, line]
+  emerge: [
+    [5.5, 'lux', 'That is rain. That is rain on the glass.'],
+    [11, 'marrow', 'There was no weather here. There was no sky to have it in.'],
+    [17, 'vask', 'Near the core the clocks ran slow. Up here they did not.'],
+    [23, 'vask', 'One million, forty-eight thousand, five hundred and seventy-six years.'],
+    [29, 'marrow', 'The cage is open. There is nothing in it.'],
+  ],
+  clocks: ['US', 'THE SURFACE'],
+};
+
 // --- 9. a million years on --------------------------------------------------------
 export const ERA = {
   // {ship} {world} {crew}: the three clocks, in a line (as RETURN.clocks)
