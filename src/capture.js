@@ -115,7 +115,21 @@ const CSS = `
 #camBar .cb-stop { color: #ffc9ec; border-color: rgba(212,64,143,0.7); }
 /* Touch: clear of the move stick on foot and below the dash strips in flight. */
 body.touch-ui #camBar { left: 144px; transform: none; bottom: 10px; gap: 6px; }
-body.touch-ui #camBar button { min-height: 40px; padding: 0 9px; font-size: 11px; letter-spacing: 0.1em; }
+body.touch-ui #camBar button { min-height: 44px; padding: 0 12px; font-size: 14px; letter-spacing: 0.08em; }
+/* Opened from the flight dash: the dash buttons fill the bottom of a phone
+   screen now, so the bar goes to the top instead. */
+body.touch-ui #camBar.from-dash {
+  top: max(10px, env(safe-area-inset-top)); bottom: auto;
+  left: 50%; transform: translateX(-50%);
+}
+body.touch-ui #galPanel .g-title { font-size: 15px; }
+body.touch-ui #galPanel .g-cell .g-actions { font-size: 13px; }
+body.touch-ui #galPanel .g-cell a, body.touch-ui #galPanel .g-cell button {
+  font-size: 13px; padding: 8px 0;
+}
+body.touch-ui #galPanel .g-empty { font-size: 15px; }
+body.touch-ui #galPanel .g-foot { font-size: 13px; letter-spacing: 0.16em; }
+body.touch-ui #galPanel .g-close { font-size: 15px; padding: 12px 34px; }
 @media (max-width: 640px) {
   #capBtn {
     right: 12px; bottom: 14px; padding: 10px 16px;
@@ -244,9 +258,11 @@ function syncRecButton() {
 }
 
 // The dash CAMERA button (cockpit3d.js) and the on-foot ≡ panel open this.
-export function openCameraBar() {
+// `fromDash` places the bar clear of the dash buttons on touch (see CSS).
+export function openCameraBar(fromDash = false) {
   barOpen = true;
   syncRecButton();
+  camBar.classList.toggle('from-dash', !!fromDash);
   camBar.classList.add('open');
 }
 
@@ -260,9 +276,9 @@ export function closeCameraBar() {
   closeGallery();
 }
 
-export function toggleCameraBar() {
+export function toggleCameraBar(fromDash = false) {
   if (barOpen) closeCameraBar();
-  else openCameraBar();
+  else openCameraBar(fromDash);
 }
 
 export function isCameraBarOpen() {
