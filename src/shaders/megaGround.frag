@@ -31,12 +31,29 @@ uniform float uHorizon; // distance to the horizon from the camera's height
 uniform float uFade; // 0..1, the whole world fading up
 uniform vec3 uHaze;
 uniform float uAged; // a thousand years on: the conduits are every colour, and there are far more of them
+// A million years on (src/era.js, GDD 5.7.5). The Tenretni let go: the stars
+// were released and are long gone, so the world is lit by whatever lights it
+// now (uDayCol, uDayK); there are seas where the land lies low, growth over
+// the plating, cloud shadow, and most of the conduits are dark.
+uniform float uEra;
+uniform float uRite; // the yearly rite: the empty cages lit again, 0..1
+uniform vec3 uDayCol;
+uniform float uDayK;
 
 float h21(vec2 c) {
   c = mod(c, 1024.0);
   vec3 p3 = fract(vec3(c.xyx) * 0.1031);
   p3 += dot(p3, p3.yzx + 33.33);
   return fract((p3.x + p3.y) * p3.z);
+}
+
+// Smooth noise on a lattice that repeats every `n` cells, so it wraps exactly
+// where the pattern it is laid over does.
+float lnoise(vec2 uv, float n) {
+  vec2 i = floor(uv), f = fract(uv);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h21(mod(i, n)), h21(mod(i + vec2(1.0, 0.0), n)), f.x),
+             mix(h21(mod(i + vec2(0.0, 1.0), n)), h21(mod(i + vec2(1.0, 1.0), n)), f.x), f.y);
 }
 
 // A grid of cells: x = this cell's random, y = how near an edge (1 on it),
@@ -113,6 +130,35 @@ void main() {
   col = mix(col, col * 1.9 + 0.006, trace * (1.0 - live));
   col += tcol * trace * live * uHdr * 0.5 * (0.7 + 0.3 * sin(uTime * 2.0 + th * 40.0 + (th < 0.5 ? tuv.x : tuv.y) * 3.0));
 #endif
+  // --- a million years on: the plating is ground now ---
+  float dim = 1.0 - 0.94 * uEra; // what is left of the world's own light
+  if (uEra > 0.0) {
+    vec2 du = (vP + uOffDistrict) / uDistrict;
+    // where it lies low there is sea: coasts a few districts across
+    float low = lnoise(du / 4.0, 256.0) * 0.65 + lnoise(du + 40.0, 1024.0) * 0.35;
+    float sea = 1.0 - smoothstep(0.43, 0.455, low);
+    float shore = (1.0 - smoothstep(0.455, 0.5, low)) * (1.0 - sea);
+    // growth: thick in places, and thicker on the low blocks than the tall ones
+    float growth = smoothstep(0.3, 0.7, lnoise(du * 2.0 + 90.0, 1024.0) * 0.6 + (1.0 - blk.x) * 0.4);
+    vec3 moss = vec3(0.03, 0.075, 0.028) * (0.55 + 0.9 * blk.x) * mix(1.0, 0.6 + 0.8 * plt.x, plt.z);
+    vec3 land = mix(col, moss, growth * 0.86);
+    land = mix(land, vec3(0.085, 0.075, 0.05), shore * 0.7); // silt, along the water
+    vec3 tint = mix(vec3(1.0), uDayCol, 0.55);
+    land *= (1.0 + 9.0 * uDayK) * tint;
+    // water: dark close to, and the colour of the light a long way off
+    float far = smoothstep(0.05, 0.9, clamp(vD / uHorizon, 0.0, 1.0));
+    vec3 water = (vec3(0.006, 0.02, 0.028) * (1.0 + 5.0 * uDayK) + uDayCol * uDayK * 0.16 * far) * (0.9 + 0.2 * blk.x * blk.z);
+    // (what still glows under it shows through, a little)
+    water += vec3(0.02, 0.2, 0.16) * step(0.9, blk.x) * blk.z * 0.05;
+    vec3 now = mix(land, water, sea);
+#ifdef DETAIL
+    // weather: cloud shadow going over, slowly
+    float cl = lnoise(du / 2.0 + vec2(uTime * 0.006, uTime * 0.0035), 512.0);
+    now *= 0.55 + 0.45 * smoothstep(0.35, 0.62, cl);
+#endif
+    col = mix(col, now, uEra);
+    dim *= 1.0 - 0.9 * sea * uEra; // (nothing is lit out on the water)
+  }
   // the hole's own light, from overhead: faint, the colour of its fire
   col += col * vec3(0.9, 0.42, 0.16) * 0.4;
 
@@ -120,15 +166,15 @@ void main() {
   // windows: a few plates in the lit blocks, breathing; amber in some districts
   float lit = step(0.93, plt.x) * step(0.55, blk.x) * plt.z * (1.0 - plt.y);
   vec3 wcol = mix(mix(green, amber, step(0.55, dist3.x)), cyan, step(0.975, plt.x));
-  col += wcol * lit * uHdr * 0.7 * (0.55 + 0.45 * sin(uTime * 1.1 + plt.x * 60.0));
+  col += wcol * lit * uHdr * 0.7 * (0.55 + 0.45 * sin(uTime * 1.1 + plt.x * 60.0)) * dim;
   // one block in a dozen is lit along its roof line
-  col += green * step(0.94, blk.x) * blk.y * blk.z * uHdr * 0.09;
+  col += green * step(0.94, blk.x) * blk.y * blk.z * uHdr * 0.09 * dim;
   // one district in three has light in its trench
-  col += green * step(0.66, dist3.x) * dist3.y * dist3.z * dist3.z * uHdr * 0.07 * (0.6 + 0.4 * sin(uTime * 0.7 + dist3.x * 40.0));
+  col += green * step(0.66, dist3.x) * dist3.y * dist3.z * dist3.z * uHdr * 0.07 * (0.6 + 0.4 * sin(uTime * 0.7 + dist3.x * 40.0)) * dim;
   // beyond where a plate can be seen, the lit ones still add up to a faint
   // glow: a block's worth while blocks can be told apart, then a district's
   vec3 farCol = mix(green, amber, step(0.55, dist3.x));
-  col += farCol * (1.0 - plt.z) * (0.004 + 0.030 * step(0.55, blk.x) * blk.x * blk.z + 0.010 * dist3.x * dist3.z);
+  col += farCol * (1.0 - plt.z) * (0.004 + 0.030 * step(0.55, blk.x) * blk.x * blk.z + 0.010 * dist3.x * dist3.z) * dim;
 
   // --- the caged stars ---
   vec2 L = vP + uOffCage;
@@ -140,17 +186,21 @@ void main() {
   float pad = (1.0 - smoothstep(uPad - 60.0, uPad + 60.0 + px, cd)) * own.z;
   float rings = 0.5 + 0.5 * sin(cd * 0.0105);
   vec3 padCol = vec3(0.05, 0.047, 0.044) * (0.7 + 0.5 * step(0.5, rings));
+  // (a million years on the plate is overgrown like the rest, and lit by the same day)
+  padCol = mix(padCol, vec3(0.03, 0.07, 0.03) * (0.7 + 0.5 * step(0.5, rings)) * (1.0 + 9.0 * uDayK) * mix(vec3(1.0), uDayCol, 0.55), uEra);
   col = mix(col, padCol, pad);
   float rim = (1.0 - smoothstep(0.0, 90.0 + px, abs(cd - uPad))) * own.z;
   // a row of fire-coloured lamps round its edge
   float lamps = step(0.5, fract(atan(L.y - own.y, L.x - own.x) * 28.0 / 6.2832));
-  col += vec3(1.0, 0.50, 0.14) * rim * lamps * uHdr * 0.7;
+  // (dark now, except in the rite, when every lamp round every cage is lit)
+  col += vec3(1.0, 0.50, 0.14) * rim * lamps * uHdr * 0.7 * mix(1.0, uRite, uEra);
   // the star's light on everything round it: the hull lit warm, falling off
   // with distance and gone at a quarter of the way to the next star
   vec3 warm = vec3(1.0, 0.56, 0.20);
   float pool = max(1.0 - cd / (uS * 0.25), 0.0);
   float lightK = pool * pool / (1.0 + cd * cd / 3.0e7);
-  col += (col * 110.0 + 0.02) * warm * lightK * own.z;
+  // (no star, no pool of its light: except in the rite)
+  col += (col * mix(110.0, 9.0, uEra) + 0.02) * warm * lightK * own.z * mix(1.0, uRite, uEra);
   // conduits to and from the four neighbours
   vec3 fire = vec3(1.0, 0.42, 0.10);
   float cE = conduit(L, own, cage(cell + vec2(1.0, 0.0)), px);
@@ -169,9 +219,11 @@ void main() {
                     + pal(h21(cell - vec2(1.0, -1.0) + 133.0)) * conduit(L, cage(cell - vec2(1.0, -1.0)), own, px));
     float halo = (1.0 - smoothstep(0.0, 80.0 + px, abs(cd - uPad * 1.5))) + (1.0 - smoothstep(0.0, 60.0 + px, abs(cd - uPad * 2.1)))
                + 0.6 * (1.0 - smoothstep(0.0, 50.0 + px, abs(cd - uPad * 2.9)));
-    col += pal(h21(cell + 7.0)) * halo * own.z * uAged * uHdr * 0.55 * (0.7 + 0.3 * sin(uTime * 1.3 + cd * 0.002));
-    col += pal(fract(dist3.x * 7.0)) * dist3.y * dist3.z * uAged * uHdr * 0.32 * (0.65 + 0.35 * sin(uTime * 0.9 + dist3.x * 30.0));
+    col += pal(h21(cell + 7.0)) * halo * own.z * uAged * uHdr * 0.55 * (0.7 + 0.3 * sin(uTime * 1.3 + cd * 0.002)) * dim;
+    col += pal(fract(dist3.x * 7.0)) * dist3.y * dist3.z * uAged * uHdr * 0.32 * (0.65 + 0.35 * sin(uTime * 0.9 + dist3.x * 30.0)) * dim;
   }
+  // a million years on most of them are dark: one cage in six still feeds a few threads
+  lines *= mix(1.0, 0.03 + 0.97 * step(0.83, h21(cell + 201.0)), uEra);
   col += lines * uHdr * mix(0.34, 0.85, uAged) * (1.0 - pad);
 
   // --- the distance: haze, and a lit line where the world ends ---
@@ -180,6 +232,8 @@ void main() {
   vec3 hz = uHaze * (0.7 + 1.6 * smoothstep(0.6, 1.0, fr));
   // ...and it has air now: a blue line where the world ends
   hz = mix(hz, vec3(0.05, 0.16, 0.36) * (0.5 + 3.0 * smoothstep(0.7, 1.0, fr)), uAged);
+  // ...and weather: the distance goes to the colour of the day
+  hz = mix(hz, mix(vec3(0.07, 0.13, 0.22), uDayCol * 0.5, 0.45) * (0.25 + uDayK) * (0.6 + 1.4 * smoothstep(0.6, 1.0, fr)), uEra);
   col = mix(col, hz, haze * 0.94);
 
   gl_FragColor = vec4(col * uFade, 1.0);

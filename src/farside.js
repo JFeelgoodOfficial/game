@@ -48,6 +48,10 @@ import { createDiveBridge } from '../world/divebridge.js';
 import { createShuttle } from '../world/shuttle.js';
 import { createSubmersible } from '../world/submersible.js';
 import { createZeroGround } from '../world/zeroground.js';
+import { ERA, RITE, DAY } from './era.js';
+import { holeDirection } from '../world/farhole.js';
+import { chapterHud } from './chapterHud.js';
+import { ERA as ERA_SAY } from '../world/entryzero-dialogue.js';
 import commonVert from './shaders/tenretni.vert?raw';
 import wormFrag from './shaders/wormhole.frag?raw';
 
@@ -94,13 +98,56 @@ export function createFarside(ctx) {
   mega.root.add(hole.group);
   // ...the mining: conduits from the disc down to the collectors on each cage's
   // gantry (world/megaworld.js collectorSpots)
+  const tubes = []; // (a million years on nothing is drawn up out of the hole: they are put away)
   mega.cage.cages.forEach((c, i) => {
     mega.collectors.forEach((spot, k) => {
       const tube = hole.conduit(i * 2 + k);
       tube.position.copy(spot);
       c.group.add(tube);
+      tubes.push(tube);
     });
   });
+  // --- a million years on (src/era.js, GDD 5.7.5) ---
+  // The yearly rite: every empty cage lit again, and let go dark. One clock
+  // (riteT, seconds into it, -1 between), and everything from it.
+  let eraOn = false, riteT = -1, riteWait = C.EZ_RITE_FIRST, riteSaid = false;
+  const riteLevel = (x) => {
+    if (x < 0) return 0;
+    const up = Math.min(1, x / 7), down = Math.min(1, Math.max(0, (C.EZ_RITE_TIME - x) / 14));
+    const k = Math.min(up, down);
+    return k * k * (3 - 2 * k);
+  };
+  const starHdr = mega.cage.starU.uHdr.value, coreW = mega.cage.frameU.uCore.value.w;
+  function stepEra(dt) {
+    const now = !!(ctx.chapter && ctx.chapter.reached('ez_era'));
+    if (now !== eraOn) {
+      eraOn = now;
+      for (const t of tubes) t.visible = !now;
+      riteT = -1;
+      riteWait = C.EZ_RITE_FIRST;
+    }
+    ERA.value = now ? 1 : 0;
+    if (!now) {
+      RITE.value = 0;
+      return;
+    }
+    if (riteT >= 0) {
+      riteT += dt;
+      if (!riteSaid && riteT > 3) {
+        riteSaid = true;
+        chapterHud.say(ERA_SAY.rite, 9);
+      }
+      if (riteT >= C.EZ_RITE_TIME) {
+        riteT = -1;
+        riteWait = C.EZ_RITE_EVERY;
+      }
+    } else if ((riteWait -= dt) <= 0) {
+      riteT = 0;
+      riteSaid = false;
+    }
+    RITE.value = riteLevel(riteT);
+    chapterHud.tick(dt);
+  }
 
   // SHIFT: the first present cell out from the lattice's middle holds the
   // star the pilot arrives beside.
@@ -469,6 +516,24 @@ export function createFarside(ctx) {
       wsum += w;
     }
     if (wsum > 0 && _d.lengthSq() > 0) light.copy(_d).normalize();
+    // a million years on there are no stars to be lit by: the light is the
+    // day's, whatever that is (EZ_LIGHT), and the cages hold nothing but the rite
+    const era = ERA.value > 0;
+    if (era) light.copy(DAY.dir || holeDirection(_d));
+    const rite = RITE.value;
+    for (const s of slots) {
+      if (!s.on) continue;
+      s.cage.star.visible = s.cage.glow.visible = !era || rite > 0.01;
+      if (era) s.cage.glow.material.opacity = 0.22 * rite;
+    }
+    mega.cage.starU.uHdr.value = era ? starHdr * rite : starHdr;
+    mega.cage.frameU.uCore.value.w = era ? coreW * rite : coreW;
+    const kept = mega.kept;
+    kept.points.visible = era && DAY.kind === 'sun';
+    if (kept.points.visible) {
+      kept.points.position.copy(cam).addScaledVector(light, 600000);
+      kept.uniforms.uFade.value = fade;
+    }
     sunWorld.copy(light);
     if (sun.light) sun.light.position.copy(light);
     mega.cage.starU.uTime.value = t;
@@ -480,7 +545,7 @@ export function createFarside(ctx) {
     st.points.position.set(cam.x + (cellX * S - lx), gy, cam.z + (cellZ * S - lz));
     st.uniforms.uScale.value = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((camera.fov * Math.PI) / 360);
     st.uniforms.uCamAlt.value = alt;
-    st.uniforms.uFade.value = fade;
+    st.uniforms.uFade.value = era ? fade * rite : fade;
 
     hole.update(camera, t, fade);
 
@@ -539,6 +604,7 @@ export function createFarside(ctx) {
       if (!active) return;
       fade = Math.min(fade + dt / C.FAR_FADE_IN, 1);
       slotT += dt;
+      stepEra(dt);
       placeBody();
       if (closeT >= 0) {
         closeT += dt;
@@ -641,6 +707,12 @@ export function createFarside(ctx) {
       towers: mega.towers.count(),
       wormhole: worm.visible,
       light: light.toArray(),
+      era: ERA.value, rite: +RITE.value.toFixed(2), riteT: +riteT.toFixed(1), day: DAY.kind,
+      // dev: start the rite now
+      riteNow: () => {
+        riteT = 0;
+        riteSaid = false;
+      },
       bodyRadius: body.radius,
     }),
   };
