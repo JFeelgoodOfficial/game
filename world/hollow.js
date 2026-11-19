@@ -16,7 +16,21 @@
 //
 //   zone 1   the outer oceans     drifters, painted swimmers; light eaters
 //   zone 2   the creature zone    glass drifters, the veil, soft bodies,
-//                                 callers; light eaters and heat leeches
+//                                 callers; light eaters, heat leeches and
+//                                 radiation feeders
+//   zone 3   the firewall         one sheet of burning hydrogen across the
+//                                 whole hollow, between the newer strata and
+//                                 the oldest. Its guards; light eaters
+//
+// The firewall is the test of what the first two zones taught. It is hydrogen
+// plasma, so it is opaque at hydrogen's own line and nowhere else: every
+// other band goes through it or is lost in it, and light at 656.3 nm is taken
+// in. Here, and only here, the H-alpha band is a beam (lamp.lineBeam): held
+// on one place it pumps the sheet until it parts. The guards are made of the
+// same gas, which is why the fire lets them by and why only that band shows
+// them; and the light eaters cannot digest that line, so they leave the lamp
+// alone while it works. The hole closes when the lamp comes off it, and
+// behind the vessel once it is through.
 //
 // One zone is built at a time and the last one freed. Everything in a zone is
 // placed from its seed, so it is the same every visit.
@@ -25,14 +39,17 @@ import * as THREE from 'three';
 import { C } from '../src/constants.js';
 import { lamp, LAMP_U, LAMP_GLSL } from '../src/lamp.js';
 import { createLife } from './hollowlife.js';
-import { BANDS, LIFE, DESCENT } from './entryzero-dialogue.js';
+import { setRoar } from './entryzero-audio.js';
+import { BAND, lampLive } from '../src/lamp.js';
+import { BANDS, LIFE, DESCENT, FIREWALL } from './entryzero-dialogue.js';
 
 // kinds whose bands a zone's lower node asks for
 const ZONES = {
   1: { len: () => C.EZ_ZONE1_LEN, seed: 0x10ce01, globes: 5, roof: true, asks: ['drifter', 'painted'], leeches: false },
   2: { len: () => C.EZ_ZONE2_LEN, seed: 0x10ce02, globes: 3, roof: false, asks: ['warm', 'line', 'boned', 'caller'], leeches: true },
+  3: { len: () => C.EZ_ZONE3_LEN, seed: 0x10ce03, globes: 0, roof: false, asks: [], leeches: false, wall: 0.5 },
 };
-export const LAST_ZONE = 2; // (the firewall is under it: not built yet)
+export const LAST_ZONE = 3; // (the oldest strata are under the firewall: not built yet)
 
 const NOISE_GLSL = /* glsl */ `
   float h31(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
@@ -195,6 +212,35 @@ const ROOF_FRAG = /* glsl */ `
   }
 `;
 
+// The firewall: a sheet of burning hydrogen, seen from either side.
+const FIRE_FRAG = /* glsl */ `
+  ${LAMP_GLSL}
+  ${NOISE_GLSL}
+  uniform float uTime;
+  uniform vec3 uHole; // x, z, radius
+  varying vec2 vUv;
+  varying vec3 vW;
+  void main() {
+    vec2 p = vW.xz;
+    float d = distance(p, uHole.xy);
+    if (d < uHole.z) discard;
+    float n = vnoise(vec3(p * 0.006, uTime * 0.25)) * 0.6 + vnoise(vec3(p * 0.019 + 3.0, uTime * 0.5)) * 0.4;
+    float fil = pow(1.0 - abs(2.0 * vnoise(vec3(p * 0.011, uTime * 0.18 + 9.0)) - 1.0), 4.0);
+    // (kept well under white: it fills the view, and the bloom would take the rest)
+    vec3 col = mix(vec3(0.5, 0.05, 0.01), vec3(0.75, 0.3, 0.07), n) * (0.12 + 0.5 * n * n) + vec3(0.8, 0.4, 0.15) * fil * 0.22;
+    // on its own line the filaments are most of what there is
+    col += vec3(0.9, 0.04, 0.08) * fil * 0.6 * lampBand(3.0);
+    // ...and that is the band it takes in: where the lamp falls, it brightens
+    col += vec3(1.1, 0.1, 0.16) * lampBeam(vW) * lampBand(3.0) * uLampLit;
+    // in infrared there is nothing else to see
+    col += vec3(0.5, 0.36, 0.22) * (0.3 + 0.5 * n) * lampBand(2.0);
+    // the lip of the hole
+    col += vec3(1.5, 0.3, 0.45) * (1.0 - smoothstep(0.0, 12.0, d - uHole.z)) * step(1.0, uHole.z);
+    col *= 1.0 - smoothstep(4200.0, 6600.0, distance(p, cameraPosition.xz));
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
 function rng(seed) {
   let s = seed >>> 0;
   return () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
@@ -218,8 +264,15 @@ export function createHollow(k) {
   let u = 0, said = -1, saidWater = false, askT = 0;
   let saidEaters = false, hintEaters = false, drinkT = 0;
   let saidCold = false, hintCold = false, runCold = false, tempSaid = 0;
+  let saidFeed = false, hintFeed = false, feedT = 0;
   let inWater = false;
   const _v = new THREE.Vector3();
+  // the firewall (zone 3): where it is, how far the lamp has opened it, and which side the vessel is on
+  let wallY = 0, hasWall = false;
+  const holeU = { value: new THREE.Vector3() };
+  let burn = 0, holeR = 0, passed = false, inSlab = false, wallT = 0, burnPeak = 0;
+  let saidNear = false, saidHint = false, saidGuards = false, saidBurn = false, saidOpen = false, saidThrough = 0;
+  let guards = null;
 
   const add = (m) => {
     m.frustumCulled = false;
@@ -237,6 +290,15 @@ export function createHollow(k) {
     }
     made = [];
     globes.length = 0;
+    hasWall = false;
+    guards = null;
+    lamp.lineBeam = false;
+    setRoar(0);
+  }
+  function resetWall() {
+    burn = holeR = burnPeak = 0;
+    passed = inSlab = false;
+    holeU.value.set(0, 0, 0);
   }
 
   function build(z) {
@@ -250,6 +312,7 @@ export function createHollow(k) {
 
     // --- the globes: down the way, off to one side or another of it ---
     const gN = cfg.globes;
+    if (gN) {
     const gGeo = new THREE.IcosahedronGeometry(1, 5);
     const gSeed = new Float32Array(gN);
     const gMat = new THREE.ShaderMaterial({ uniforms: { ...LAMP_U, uTime: k.time }, vertexShader: GLOBE_VERT, fragmentShader: GLOBE_FRAG, side: THREE.DoubleSide, fog: false });
@@ -276,6 +339,17 @@ export function createHollow(k) {
     add(gMesh);
     mMesh.renderOrder = 3;
     add(mMesh);
+    }
+
+    // --- the firewall: across everything, part of the way down ---
+    hasWall = !!cfg.wall;
+    resetWall();
+    lamp.lineBeam = hasWall;
+    if (hasWall) {
+      wallY = -len * cfg.wall;
+      const fire = add(new THREE.Mesh(new THREE.CircleGeometry(7000, 96).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({ uniforms: { ...LAMP_U, uTime: k.time, uHole: holeU }, vertexShader: ROOT_VERT, fragmentShader: FIRE_FRAG, side: THREE.DoubleSide, fog: false })));
+      fire.position.y = wallY;
+    }
 
     // --- the lattice: three roots from node to node, bending round the globes ---
     const tubes = [];
@@ -345,7 +419,13 @@ export function createHollow(k) {
       p.z += Math.sin(a) * side;
       return p;
     };
-    if (z === 1) {
+    const feederAt = [];
+    if (z === 3) {
+      // going through the fire and back, where the lattice goes through it
+      const f = cfg.wall;
+      for (const a of [0.4, 2.5, 4.6]) schools.push({ kind: 'guard', at: mid(f, 300, a).setY(wallY), range: 300, size: 9 });
+      eaterAt.push(mid(f * 0.55, 260, 1.2), mid(f * 0.8, 320, 3.9));
+    } else if (z === 1) {
       // in the water: drifters in the first globes, painted swimmers in the later ones
       for (let i = 0; i < gN; i++) {
         const g = globes[i];
@@ -364,8 +444,12 @@ export function createHollow(k) {
       callers.push(mid(0.3, 3400, 5.2), mid(0.75, 3800, 1.4).setY(-len * 0.75 - 1500));
       eaterAt.push(mid(0.3, 300, 4.4), mid(0.88, 320, 0.3));
       leechAt.push(mid(0.25, 420, 2.9), mid(0.55, 380, 5.8), mid(0.8, 440, 1.2));
+      // asleep by the water the X-ray band has to be used in
+      feederAt.push(globes[0].c.clone().add(new THREE.Vector3(globes[0].r + 120, 0, 0)), globes[2].c.clone().add(new THREE.Vector3(0, globes[2].r + 120, 0)));
     }
-    life = createLife({ group: root, time: k.time, tier: k.tier, schools, callers, eaters: eaterAt, leeches: cfg.leeches ? leechAt : [], seed: cfg.seed + 17 });
+    life = createLife({ group: root, time: k.time, tier: k.tier, schools, callers, eaters: eaterAt, leeches: cfg.leeches ? leechAt : [], feeders: feederAt, seed: cfg.seed + 17 });
+    guards = life.groups.find((g) => g.kind === 'guard') ? life.groups.filter((g) => g.kind === 'guard') : null;
+    wallT = 0;
     u = 0;
     said = k.chapter.ez.node() > z || life.groups.every((g) => k.chapter.ez.logged(g.band)) ? 99 : -1; // (been through here before: nothing to say)
     askT = 0;
@@ -391,6 +475,12 @@ export function createHollow(k) {
       at.y -= 80;
       saidWater = k.chapter.reached('ez_descent') && k.chapter.ez.node() > 1;
       return true;
+    },
+    // back at the upper node (pulled back along the lattice): the wall is whole again
+    home(at) {
+      at.copy(entry);
+      at.y -= 80;
+      resetWall();
     },
     leave() {
       root.visible = false;
@@ -428,6 +518,20 @@ export function createHollow(k) {
       if (at.y < -len - 500) {
         at.y = -len - 500;
         if (vel.y < 0) vel.y = 0;
+      }
+      if (hasWall) {
+        // the fire stops the hull, except through the hole while there is one
+        const stand = C.EZ_WALL_STAND;
+        const hd = Math.hypot(at.x - holeU.value.x, at.z - holeU.value.y);
+        const fits = holeR > 30 && hd < holeR - 10;
+        inSlab = Math.abs(at.y - wallY) < stand && fits;
+        if (!passed && at.y < wallY + stand && !fits) {
+          at.y = wallY + stand;
+          if (vel.y < 0) vel.y = 0;
+        } else if (passed && at.y > wallY - stand) {
+          at.y = wallY - stand;
+          if (vel.y > 0) vel.y = 0;
+        }
       }
     },
     // Once a frame. Returns 'ride' when the lower node takes the vessel.
@@ -488,6 +592,74 @@ export function createHollow(k) {
         k.speak([DESCENT.temp[0], DESCENT.temp[1].replace('{n}', String(Math.round(21 - 28 * (1 - lamp.cabin))))], 4);
       } else if (lamp.cabin > 0.98) tempSaid = 0;
 
+      const fd = life.feeding();
+      if (fd && !saidFeed) {
+        saidFeed = true;
+        feedT = 0;
+        k.speak(DESCENT.feeders);
+      } else if (fd && saidFeed && !hintFeed && (feedT += dt) > 7) {
+        hintFeed = true;
+        k.speak(DESCENT.feedersHint, 7);
+      }
+
+      // --- the firewall ---
+      if (hasWall) {
+        const above = at.y - wallY;
+        if (!passed) {
+          wallT += dt;
+          // where the lamp falls on the sheet, if it reaches it
+          let on = false;
+          if (lampLive() && !lamp.all && lamp.band === BAND.HALPHA && lamp.dir.y < -0.05) {
+            const s = (wallY - lamp.pos.y) / lamp.dir.y;
+            if (s > 0 && s < lamp.reach) {
+              const hx = lamp.pos.x + lamp.dir.x * s, hz = lamp.pos.z + lamp.dir.z * s;
+              if (burn <= 0.001) holeU.value.set(hx, hz, 0); // (it opens where the lamp first falls)
+              on = Math.hypot(hx - holeU.value.x, hz - holeU.value.y) < Math.max(holeR, 40) + 50;
+            }
+          }
+          burn = on ? Math.min(1, burn + dt / C.EZ_BURN_TIME) : inSlab ? burn : Math.max(0, burn - dt / C.EZ_BURN_HEAL);
+          burnPeak = Math.max(burnPeak, burn);
+          if (on && !saidBurn && burn > 0.08) {
+            saidBurn = true;
+            k.speak(FIREWALL.burn);
+          }
+          if (!saidOpen && burn > 0.75) {
+            saidOpen = true;
+            k.speak(FIREWALL.open);
+          }
+          if (burn <= 0 && burnPeak > 0.35) {
+            burnPeak = 0;
+            k.speak(FIREWALL.lost);
+          }
+          if (!saidNear && above < C.EZ_WALL_STAND + 6) {
+            saidNear = true;
+            k.speak(FIREWALL.near, 4);
+          }
+          if (guards && !saidGuards) {
+            for (const g of guards) if (life.shows(g) && at.distanceTo(g.at) < lamp.reach) saidGuards = true;
+            if (saidGuards) k.speak(FIREWALL.first, 7);
+          }
+          if (!saidHint && !saidGuards && !saidBurn && wallT > 50 && above < 700) {
+            saidHint = true;
+            k.speak(FIREWALL.hint, 7);
+          }
+          if (above < -C.EZ_WALL_STAND * 0.7) {
+            passed = true;
+            saidThrough = 0.001;
+            k.speak(FIREWALL.through);
+          }
+        } else {
+          burn = Math.max(0, burn - dt / 1.2); // behind the vessel it shuts at once
+          if (saidThrough > 0 && (saidThrough += dt) > 8) {
+            saidThrough = -1;
+            k.speak(FIREWALL.kept, 8);
+          }
+        }
+        holeR = C.EZ_HOLE_R * burn * burn * (3 - 2 * burn);
+        holeU.value.z = holeR;
+        setRoar(Math.min(1, Math.max(0, 1 - (Math.abs(above) - C.EZ_WALL_STAND) / 1100) * 0.7 + burn * 0.3));
+      }
+
       // --- the nodes: the upper one feeds the lamp, the lower one is the way on ---
       if (at.distanceTo(entry) < C.EZ_NODE_R * 2) lamp.energy = Math.min(1, lamp.energy + C.EZ_NODE_CHARGE * dt);
       const need = missing();
@@ -510,6 +682,7 @@ export function createHollow(k) {
       zone, entry: entry.toArray().map(Math.round), exit: exit.toArray().map(Math.round),
       globes: globes.map((g) => ({ c: g.c.toArray().map(Math.round), r: Math.round(g.r) })),
       need: missing(), life: life.info(), meshes: made.length,
+      wall: hasWall ? { y: Math.round(wallY), burn: +burn.toFixed(2), hole: holeU.value.toArray().map(Math.round), passed } : null,
     } : null),
   };
 }

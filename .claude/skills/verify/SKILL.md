@@ -555,3 +555,18 @@ the lamp drains about five times faster; on H-alpha they leave. Leeches (zone
 with a fresh lamp and the log kept. The whole descent takes about ten minutes
 of real time under SwiftShader: run it in the background, and never edit a
 source file while it runs.
+
+The firewall (zone 3, stage `ez_firewall` on arrival; seed `ez: {log: 63,
+node: 3}` with stage `ez_descent` to ride straight to it): `sub.hollow.wall`
+→ `{y, burn, hole: [x, z, radius], passed}`. The hull stops 55 above `y`
+(`subSet` 75 above, `input.sprint`, wait for `sub.at[1] - y` < 56). On
+blue-green `burn` stays 0. On H-alpha, 240 above and pitched -1.3 at the
+sheet, `burn` reaches 1 in 7 game seconds (lines from Marrow, then Lux);
+stepping to another band takes it back to 0 in 4 (`It closed`). With `burn`
+at 1, `subSet` 80 above `hole` and sink: `passed` goes true, the hole shuts,
+and the hull is held 55 below. `subSet({lamp: {dose: 1}})` pulls the vessel
+back above a whole wall. Guards: `life.groups` are three `guard` schools at
+the wall; looking at one on H-alpha gives Vask's line. Radiation feeders
+(zone 2): 120 from `life.feederAt`, `life.feeding` stays 0 until the X-ray
+band is on, then reaches 2 or more and the dose climbs about four times as
+fast; off that band they settle within 6 game seconds.

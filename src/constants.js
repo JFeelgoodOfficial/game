@@ -575,6 +575,7 @@ export const C = {
   // The hollow (world/hollow.js): the way down, a zone at a time.
   EZ_ZONE1_LEN: 5200.0, // entry node to exit node: the outer oceans
   EZ_ZONE2_LEN: 6200.0, // ...and the creature zone
+  EZ_ZONE3_LEN: 2800.0, // ...and the firewall's: the wall is across the middle of it
   EZ_ZONE_WIDE: 2600.0, // how far off the lattice the vessel may wander
   EZ_SUB_DRAG_WATER: 1.7, // 1/s inside an ocean globe (EZ_SUB_DRAG is the dark between)
   EZ_NODE_R: 46.0, // inside this a lattice node takes the vessel, or recharges it
@@ -591,6 +592,16 @@ export const C = {
   EZ_LEECH_SHAKE: 47.0, // u/s: faster than this and they cannot hold on
   EZ_CABIN_DRAIN: 1 / 55, // of the cabin's warmth per second, per leech on the hull
   EZ_CABIN_WARM: 1 / 90, // ...and how fast it comes back with none
+  // Radiation feeders: asleep until the X-ray band is used near them.
+  EZ_FEEDER_SEES: 900.0,
+  EZ_FEEDER_SPEED: 46.0,
+  EZ_FEEDER_SLEEP: 6.0, // seconds without X-rays before they settle again
+  EZ_FEEDER_DOSE: 3.0, // extra dose, times this, with them at the glass
+  // The firewall (world/hollow.js, zone 3).
+  EZ_WALL_STAND: 55.0, // as near as the vessel can get to the fire
+  EZ_BURN_TIME: 7.0, // seconds of the key band held on one place to open it
+  EZ_BURN_HEAL: 4.0, // ...and to close again when the lamp comes off
+  EZ_HOLE_R: 95.0, // how wide the hole gets
 };
 
 // How far each band of the lamp reaches, in units, by what it is shining
@@ -628,12 +639,12 @@ export const EZ_NEW_WORLDS = true;
 // lingering wake; crowd: people at the rails while a race is on. Entry Zero
 // (GDD 5.7.5): motes: specks adrift round the submersible, which the beam shows in;
 // shards: ice adrift between the ocean globes; school: bodies in each group of
-// creatures; eaters / leeches: how many of each are after the vessel in a zone.
+// creatures; eaters / leeches / feeders: how many of each are after the vessel in a zone.
 export const CH_TIER = {
-  low: { people: 8, rigNear: 0, flood: 3, dream: 3, lanterns: 80, birds: 40, rivals: 3, wake: 50, crowd: 60, motes: 500, shards: 150, school: 12, eaters: 6, leeches: 3 },
-  medium: { people: 14, rigNear: 38, flood: 6, dream: 6, lanterns: 220, birds: 110, rivals: 5, wake: 100, crowd: 150, motes: 1400, shards: 400, school: 24, eaters: 10, leeches: 4 },
-  high: { people: 19, rigNear: 60, flood: 6, dream: 6, lanterns: 360, birds: 180, rivals: 5, wake: 130, crowd: 240, motes: 2200, shards: 700, school: 36, eaters: 14, leeches: 5 },
-  ultra: { people: 19, rigNear: 90, flood: 6, dream: 6, lanterns: 480, birds: 240, rivals: 6, wake: 160, crowd: 320, motes: 3000, shards: 1000, school: 48, eaters: 18, leeches: 6 },
+  low: { people: 8, rigNear: 0, flood: 3, dream: 3, lanterns: 80, birds: 40, rivals: 3, wake: 50, crowd: 60, motes: 500, shards: 150, school: 12, eaters: 6, leeches: 3, feeders: 3 },
+  medium: { people: 14, rigNear: 38, flood: 6, dream: 6, lanterns: 220, birds: 110, rivals: 5, wake: 100, crowd: 150, motes: 1400, shards: 400, school: 24, eaters: 10, leeches: 4, feeders: 5 },
+  high: { people: 19, rigNear: 60, flood: 6, dream: 6, lanterns: 360, birds: 180, rivals: 5, wake: 130, crowd: 240, motes: 2200, shards: 700, school: 36, eaters: 14, leeches: 5, feeders: 6 },
+  ultra: { people: 19, rigNear: 90, flood: 6, dream: 6, lanterns: 480, birds: 240, rivals: 6, wake: 160, crowd: 320, motes: 3000, shards: 1000, school: 48, eaters: 18, leeches: 6, feeders: 8 },
 };
 
 export const TIERS = {

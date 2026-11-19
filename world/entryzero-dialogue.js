@@ -124,6 +124,8 @@ export const LIFE = {
   line: { band: 'halpha', what: 'A VEIL OF HYDROGEN, ALIVE. IT GLOWS AT ONE WAVELENGTH AND NO OTHER.' },
   boned: { band: 'xray', what: 'SOFT BODIES. ONLY THE BONES STOP THE BEAM.' },
   caller: { band: 'radio', what: 'CALLERS. VERY LARGE, VERY SLOW, A LONG WAY OFF.' },
+  // (the firewall's guards: the same line as the veil, so nothing new for the log)
+  guard: { band: 'halpha', what: 'THE GUARDS OF THE WALL. THEY GLOW AS THE FIRE DOES, AND IT LETS THEM BY.' },
 };
 
 export const DESCENT = {
@@ -147,6 +149,11 @@ export const DESCENT = {
       [2, 'marrow', 'It is quieter here. That is not the same as empty.'],
       [9, 'vask', 'Four bands still blank in the log. Infrared. The red line. X-ray. Radio.'],
     ],
+    3: [
+      [2, 'marrow', 'One wall. All the way across.'],
+      [8, 'lux', 'That is not rock. That is burning.'],
+      [14, 'vask', 'Hydrogen, held in a sheet. Somebody built a fire and kept it lit.'],
+    ],
   },
   water: ['vask', 'We are through the ice. Blue-green carries here. Infrared will not.'],
   // the exit node will not take the vessel until this zone's bands are logged
@@ -160,6 +167,9 @@ export const DESCENT = {
   coldHint: ['marrow', 'Try the infrared.'],
   coldRun: ['lux', 'They are ON us. Go faster, they cannot hold on.'],
   temp: ['vask', 'CABIN AT {n} DEGREES.'],
+  // radiation feeders
+  feeders: ['lux', 'The X-ray woke something.'],
+  feedersHint: ['vask', 'Dose is climbing three times as fast. Take the lamp off that band and they settle.'],
   // pulled back along the lattice: lamp out, dose full, or cabin cold
   back: {
     lamp: ['vask', 'Lamp is dead. The lattice has us. Back to the node.'],
@@ -170,7 +180,18 @@ export const DESCENT = {
 
 // --- 4. the firewall --------------------------------------------------------------
 export const FIREWALL = {
+  // the first time the guards are seen, on the one band that shows them
   first: ['vask', 'Everything burns except what glows like them.'],
+  // too near the fire
+  near: ['vask', 'That is as close as the hull goes.'],
+  // a while at the wall and nothing tried that works
+  hint: ['marrow', 'Something goes through it and comes back. Find the band that shows what.'],
+  // the lamp on the wall in the band it is made of
+  burn: ['marrow', 'It takes that colour in. Hold it there.'],
+  open: ['lux', 'There is a way through. It will not stay.'],
+  lost: ['vask', 'It closed. Hold the lamp on one place.'],
+  through: ['lux', 'It shut behind us.'],
+  kept: ['marrow', 'It was not built to keep anyone out. It was built to keep this side in.'],
 };
 
 // --- 5. the centre ----------------------------------------------------------------

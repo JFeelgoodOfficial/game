@@ -471,14 +471,14 @@ export function createSubmersible(ctx) {
   function land() {
     rideDone = true;
     if (rideBack) {
-      at.copy(hollow.upper);
-      at.y -= 80;
+      hollow.home(at);
       resetLamp(true);
     } else {
       well.visible = false;
       if (!hollow.enter(rideTo, at)) return;
       zone = rideTo;
       chapter.advance('ez_descent');
+      if (zone >= 3) chapter.advance('ez_firewall');
       chapter.ez.setNode(zone);
     }
     vel.set(0, 0, 0);

@@ -8,12 +8,13 @@
 //                            out there coming through as the lamp finds it (0..1)
 //   doseTicks(rate, dt)      the dose meter, `rate` clicks a second on average
 //   logChime()               something has been logged
+//   setRoar(level)           the firewall, 0..1 with how near it is and whether it is being burnt
 //   hush()                   everything long-lived down to nothing (leaving)
 
 import { settings } from '../src/settings.js';
 
 let ctx = null, master = null, noise = null;
-let hum = null, radio = null;
+let hum = null, radio = null, roar = null;
 let plays = 0;
 let seed = 0x2e20e;
 const LEVEL = 0.8; // relative to the music slider
@@ -158,6 +159,32 @@ export function doseTicks(rate, dt) {
   tone('square', 3400, 2600, 0.035, 0.006, 0.03);
 }
 
+export function setRoar(level) {
+  if (level <= 0 && !roar) return;
+  const c = ensure();
+  if (!c) return;
+  if (!roar) {
+    // fire: low noise, with a slow unevenness to it
+    const n = loopNoise(c);
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 260;
+    const g = c.createGain();
+    g.gain.value = 0;
+    const lfo = c.createOscillator(), depth = c.createGain();
+    lfo.frequency.value = 0.7;
+    depth.gain.value = 90;
+    lfo.connect(depth).connect(lp.frequency);
+    n.connect(lp).connect(g).connect(master);
+    n.start();
+    lfo.start();
+    roar = { g, lp, level: 0 };
+  }
+  roar.level = level;
+  roar.g.gain.setTargetAtTime(0.32 * level, c.currentTime, 0.3);
+  roar.lp.frequency.setTargetAtTime(200 + 700 * level, c.currentTime, 0.4);
+}
+
 export function logChime() {
   tone('sine', 660, 660, 0.09, 0.25, 0.9);
   tone('sine', 990, 990, 0.06, 0.3, 1.1);
@@ -166,6 +193,7 @@ export function logChime() {
 export function hush() {
   if (!ctx) return;
   if (hum) hum.g.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
+  if (roar) roar.g.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
   if (radio) {
     radio.sg.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
     radio.cg.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
@@ -174,4 +202,4 @@ export function hush() {
 }
 
 // headless verification
-export const ezAudioState = () => ({ built: !!ctx, running: !!ctx && ctx.state === 'running', plays, hum: hum ? +hum.level.toFixed(2) : null, radio: radio ? { on: radio.on, near: +radio.near.toFixed(2) } : null });
+export const ezAudioState = () => ({ built: !!ctx, running: !!ctx && ctx.state === 'running', plays, hum: hum ? +hum.level.toFixed(2) : null, radio: radio ? { on: radio.on, near: +radio.near.toFixed(2) } : null, roar: roar ? +roar.level.toFixed(2) : null });
