@@ -23,7 +23,7 @@ import * as THREE from 'three';
 import { C } from '../src/constants.js';
 import { Q } from '../src/quality.js';
 import { sun } from '../src/sun.js';
-import { tint, box, cyl, mergedMesh, floorOf, buildRobot, trackRobot } from './capital.js';
+import { tint, box, cyl, mergedMesh, floorOf, buildRobot, trackRobot, tenretniMat } from './capital.js';
 import { doorFrame, doorLight, DOOR } from './farlanding.js';
 import { holeDirection } from './farhole.js';
 import { buildHangar, HANGAR_BOX } from './lightvessel.js';
@@ -706,7 +706,7 @@ export function createLightCity(ctx) {
 
   // --- the one who meets the pilot ---
   const robotMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x3a3426 });
-  const rig = buildRobot(robotMat, glowMat, { body: 0xf3eede, dark: 0xc7a255, glow: 0xfff0c0 });
+  const rig = buildRobot(tenretniMat(), glowMat);
   const GREET = { x: 0, y: 0, z: TERR_Z - 5, face: 0 };
   rig.group.position.set(GREET.x, GREET.y, GREET.z);
   rig.group.scale.setScalar(1.3);

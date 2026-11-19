@@ -17,7 +17,7 @@
 // the site its position vector, and the site may write to it).
 
 import * as THREE from 'three';
-import { tint, box, cyl, buildRobot, trackRobot } from './capital.js';
+import { tint, box, cyl, buildRobot, trackRobot, tenretniMat } from './capital.js';
 import { buildRig, poseRig } from './aliens.js';
 import { standRig } from './rigGround.js';
 import { buildCaptain, liveCaptain } from './captainDress.js';
@@ -149,8 +149,8 @@ export function buildPavilion(k) {
   }
   // --- the steward, by the lift ---
   const LIFT = { x: P.x + P.r - 7, z: P.z }; // the Pavilion's east side
-  const robotMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x3a3426 });
-  const rig = buildRobot(robotMat, k.glowMat, { body: 0xf3eede, dark: 0xc7a255, glow: 0xfff0c0 });
+  const robotMat = tenretniMat();
+  const rig = buildRobot(robotMat, k.glowMat);
   const ST = { x: LIFT.x - 1.5, y: 0, z: LIFT.z - 5.5, face: -Math.PI / 2 };
   rig.group.position.set(ST.x, 0, ST.z);
   rig.group.rotation.y = ST.face;
@@ -274,7 +274,7 @@ export function buildPavilion(k) {
   const VA = HA - 0.95; // off to one side of the seat, by the glass
   const VS = { x: S.x + Math.cos(VA) * 11.6, y: S.y, z: S.z + Math.sin(VA) * 11.6 };
   VS.face = Math.atan2(home.group.position.x - VS.x, home.group.position.z - VS.z); // it is looking at it
-  const vrig = buildRobot(robotMat, k.glowMat, { body: 0xf3eede, dark: 0xc7a255, glow: 0xfff0c0 });
+  const vrig = buildRobot(robotMat, k.glowMat);
   vrig.group.position.set(VS.x, VS.y, VS.z);
   vrig.group.rotation.y = VS.face;
   vrig.group.scale.setScalar(1.15);

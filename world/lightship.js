@@ -24,7 +24,7 @@ import { chime, uiSound } from '../src/sfx.js';
 import { label } from '../src/holoLabel.js';
 import { openDialogue, isDialogueOpen } from '../src/dialogue.js';
 import { chapterHud } from '../src/chapterHud.js';
-import { tint, box, cyl, mergedMesh, floorOf, buildRobot, trackRobot } from './capital.js';
+import { tint, box, cyl, mergedMesh, floorOf, buildRobot, trackRobot, tenretniMat } from './capital.js';
 import { createLayerPlanet, LAYERS } from './layerplanet.js';
 import { createPlace } from './holoplace.js';
 import { WORLDS, HOLO, ASSIGNMENT } from './chapter-dialogue.js';
@@ -301,8 +301,8 @@ export function createLightShip(ctx) {
   }
 
   // --- the Archivist, once there is something more to say ---
-  const robotMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x3a3426 });
-  const rig = buildRobot(robotMat, glowMat, { body: 0xf3eede, dark: 0xc7a255, glow: 0xfff0c0 });
+  const robotMat = tenretniMat();
+  const rig = buildRobot(robotMat, glowMat, undefined, 'archivist');
   rig.group.scale.setScalar(1.15);
   rig.group.visible = false;
   group.add(rig.group);

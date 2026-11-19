@@ -43,7 +43,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeStructure } from './city.js';
-import { createCrowd as createPeople } from './people.js';
+import { createSpeciesCrowd } from './speciesCrowd.js';
 import {
   HEADS, DEPT_LINES, PLAZA_LINES, DEPT_CODEX, PLAZA_CODEX,
 } from './wavemall-dialogue.js';
@@ -2002,11 +2002,6 @@ function stageVariant(stage, level) {
   return 'early';
 }
 
-// Caller clothing: muted mall-goer tones. Employees wear their department's
-// accent — the uniform IS the badge.
-const CALLER_CLOTH = [0x8a7f98, 0x6d7a8c, 0x9c8fa5, 0x5e6b74, 0xb0a4b8, 0x7d8a6f];
-const _qIdent = new THREE.Quaternion();
-
 /**
  * A crowd bound to a host area. Two shapes of host:
  *   - disc:  { radius, cx, cz, avoid[] }        — the plaza outside
@@ -2116,20 +2111,13 @@ export function createCrowd(host, opts = {}) {
     c.quest = null; // heads offer authored codex leaves from their trees instead
   }
 
-  // The visuals: a real crowd (world/people.js) over the citizen sim above.
-  let clothIdx = 0;
-  const people = createPeople({
+  // The visuals: Wavemallers (world/species.js), every one with the shift
+  // lights under the skin, over the citizen sim above.
+  const people = createSpeciesCrowd({
     count,
-    rng: mulberry32(seed ^ 0x517cc1),
-    materials: opts.materials,
-    place: (i) => ({ pos: citizens[i].pos, quat: _qIdent }),
-    cloth: (r) => {
-      const c = citizens[clothIdx++ % count];
-      // The head wears the department's SIGN color — associates wear the
-      // accent, so the one fixed figure at the post reads as in charge.
-      if (c.head && level != null) return DEPTS[level].sign;
-      return c.isEmployee ? c.accent : CALLER_CLOTH[Math.floor(r * CALLER_CLOTH.length)];
-    },
+    seed: (seed ^ 0x517cc1) >>> 0,
+    species: 'wavemall',
+    place: (i) => ({ pos: citizens[i].pos }),
     maxRigs: opts.maxRigs ?? 10,
   });
   group.add(people.group);
@@ -2178,6 +2166,7 @@ export function createCrowd(host, opts = {}) {
         ci, c.pos.x, c.pos.y, c.pos.z, c.yaw,
         moving ? c.speed / C.WANDER_SPEED_MAX : 0, simT
       );
+      people.setTalking(ci, !!c.talking);
     }
     if (playerPos) people.update(simT, dt, playerPos);
     void sunDot;
