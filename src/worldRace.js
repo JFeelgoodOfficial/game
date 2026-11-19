@@ -40,6 +40,7 @@ const LAPS = 3;
 const BASE = 92; // units a second, a world of speed 1, no boost
 const PENALTY = 2; // seconds for a gate missed
 const DRAFT = 46; // how far behind another world its pull is felt
+const ASSIST = 0.6; // how hard the pilot's stick is helped toward the next gate (0 none, 1 the stick's full throw)
 const STAND = { x: 9.5, z: -63.5 }; // the Starter's stand, on the terrace
 
 const clock = (sec) => {
@@ -244,10 +245,25 @@ export function createWorldRace(k) {
     r.slow = Math.max(0, r.slow - dt * 0.7);
     const top = BASE * w.speed * r.skill * (1 + 0.6 * r.boosting * w.boost) * (1 + 0.09 * r.draft) * (1 - 0.3 * r.slow);
     r.v += ((go ? top : r.done ? top * 0.4 : 0) - r.v) * Math.min(1, dt * (go ? 1.6 : 0.8));
+    // The pilot's hand is helped toward the middle of the next gate as it
+    // comes up: at race speed a gate is a second and a half off, and a thumb
+    // on a glass stick overshoots it. The help is only there while the stick
+    // is being pushed (a world left alone goes where it was going, and misses
+    // half the gates), and gives way to a stick pushed hard.
+    if (!r.ai && go) {
+      const gt = course.gates[r.gate];
+      if (gt) {
+        const toGate = ((gt.s - r.s + 1) % 1) * course.length;
+        const near = toGate < 220 ? 1 - toGate / 220 : 0;
+        const help = ASSIST * Math.min(1, 0.35 + near) * Math.min(1, Math.hypot(ax, ay) * 4);
+        ax = Math.max(-1, Math.min(1, ax + Math.max(-1, Math.min(1, (gt.across - r.x) / 6)) * help * (1 - 0.6 * Math.abs(ax))));
+        ay = Math.max(-1, Math.min(1, ay + Math.max(-1, Math.min(1, (gt.up - r.y) / 6)) * help * (1 - 0.6 * Math.abs(ay))));
+      }
+    }
     // grip: how fast the world takes a new heading (a heavy one slides)
-    const g = 3.2 * w.grip;
-    r.vx += ((go ? ax : 0) * 34 - r.vx) * Math.min(1, dt * g);
-    r.vy += ((go ? ay : 0) * 30 - r.vy) * Math.min(1, dt * g);
+    const g = 4.0 * w.grip;
+    r.vx += ((go ? ax : 0) * 42 - r.vx) * Math.min(1, dt * g);
+    r.vy += ((go ? ay : 0) * 36 - r.vy) * Math.min(1, dt * g);
     r.x += r.vx * dt;
     r.y += r.vy * dt;
     if (Math.abs(r.x) > LANE) {
@@ -264,11 +280,14 @@ export function createWorldRace(k) {
     if (go) {
       const gt = course.gates[r.gate];
       if (gt && before < gt.s && r.s >= gt.s) {
-        if (Math.hypot(r.x - gt.across, r.y - gt.up) < GATE_R * 0.92) {
+        // (through it if the world's middle is inside the ring, or nearly: a
+        // world clipping the ring with half its body has been through it)
+        if (Math.hypot(r.x - gt.across, r.y - gt.up) < GATE_R + RACER_R * 0.3) {
           r.meter = Math.min(1, r.meter + 0.3);
           event = 1;
         } else {
-          r.slow = 1;
+          r.slow = 0.6;
+          r.missed = (r.missed || 0) + 1;
           event = 2;
         }
         r.gate++;
@@ -530,7 +549,7 @@ export function createWorldRace(k) {
     },
     state: () => ({
       state, world: me && me.world.id, s: me ? me.s : 0, x: me ? me.x : 0, y: me ? me.y : 0, v: me ? me.v : 0,
-      lap: me ? me.lap : 0, gate: me ? me.gate : 0, gates: course.gates.length, time, meter: me ? me.meter : 0, draft: me ? me.draft : 0,
+      lap: me ? me.lap : 0, gate: me ? me.gate : 0, missed: me ? me.missed || 0 : 0, gates: course.gates.length, time, meter: me ? me.meter : 0, draft: me ? me.draft : 0,
       best: { ...best }, length: course.length, place, crash, via: course.sVia, towersCut, towersNear: course.towersNear(),
       field: field.map((r) => ({ name: r.name, world: r.world.id, out: r.out, at: Math.round((r.lap + r.s) * 1000) / 1000, x: Math.round(r.x * 10) / 10, y: Math.round(r.y * 10) / 10, v: Math.round(r.v), done: r.done })),
       order: order.map((r) => r.name),

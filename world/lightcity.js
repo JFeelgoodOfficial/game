@@ -40,6 +40,7 @@ import { createEntryOffer } from './entryoffer.js';
 import { OFFER, LAUNCH } from './entryzero-dialogue.js';
 import { ERA } from '../src/era.js';
 import { createEraCity } from './eracity.js';
+import { createLightLife } from './lightlife.js';
 
 const SNAP = 1.2;
 const DOOR_Z = 10; // the way back
@@ -716,6 +717,13 @@ export function createLightCity(ctx) {
 
   const city = buildCity(group, lightDir);
   const hangar = buildHangar(group);
+  // the three peoples on the walks, and their craft in the air (world/lightlife.js)
+  let life = null;
+  try {
+    life = createLightLife({ group, colliders });
+  } catch (err) {
+    console.warn('[lightcity] the city could not be lived in', err);
+  }
   // ...and the first thing the pilot is shown of it (world/lightdemo.js): asked
   // for at the gallery's far rail, where the whole hull is in view
   const demo = ctx.chapter ? createDemo(group, hangar, ctx.chapter, { x: GALL_X - GALL_R + 4, z: TERR_Z }, (on) => {
@@ -984,7 +992,7 @@ export function createLightCity(ctx) {
         if (!districts && !eraNow()) {
           try {
             const n0 = consoles.length;
-            districts = createDistricts({ group, surfaces, colliders, consoles, chapter: ch });
+            districts = createDistricts({ group, surfaces, colliders, consoles, chapter: ch, lightDir });
             retire(n0);
           } catch (err) {
             console.warn('[lightcity] the districts could not be built', err);
@@ -1070,6 +1078,7 @@ export function createLightCity(ctx) {
       chapterHud.tick(dt);
       if (epi) epi.tick(dt, t, walker);
       if (districts) districts.tick(dt, t);
+      if (life) life.tick(dt, t, walker, ERA.value > 0.5);
       // (the race is offered the visit after the suite scene has played)
       if (!race && ctx.chapter && ctx.chapter.epilogue() && epi && !epi.held() && !eraNow()) {
         try {
@@ -1103,7 +1112,7 @@ export function createLightCity(ctx) {
       terrace: [0, 0, TERR_Z + 8], greeter: [0, 0, GREET.z + 2.6], gallery: [GALL_X, 0, TERR_Z],
       ...pavilion.places,
     },
-    info: () => ({ towers: city.towers, cells: hangar.cells, demo: demo ? demo.state() : null, districts: districts ? districts.state() : null, race: race ? race.state() : null, raceSet: race ? race.debugSet : null, raceProbe: race ? race.debugProbe : null, epi: epi ? epi.state() : null, offer: offer ? offer.state() : null, era: ERA.value, grown: grown ? grown.state() : null, corner: hangar.corner(), ship: hangar.vessel.visible }),
+    info: () => ({ life: life ? life.state() : null, towers: city.towers, cells: hangar.cells, demo: demo ? demo.state() : null, districts: districts ? districts.state() : null, race: race ? race.state() : null, raceSet: race ? race.debugSet : null, raceProbe: race ? race.debugProbe : null, epi: epi ? epi.state() : null, offer: offer ? offer.state() : null, era: ERA.value, grown: grown ? grown.state() : null, corner: hangar.corner(), ship: hangar.vessel.visible }),
   };
   return site;
 }
