@@ -163,7 +163,7 @@ export function createZeroGround(ctx) {
   vessel.position.y = SHIP_Y;
   group.add(vessel);
   // the tether: from the hatch to where the pilot is
-  const tether = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1, 5, 1).translate(0, 0.5, 0), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.9, 0.9, 1.0), fog: false }));
+  const tether = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 1, 5, 1).translate(0, 0.5, 0), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.3, 0.33, 0.38), fog: false }));
   tether.frustumCulled = false;
   group.add(tether);
   // the eaters, round the beam up there: more of them the longer it burns
@@ -216,6 +216,7 @@ export function createZeroGround(ctx) {
   // --- state ---
   let light = 1; // the lamp overhead, 1..0
   let clock = 0, said = -1, warned = 0, edgeT = 0, hauling = -1, saidAll = false, lostSay = -1;
+  let allAt = -1;
   let lastChanged = -1, lastBand = -1;
   let inside = false, prev = null;
   let walker = null;
@@ -287,6 +288,8 @@ export function createZeroGround(ctx) {
       warned = 0;
       hauling = -1;
       lostSay = -1;
+      allAt = chapter.ez.foundAll() ? 3 : -1;
+      saidAll = false;
       resetLamp(true);
       lamp.medium = 'fog';
       lamp.power = C.EZ_HAND_POWER;
@@ -343,7 +346,7 @@ export function createZeroGround(ctx) {
       const R = poolR();
       pool.value = R;
       shaft.scale.set(R, 1, R);
-      shaftMat.opacity = 0.03 + 0.05 * light;
+      shaftMat.opacity = 0.006 + 0.012 * light; // (seen from inside it: a little is a lot)
       const eatN = Math.min(EAT, 2 + Math.floor(clock / 14));
       for (let i = 0; i < EAT; i++) {
         const a = t * (0.5 + 0.07 * i) + i * 2.4, rr = 3 + 1.2 * (i % 4), y = SHIP_Y - 6 - 3.5 * (i % 5) - 2 * Math.sin(t * 0.7 + i);
@@ -394,10 +397,14 @@ export function createZeroGround(ctx) {
           chapterHud.say(`${GROUND.found.replace('{name}', r.def.name)}. ${r.def.fragment}`, 10);
         }
       }
+      // (said a while after the last fragment, so that can be read)
       if (!saidAll && chapter.ez.foundAll() && hauling < 0) {
-        saidAll = true;
-        clock = Math.max(clock, 12);
-        speak(GROUND.all, 8);
+        if (allAt < 0) allAt = clock + 10.5;
+        else if (clock >= allAt) {
+          saidAll = true;
+          said = 99; // (nothing left to say about arriving)
+          speak(GROUND.all, 8);
+        }
       }
 
       // --- the captains: they follow, and they trust where they are led ---
@@ -452,7 +459,7 @@ export function createZeroGround(ctx) {
       // --- what is said: arriving, and the lamp going ---
       while (said + 1 < GROUND.arrive.length && clock >= GROUND.arrive[said + 1][0]) {
         said++;
-        speak(GROUND.arrive[said], 6.5);
+        speak([GROUND.arrive[said][1], GROUND.arrive[said][2]], 6.5);
       }
       // (whoever stayed calls each quarter of the lamp, early by as much as they are able)
       const q = Math.floor((1 - (light - rate * stay.warn)) * 4);
