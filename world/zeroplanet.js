@@ -236,6 +236,7 @@ export function createCentre(k) {
         rv += dt;
         const h = poseReveal(rv);
         at.set(centre.x, centre.y + R + h, centre.z);
+        alt = h;
         u.uSeen.value = 1;
         u.uSolid.value = 0;
         while (rvSaid + 1 < REVEAL.lines.length && rv >= REVEAL.lines[rvSaid + 1][0]) {
@@ -248,6 +249,7 @@ export function createCentre(k) {
           rv = -1;
           seen = 1;
           solid = 0;
+          wasSolid = false; // (nothing went: it was shown)
           k.cine(false);
           if (k.chapter.advance('ez_reveal')) addCodex(REVEAL.codex);
           k.speak(REVEAL.after, 8);

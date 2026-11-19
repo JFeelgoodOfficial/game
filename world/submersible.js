@@ -399,6 +399,7 @@ export function createSubmersible(ctx) {
   let env = null; // whichever of the two the vessel is in
   let choosing = false; // the pilot is being asked who stays
   let resumed = false; // boarded from the ground, not the city
+  let shownDose = 0; // the dose as it stood when the reveal began
   let gate = 0; // the gap in the membrane, 0..1
   let shutT = 0;
   // a pulse along the lattice: one clock, and everything from it
@@ -734,7 +735,11 @@ export function createSubmersible(ctx) {
       const cp = Math.cos(pitch);
       lamp.dir.set(Math.sin(yaw) * cp, Math.sin(pitch), Math.cos(yaw) * cp);
       // every band at once: the key, or whoever is at the lamp once that has been settled
-      if (shown) lamp.energy = Math.max(lamp.energy, 0.5); // (nothing runs out while it is being shown)
+      // (nothing runs out, and nothing is counted, while it is being shown)
+      if (shown) {
+        lamp.energy = Math.max(lamp.energy, 0.5);
+        lamp.dose = shownDose;
+      } else shownDose = lamp.dose;
       const keeper = zone === CENTRE_ZONE && (choosing || shown || (!!chapter.ez.stay() && lamp.on && centre.info().alt < 260));
       stepLamp(d, input.allBands || keeper);
       beam.scale.setScalar(lamp.reach * 0.75);
@@ -816,6 +821,7 @@ export function createSubmersible(ctx) {
         doneAt = -1;
         speak(WELL.done);
       }
+      hull.position.copy(at); // (the reveal carries the vessel after the hull was placed: keep the frame on the eye)
       lampHud.update();
     },
     inside: () => inside,

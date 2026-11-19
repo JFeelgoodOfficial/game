@@ -628,3 +628,18 @@ the id joins `ez.lost` (saved) and the keeper says so. `groundSet({light:
 over the ground, already solid, with a fresh lamp. A second descent has one
 fewer in `crew` and `light` 1 again. `interact()` at the hatch (0, 1) goes up
 the tether.
+
+The reveal (`world/zeroplanet.js`, stage `ez_reveal` when it ends; seed `ez:
+{log: 63, node: 5, stay, frags: 7}` with stage `ez_relics`): aboard at the
+centre with every fragment found, the hatch is not asked about again, and a
+captain says to show it everything. With the ground solid, Z down for 2 game
+seconds starts it: `sub.hollow.reveal` counts 0 → 36 (-1 when not playing),
+`body.ch-cine` is set, the vessel is carried from where it was to 1.7 radii
+up looking straight down (`hollow.alt`), `hollow.shown` reaches 1 by 9 s and
+`hollow.lights` falls 1 → 0 between 22 and 31 s. The lines are `REVEAL.lines`
+at 0, 7, 14 and 22 s on `#chHud .line`; no dose call or `ground went` line
+may come during it. At the end: stage `ez_reveal`, codex `What Was Feared`,
+Vask's closing line, bars out. Afterwards `hollow.shown` follows the lamp:
+toward 1 with every band on the planet, toward 0 with the lamp off. Poll it
+(`reveal` every half second) rather than sleeping: it takes several minutes
+of real time under SwiftShader.
