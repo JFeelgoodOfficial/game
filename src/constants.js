@@ -628,6 +628,10 @@ export const C = {
   EZ_HAND_POWER: 0.4, // the lamp carried by hand reaches this much of what the vessel's does
   EZ_RELIC_NEAR: 16.0, // as near as a relic has to be for the lamp to read it
   EZ_CREW_SPEED: 6.5, // u/s the captains walk at: a pilot who runs leaves them behind
+  // The reveal (world/zeroplanet.js): the first world as it was, shown once.
+  EZ_REVEAL_HOLD: 2.0, // seconds every band is held on it, with the story whole, to begin
+  EZ_REVEAL_TIME: 36.0, // how long it lasts
+  EZ_REVEAL_RISE: 1.7, // how high the vessel is carried over it, in radii
 };
 
 // How far each band of the lamp reaches, in units, by what it is shining
