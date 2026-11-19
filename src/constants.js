@@ -612,6 +612,14 @@ export const C = {
   EZ_CALLER_REACH: 170.0, // inside this it has the vessel
   EZ_CALLER_HOLD: 2.5, // ...and after this many seconds there, it has the lamp
   EZ_CALLER_LOSES: 5.0, // seconds of a silent drive before it stops coming
+  // The centre (world/zeroplanet.js): the first world.
+  EZ_PLANET_R: 800.0, // its radius
+  EZ_PLANET_DOWN: 2400.0, // its centre, this far under where the vessel arrives
+  EZ_CENTRE_PULL: 7.0, // u/s^2 toward it
+  EZ_HOVER_MIN: 30.0, // as low over the ground as the hull goes
+  EZ_HOVER_HOLD: 4.0, // seconds held over solid ground before the hatch can be opened
+  EZ_SOLID_IN: 3.0, // seconds of every band at once for the ground to come solid
+  EZ_SOLID_OUT: 2.0, // ...and to go again without it
 };
 
 // How far each band of the lamp reaches, in units, by what it is shining
@@ -623,6 +631,10 @@ export const C = {
 export const EZ_REACH = {
   water: [900, 280, 70, 520, 420, 4000],
   void: [650, 480, 1500, 950, 700, 4000],
+  // The mist over the first world: every band is short here, infrared shortest.
+  // Every band at once reaches only as far as the shortest, which sets how low
+  // the vessel has to hover.
+  fog: [300, 180, 100, 260, 220, 4000],
 };
 
 // What lights the megaworld a million years on (src/era.js). Not decided:

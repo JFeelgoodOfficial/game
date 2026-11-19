@@ -62,7 +62,7 @@ const ZONES = {
   3: { len: () => C.EZ_ZONE3_LEN, seed: 0x10ce03, globes: 0, roof: false, asks: [], leeches: false, wall: 0.5 },
   4: { len: () => C.EZ_ZONE4_LEN, seed: 0x10ce04, globes: 0, roof: false, asks: [], leeches: true, slabs: true, caller: true, pull: true },
 };
-export const LAST_ZONE = 4; // (the centre is under the oldest strata: not built yet)
+export const LAST_ZONE = 4; // (under it is the centre: world/zeroplanet.js)
 
 const NOISE_GLSL = /* glsl */ `
   float h31(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
@@ -596,6 +596,10 @@ export function createHollow(k) {
       }
     },
     pull: pullAt,
+    // ...applied (the same call the centre takes: world/zeroplanet.js)
+    weigh(at, vel, h) {
+      vel.y -= pullAt(at) * h;
+    },
     leave() {
       root.visible = false;
       free();
@@ -854,6 +858,9 @@ export function createHollow(k) {
           return 'caller';
         }
       }
+
+      // past the last node the lattice does not go: from there it is a fall
+      if (zone === LAST_ZONE && at.y < -cfg.len() - 420) return 'fall';
 
       // --- the nodes: the upper one feeds the lamp, the lower one is the way on ---
       if (at.distanceTo(entry) < C.EZ_NODE_R * 2) lamp.energy = Math.min(1, lamp.energy + C.EZ_NODE_CHARGE * dt);
