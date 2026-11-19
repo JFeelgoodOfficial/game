@@ -346,5 +346,43 @@ export const ERA = {
 
 // --- 10. the launch ---------------------------------------------------------------
 export const LAUNCH = {
+  // at the gallery, where the light ship is: there is no coming back from this
+  board: 'E — BOARD THE LIGHT SHIP',
+  ask: {
+    speaker: { name: 'The Archivist', species: 'Tenretni', cityId: 'The City of Light' },
+    lines: [
+      'It will take you. It goes where its pilot imagines.',
+      'We are staying. We have somewhere to be now. This.',
+      'The archive is aboard. All of it. It was never ours to keep still.',
+    ],
+    offer: {
+      kind: 'choice',
+      prompt: 'IT GOES INTO THE HOLE, AND IT DOES NOT COME BACK.',
+      options: [
+        { label: 'TAKE THE HELM', outcomeTag: 'ez:launch' },
+        { label: 'NOT YET', outcomeTag: 'ez:stay' },
+      ],
+    },
+  },
+  // the way out: [seconds, who, line]. `worlds` is said in place of `rested` when
+  // the Tenretni have made new worlds (EZ_NEW_WORLDS)
+  lines: [
+    [3, 'vask', 'They are staying. Every one of them.'],
+    [11, 'lux', 'From out here it looks worn. Like something that was used, and put down.'],
+    [19, 'marrow', null], // (worlds / rested)
+    [28, 'vask', 'The archive is aboard. Entry zero, the first entry, and everything between.'],
+    [38, 'lux', 'And we are throwing it in there.'],
+    [45, 'vask', 'No. Past the horizon the centre is not a place. It is a time. We are carrying it to one nobody holds yet.'],
+  ],
+  worlds: 'Those are new. The small ones, round it. They made them out of what they took.',
+  rested: 'They made nothing else. They put it down, and they rested.',
+  // the last thing said in the saga
   last: ['marrow', "Where we're going hasn't happened yet."],
+  codex: 'Into the Hole',
+  // afterwards, on the bridge, inside: all there is to say
+  talk: {
+    vask: ['I have stopped counting. There is nothing here to count against.'],
+    marrow: ['Listen. It is all still ahead of us.'],
+    lux: ['I am not afraid. I keep checking, and I am not.'],
+  },
 };

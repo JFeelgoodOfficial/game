@@ -1051,6 +1051,9 @@ export function farGate() {
 export const farSite = (kind) => (ended === 'far' && far ? far.site(kind) : null);
 // A door there has been walked through: 'city' | 'pad' | null (clears on asking).
 export const farDoor = () => (ended === 'far' && far ? far.door() : null);
+// The saga is over (GDD 5.7.5): the pilot is inside the hole, aboard the light
+// ship, and that is where a game come back to belongs (src/game.js).
+export const farBeyond = () => ended === 'far' && !!far && chapter.reached('ez_beyond');
 
 // The first time through, the megaworld does what the Sky City does: a little
 // after the pilot arrives, the Landing takes the helm and flies the ship down

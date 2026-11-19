@@ -52,7 +52,7 @@ import { initHoloPanel, openHoloPanel, closeHoloPanel, isHoloPanelOpen, holoPane
 import {
   initTenretni, updateTenretni, tenretniHolding, stepTenretniHold, resetTenretni,
   tenretniFx, tenretniDebug, capitalDock, tenretniSailVelocity, holoPrograms, holoWorld,
-  nearestVessel, vesselSite, holdVessel, placeFleets, wormholeCapture, farGate, enterFar, farSite, farDoor, farWantsLanding, farMarkLanded,
+  nearestVessel, vesselSite, holdVessel, placeFleets, wormholeCapture, farGate, enterFar, farSite, farDoor, farBeyond, farWantsLanding, farMarkLanded,
 } from './tenretniLazy.js';
 import {
   interiorScene,
@@ -1443,9 +1443,15 @@ const FAR_HOPS = {
   // ...and at the centre, through the vessel's hatch to the ground and back up the tether
   ground: ['ground', 'spawn', 'spawnYaw', 'hollow'],
   groundup: ['sub', 'spawn', 'spawnYaw', 'hollow'],
+  // ...and the last one: aboard the light ship, for the hole
+  launch: ['launch', 'spawn', 'spawnYaw', 'dive'],
 };
 let doorT = -1;
 let doorTo = null;
+// The saga has ended inside the hole (stage `ez_beyond`): a pilot who comes
+// back to the game is not flying over the megaworld. 0 not yet looked at, 1
+// parked on the landing, 2 done (or not wanted).
+let beyondStep = 0;
 let platformDock = null; // the dock whose platform the pilot is walking (capital or a ship)
 let dock = DOCKS[0]; // the dock in play while skyLanding is set
 let walkDock = null; // the dock the current walk stepped out of, if it will be boarded back onto its pad
@@ -2313,6 +2319,25 @@ function frame(now) {
   if (phase === 'walk' && holo && (input.toggleWalk || walkPendingReset() || coinLeft())) {
     input.toggleWalk = false;
     endHolo();
+  }
+  // The saga ended inside the hole (GDD 5.7.5): park on the landing, step
+  // out, and go through the white to the light ship's bridge, as it was left.
+  if (beyondStep < 2 && phase === 'fly' && farBeyond()) {
+    if (beyondStep === 0) {
+      if (aimLandingDock()) {
+        setOnSkyPad(LANDING_DOCK);
+        beyondStep = 1;
+      }
+    } else if (dock === LANDING_DOCK && LANDING_DOCK.stepOut()) {
+      platformDock = LANDING_DOCK;
+      landState = null;
+      landedPlanet = null;
+      skyLanding = false;
+      phase = 'walk';
+      doorTo = 'launch';
+      doorT = 0;
+      beyondStep = 2;
+    }
   }
   if (phase === 'fly') {
     // C: stand up out of the seat / sit back down at it. Standing is

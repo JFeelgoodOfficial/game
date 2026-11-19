@@ -800,6 +800,155 @@ Rules the chapter keeps to:
   four colours between every caged star and its eight neighbours, rings round
   each plate, lit district trenches and a blue horizon (`uAged` in
   `megaGround.frag`).
+- What comes after is 5.7.5. There the light ship, which leaves in the
+  epilogue, comes back, and the captains' names on the Wall may gain an end.
+
+### 5.7.5 Entry Zero: under the megaworld, and after it (owner's story)
+
+What happens once the Tenretni are curious. The same state machine,
+`src/chapter.js`, carries on past `done`: the offer can be made once the
+Keeper has been heard and the light ship seen off (`done` and `epilogue`, in
+either order). Its own record is `ch.ez` inside `fgsf.tenretni`: the lamp's
+log, the relics found, who stayed, who was lost, the last lattice node, the
+crew's clock. It is written only when it holds something, so a save from 5.7.4
+loads unchanged. Every word is in `world/entryzero-dialogue.js`; lines the
+owner has not written are marked `PLACEHOLDER` there and on screen. Tunables
+are the `EZ_*` block in `src/constants.js`.
+
+Stages, in order (appended; the story only goes forward): `ez_offer` →
+`ez_descent` → `ez_firewall` → `ez_deep` → `ez_centre` → `ez_relics` →
+`ez_reveal` → `ez_ascent` → `ez_era` → `ez_launch` → `ez_beyond`.
+
+| Stage | Where | What happens |
+|---|---|---|
+| ez_offer | `world/entryoffer.js` | The Archivist comes down to the arrival balcony and hangs the archive beyond the rail: 330 lit records and one dark one, entry zero, the world the Tenretni came from. Yes gives the pilot a lamp, a vessel and the three captains. |
+| ez_descent | `world/submersible.js`, `world/hollow.js` | The vessel is boarded at the east rail. In the well under the city the lamp is tried on six targets. Then down through the membrane, and the lattice carries the vessel a zone at a time: the outer oceans, then the creature zone. |
+| ez_firewall | `world/hollow.js` | One sheet of burning hydrogen across the whole hollow. Its guards show on one band only. That band, held on the wall, opens it. |
+| ez_deep | `world/hollow.js` | The oldest strata: pieces of the first worlds, adrift and solid. Weight comes back. Something on the radio band comes to the sound of the drive. |
+| ez_centre | `world/zeroplanet.js` | The lattice ends; the vessel falls. The first world is seen one band at a time, and whole with every band at once. It is solid only within about a hundred units, while the light holds. The pilot chooses which captain stays at the lamp. |
+| ez_relics | `world/zeroground.js` | On foot, on a tether, with a lamp in the hand and the two other captains. Three relics, one fragment each. The lit ground shrinks. A captain past its edge is lost for good. |
+| ez_reveal | `world/zeroplanet.js` | Every band on it once more, with every fragment: the first world as it was, lit, and the lights going out. |
+| ez_ascent | `world/hollow.js`, `world/submersible.js` | Up under the firewall, which opens to every band. The lattice does the rest. The vessel breaks out into rain. |
+| ez_era | `src/era.js`, `world/megaworld.js`, `world/lightcity.js` | A million years on: `EZ_YEARS_GONE`, 2^20. The megaworld and the city are what they have become. |
+| ez_launch | `world/launch.js` | The Tenretni stay. The light ship, the archive and the crew go out from the megaworld and into the hole. |
+| ez_beyond | `world/launch.js` | Inside. Nothing is built past it. |
+
+The lamp (`src/lamp.js`) is the system everything below the city is built on.
+One instrument, six bands, one at a time; on one band the pilot is blind to
+the other five. One set of uniforms (`LAMP_U`) is shared by reference by
+every material that answers it, with one GLSL chunk (`LAMP_GLSL`). Nothing
+exists at one wavelength only: a thing shows in a band because of what it is
+made of, and the comments say what.
+
+| Band | How | What answers |
+|---|---|---|
+| blue-green, 490 nm | a beam | living light; the colour water carries furthest |
+| ultraviolet, 320 nm | a beam | fluorescence: pigment, mineral, the makers' writing |
+| infrared, 10 µm | seen, no beam | anything warm. Water swallows it in metres |
+| H-alpha, 656.3 nm | seen, no beam | excited hydrogen. At the firewall only, it is a beam |
+| X-ray, 0.1 nm | a beam, and it goes through | density: bone in soft bodies, what is in rock or under ground. It adds to a dose |
+| radio, 21 cm | heard, never drawn | louder as the lamp points at the source |
+
+- Reach depends on what the lamp shines through (`EZ_REACH`): water, the dark
+  between, or the mist over the first world. Every band at once reaches only
+  as far as the shortest.
+- The lamp runs down while lit and comes back when off or at a lattice node.
+- Looking at something in its band for `EZ_LOOK_TIME` saves that band to the
+  log. A lower node will not take the vessel until its zone's bands are
+  logged, so the log is whole by the centre.
+- The readout (`src/lampHud.js`) is on the glass, not a dashboard, because
+  the same lamp is later carried by hand. Sound is `world/entryzero-audio.js`,
+  synthesised.
+
+The submersible is a platform-walker site whose one seat is never left. The
+megaworld is a shell and inside a shell nothing pulls, so it is weightless:
+W / S ahead and astern, A / D sideways, Space / Shift rise and sink, the mouse
+a push on the hull that settles, Q / E the band, L the lamp, Z every band
+(learned at the centre). The megaworld's inside is not flown from its
+surface: it is a set of places under the white, as the dive was.
+
+The hollow (`world/hollow.js`), one zone built at a time:
+
+- The stolen oceans are separate globes the size of moons, each under a crust
+  of its own ice with mist at the limb. One body of water that size would fall
+  in on itself and light. They can be flown into.
+- Between them: the dark, ice adrift, and the compute lattice running down
+  through everything like roots. Follow it.
+- A zone runs from one lattice node down to the next. Light takes 8 min 19 s
+  from the shell to the centre, so the lattice carries the vessel between
+  zones as a pulse (`EZ_RIDE_TIME`).
+- Six kinds of life, one band each (`world/hollowlife.js`): drifters, painted
+  swimmers, glass drifters seen by their heat, a veil of living hydrogen, soft
+  bodies with bones, and callers that are only heard.
+- Four things after the vessel's energy, not its hull: light eaters (drawn to
+  any beam but H-alpha), heat leeches (seen only in infrared; they cannot hold
+  on at speed), radiation feeders (woken by the X-ray band), and the listener
+  in the oldest strata (it hears the drive; go quiet and it loses the place).
+- If the lamp dies, the dose fills, the cabin freezes or the listener reaches
+  the hull, the lattice takes the vessel back to the last node with a fresh
+  lamp. The log is kept. Nothing else is lost.
+
+The centre, the relics and the reveal:
+
+- The first world is only there while it is looked at with everything. The
+  vessel has to hover inside the shortest band's reach, holding every band on
+  the ground, for the ground to be ground.
+- The pilot chooses one captain to stay at the lamp. The choice is saved and
+  cannot be changed. What each choice does is a table of placeholder numbers
+  (`STAY`): how fast the lit ground shrinks, how early the eaters are called.
+- On the ground the clock is the lamp overhead. The pilot is on a tether and
+  cannot leave the light. The captains follow at a walk and can: one who is
+  past the edge when it comes in is gone, saved in `ez.lost`, and is in
+  nothing that follows. Nobody has to be lost.
+- The relics are the makers' writing (ultraviolet), the last warm place
+  (infrared) and what is buried (X-ray). What they say, and what the one who
+  was afraid had lost, is not written. The theme is: curiosity is what stands
+  up to fear.
+
+A million years on (`ez_era`):
+
+- Near the dense core the crew's clocks ran slow. The emergence gives the
+  surface's clock beside their own; the city gives all three in a line, with
+  the light ship's 1,024 years.
+- One shared value, `ERA` in `src/era.js`, turns the megaworld's ground,
+  towers and cage frames to their later look: seas where the land lies low,
+  growth, cloud shadow, most conduits dark. The cages are open and empty.
+- What lights it is not decided: `EZ_LIGHT` is `'sun'` (one kept, uncaged
+  star; the default), `'hole'` or `'none'`. All three are built.
+- The release of the stars is shown as a rite: every so often every empty
+  cage is lit as if its star were back, and let go dark (`RITE`).
+- The City of Light: most panes dark, the floor cracked and standing in
+  water, vines on the rails. The descendants still walk it and the monument
+  still glows. The white hole is unchanged. The districts and the racing of
+  5.7.4 are not built in this era.
+- The light ship is back in a fallen-in yard, the newest thing in the world.
+  The corner of it that was never built is finished in round cells unlike the
+  rest: the first thing the Tenretni imagined.
+
+The launch:
+
+- From outside the megaworld is a worn shell with its oceans showing through
+  the gaps. Whether the Tenretni went on to make things is not decided:
+  `EZ_NEW_WORLDS` (on by default) puts a ring of young planets round it, made
+  from the shell's strata.
+- Inside a horizon the centre is not a place that can be steered away from.
+  It is later. So the archive is not being thrown away: it is carried into a
+  future nobody holds. Past the horizon the whole outside closes to a ring
+  astern and goes out, and nothing is drawn ahead.
+- The saga stops at `ez_beyond`, on the bridge, with the people who are left
+  and the archive lit behind them. A game come back to at that stage is put
+  there.
+
+Rules this chapter keeps to, beyond those of 5.7.4:
+
+- A site may hide the pilot (`hidePilot`) and integrate a body of its own in
+  `tick`; a render preset may set its own far plane (`hollow`, 9,000).
+- A new look for an old material is one value shared by reference
+  (`src/era.js`), set in one place. `uAged` is left as it was.
+- Anything undecided is one constant or one table, named in the writing file
+  or `src/constants.js`. Nothing undecided is in the code.
+- The light ship's build loop is not disturbed: its new cells are a third
+  mesh over the cells the loop skipped, so every older cell is where it was.
 
 ### 5.8 The Sky City (Saturnia)
 
