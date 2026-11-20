@@ -1155,6 +1155,58 @@ export function nearPainting() {
   return best;
 }
 
+// --- guests (GDD 5.7.8): captains riding along on a trip from the light ship ---
+// The figures are built by the story's chunk (src/tenretni.js tripCrew), which
+// is where the rigs live; this only stands them in the hall, just aft of the
+// vestibule, and says whether the pilot is near enough one to talk to.
+const GUEST_SPOTS = [[-2.3, HALL_Z0 + 2.2, Math.PI * 0.7], [2.3, HALL_Z0 + 3.4, -Math.PI * 0.7], [-2.6, HALL_Z0 + 6.0, Math.PI * 0.6]];
+const guests = []; // { id, rig, on, slot }
+let guestV = -2;
+// `trip`: { v, ids, make(id) -> rig, live(rig, dt, t, floorY, yaw) } | null
+export function syncGuests(trip) {
+  const v = trip ? trip.v : -1;
+  if (v === guestV) return;
+  guestV = v;
+  const ids = trip ? trip.ids : [];
+  for (const g of guests) g.on = false;
+  let n = 0;
+  for (const id of ids) {
+    let g = guests.find((x) => x.id === id);
+    if (!g) {
+      g = { id, rig: trip.make(id), on: false, slot: 0 };
+      group.add(g.rig.group);
+      guests.push(g);
+    }
+    g.on = true;
+    g.slot = n++ % GUEST_SPOTS.length;
+    g.rig.group.position.set(GUEST_SPOTS[g.slot][0], FLOOR_Y, GUEST_SPOTS[g.slot][1]);
+  }
+  for (const g of guests) g.rig.group.visible = g.on;
+}
+export function tickGuests(trip, dt, t) {
+  if (!trip) return;
+  for (const g of guests) {
+    if (!g.on) continue;
+    const s = GUEST_SPOTS[g.slot];
+    const dx = player.pos.x - s[0], dz = player.pos.z - s[1];
+    // (they turn to the pilot when the pilot is near, and look down the hall otherwise)
+    trip.live(g.rig, dt, t, FLOOR_Y, dx * dx + dz * dz < 16 ? Math.atan2(dx, dz) : s[2]);
+    g.rig.group.position.x = s[0];
+    g.rig.group.position.z = s[1];
+  }
+}
+// the guest the pilot is standing by (its captain id), or null
+export function nearGuest() {
+  for (const g of guests) {
+    if (!g.on) continue;
+    const s = GUEST_SPOTS[g.slot];
+    const dx = player.pos.x - s[0], dz = player.pos.z - s[1];
+    if (dx * dx + dz * dz < C.BASE_GUEST_TALK * C.BASE_GUEST_TALK) return g.id;
+  }
+  return null;
+}
+export const guestState = () => guests.filter((g) => g.on).map((g) => ({ id: g.id, at: [GUEST_SPOTS[g.slot][0], GUEST_SPOTS[g.slot][1]] }));
+
 export function resetPlayer() {
   player.pos.set(0, 0, 0);
   player.yaw = 0;

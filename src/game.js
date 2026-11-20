@@ -55,8 +55,9 @@ import {
   initTenretni, updateTenretni, tenretniHolding, stepTenretniHold, resetTenretni,
   tenretniFx, tenretniDebug, capitalDock, tenretniSailVelocity, holoPrograms, holoWorld,
   nearestVessel, vesselSite, holdVessel, placeFleets, wormholeCapture, farGate, enterFar, farSite, farDoor, farBeyond, farWantsLanding, farMarkLanded,
-  engageWarp,
+  engageWarp, farHop, baseDock, voyageDock, holoCatalog, holoKind, holoSite, holoFailed, tripCrew,
 } from './tenretniLazy.js';
+import { BASE } from '../world/base-dialogue.js';
 import {
   interiorScene,
   initInterior,
@@ -76,7 +77,12 @@ import {
   onPatioDeck,
   nearHoloPanel,
   holoPanelSpot,
+  syncGuests,
+  tickGuests,
+  nearGuest,
+  guestState,
 } from './interior.js';
+import { openDialogue, advanceDialogue, isDialogueOpen, closeDialogue } from './dialogue.js';
 import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
 import {
   isIsolatingWorld,
@@ -283,7 +289,13 @@ initTerrariumView();
 initHoloPanel();
 initSfx();
 initJournal();
-initTenretni({ scene, planets, camera, coin }); // the governor's secret; reads the journal
+// the governor's secret; reads the journal. `game`: what the light ship's home
+// base (src/homebase.js) asks of this file.
+initTenretni({ scene, planets, camera, coin, game: {
+  startHolo: (id, back) => startHolo(id, back),
+  shuttleHome: () => (skyLanding && dock === BAY_DOCK && landState === 'landed') || (phase === 'walk' && platformDock === BAY_DOCK),
+  reachBlown: () => shatter.active,
+} });
 // A save in which the charge already went off: Neptunia stays broken.
 if (questStage(CHARGE_QUEST) === 'blown') shatter.apply();
 initInventory();
@@ -787,7 +799,94 @@ if (import.meta.env.DEV) {
     },
     navState,
     tenretni: tenretniDebug(),
+    // The light ship as a home base (GDD 5.7.8): fly the bay's approach from a
+    // direction ([x, y, z] from the hull) / park in the bay / step out / launch
+    // (the scripted run out of the forward mouth) / go through a door by key
+    // (`base:*`, `hz:*`, a system's own); and the same for the current
+    // system's nearest dock.
+    base: {
+      approach(dir = [0, 0.2, 1], dist = 1400) {
+        if (!aimBayDock()) return false;
+        _lv0.fromArray(dir).normalize();
+        ship.position.copy(BAY_DOCK.planet.body.position).addScaledVector(_lv0, dist);
+        ship.velocity.copy(_lv0).multiplyScalar(-160);
+        BAY_DOCK.armed = true;
+        landState = null;
+        landedPlanet = null;
+        skyLanding = false;
+        return true;
+      },
+      dock() {
+        if (!aimBayDock()) return false;
+        setOnSkyPad(BAY_DOCK);
+        return true;
+      },
+      stepOut() {
+        if (dock !== BAY_DOCK || !skyLanding || !BAY_DOCK.stepOut()) return false;
+        platformDock = BAY_DOCK;
+        landState = null;
+        landedPlanet = null;
+        skyLanding = false;
+        phase = 'walk';
+        return true;
+      },
+      board() {
+        if (phase !== 'walk' || !capitalActive() || platformDock !== BAY_DOCK) return false;
+        endWalk();
+        setOnSkyPad(BAY_DOCK);
+        snapCamera(ship);
+        phase = 'fly';
+        return true;
+      },
+      launch() {
+        if (dock !== BAY_DOCK || !skyLanding || landState !== 'landed') return false;
+        skyLiftT = 0;
+        return true;
+      },
+      door(to) {
+        if (phase !== 'walk' || doorT >= 0) return false;
+        doorTo = to;
+        doorT = 0;
+        return true;
+      },
+      systemApproach(dist = 900) {
+        if (!aimSystemDock()) return false;
+        ship.position.copy(SYSTEM_DOCK.planet.body.position);
+        ship.position.y += dist;
+        ship.velocity.set(0, -120, 0);
+        SYSTEM_DOCK.armed = true;
+        landState = null;
+        landedPlanet = null;
+        skyLanding = false;
+        return true;
+      },
+      systemDock() {
+        if (!aimSystemDock()) return false;
+        setOnSkyPad(SYSTEM_DOCK);
+        return true;
+      },
+      systemStepOut() {
+        if (dock !== SYSTEM_DOCK || !skyLanding || !SYSTEM_DOCK.stepOut()) return false;
+        platformDock = SYSTEM_DOCK;
+        landState = null;
+        landedPlanet = null;
+        skyLanding = false;
+        phase = 'walk';
+        return true;
+      },
+      guests: () => guestState(),
+      state: () => ({
+        phase, dock: dock.id, platform: platformDock ? platformDock.id : null, landState, skyLanding, lift: skyLiftT, beyondStep, doorT, doorTo,
+        armed: { bay: BAY_DOCK.armed, system: SYSTEM_DOCK.armed },
+        ship: ship.position.toArray().map(Math.round), speed: Math.round(ship.velocity.length()),
+        bay: baseDock() ? baseDock().group.position.toArray().map(Math.round) : null,
+        isolated: { active: isolated.active, surface: isolated.surface }, far: camera.far,
+      }),
+    },
     holodeck: {
+      catalog: () => holoCatalog(),
+      // from wherever the pilot is walking (the light ship's archive): back to `back`
+      startFrom: (id, back = 'base:holo') => startHolo(id, back),
       active: () => (holo ? holo.id : null),
       start: (id) => startHolo(id),
       end: () => endHolo(),
@@ -1341,6 +1440,7 @@ let skyArcAng = 0;
 // tick, which the last of the descent and the parked ship follow). For the Sky
 // City the two are the same.
 const _skyPadLive = new THREE.Vector3();
+const _skyExit = new THREE.Vector3(); // where a dock with its own way off the pad lets the ship go (the light ship's bay)
 const _skyQuatLive = new THREE.Quaternion();
 const _reachPose = {
   pad: new THREE.Vector3(), padMean: new THREE.Vector3(), up: new THREE.Vector3(), upMean: new THREE.Vector3(),
@@ -1491,11 +1591,79 @@ const DOCKS = [
     },
     stepOut: () => enterCapitalWalk(wreckSite, { yaw: 0 }), // facing forward, at the house
   },
+  {
+    // The light ship's hangar bay (world/basevessel.js; GDD 5.7.8): the
+    // freighter's berth aboard the home base. The stand-in is centred on the
+    // middle of the hull, so the arc goes round the whole ship; "over the pad"
+    // is a point astern of the stern mouth (`hover`), so the last leg is the
+    // run-in under the keel; and the way off the pad is `exit`, out through
+    // the forward mouth (stepSkyLanded), not straight up into the hull.
+    id: 'bay', armed: true, freeze: false,
+    planet: { body: { position: new THREE.Vector3() }, radius: C.BASE_CAPTURE, cfg: { name: 'bay' } },
+    approach: BASE.bayApproach,
+    welcome: BASE.bayWelcome,
+    label: BASE.bayLabel,
+    descend: C.BASE_BAY_RUN,
+    exit: true, liftTime: C.BASE_BAY_LIFT,
+    pose() {
+      const s = baseDock();
+      const g = s.group;
+      const k = s.dock;
+      this.planet.body.position.copy(k.centre).applyQuaternion(g.quaternion).add(g.position); // live
+      this.planet.radius = k.radius;
+      _skyUp.set(0, 1, 0).applyQuaternion(g.quaternion);
+      _skyPad.copy(s.pad).sub(k.centre).applyQuaternion(g.quaternion).addScaledVector(_skyUp, C.PARK_LIFT);
+      _skyHover.copy(k.hover).sub(k.centre).applyQuaternion(g.quaternion).addScaledVector(_skyUp, C.PARK_LIFT);
+      _skyExit.copy(k.exit).sub(k.centre).applyQuaternion(g.quaternion).addScaledVector(_skyUp, C.PARK_LIFT);
+      _landUprightQuat.copy(g.quaternion);
+      _skyPadLive.copy(_skyPad);
+      _skyQuatLive.copy(_landUprightQuat);
+    },
+    stepOut() { const s = baseDock(); return enterCapitalWalk(s, { yaw: s.spawnYaw }); },
+  },
+  {
+    // Whatever the system the light ship is in has to dock at (src/voyage.js,
+    // src/systems.js): one entry serves every chapter's platforms, as the
+    // fleet's serves every ship. `target` is the nearest, re-chosen each tick
+    // until one captures.
+    id: 'system', target: null, armed: true, freeze: false,
+    planet: { body: { position: new THREE.Vector3() }, radius: 300, cfg: { name: 'system' } },
+    get approach() { return this.target.approach; },
+    get welcome() { return this.target.welcome; },
+    get label() { return this.target.dockLabel; },
+    pose() {
+      const t = this.target;
+      const g = t.site.group;
+      _skyUp.set(0, 1, 0).applyQuaternion(g.quaternion);
+      _skyPad.copy(t.site.pad).applyQuaternion(g.quaternion).addScaledVector(_skyUp, C.PARK_LIFT);
+      _skyHover.copy(_skyPad).addScaledVector(_skyUp, t.hover || C.BASE_DOCK_HOVER);
+      _landUprightQuat.copy(g.quaternion);
+      _skyPadLive.copy(_skyPad);
+      _skyQuatLive.copy(_landUprightQuat);
+    },
+    stepOut() { return enterCapitalWalk(this.target.site); },
+  },
 ];
 const CAPITAL_DOCK = DOCKS[2];
 const VESSEL_DOCK = DOCKS[3];
 const LANDING_DOCK = DOCKS[4];
 const WRECK_DOCK = DOCKS[5];
+const BAY_DOCK = DOCKS[6];
+const SYSTEM_DOCK = DOCKS[7];
+// Point the bay's stand-in at the light ship. False until it is in open space.
+function aimBayDock() {
+  if (!baseDock()) return false;
+  BAY_DOCK.pose();
+  return true;
+}
+function aimSystemDock() {
+  const t = voyageDock(ship.position);
+  if (!t) return false;
+  SYSTEM_DOCK.target = t;
+  SYSTEM_DOCK.planet.body.position = t.site.group.position; // live
+  SYSTEM_DOCK.planet.radius = t.radius;
+  return true;
+}
 // Point the landing's stand-in at the platform. False while there is none.
 function aimLandingDock() {
   const s = farSite('pad');
@@ -1565,7 +1733,7 @@ function beginSkyAutoLand(d) {
     2.5 + (skyArcAng * Math.max(d.planet.radius, skyStartR * 0.5)) / C.SKY_ARC_SPEED, 3.5, d === LANDING_DOCK ? C.FAR_AUTOLAND_TIME : C.AUTOLAND_MAX_TIME
   );
   if (d === LANDING_DOCK) farMarkLanded();
-  autoLandDuration = arcTime + C.SKY_DESCEND_TIME;
+  autoLandDuration = arcTime + (d.descend ?? C.SKY_DESCEND_TIME);
   skyArcFrac = arcTime / autoLandDuration;
   autoT = 0;
   landState = 'auto';
@@ -1634,15 +1802,21 @@ function stepSkyLanded(dt, piloted) {
     if (piloted && throttleAxis() > 0.3) skyLiftT = 0;
     return;
   }
-  skyLiftT = Math.min(skyLiftT + dt / SKY_LIFT_TIME, 1);
+  skyLiftT = Math.min(skyLiftT + dt / (dock.exit ? dock.liftTime : SKY_LIFT_TIME), 1);
   const k = skyLiftT * skyLiftT; // ease in: it gathers speed off the pad
   _prevPos.copy(ship.position);
-  ship.position.copy(dock.planet.body.position).add(_skyPad)
-    .addScaledVector(_skyUp, SKY_LIFT_HEIGHT * k);
-  _skyPitched.copy(_landUprightQuat).multiply(_skyPitch);
-  ship.quaternion.slerpQuaternions(
-    _landUprightQuat, _skyPitched, skyLiftT * skyLiftT * (3 - 2 * skyLiftT)
-  );
+  if (dock.exit) {
+    // a berth with a roof over it: straight out along the deck, level, to its own exit
+    ship.position.copy(dock.planet.body.position).add(_lv0.lerpVectors(_skyPad, _skyExit, k));
+    ship.quaternion.copy(_landUprightQuat);
+  } else {
+    ship.position.copy(dock.planet.body.position).add(_skyPad)
+      .addScaledVector(_skyUp, SKY_LIFT_HEIGHT * k);
+    _skyPitched.copy(_landUprightQuat).multiply(_skyPitch);
+    ship.quaternion.slerpQuaternions(
+      _landUprightQuat, _skyPitched, skyLiftT * skyLiftT * (3 - 2 * skyLiftT)
+    );
+  }
   ship.velocity.copy(ship.position).sub(_prevPos).divideScalar(dt);
   if (skyLiftT >= 1) {
     if (dock.freeze) {
@@ -1686,6 +1860,8 @@ function checkSkyCapture() {
     }
     if (d === LANDING_DOCK && !aimLandingDock()) continue; // not on the far side
     if (d === WRECK_DOCK && (!shatter.active || neptunia.removed)) continue; // no wreck (yet, or any more)
+    if (d === BAY_DOCK && !aimBayDock()) continue; // the light ship is not in open space
+    if (d === SYSTEM_DOCK && !aimSystemDock()) continue; // nothing to dock at here
     if (d.planet.removed) continue; // the worldship has eaten it
     const r = ship.position.distanceTo(d.planet.body.position);
     if (!d.armed) {
@@ -2140,13 +2316,43 @@ let hudPrompt = null;
 // at the panel.
 let holo = null;
 
-function startHolo(id) {
-  if (holo || phase !== 'fly' || !walkLoaded() || autopilotActive() || tenretniHolding()) return false;
-  if (landState === 'auto' || coinLanding) return false;
-  const w = holoWorld(id, true);
+// Stand the walker in a place a door key led to (farHop): under the pause in
+// its own look, or `out` of the pause, in the world (the light ship's bay).
+function enterHop(hop) {
+  if (hop.out) {
+    releaseIsolation(renderer, aoPass, camera, bloomPass);
+    enterCapitalWalk(hop.site, { spawn: hop.spawn, yaw: hop.yaw, quiet: true });
+    if (hop.site === baseDock()) platformDock = BAY_DOCK; // the freighter on its pad is boarded from here
+  } else {
+    acquireUniverse(null);
+    enterCapitalWalk(hop.site, { spawn: hop.spawn, yaw: hop.yaw, quiet: true });
+    releaseSurface(renderer, aoPass, camera, bloomPass);
+    acquireSurface(hop.look, renderer, aoPass, camera, bloomPass);
+  }
+}
+
+// `back` (the light ship's holodeck, src/homebase.js; GDD 5.7.8): the program
+// is started from a place being walked, and ends by walking back in through
+// the door with that key. Without it, this is the freighter's holodeck as it
+// always was.
+function startHolo(id, back = null) {
+  if (holo || !walkLoaded()) return false;
+  if (back) {
+    if (phase !== 'walk' || !capitalActive() || doorT >= 0) return false;
+  } else {
+    if (phase !== 'fly' || autopilotActive() || tenretniHolding()) return false;
+    if (landState === 'auto' || coinLanding) return false;
+  }
+  const kind = holoKind(id);
+  const w = kind === 'site' ? holoSite(id) : holoWorld(id, true);
   if (!w) return false;
+  if (back) {
+    // out of the room it was asked from, properly: it has borrowed the scene's light
+    exitWalk(camera);
+    releaseIsolation(renderer, aoPass, camera, bloomPass);
+  }
   holo = {
-    id,
+    id, back, kind,
     x: originOffset.x + ship.position.x, y: originOffset.y + ship.position.y, z: originOffset.z + ship.position.z,
     quat: ship.quaternion.clone(),
     landState, landedPlanet, skyLanding,
@@ -2166,7 +2372,32 @@ function startHolo(id) {
   ship.velocity.set(0, 0, 0);
   ship.angularVelocity.set(0, 0, 0);
   let ok = true;
-  if (id === 'stevenlacey') {
+  if (kind === 'site') {
+    // a place of the megaworld's, kept whole: walked under the pause, as it was
+    acquireUniverse(null);
+    ok = !!enterCapitalWalk(w.site, { spawn: w.spawn, yaw: w.yaw, quiet: true });
+    if (ok) acquireSurface(w.look, renderer, aoPass, camera, bloomPass);
+  } else if (kind === 'sky') {
+    // Saturnia: the Sky City, from its pad
+    DOCKS[0].pose();
+    ship.position.copy(w.body.position).add(_skyPadLive);
+    ok = !!enterSkyWalk(skyCity);
+  } else if (kind === 'reach') {
+    // Neptunia: the Indigo Reach's flight deck, or what is left of her
+    const d = shatter.active ? WRECK_DOCK : DOCKS[1];
+    d.pose();
+    ship.position.copy(d.planet.body.position).add(_skyPadLive);
+    ship.quaternion.copy(_skyQuatLive);
+    if (shatter.active) {
+      ok = !!WRECK_DOCK.stepOut();
+      holo.platformWas = platformDock;
+      platformDock = WRECK_DOCK; // (so her hull is held still under the walker)
+    } else {
+      setPlanetSpinFrozen(w, true);
+      touchdownIsolate(w);
+      beginWalk(w);
+    }
+  } else if (id === 'stevenlacey') {
     setOnCoinPad(HEADS);
     ok = !!enterCoinWalk(coin, HEADS, camera);
     landState = null;
@@ -2181,6 +2412,8 @@ function startHolo(id) {
     beginWalk(w);
   }
   if (!ok) {
+    holoFailed(id);
+    if (back) phase = 'fly'; // (nothing is being walked: endHolo goes straight back through the door)
     endHolo();
     return false;
   }
@@ -2204,8 +2437,30 @@ function endHolo(resetting = false) {
     coinLiftT = -1;
     coin.release(true);
   }
-  holoWorld(h.id, false);
+  if (h.kind === 'reach') {
+    if (h.platformWas !== undefined) platformDock = h.platformWas;
+    else {
+      setPlanetSpinFrozen(neptunia, false);
+      releaseUniverse();
+    }
+  }
+  if (h.kind !== 'site') holoWorld(h.id, false);
   if (resetting) return;
+  if (h.back) {
+    // back through the door it was asked at (the light ship's archive)
+    const hop = farHop(h.back);
+    if (hop) enterHop(hop);
+    else {
+      resetToStart();
+      return;
+    }
+    heat = 0;
+    phase = 'walk';
+    accumulator = 0;
+    flash = 1;
+    flashFade = 1.4;
+    return;
+  }
   ship.position.set(h.x - originOffset.x, h.y - originOffset.y, h.z - originOffset.z);
   ship.quaternion.copy(h.quat);
   ship.velocity.set(0, 0, 0);
@@ -2255,6 +2510,11 @@ function resetToStart() {
   landedPlanet = null;
   skyLanding = false;
   for (const d of DOCKS) d.armed = d !== CAPITAL_DOCK;
+  // (a pilot who belongs aboard the light ship is put back there: see `beyondStep`)
+  if (beyondStep === 2 && farBeyond()?.dock === 'bay') {
+    beyondStep = 0;
+    BAY_DOCK.armed = false;
+  }
   walkDock = null;
   chargeT = -1;
   reachShip.tube.reset();
@@ -2399,19 +2659,24 @@ function frame(now) {
   }
   // The saga ended inside the hole (GDD 5.7.5): park on the landing, step
   // out, and go through the white to the light ship's bridge, as it was left.
-  if (beyondStep < 2 && phase === 'fly' && farBeyond()) {
+  // ...and past it (GDD 5.7.7, 5.7.8): the door is the chapter's own while it
+  // is being played, and once the ship is in open space the freighter is in
+  // its bay and the pilot on its bridge. farBeyond() says which.
+  const beyond = beyondStep < 2 && phase === 'fly' && !holo ? farBeyond() : null;
+  if (beyond) {
+    const d = beyond.dock === 'bay' ? BAY_DOCK : LANDING_DOCK;
     if (beyondStep === 0) {
-      if (aimLandingDock()) {
-        setOnSkyPad(LANDING_DOCK);
+      if (d === BAY_DOCK ? aimBayDock() : aimLandingDock()) {
+        setOnSkyPad(d);
         beyondStep = 1;
       }
-    } else if (dock === LANDING_DOCK && LANDING_DOCK.stepOut()) {
-      platformDock = LANDING_DOCK;
+    } else if (dock === d && d.stepOut()) {
+      platformDock = d;
       landState = null;
       landedPlanet = null;
       skyLanding = false;
       phase = 'walk';
-      doorTo = 'launch';
+      doorTo = beyond.hop;
       doorT = 0;
       beyondStep = 2;
     }
@@ -2439,8 +2704,14 @@ function frame(now) {
     // whichever popup is up.
     // (Handled here because input.interact is consumed right after the
     // phase blocks, before the UI section below runs.)
+    // captains riding along on a trip from the light ship stand in the hall (GDD 5.7.8)
+    const trip = tripCrew();
+    syncGuests(trip);
+    if (standing) tickGuests(trip, delta, now / 1000);
+    else if (isDialogueOpen()) closeDialogue(); // (nobody is talked to from the seat)
     if (standing && input.interact) {
-      if (isCreditsOpen()) closeCredits();
+      if (isDialogueOpen()) advanceDialogue();
+      else if (isCreditsOpen()) closeCredits();
       else if (isArtViewOpen()) closeArtView();
       else if (isTerrariumViewOpen()) closeTerrariumView();
       else if (isHoloPanelOpen()) closeHoloPanel();
@@ -2450,6 +2721,7 @@ function frame(now) {
         if (art) openArtView(art.file, art.title);
         else if (nearTank()) openTerrariumView();
         else if (nearHoloPanel()) openHoloPanel(holoPrograms(), startHolo);
+        else if (trip && nearGuest()) openDialogue(trip.talk(nearGuest()), {});
       }
     }
     setCockpitStanding(standing);
@@ -2667,9 +2939,15 @@ function frame(now) {
             acquireSurface(look, renderer, aoPass, camera, bloomPass);
           }
         } else {
-          const pad = farSite('pad');
-          releaseIsolation(renderer, aoPass, camera, bloomPass);
-          if (pad) enterCapitalWalk(pad, { spawn: pad.doorOut, yaw: pad.doorYaw, quiet: true });
+          // ...and every door built since (the chapter past the horizon, the
+          // light ship's own rooms, a later chapter's places): asked for by key
+          const hop = farHop(doorTo);
+          if (hop) enterHop(hop);
+          else if (farSite('pad')) {
+            const pad = farSite('pad');
+            releaseIsolation(renderer, aoPass, camera, bloomPass);
+            enterCapitalWalk(pad, { spawn: pad.doorOut, yaw: pad.doorYaw, quiet: true });
+          }
         }
         doorTo = null;
         flash = 1;
@@ -2682,7 +2960,11 @@ function frame(now) {
       // where the game began.
       skyFallT = Math.max(skyFallT, 0) + delta;
       flash = Math.min(skyFallT / C.SKY_FALL_FLASH, 1);
-      if (flash >= 1) {
+      if (flash >= 1 && holo) {
+        // (in a program it is only the program that ends)
+        skyFallT = -1;
+        endHolo();
+      } else if (flash >= 1) {
         endWalk();
         resetToStart(); // clears skyFallT and the flash
         flash = 1; // ...but we are still under the white
@@ -2976,6 +3258,7 @@ function frame(now) {
             if (art) prompt = art.prompt || (art.prompt = `${art.title.toUpperCase()} · E — VIEW`);
             else if (nearTank()) prompt = 'THE TERRARIUM · E — LOOK CLOSER';
             else if (nearHoloPanel()) prompt = 'HOLODECK · E — CHOOSE PROGRAM';
+            else if (!isDialogueOpen() && nearGuest()) prompt = BASE.guestPrompt;
           }
         }
         hudPrompt = prompt;

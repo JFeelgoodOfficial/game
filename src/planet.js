@@ -377,11 +377,18 @@ function makeSurfaceUniforms(cfg, radius) {
   };
 }
 
-export function initPlanets(scene) {
-  for (const cfg of CONFIGS) {
+// One world from its config: the meshes, the gravity body and the record
+// everything else reads. The home system's are built at boot (initPlanets);
+// `opts.late` is a world made afterwards (a later chapter's system,
+// src/voyage.js; GDD 5.7.8): it is placed and re-placed by whoever made it
+// (nothing built after boot is in the world reset's snapshot, src/origin.js),
+// and it takes the tier's materials at once.
+export function buildPlanet(cfg, scene, opts = {}) {
+  {
     const radius = cfg.radius();
     const group = new THREE.Group();
-    group.position.copy(cfg.dir).multiplyScalar(cfg.distance());
+    if (opts.late) group.position.fromArray(cfg.pos || [0, 0, 0]);
+    else group.position.copy(cfg.dir).multiplyScalar(cfg.distance());
     // This planet's bearing to the sun body (both are static, so once is enough).
     const sunBase = cfg.sunFixed
       ? SUN.clone()
@@ -637,7 +644,13 @@ export function initPlanets(scene) {
     p.water = cfg.water ? { r: radius + C.WALK_WATER_LEVEL, frozen: !!cfg.frozenSea } : null;
 
     planets.push(p);
+    if (opts.late) applyPlanetQuality();
+    return p;
   }
+}
+
+export function initPlanets(scene) {
+  for (const cfg of CONFIGS) buildPlanet(cfg, scene);
   applyPlanetQuality();
   onQualityChange(applyPlanetQuality);
   return planets;
@@ -672,10 +685,23 @@ function applyPlanetQuality() {
 // invisible. (Dev note: after the swap, tuning SEA_LEVEL / TERRAIN_HEIGHT
 // recolours via the fragment shader but no longer moves the baked geometry;
 // reload to re-bake.)
+const bake = { queue: [], qi: 0, vi: 0, running: false };
 export function startPlanetBake() {
-  const queue = planets.filter((p) => p.cfg.type === 'terra');
-  let qi = 0;
-  let vi = 0;
+  for (const p of planets) if (p.cfg.type === 'terra' && !bake.queue.includes(p)) bake.queue.push(p);
+  runBake();
+}
+// A world made after boot joins the same queue (src/voyage.js).
+export function bakePlanet(p) {
+  if (p.cfg.type !== 'terra' || p.baked || bake.queue.includes(p)) return;
+  bake.queue.push(p);
+  runBake();
+}
+function runBake() {
+  if (bake.running) return;
+  bake.running = true;
+  const queue = bake.queue;
+  let qi = bake.qi;
+  let vi = bake.vi;
   const BUDGET_MS = 10;
 
   function slice() {
@@ -717,6 +743,9 @@ export function startPlanetBake() {
       qi++;
       vi = 0;
     }
+    bake.qi = qi;
+    bake.vi = 0;
+    bake.running = false;
   }
   setTimeout(slice, 0);
 }

@@ -113,8 +113,13 @@ export const HULL_FRAG = /* glsl */ `
 `;
 
 // ctx: { scene, hideFleet(), chapter — src/chapter.js }
+// `ctx.base` (the same archive as a room of the home base, src/homebase.js;
+// GDD 5.7.8): { fore, aft: the doors' portals, forePrompt, aftPrompt, leaveHint,
+// holoPrompt, holodeck(): open the holodeck's panel }. The doors are open, the
+// Archivist stayed with the megaworld, and by the aft door there is a holodeck.
 export function createLightShip(ctx) {
   const { chapter } = ctx;
+  const base = ctx.base || null;
   const group = new THREE.Group();
   group.visible = false;
   ctx.scene.add(group);
@@ -273,14 +278,23 @@ export function createLightShip(ctx) {
   for (const s of [-1, 1]) glow.push(tint(box(0.2, 7.2, 0.3, s * 2.7, 3.6, HALL_Z1 + 0.1), GLOW.gold, 1.4));
 
   consoles.push({
-    x: 0, y: 0, z: HALL_Z1 + 2.2, r: 2.6, prompt: 'E — GO FORWARD TO THE BRIDGE',
-    off: () => !chapter.reached('dive'),
-    use: () => ((site.portal = 'bridge'), null),
+    x: 0, y: 0, z: HALL_Z1 + 2.2, r: 2.6, prompt: base ? base.forePrompt : 'E — GO FORWARD TO THE BRIDGE',
+    off: () => !base && !chapter.reached('dive'),
+    use: () => ((site.portal = base ? base.fore : 'bridge'), null),
   });
 
   // --- aft: the way off ---
   glow.push(tint(new THREE.TorusGeometry(2.2, 0.1, 6, 40).rotateX(Math.PI / 2).translate(0, 0.06, HALL_Z0 - 2.6), GLOW.gold, 1.6));
-  consoles.push({ x: 0, y: 0, z: HALL_Z0 - 2.6, r: 2.4, prompt: 'E — LEAVE THE SHIP', use: () => ((site.portal = 'gallery'), null) });
+  consoles.push({ x: 0, y: 0, z: HALL_Z0 - 2.6, r: 2.4, prompt: base ? base.aftPrompt : 'E — LEAVE THE SHIP', use: () => ((site.portal = base ? base.aft : 'gallery'), null) });
+  // --- the holodeck (home base only): a plinth by the aft door, and every world the archive keeps ---
+  const HOLO_AT = { x: HALL_HW - 1.3, z: HALL_Z0 - 9 };
+  if (base) {
+    lit.push(tint(box(1.3, 1.05, 0.8, HOLO_AT.x, 0.52, HOLO_AT.z), COL.edge));
+    glow.push(tint(box(1.1, 0.06, 0.6, HOLO_AT.x, 1.08, HOLO_AT.z), GLOW.cyan, 1.6));
+    glow.push(tint(new THREE.TorusGeometry(1.5, 0.06, 6, 36).rotateX(Math.PI / 2).translate(HOLO_AT.x - 1.4, 0.04, HOLO_AT.z), GLOW.cyan, 1.4));
+    colliders.push({ x: HOLO_AT.x, z: HOLO_AT.z, r: 0.8, top: Infinity });
+    consoles.push({ x: HOLO_AT.x - 1.4, y: 0, z: HOLO_AT.z, r: 2.0, prompt: base.holoPrompt, use: () => (base.holodeck(), null) });
+  }
 
   const litMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x0c0f14 });
   const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });
@@ -373,7 +387,9 @@ export function createLightShip(ctx) {
     noShip: true,
     speed: 1.6,
     exit: { x: 0, z: HALL_Z0 - 2.6 },
-    leaveHint: 'THE WAY OFF THE SHIP IS AFT, BEHIND YOU',
+    leaveHint: base ? base.leaveHint : 'THE WAY OFF THE SHIP IS AFT, BEHIND YOU',
+    atHolo: new THREE.Vector3(HOLO_AT.x - 1.6, 0, HOLO_AT.z), // back from a holodeck program
+    atHoloYaw: -Math.PI / 2,
     surfaces,
     colliders,
     floorYAt: floorOf(surfaces, SNAP),
@@ -411,8 +427,8 @@ export function createLightShip(ctx) {
       restack();
       for (const l of LAYERS) drawn[l] = shown[l] ? 1 : 0; // what was taken before is already there
       readySaid = chapter.reached('dive');
-      if (chapter.assigned() || chapter.assignDue()) standArchivist(3.2, HALL_Z1 + 9, -0.5);
-      if (!greeted && !chapter.seenCount()) {
+      if (!base && (chapter.assigned() || chapter.assignDue())) standArchivist(3.2, HALL_Z1 + 9, -0.5);
+      if (!base && !greeted && !chapter.seenCount()) {
         greeted = true;
         chapterHud.say(HOLO.enter, 7);
       }
@@ -456,7 +472,7 @@ export function createLightShip(ctx) {
       place.uniforms.uAlpha.value = a;
       place.uniforms.uTime.value = t;
       place.mesh.visible = a > 0.003;
-      if (at && at.d < ROOM_R - 0.5 && chapter.see(at.w.id) && chapter.assignDue()) {
+      if (at && at.d < ROOM_R - 0.5 && chapter.see(at.w.id) && !base && chapter.assignDue()) {
         // the third room: by the time the pilot is back on the walk, someone is there
         standArchivist(-at.side * 2.6, at.cz, at.side > 0 ? Math.PI / 2 : -Math.PI / 2);
       }
@@ -534,14 +550,14 @@ export function createLightShip(ctx) {
 
       // the Archivist: says it once, unasked, when the pilot comes back onto the walk
       if (rig.group.visible) trackRobot(archivist, walker, dt, t);
-      if (chapter.assignDue() && Math.abs(walker.x) < HALL_HW - 0.6 && !isDialogueOpen()) {
+      if (!base && chapter.assignDue() && Math.abs(walker.x) < HALL_HW - 0.6 && !isDialogueOpen()) {
         chapter.setAssigned();
         uiSound('select');
         openDialogue(ASSIGNMENT, { onClose: checkReady });
       }
 
       // the door forward
-      const open = chapter.reached('dive');
+      const open = !!base || chapter.reached('dive');
       const dp = open ? 0.8 + 0.2 * Math.sin(t * 1.6) : 0.1;
       doorMat.color.setRGB(open ? 1.9 * dp : 0.08, open ? 1.7 * dp : 0.14, open ? 1.3 * dp : 0.22);
     },

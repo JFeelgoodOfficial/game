@@ -60,6 +60,13 @@ import { CAPTAINS, VOICE } from '../world/fleet-dialogue.js';
 import { createEndgame } from './endgame.js';
 import { createFarside } from './farside.js';
 import { createChapter } from './chapter.js';
+import { createVoyage } from './voyage.js';
+import { createHomebase } from './homebase.js';
+import { createHorizon } from './horizon.js';
+import { buildPlanet, bakePlanet } from './planet.js';
+import { buildCaptain, liveCaptain } from '../world/captainDress.js';
+import { poseRig } from '../world/aliens.js';
+import { standRig } from '../world/rigGround.js';
 import { grantUpgrade, hasUpgrade } from './inventory.js';
 import { sun } from './sun.js';
 import { blackhole } from './blackhole.js';
@@ -512,6 +519,8 @@ export function init(deps, fxOut) {
   fx = fxOut;
   coin = deps.coin || null;
   if (coin && !coin.cfg) coin.cfg = { name: 'stevenlacey' };
+  game = deps.game || null;
+  initVoyage();
   buildFrame();
   buildWormhole();
   buildSphere();
@@ -1024,6 +1033,99 @@ let farLanded = false; // the Landing has had the pilot's helm once (saved): it 
 // ...and everything after the suite (src/chapter.js, GDD 5.7.4), saved with it
 const chapter = createChapter({ onSave: () => save() });
 export const chapterDebug = () => chapter;
+
+// --- past the megaworld: the light ship as a home base, and the voyage (GDD 5.7.7, 5.7.8) ---
+// Built in init(), once there is a scene to build into. `horizon` is the
+// chapter that takes the ship from inside the hole to open space; `homebase`
+// the ship's own rooms; `voyage` where it is and what system is round it.
+let voyage = null, homebase = null, horizon = null;
+let game = null; // what src/game.js lends: { startHolo(id, back), shuttleHome() }
+// The captains riding in the freighter, for its interior (src/interior.js
+// guests; the figures are this chunk's to build): { v, ids, talk(id), make(id)
+// -> rig, live(rig, dt, t, floorY, yaw) } | null. `v` changes when `ids` does.
+const trip = {
+  v: -1, ids: [],
+  talk: (id) => homebase.crewTalk(chapter.crew().find((c) => c.id === id), 'ride'),
+  make: (id) => buildCaptain(id),
+  live(rig, dt, t, floorY, yaw) {
+    rig.group.rotation.y = yaw;
+    poseRig(rig, dt, t, 'idle', 0);
+    standRig(rig, floorY);
+    liveCaptain(rig, dt, t, false, 0);
+  },
+};
+export function tripCrew() {
+  if (ended !== 'far' || !chapter.open() || !voyage || !homebase) return null;
+  if (trip.v !== voyage.crewVersion()) {
+    trip.v = voyage.crewVersion();
+    trip.ids = voyage.crew();
+  }
+  return trip;
+}
+export const voyageDebug = () => voyage;
+export const homebaseDebug = () => homebase;
+export const horizonDebug = () => horizon;
+function initVoyage() {
+  const hideFleet = () => fleets?.show(false);
+  voyage = createVoyage({
+    scene, camera, chapter,
+    base: () => (chapter.open() && homebase ? homebase.getBay() : null),
+    fleets: () => fleets,
+    crewTalk: (c) => homebase.crewTalk(c, 'trip'),
+    // a world made after boot (world/example-system.js): out of space until its system is mounted
+    addPlanet(cfg) {
+      try {
+        const p = buildPlanet(cfg, scene, { late: true });
+        bakePlanet(p);
+        p.away = true;
+        removePlanet(p, true);
+        return p;
+      } catch (err) {
+        console.warn('[voyage] a world could not be made', err);
+        return null;
+      }
+    },
+    showPlanet(p, on) {
+      p.away = !on;
+      removePlanet(p, !on);
+      if (on) p.cfg.noLand = false;
+    },
+  });
+  homebase = createHomebase({
+    scene, camera, chapter, voyage: () => voyage, hideFleet,
+    startHolo: (id, back) => game.startHolo(id, back),
+    shuttleHome: () => game.shuttleHome(),
+    catalog,
+    effects: () => (horizon && chapter.open() ? horizon.effects() : null),
+  });
+  try {
+    horizon = createHorizon({ scene, camera, chapter, hideFleet, openSpace });
+  } catch (err) {
+    console.warn('[tenretni] the chapter past the horizon could not be built', err);
+  }
+}
+// The chapter has let the ship go: the megaworld is put away for good and the
+// first system is laid out. Returns the door onto the bridge.
+export function openSpace() {
+  chapter.setOpen();
+  if (far) far.stow();
+  voyage.apply();
+  if (fleets && !voyage.system().fleet) fleets.show(false);
+  return 'base:helm';
+}
+// A door on the light ship, in the chapter, or in the system it is in: where
+// it leads, { site, spawn, yaw, look, out } (src/game.js stands the walker there).
+export function farHop(key) {
+  if (ended !== 'far' || typeof key !== 'string') return null;
+  // dying in the chapter is a door too: back to the asking (src/chapter.js hz.die)
+  if (key === 'hz:back') key = chapter.hz.die() || (horizon ? horizon.resumeKey() : null);
+  if (!key) return null;
+  return (homebase && homebase.hop(key)) || (voyage && voyage.applied() && voyage.hop(key)) || (horizon && horizon.hop(key)) || null;
+}
+// The bay (world/basevessel.js), for src/game.js to dock in. Null until open space.
+export const baseDock = () => (ended === 'far' && chapter.open() && voyage && voyage.applied() && homebase ? homebase.getBay() : null);
+// The current system's dock nearest `pos`, likewise.
+export const voyageDock = (pos) => (ended === 'far' && voyage ? voyage.nearestDock(pos) : null);
 // What the CODEX needs to say where the story is on the far side (src/codexData.js).
 export const storyState = () => ({
   ended, met, landed: farLanded,
@@ -1066,10 +1168,22 @@ export function farGate() {
 // pilot is on the far side.
 export const farSite = (kind) => (ended === 'far' && far ? far.site(kind) : null);
 // A door there has been walked through: 'city' | 'pad' | null (clears on asking).
-export const farDoor = () => (ended === 'far' && far ? far.door() : null);
+export const farDoor = () => {
+  if (ended !== 'far') return null;
+  return (far && far.door()) || (homebase && homebase.door()) || (voyage && voyage.door()) || (horizon && horizon.door()) || null;
+};
 // The saga is over (GDD 5.7.5): the pilot is inside the hole, aboard the light
 // ship, and that is where a game come back to belongs (src/game.js).
-export const farBeyond = () => ended === 'far' && !!far && chapter.reached('ez_beyond');
+// ...and after it (GDD 5.7.7, 5.7.8): in the chapter past the horizon, the
+// door is the chapter's own; in open space, the freighter is in the light
+// ship's bay and the pilot on its bridge. { dock: 'landing' | 'bay', hop } | null.
+export const farBeyond = () => {
+  if (ended !== 'far') return null;
+  if (chapter.open()) return voyage && voyage.applied() ? { dock: 'bay', hop: 'base:helm' } : null;
+  if (!far || !chapter.reached('ez_beyond')) return null;
+  const hop = horizon ? horizon.resumeKey() : null;
+  return { dock: 'landing', hop: hop || 'launch' };
+};
 
 // The first time through, the megaworld does what the Sky City does, after a
 // while: the pilot may look round the caged star the Landing stands beside
@@ -1124,6 +1238,12 @@ function hideOldSystem() {
 // The far side as it stands: load, world reset, and the arrival itself.
 function applyFar() {
   hideOldSystem();
+  // the megaworld is behind the light ship: what is round it is a system (src/voyage.js)
+  if (chapter.open() && voyage) {
+    if (far) far.stow();
+    voyage.apply();
+    return;
+  }
   loadFar();
   if (!far) return;
   far.apply(farFirst);
@@ -1342,14 +1462,63 @@ function gone() {
 }
 
 // --- the holodeck (src/holodeck.js, src/holoPanel.js; sessions in game.js) ---
+const holoShown = new Set(); // worlds a program has standing in space right now
 
 export const programs = () => PROGRAMS.map((p) => ({ ...p, unlocked: eaten.includes(p.id) }));
+
+// The light ship's holodeck (src/homebase.js; GDD 5.7.8): every world the
+// archive keeps. The home system's worlds are the same planet records the
+// freighter's holodeck walks, whether the worldship ate them or the ending
+// left them behind; `kind` says how src/game.js startHolo goes into each.
+// The rest of the archive is there to be seen and not yet to be entered:
+// later chapters open those rows one at a time (ARCHIVE_LOCKED).
+const ARCHIVE = [
+  { id: 'terra', label: 'TERRA', note: 'THE CAPITAL WORLD', kind: 'world' },
+  { id: 'rustia', label: 'RUSTIA', note: 'THE MINE HEAD', kind: 'world' },
+  { id: 'wavemall prime', label: 'WAVEMALL PRIME', note: 'THE FLAGSHIP STORE', kind: 'world' },
+  { id: 'actuality', label: 'ACTUALITY', note: 'THE GROUNDS', kind: 'world' },
+  { id: 'shadowreach', label: 'SHADOWREACH', note: 'THE DREAM', kind: 'world' },
+  { id: 'wyattmattoe', label: 'WYATTMATTOE', note: 'THE SKI HILL', kind: 'world' },
+  { id: 'saturnia', label: 'SATURNIA', note: 'THE SKY CITY', kind: 'sky' },
+  { id: 'neptunia', label: 'NEPTUNIA', note: 'THE INDIGO REACH', kind: 'reach' },
+  { id: 'stevenlacey', label: 'STEVENLACEY', note: 'THE COIN', kind: 'coin' },
+  { id: 'lightcity', label: 'THE CITY OF LIGHT', note: 'THE MEGAWORLD', kind: 'site' },
+];
+const ARCHIVE_LOCKED = [
+  { id: 'megaworld:landing', label: 'THE LANDING', show: true },
+  { id: 'megaworld:hollow', label: 'THE HOLLOW', show: true },
+  { id: 'megaworld:first', label: 'THE FIRST WORLD', show: true },
+  { id: 'record:a' }, { id: 'record:b' }, { id: 'record:c' }, { id: 'record:d' },
+];
+const holoOff = new Set(); // programs that could not be started this session
+export function catalog() {
+  // (`rooms`: records the chapter past the horizon has shut, src/horizon.js effects())
+  const shut = (horizon && chapter.open() && horizon.effects().rooms) || {};
+  const rows = ARCHIVE.filter((r) => holoKind(r.id)).map((r) => ({ id: r.id, label: r.label, note: r.id === 'neptunia' && game && game.reachBlown() ? 'THE WRECK' : r.note, unlocked: !holoOff.has(r.id) && shut[r.id] !== false, show: true }));
+  for (const r of ARCHIVE_LOCKED) rows.push({ id: r.id, label: r.label || '', note: '', unlocked: false, show: !!r.show });
+  return rows;
+}
+// how a program is entered, or null if there is no such program
+export function holoKind(id) {
+  const r = ARCHIVE.find((x) => x.id === id);
+  if (!r) return PROGRAMS.some((p) => p.id === id) ? (id === 'stevenlacey' ? 'coin' : 'world') : null;
+  if (r.kind === 'site') return homebase && homebase.program ? 'site' : null;
+  return r.kind;
+}
+export const holoFailed = (id) => holoOff.add(id);
+// the walked place a 'site' program is (the City of Light), built on asking
+export const holoSite = (id) => (homebase && homebase.program ? homebase.program(id) : null);
 
 // Put an assimilated world back the way it was for a holodeck session, or put
 // it away again afterwards. Returns the world (a planet record or the coin).
 export function holoWorld(id, on) {
   const w = worldByName(id);
-  if (!w || !eaten.includes(id)) return null;
+  // (on the freighter, only what the worldship ate; aboard the light ship,
+  // any world that is no longer in space: the ending left the rest behind)
+  if (!w || !(eaten.includes(id) || (chapter.open() && w.removed) || (!on && holoShown.has(id)))) return null;
+  if (on) holoShown.add(id);
+  else holoShown.delete(id);
+  if (id === 'terra') return holoTerra(w, on);
   if (w.surface) {
     if (on) {
       removePlanet(w, false);
@@ -1362,6 +1531,36 @@ export function holoWorld(id, on) {
     w.removed = !on;
     w.group.visible = on;
     w.group.scale.setScalar(1);
+  }
+  return w;
+}
+
+// Terra, for a program: the world it was before it was a ship. Everything the
+// worldship is hangs off terra's own meshes (the drained sea, the bore, the
+// towers, the capital), so each is put by for the session and the last pose
+// laid back over it afterwards.
+function holoTerra(w, on) {
+  if (on) {
+    removePlanet(w, false);
+    setPlanetScale(w, 1);
+    setPlanetDrain('terra', 0, null, 0);
+    setPlanetShip('terra', 1, null, 1);
+    w.spinLock = undefined;
+  } else {
+    if (state === 'rest') pose(END);
+    if (rotLock !== null) w.spinLock = rotLock;
+    setPlanetScale(w, size);
+    removePlanet(w, true);
+  }
+  for (const o of [cityHolder, typeof boreGroup !== 'undefined' ? boreGroup : null, typeof spires !== 'undefined' ? spires : null, capital ? capital.group : null]) {
+    if (!o) continue;
+    if (on) {
+      o.userData.holoWas = o.visible;
+      o.visible = false;
+    } else if (o.userData.holoWas !== undefined) {
+      o.visible = o.userData.holoWas;
+      o.userData.holoWas = undefined;
+    }
   }
   return w;
 }
@@ -1724,9 +1923,13 @@ export function update(delta, t, onDeck, flying, aboard) {
     }
     if (endgame) endgame.update(delta, t, flying);
     if (ended === 'far' && far) far.update(delta, t, flying);
+    if (ended === 'far' && voyage && voyage.applied()) voyage.update(delta, t, camera.position);
+    if (horizon && horizon.update) horizon.update(delta, t);
     if (assim.active()) assim.update(delta, t, flying);
     if (fleets) {
       fleets.update(delta, t, ended || (endgame && endgame.active()) ? null : siege());
+      // (out in the open, in a system the fleets did not come to: placing them shows them, so they are put away again)
+      if (voyage && voyage.applied() && !voyage.system().fleet) fleets.show(false);
       explosions.update(delta, camera);
     }
     if (shieldU) shieldU.uTime.value = t;

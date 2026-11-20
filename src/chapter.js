@@ -25,7 +25,17 @@
 //   node    the lattice node the submersible last rode in on
 //   clock   the crew's own seconds below
 //
-// Every word comes from world/chapter-dialogue.js and world/entryzero-dialogue.js.
+// The chapter after that (GDD 5.7.7) carries on from `ez_beyond`: the `hz_*`
+// stages, ending at `hz_open` (the light ship and its crew in open space, the
+// home base of GDD 5.7.8), and its record, `hz`:
+//
+//   d      what was decided and found: a small bag of scalars, by key
+//   lost   captains lost in it, for good (counted with `ez.lost` by crew())
+//   cp     the one pending checkpoint: the stage and record as they stood when
+//          a decision was shown. Dying restores it; surviving the choice drops it.
+//
+// Every word comes from world/chapter-dialogue.js and world/entryzero-dialogue.js
+// (and, for 5.7.7, a sealed file the chapter's own host reads).
 
 import { addCodex, codexSubjects } from './journal.js';
 import { uiSound } from './sfx.js';
@@ -37,8 +47,12 @@ import { BANDS, RELICS, OFFER, ERA, LAUNCH } from '../world/entryzero-dialogue.j
 // Append only: a saved stage this list does not hold loads as 'suite'.
 export const STAGES = [
   'suite', 'demo', 'holo', 'dive', 'shuttle', 'dream', 'stall', 'canvas', 'birth', 'return', 'done',
-  // Entry Zero. `ez_beyond` is the open end: inside the hole, nothing built past it.
+  // Entry Zero. `ez_beyond`: inside the hole.
   'ez_offer', 'ez_descent', 'ez_firewall', 'ez_deep', 'ez_centre', 'ez_relics', 'ez_reveal', 'ez_ascent', 'ez_era', 'ez_launch', 'ez_beyond',
+  // Past the horizon (GDD 5.7.7). `hz_open` is where it lets go: the light ship
+  // and its crew in open space, and every later chapter a system it goes to (5.7.8).
+  'hz_bell1', 'hz_bell2', 'hz_bell3', 'hz_bell4', 'hz_bell5', 'hz_bell6', 'hz_bell7', 'hz_bell8', 'hz_bell9', 'hz_bell10',
+  'hz_open',
 ];
 
 // the four sights of the City of Light: the three districts' finds, and the thing built from the drawing
@@ -57,6 +71,9 @@ export function createChapter(ctx) {
   let home = false; // the light ship is back in its hangar, a long time later
   const clock = { ship: 0, world: 0 }; // what the two clocks read when the ship was down
   const ez = { log: 0, frags: 0, stay: null, lost: [], node: 0, clock: 0 };
+  const hz = { d: {}, lost: [], cp: null };
+  const scalar = (v) => v === null || typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v));
+  const gone = (id) => ez.lost.includes(id) || hz.lost.includes(id);
   // What the pilot does with the city before the Archivist comes down with
   // Entry Zero: flies a race to the end, sees the four things worth seeing,
   // and sleeps a night in the suite. (It used to come the moment the ship had
@@ -268,7 +285,7 @@ export function createChapter(ctx) {
     archivistTalk: () => (at(stage) >= at('ez_era') ? ERA.archivist : at(stage) < at('ez_offer') ? OFFER.ask : OFFER.remind),
     // the light ship, at the gallery, a million years on: the last question
     launchTalk: () => LAUNCH.ask,
-    // the saga's last stage: inside the hole, and nothing built past it
+    // Entry Zero's last stage: inside the hole (the chapter of GDD 5.7.7 carries on from it)
     setBeyond() {
       if (advance('ez_beyond')) addCodex(LAUNCH.codex);
     },
@@ -333,13 +350,75 @@ export function createChapter(ctx) {
       },
     },
 
+    // --- the chapter after (GDD 5.7.7) and the voyage (GDD 5.7.8) ---
+    // the captains still aboard, in CAPTAINS order: none at all is a crew too
+    crew: () => CAPTAINS.filter((c) => !gone(c.id)),
+    lost: gone,
+    // the light ship is out in the open: every later chapter starts from here
+    open: () => at(stage) >= at('hz_open'),
+    setOpen: () => advance('hz_open'),
+    hz: {
+      get: (k) => (k in hz.d ? hz.d[k] : null),
+      set(k, v) {
+        if (typeof k !== 'string' || !scalar(v) || hz.d[k] === v) return false;
+        hz.d[k] = v;
+        ctx.onSave();
+        return true;
+      },
+      lose(id) {
+        if (!isCaptain(id) || gone(id)) return false;
+        hz.lost.push(id);
+        ctx.onSave();
+        return true;
+      },
+      // A decision is being shown. What stands now is what a death puts back;
+      // `to` is the door that leads back to the asking (a hop key). Shown
+      // again after a death, it is the same checkpoint.
+      offer(key, to) {
+        if (hz.cp && hz.cp.key === key) return false;
+        hz.cp = { key, to: to || null, stage, d: { ...hz.d }, lost: hz.lost.slice() };
+        ctx.onSave();
+        return true;
+      },
+      decide(key, option) {
+        if (!scalar(option) || hz.d[key] === option) return false;
+        hz.d[key] = option;
+        ctx.onSave();
+        return true;
+      },
+      // The choice was lived through: it stays made.
+      survive(key) {
+        if (!hz.cp || (key && hz.cp.key !== key)) return false;
+        hz.cp = null;
+        ctx.onSave();
+        return true;
+      },
+      pending: () => (hz.cp ? hz.cp.key : null),
+      // Died of it: the story is put back to the asking (the one place a
+      // stage goes backwards). Returns the door to walk back through, or null
+      // when nothing was pending.
+      die() {
+        const cp = hz.cp;
+        if (!cp) return null;
+        stage = cp.stage;
+        hz.d = { ...cp.d };
+        hz.lost = cp.lost.slice();
+        ctx.onSave();
+        return cp.to;
+      },
+      state: () => ({ d: { ...hz.d }, lost: hz.lost.slice(), cp: hz.cp ? { key: hz.cp.key, to: hz.cp.to, stage: hz.cp.stage } : null }),
+    },
+
     // --- the save: one small object inside src/tenretni.js's ---
     serialize() {
       if (stage === 'suite' && !seen.length && !side) return undefined;
       const z = ez.log || ez.frags || ez.stay || ez.lost.length || ez.node || ez.clock >= 1
         ? { log: ez.log || undefined, frags: ez.frags || undefined, stay: ez.stay || undefined, lost: ez.lost.length ? ez.lost.slice() : undefined, node: ez.node || undefined, clock: Math.round(ez.clock) || undefined }
         : undefined;
-      return { stage, picks: { ...picks }, seen: seen.slice(), assigned: assigned || undefined, home: home || undefined, epilogue: epilogue || undefined, side: side || undefined, raced: raced || undefined, slept: slept || undefined, sites: sites.length ? sites.slice() : undefined, clock: clock.world ? [Math.round(clock.ship), Math.round(clock.world)] : undefined, ez: z };
+      const h = Object.keys(hz.d).length || hz.lost.length || hz.cp
+        ? { d: Object.keys(hz.d).length ? { ...hz.d } : undefined, lost: hz.lost.length ? hz.lost.slice() : undefined, cp: hz.cp ? { ...hz.cp, d: { ...hz.cp.d }, lost: hz.cp.lost.slice() } : undefined }
+        : undefined;
+      return { stage, picks: { ...picks }, seen: seen.slice(), assigned: assigned || undefined, home: home || undefined, epilogue: epilogue || undefined, side: side || undefined, raced: raced || undefined, slept: slept || undefined, sites: sites.length ? sites.slice() : undefined, clock: clock.world ? [Math.round(clock.ship), Math.round(clock.world)] : undefined, ez: z, hz: h };
     },
     restore(raw) {
       if (!raw || typeof raw !== 'object') return;
@@ -372,8 +451,34 @@ export function createChapter(ctx) {
         if (Number.isFinite(z.node) && z.node > 0) ez.node = Math.floor(z.node);
         if (Number.isFinite(z.clock) && z.clock > 0) ez.clock = z.clock;
       }
+      const h = raw.hz;
+      if (h && typeof h === 'object') {
+        const bag = (o, out) => {
+          if (o && typeof o === 'object') for (const k of Object.keys(o)) if (scalar(o[k])) out[k] = o[k];
+          return out;
+        };
+        const lostIn = (a) => (Array.isArray(a) ? CAPTAINS.filter((c) => a.includes(c.id) && !ez.lost.includes(c.id)).map((c) => c.id) : []);
+        bag(h.d, hz.d);
+        hz.lost = lostIn(h.lost);
+        const cp = h.cp;
+        if (cp && typeof cp === 'object' && typeof cp.key === 'string' && STAGES.includes(cp.stage)) {
+          hz.cp = { key: cp.key, to: typeof cp.to === 'string' ? cp.to : null, stage: cp.stage, d: bag(cp.d, {}), lost: lostIn(cp.lost) };
+          // (left in the middle of what a choice led to: a scene is not come
+          // back into half-way, so it is the asking that is come back to)
+          stage = cp.stage;
+          hz.d = { ...hz.cp.d };
+          hz.lost = hz.cp.lost.slice();
+        }
+      }
     },
 
+    // dev: who is aboard, whatever the save says (every crew from all three to none can be tried)
+    setCrewDebug(ids) {
+      ez.lost = [];
+      hz.lost = CAPTAINS.filter((c) => !ids.includes(c.id)).map((c) => c.id);
+      ctx.onSave();
+      return CAPTAINS.filter((c) => !gone(c.id)).map((c) => c.id);
+    },
     // dev (__debug.tenretni.chapter()): jump the story to a stage, either way
     go(s) {
       if (!STAGES.includes(s)) return false;
@@ -381,6 +486,6 @@ export function createChapter(ctx) {
       ctx.onSave();
       return true;
     },
-    state: () => ({ stage, home, epilogue, side, raced, slept, sites: sites.slice(), picks: { ...picks }, seen: seen.slice(), assigned, clock: { ...clock }, ez: { ...ez, lost: ez.lost.slice() } }),
+    state: () => ({ stage, home, epilogue, side, raced, slept, sites: sites.slice(), picks: { ...picks }, seen: seen.slice(), assigned, clock: { ...clock }, ez: { ...ez, lost: ez.lost.slice() }, hz: { d: { ...hz.d }, lost: hz.lost.slice(), cp: hz.cp ? hz.cp.key : null } }),
   };
 }

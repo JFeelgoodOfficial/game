@@ -155,7 +155,8 @@ export function createEndgame(ctx) {
   }
 
   // every world still in space: the planets, and the coin (ctx.extra)
-  const worlds = () => planets.concat(ctx.extra || []).filter((w) => w && !w.removed);
+  // (`away`: a later chapter's world, not in space here at all; src/voyage.js)
+  const worlds = () => planets.concat(ctx.extra || []).filter((w) => w && !w.removed && w.away === undefined);
   const drop = (w) => {
     if (w.surface) removePlanet(w, true);
     else {

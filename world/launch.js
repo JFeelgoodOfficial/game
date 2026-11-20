@@ -325,9 +325,10 @@ export function createLaunch(ctx) {
     spawn: new THREE.Vector3(0, 0, -R + 4.4), // at the helm
     spawnYaw: Math.PI,
     npcs,
-    consoles: [],
+    // (the one way on: the chapter past the horizon, GDD 5.7.7)
+    consoles: [{ x: 0, y: 0, z: -R + 3.6, r: 2.0, prompt: 'E — THE HELM', off: () => u >= 0 || !chapter.reached('ez_beyond') || chapter.open(), use: () => ((site.portal = 'hz:deck'), null) }],
     onChoice: () => null,
-    portal: null, // (there is no way off)
+    portal: null,
     held: () => u >= 0,
     // Watched, while it happens: from the port side across the bridge at what is
     // being left, and then round over the heads at the rail to what is ahead.

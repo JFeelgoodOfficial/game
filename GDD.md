@@ -853,7 +853,7 @@ Stages, in order (appended; the story only goes forward): `ez_offer` →
 | ez_ascent | `world/hollow.js`, `world/submersible.js` | Up under the firewall, which opens to every band. The lattice does the rest. The vessel breaks out into rain. |
 | ez_era | `src/era.js`, `world/megaworld.js`, `world/lightcity.js` | A million years on: `EZ_YEARS_GONE`, 2^20. The megaworld and the city are what they have become. |
 | ez_launch | `world/launch.js` | The Tenretni stay. The light ship, the archive and the crew go out from the megaworld and into the hole. |
-| ez_beyond | `world/launch.js` | Inside. Nothing is built past it. |
+| ez_beyond | `world/launch.js` | Inside. The chapter of 5.7.7 carries on from here. |
 
 The lamp (`src/lamp.js`) is the system everything below the city is built on.
 One instrument, six bands, one at a time; on one band the pilot is blind to
@@ -995,6 +995,95 @@ One thread, given by Patron Axilo in Meridian Crown, that explains every gate be
 - **The wreck.** After the blast the Indigo Reach is a dock like the Sky City (`DOCKS` entry `wreck`, `src/game.js`): come within `WRECK_CAPTURE × 1.25` and the autopilot sets the ship down on her flight deck. The hull stops tumbling from capture until lift-off. On foot it is a `capitalWalk` site over the hull's own decks (`world/wrecksite.js`): sun and ambient go out, and the pilot carries one real SpotLight, `L` to switch. The Seal hangs lit over the captain's chair on the bridge.
 - **Old saves.** Charge already accepted or blown with no errand: Axilo's first talk goes straight to `sent`. Tenretni already past: Ossva keeps her old terms (survey, then charge) and the codex files the Seal as having no one left to take it.
 - **Alliances** are story flags only in this pass; nothing in the fleet war reads them yet.
+
+<!-- 5.7.7 -->
+
+### 5.7.8 The light ship as a home base, and chapters as systems
+
+From the moment the chapter of 5.7.7 lets the ship go (stage `hz_open`), the megaworld is behind it for good and the light ship is where the game lives. Every later chapter is a place the ship travels to. This section is the whole of that structure; none of it is story.
+
+**What a save in open space is.** `fgsf.tenretni.end` stays `'far'`. Open space is derived from the chapter stage (`chapter.open()`), not saved as a state of its own. A game come back to is always aboard: the freighter parked in the bay, the pilot stepped out and stood on the bridge (`farBeyond()` in `src/tenretni.js` returns `{ dock: 'bay', hop: 'base:helm' }`, and the same two steps in `src/game.js` that used to put an `ez_beyond` pilot on the launch bridge do it). A world reset from anywhere (a death in the freighter, the menu) returns there too. "Landed somewhere" is not saved.
+
+**The ship (`src/homebase.js`).** Three walked places, each a `capitalWalk` site, built the first time it is walked into and kept. The far side builds its own copies of the archive and bridge for the megaworld chapter and retires them; these are separate instances.
+
+| Place | File | In the world? | What is there |
+|---|---|---|---|
+| Hangar bay | `world/basevessel.js` | Yes (the universe is not paused; the system is in view) | The freighter on its pad, two lifts (bridge, archive), the trip roster, the captains who are coming along |
+| Bridge | `world/basebridge.js` | No (paused, look `dive`) | The helm chart, the captains who are staying, the sky of the current system, a lift to the bay, a door aft to the archive |
+| Archive | `world/lightship.js` with `ctx.base` | No (paused, look `lightship`) | The six world rooms of 5.7.4 as they were, the holodeck console by the aft door, a door forward to the bridge, a lift to the bay |
+
+Doors are hop keys. `src/game.js` whites out, asks `farHop(key)` (`src/tenretni.js`), and stands the walker where the answer says: `{ site, spawn, yaw, look, out }`. `out` leaves the pause for the world. The `FAR_HOPS` table of 5.7.4 and 5.7.5 is untouched; `farHop` is asked only for keys it does not hold.
+
+| Key | Leads to |
+|---|---|
+| `base:bay` | the bay, off the lift |
+| `base:bridge`, `base:bridge-aft`, `base:helm` | the bridge: off the lift, from the archive, at the helm |
+| `base:archive`, `base:archive-up`, `base:holo` | the archive: from the bridge, off the lift, at the holodeck |
+| `hz:*` | the chapter of 5.7.7 (`src/horizon.js`) |
+| anything else | the current system's own `hop(key)` |
+
+**The holodeck.** One system, the freighter's (`startHolo` in `src/game.js`), with one argument added: `startHolo(id, back)`. With `back` (a hop key) the program is started from a place being walked instead of from the freighter's panel, and G ends it by walking back in through that door. Without it every line runs as it did. The catalogue (`catalog()` in `src/tenretni.js`) gives each row a kind:
+
+| Kind | Programs | How it is entered |
+|---|---|---|
+| `world` | Terra, Rustia, Wavemall Prime, Actuality, Shadowreach, Wyattmattoe | The planet record is put back in space for the session (`holoWorld`), as the freighter's holodeck does for an assimilated world. Aboard the light ship any world no longer in space qualifies, because the ending left the rest behind. Terra has the worldship taken off it for the session (`holoTerra`). |
+| `sky` | Saturnia | The Sky City, from its pad. A fall ends the program, not the game. |
+| `reach` | Neptunia | The Indigo Reach's flight deck, or her wreck if the save blew the charge (`shatter.active`). |
+| `coin` | Stevenlacey | The freighter's own branch. |
+| `site` | The City of Light | A second City of Light built with no chapter (`homebase.program`), walked under the pause; its doors lead nowhere. |
+
+The rest of the archive (`ARCHIVE_LOCKED`) shows as rows that cannot be entered: three named megaworld places and four unnamed records. A later chapter opens one by moving it into `ARCHIVE` with a kind. `src/holoPanel.js` takes optional `{ title, sub, locked, foot }`, a tenth key `[0]`, and scrolls.
+
+**The freighter as a shuttle.** Two entries are appended to `DOCKS` in `src/game.js`; the capture, arc and descent are the Sky City's.
+
+- `bay` (`BAY_DOCK`). The stand-in planet is centred on the middle of the hull, so the arc goes round the whole ship. The hover point is astern of the stern mouth (`BASE_BAY_STANDOFF`), so the last leg is a level run in under the keel (`BASE_BAY_RUN` seconds). A dock with `exit: true` leaves its pad along the deck to its own exit point, out of the forward mouth, in `BASE_BAY_LIFT` seconds, with no climb and no pitch; every other dock lifts as before.
+- `system` (`SYSTEM_DOCK`). Whatever the current system has to dock at, nearest first, as the `vessel` entry serves every fleet ship.
+
+From the bay the freighter is boarded with G at the pad and launched with W. In a system it flies as it always has: a landable world takes the helm at its air and sets it down, G steps out. The freighter's interior, gallery, patio, terrarium and its own holodeck are unchanged.
+
+**Who comes along.** The roster console in the bay lists the surviving captains; picking one toggles between coming along and staying (`fgsf.voyage.crew`). Those staying stand on the bridge and are talked to there. Those coming wait by the freighter in the bay, stand in the freighter's hall during the flight and can be talked to (`src/interior.js` guests; the rigs are built by the story chunk), and follow the pilot on foot on any platform that makes a `createCrewFollow` (`world/crewFollow.js`). Limit of this version: on a planet's surface they stay with the freighter. A pilot with no captains left has an empty roster and nobody aboard; nothing else changes.
+
+**Chapters as systems (`src/systems.js`, `src/voyage.js`).** One registry entry per chapter:
+
+```js
+{ id, label, sealed, needs?(chapter, voyage), star: { dir, color } | null, nebula, fleet, base: [x, y, z],
+  create(ctx) -> { docks, planets, hop(key), door(), update(dt, t, cam), talk(captainId),
+                   serialize(), restore(raw), state() } }
+```
+
+The voyage mounts the current entry: its star (a disc and a glow in its direction, and the direction the game's one sun light is aimed), its docks (platform sites, charted on NAV), and its planets. A planet is a config for `buildPlanet(cfg, scene, { late: true })` in `src/planet.js`, the loop body of `initPlanets` factored out, with `pos` (absolute) added; it joins the terrain bake queue (`bakePlanet`). Everything mounted is laid out in the absolute frame and re-placed from it every frame, because nothing built after boot is in the world reset's snapshot (`src/origin.js`). A system the ship is not in is hidden and stays hidden through a pause (`userData.away`, `src/isolate.js`); its worlds are `removed`, and carry `away` so the ending's world list never counts them.
+
+Travel is the helm chart on the bridge: a choice of every charted system but the one the ship is in, refused while the freighter is out of the bay. The passage is watched from the bridge (one clock and `pose(u)`, `BASE_TRAVEL_TIME`, E skips) and the systems are swapped at its middle.
+
+**The save.** `fgsf.voyage`, written only once it holds something:
+
+```js
+{ v: 1, at: '<system id>', visited: ['<id>', ...], crew: ['<captain id>', ...],
+  chapters: { '<system id>': <that chapter's own record> } }
+```
+
+**What a chapter leaves aboard.** `horizon.effects()` (5.7.7) returns `{ rooms, figures, marks, talk }` and the home base applies it as it stands: holodeck rows shut, figures stood on the bridge, lit plates in the bay, extra lines for the captains. A later chapter that needs the same reads its own record.
+
+**Adding a chapter.**
+
+1. Write its places in `world/` as `capitalWalk` sites (docks) and planet configs, and its words in a dialogue file of its own. `world/example-system.js` and `world/example-dialogue.js` are the smallest complete pair.
+2. Give it a stage list (append-only) and a record: `serialize()` returns `undefined` while there is nothing to keep, `restore(raw)` validates what it is handed. Call `ctx.save()` whenever the record changes.
+3. Return `{ docks, planets, hop, door, update, talk, serialize, restore, state }` from a `create(ctx)`. `ctx` is `{ scene, camera, chapter, voyage, sunDir, save, crewTalk }`. Namespace its doors `<id>:*`.
+4. Add one entry to `SYSTEMS` in `src/systems.js`. `needs` keeps it off the chart until an earlier chapter's record says otherwise (`chapter.hz.get(key)`, or `voyage.instance(id).state()`).
+5. Put its tunables in a block of their own in `src/constants.js` and its verify recipes in `.claude/skills/verify/SKILL.md`.
+6. If its story is sealed, name its content files `SEALED-*`, set `sealed: true`, and take its label from a sealed file as chapter one does (`world/SEALED-horizon-place.js`).
+
+**The example system.** `proving`, "The Proving Ground": a relay to dock at (a pad, a walk, a beacon with a log to read) and Cinder, one bare landable world (`BASE_EXAMPLE_PLANET`). Its stage machine is `arrived` -> `docked` -> `logged`. It is not story and is there to be flown.
+
+**Tunables.** The `BASE_*` block in `src/constants.js`: `BASE_CAPTURE`, `BASE_BAY_STANDOFF`, `BASE_BAY_RUN`, `BASE_BAY_LIFT`, `BASE_BAY_HW`, `BASE_BAY_HL`, `BASE_BAY_ROOF`, `BASE_STAR_DIST`, `BASE_TRAVEL_TIME`, `BASE_DOCK_HOVER`, `BASE_FOLLOW_SPEED`, `BASE_FOLLOW_GAP`, `BASE_GUEST_TALK`, and the switch `BASE_EXAMPLE_PLANET`.
+
+**Debug.** `__debug.base` (`approach(dir, dist)`, `dock()`, `stepOut()`, `board()`, `launch()`, `door(key)`, `systemApproach()`, `systemDock()`, `systemStepOut()`, `guests()`, `state()`), `__debug.holodeck.catalog()` and `startFrom(id, back)`, and through `__debug.tenretni`: `voyage()` (`state()`, `travel(id)`, `setCrew(ids)`, `instance(id)`), `base()` (`state()` with each room's `info()`, `places` and `bridgeSeek`), `hz()`, `openSpace()`.
+
+**Rules.**
+- A room of the ship that is walked under the pause captures fog, sun and ambient in `onEnter` and restores them in `onLeave`, as every far-side place does.
+- Nothing mounted after boot relies on the reset snapshot: it keeps an absolute position and is re-placed.
+- The freighter's holodeck path is not changed by the light ship's: `startHolo(id)` with no `back` is the code it was.
+- A sealed chapter's label, places and words never appear in an unsealed file.
 
 ### 5.8 The Sky City (Saturnia)
 

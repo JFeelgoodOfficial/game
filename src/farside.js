@@ -737,6 +737,27 @@ export function createFarside(ctx) {
       }
       place(performance.now() / 1000);
     },
+    // The megaworld is behind the light ship for good (GDD 5.7.8): everything
+    // apply() laid out is put away, and stays away through any later pause.
+    stow() {
+      active = false;
+      mega.root.visible = false;
+      mega.root.userData.away = true;
+      landing.group.visible = false;
+      landing.group.userData.away = true;
+      worm.visible = false;
+      closeT = -1;
+      body.mass = 0;
+      body.radius = 0;
+      if (registered) setNavHidden(landNav.pos, true);
+      for (const s of slots) {
+        if (!s.on) continue;
+        s.on = false;
+        s.body.radius = 0;
+        setNavHidden(s.star, true);
+      }
+      ship.levelUp = null;
+    },
     update(dt, t, flying) {
       ship.levelUp = active ? FAR_UP : null;
       if (!active) return;

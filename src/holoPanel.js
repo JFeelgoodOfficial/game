@@ -19,7 +19,7 @@ const CSS = `
   text-shadow: 0 0 12px rgba(53,255,138,0.5);
 }
 #holopanel .hp-sub { margin-top: 8px; font-size: 10px; letter-spacing: 0.32em; color: #7fbf9c; }
-#holopanel .hp-list { margin-top: 22px; display: flex; flex-direction: column; gap: 8px; width: min(86vw, 520px); }
+#holopanel .hp-list { margin-top: 22px; display: flex; flex-direction: column; gap: 8px; width: min(86vw, 520px); max-height: 66vh; overflow-y: auto; }
 #holopanel .hp-row {
   display: flex; align-items: baseline; gap: 14px; padding: 12px 16px;
   border: 1px solid rgba(53,255,138,0.45); background: rgba(6,24,16,0.7);
@@ -33,7 +33,10 @@ const CSS = `
 #holopanel .hp-foot { margin-top: 18px; font-size: 10px; letter-spacing: 0.3em; color: #4f6a5c; }
 `;
 
+const TITLE = 'HOLODECK', SUB = 'WORLDS HELD BY TENRETNI', LOCKED = 'NOT YET ASSIMILATED';
 let panel = null;
+let title = null, sub = null, foot = null;
+const FOOT = 'NUMBER — RUN · X — CLOSE';
 let list = null;
 let open = false;
 let rows = []; // what is on screen: [{ id, label, note, unlocked }]
@@ -50,6 +53,7 @@ function pick(i) {
 function onKey(e) {
   if (e.code === 'KeyX') closeHoloPanel();
   else if (/^Digit[1-9]$/.test(e.code)) pick(Number(e.code.slice(5)) - 1);
+  else if (e.code === 'Digit0') pick(9); // a tenth row, on the longer lists (the light ship's archive)
 }
 
 export function initHoloPanel() {
@@ -58,38 +62,45 @@ export function initHoloPanel() {
   document.head.appendChild(style);
   panel = document.createElement('div');
   panel.id = 'holopanel';
-  const title = document.createElement('div');
+  title = document.createElement('div');
   title.className = 'hp-title';
-  title.textContent = 'HOLODECK';
-  const sub = document.createElement('div');
+  title.textContent = TITLE;
+  sub = document.createElement('div');
   sub.className = 'hp-sub';
-  sub.textContent = 'WORLDS HELD BY TENRETNI';
+  sub.textContent = SUB;
   list = document.createElement('div');
   list.className = 'hp-list';
-  const foot = document.createElement('div');
+  foot = document.createElement('div');
   foot.className = 'hp-foot';
-  foot.textContent = 'NUMBER — RUN · X — CLOSE';
+  foot.textContent = FOOT;
   panel.append(title, sub, list, foot);
   document.body.appendChild(panel);
 }
 
 // programs: [{ id, label, note, unlocked }]; picked(id) runs once, after close.
-export function openHoloPanel(programs, picked) {
+// `opts` (the light ship's panels, src/homebase.js): { title, sub, locked }
+// in place of the freighter's own wording; a locked row with `show` keeps its
+// name on screen. Rows past the ninth are [0] and then tap only.
+export function openHoloPanel(programs, picked, opts = {}) {
   if (!panel || open) return;
   rows = programs;
   onPick = picked;
+  title.textContent = opts.title || TITLE;
+  sub.textContent = opts.sub || SUB;
+  const lockedNote = opts.locked || LOCKED;
+  if (foot) foot.textContent = opts.foot || FOOT;
   list.textContent = '';
   rows.forEach((r, i) => {
     const b = document.createElement('button');
     b.className = 'hp-row' + (r.unlocked ? '' : ' locked');
     const key = document.createElement('span');
     key.className = 'hp-key';
-    key.textContent = `[${i + 1}]`;
+    key.textContent = i < 9 ? `[${i + 1}]` : i === 9 ? '[0]' : '';
     const name = document.createElement('span');
-    name.textContent = r.unlocked ? r.label : '— — —';
+    name.textContent = r.unlocked || r.show ? r.label : '— — —';
     const note = document.createElement('span');
     note.className = 'hp-note';
-    note.textContent = r.unlocked ? r.note : 'NOT YET ASSIMILATED';
+    note.textContent = r.unlocked ? r.note : r.lockedNote || lockedNote;
     b.append(key, name, note);
     b.addEventListener('click', (e) => {
       e.stopPropagation();
