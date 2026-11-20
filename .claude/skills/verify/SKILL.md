@@ -562,6 +562,26 @@ world/lightship.js) and small on its plinth, each with a name sprite. From
 screenshot must show the five named things; standing within 2.6 of a plinth
 lights its pair and draws a line between them.
 
+Out in a room's world the things are solid and lit (Lambert, no outlines), with
+two or three more of each further off; only the plinth copies are holograms.
+
+Story branches (src/chapter.js): `chapter().side()` is whose part the pilot
+took in the Pavilion (`vask` | `marrow` | `lux`, saved as `ch.side`). At stage
+`suite`, E on any Pavilion captain (Vask stands at about (83, 0, -85)) runs
+their lines and then asks WHO IS RIGHT?; a digit settles it, and after that
+each captain says `ARGUMENT.after[side][id]`. `chapter().diveLines(base)`,
+`keeperTalk()`, the Entry Zero accept and `revealAfter()` each carry a line
+for the side. The picks: `chapter().carried()`, `carriedLine('marrow' | 'lux')`,
+`racer()` (the world they make: the Starter's first option, YOURS), and once
+`home` is set `far().state().taken` is the number of them standing round the
+City of Light (seed `picks` and `home`, then look west from `place(-8, 0, -77)`).
+
+The Last Seam: on a new game, about 55 game seconds after the war is at full
+strength, `rustia:w1` is destroyed and a comm scene from Vask opens
+(`fgsf.warloss` = '1', codex `The Last Seam`). `tenretni.warLoss(2)` brings it
+on in two seconds; `warLoss()` reads `{in, done}`. On any save where the war is
+over that ship is already gone, so the fleets number eight warships.
+
 The radio is silent inside the megaworld: `__debug.radio.area()` → `{area, to}`
 reads `to: 0` while `far().state().inSub` or `onGround`, 1 otherwise, and the
 radio popup says NO SIGNAL DOWN HERE.

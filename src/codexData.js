@@ -135,6 +135,7 @@ function farObjectives(fs, next, done) {
   const ez = EZ_ORDER.indexOf(st);
   if (ez < 0) {
     // the light ship chapter
+    if (st === 'suite' && !fs.side) one('Settle the captains\' argument', 'Vask, Marrow and Lux are in the Pavilion, east of the terrace, and they do not agree about helping Tenretni. Talk to any of them and say who is right.');
     if (st === 'suite') return one('Hear the Archivist out in your suite', 'East of the terrace a bridge runs to the Pavilion. Take its lift up to your suite. The Archivist waits by the window with an offer: fly their ship, and everyone they took comes back.');
     if (st === 'demo') return one('Watch the light ship fly', 'The hangar is west of the terrace. Stand at the rail (E) and watch one of the Tenretni try to fly it and fail. Then board it.');
     if (st === 'holo') {
@@ -198,6 +199,7 @@ export const people = () => peopleMet().sort((a, b) => a.name.localeCompare(b.na
 const NOTES = {
   Tenretni: 'A machine world that came through a wormhole and took Terra apart. It keeps whatever it takes, whole. It found the other worlds in your navigation log.',
   'The Kept': 'Nobody on the taken worlds is dead. Tenretni holds every world and every person on it, asleep, exactly as they were. It does not know how to wake them or give them back. It thinks you can teach it.',
+  'The Last Seam': 'A Rustian warship broken by a Saturnian lance in the last week of the war between the three worlds. Two hundred and six hands, Vask\'s brother among them. Marrow gave the order. The truce was made over it.',
   'The Three Captains': 'Shift-Captain Orrin Vask of Rustia (flagship Emberwright) will not forgive Tenretni and comes along to watch it. Cantor Ilse Marrow of Saturnia (Halo of Morning) thinks helping is the only way to get anyone back. Floor Manager Brandi Lux of Wavemall Prime (Saturday Forever) is frightened and ashamed of it.',
   'The Offer': 'The Archivist asked you to fly the light ship: it goes where its pilot imagines, and Tenretni can only remember. Bring back one thing that never existed, and they believe they can wake everyone they keep.',
   'The Shuttle': 'The last of the way down beside the black hole is in a one-seat shuttle. A minute there is a year in the city. Nothing in the city changes until you bring what you made home.',
@@ -212,9 +214,23 @@ const NOTES = {
   'Through the Wormhole': 'You followed it through. The far side is not empty.',
   'The City of Light': 'The place on the far side of the hole.',
 };
+// the entries that depend on what this pilot did
+function ownNote(s) {
+  const fs = farStory();
+  if (!fs) return null;
+  if (s === 'What You Carried' && fs.carried.length) return `Out of the archive you took: ${fs.carried.join(', ').toLowerCase()}. They were the first things Tenretni made real. They stand round the City of Light, and the world they add up to can be flown in the race as YOURS.`;
+  if (s === 'The Argument' && fs.side) {
+    return {
+      vask: 'In the Pavilion you stood with Vask: nobody helps Tenretni until it proves itself. He came along to watch it, with your leave.',
+      marrow: 'In the Pavilion you stood with Marrow: helping Tenretni is the only way anyone comes back.',
+      lux: 'In the Pavilion you stood with Lux: you were afraid too, and went anyway.',
+    }[fs.side];
+  }
+  return null;
+}
 export function lore() {
   return codexSubjects().map((s) => ({
     title: s,
-    text: NOTES[s] || (/, assimilated$/.test(s) ? 'Taken in by the worldship. It is not on the chart any more.' : ''),
+    text: ownNote(s) || NOTES[s] || (/, assimilated$/.test(s) ? 'Taken in by the worldship. It is not on the chart any more.' : ''),
   }));
 }

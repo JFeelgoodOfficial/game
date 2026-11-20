@@ -31,7 +31,7 @@ import { addCodex, codexSubjects } from './journal.js';
 import { uiSound } from './sfx.js';
 import { LAYERS } from '../world/layerplanet.js';
 import { C } from './constants.js';
-import { WORLDS, CAPTAINS, SUITE_OFFER, SUITE_ACCEPT, SUITE_WAIT, SUITE_REMIND, RETURN } from '../world/chapter-dialogue.js';
+import { WORLDS, CAPTAINS, HOME, SUITE_OFFER, SUITE_ACCEPT, SUITE_WAIT, SUITE_REMIND, RETURN, ARGUMENT, CARRIED } from '../world/chapter-dialogue.js';
 import { BANDS, RELICS, OFFER, ERA, LAUNCH } from '../world/entryzero-dialogue.js';
 
 // Append only: a saved stage this list does not hold loads as 'suite'.
@@ -61,6 +61,7 @@ export function createChapter(ctx) {
   // Entry Zero: flies a race to the end, sees the four things worth seeing,
   // and sleeps a night in the suite. (It used to come the moment the ship had
   // been seen off, before the pilot had lived there at all.)
+  let side = null; // whose part the pilot took in the captains' argument (a captain's id), once it is settled
   let raced = false, slept = false;
   const sites = [];
   const settled = () => raced && slept && SITES.every((s) => sites.includes(s));
@@ -96,12 +97,23 @@ export function createChapter(ctx) {
         return SUITE_ACCEPT;
       }
       if (tag === 'ch:wait') return SUITE_WAIT;
+      // the captains' argument, settled (world/lightpavilion.js asks)
+      const sm = /^ch:side:(\w+)$/.exec(tag ?? '');
+      if (sm) {
+        if (!isCaptain(sm[1]) || side) return null;
+        side = sm[1];
+        addCodex('The Argument');
+        uiSound('engage');
+        ctx.onSave();
+        const c = CAPTAINS.find((x) => x.id === side);
+        return { speaker: { name: c.name, species: c.species, cityId: 'The Pavilion' }, lines: ARGUMENT.reply[side] };
+      }
       if (tag === 'ez:accept') {
         if (at(stage) >= at('done') && epilogue && settled() && advance('ez_offer')) {
           uiSound('engage');
           addCodex(OFFER.codex);
         }
-        return OFFER.accept;
+        return side ? { ...OFFER.accept, lines: [...OFFER.accept.lines.slice(0, -1), ARGUMENT.accept[side]] } : OFFER.accept;
       }
       if (tag === 'ez:wait') return OFFER.wait;
       // (the launch: the place it is asked at does the going, world/lightcity.js)
@@ -150,6 +162,45 @@ export function createChapter(ctx) {
       return out;
     },
 
+    // --- the argument (world/lightpavilion.js) ---
+    side: () => side,
+    // what a captain says in the Pavilion: the quarrel and the question, or what came after
+    captainTalk(c, lines) {
+      const speaker = { name: c.name, species: c.species, cityId: 'The Pavilion' };
+      if (side) return { speaker, lines: ARGUMENT.after[side][c.id] || lines };
+      return { speaker, lines, offer: { kind: 'choice', prompt: ARGUMENT.prompt, options: ARGUMENT.options } };
+    },
+    // the dive's lines, with the one the argument added
+    diveLines: (base) => (side ? [...base, ARGUMENT.dive[side]].sort((a, b) => a[0] - b[0]) : base),
+    revealAfter: (base) => (side ? ARGUMENT.reveal[side] : base),
+    // --- what was carried ---
+    // each pick as { world, layer, frag }, in the order taken
+    carried: () => Object.keys(picks).map((id) => ({ world: id, layer: picks[id], frag: WORLDS.find((w) => w.id === id).layers[picks[id]], layers: WORLDS.find((w) => w.id === id).layers })),
+    // what a captain says of the thing taken from their own world, or null
+    carriedLine(capId) {
+      const home = { marrow: 'saturnia', lux: 'wavemall prime' }[capId];
+      const frag = home && picks[home] ? WORLDS.find((w) => w.id === home).layers[picks[home]] : null;
+      return frag && CARRIED.talk[capId] ? CARRIED.talk[capId].replace('{thing}', frag.label.toLowerCase()) : null;
+    },
+    // The world the picks add up to, as something to race (src/worldRace.js):
+    // its sky and its light make it quick, its ground and what is built on it
+    // make it hold a line, its life gives it boost. null with nothing taken.
+    racer() {
+      if (!Object.keys(picks).length) return null;
+      const made = {};
+      for (const l of LAYERS) made[l] = null;
+      for (const id of Object.keys(picks)) made[picks[id]] = WORLDS.find((w) => w.id === id).layers[picks[id]];
+      const layers = {};
+      for (const l of LAYERS) layers[l] = made[l] || HOME.layers[l];
+      return {
+        ...CARRIED.racer, layers,
+        speed: 0.97 + (made.sky ? 0.06 : 0) + (made.light ? 0.05 : 0),
+        grip: 0.95 + (made.ground ? 0.15 : 0) + (made.structures ? 0.12 : 0),
+        boost: 0.95 + (made.life ? 0.25 : 0),
+        mass: 1 + (made.ground ? 0.1 : 0),
+      };
+    },
+
     // --- the dive (world/divebridge.js) ---
     setClocks(ship, world) {
       clock.ship = ship;
@@ -181,7 +232,13 @@ export function createChapter(ctx) {
     // the Keeper, on the terrace, afterwards: the last thing in the chapter
     keeperTalk() {
       if (advance('done')) addCodex(RETURN.codex);
-      return RETURN.keeper;
+      if (Object.keys(picks).length) addCodex(CARRIED.codex);
+      // ...and it names what was carried, and whose part the pilot took
+      const lines = RETURN.keeper.lines.slice();
+      const list = Object.keys(picks).map((id) => WORLDS.find((w) => w.id === id)?.layers[picks[id]]?.label).filter(Boolean);
+      if (list.length) lines.splice(lines.length - 1, 0, CARRIED.keeper.replace('{list}', list.join(', ').toLowerCase()));
+      if (side) lines.splice(lines.length - 1, 0, ARGUMENT.keeper[side]);
+      return { ...RETURN.keeper, lines };
     },
 
     // --- Entry Zero (GDD 5.7.5) ---
@@ -278,11 +335,11 @@ export function createChapter(ctx) {
 
     // --- the save: one small object inside src/tenretni.js's ---
     serialize() {
-      if (stage === 'suite' && !seen.length) return undefined;
+      if (stage === 'suite' && !seen.length && !side) return undefined;
       const z = ez.log || ez.frags || ez.stay || ez.lost.length || ez.node || ez.clock >= 1
         ? { log: ez.log || undefined, frags: ez.frags || undefined, stay: ez.stay || undefined, lost: ez.lost.length ? ez.lost.slice() : undefined, node: ez.node || undefined, clock: Math.round(ez.clock) || undefined }
         : undefined;
-      return { stage, picks: { ...picks }, seen: seen.slice(), assigned: assigned || undefined, home: home || undefined, epilogue: epilogue || undefined, raced: raced || undefined, slept: slept || undefined, sites: sites.length ? sites.slice() : undefined, clock: clock.world ? [Math.round(clock.ship), Math.round(clock.world)] : undefined, ez: z };
+      return { stage, picks: { ...picks }, seen: seen.slice(), assigned: assigned || undefined, home: home || undefined, epilogue: epilogue || undefined, side: side || undefined, raced: raced || undefined, slept: slept || undefined, sites: sites.length ? sites.slice() : undefined, clock: clock.world ? [Math.round(clock.ship), Math.round(clock.world)] : undefined, ez: z };
     },
     restore(raw) {
       if (!raw || typeof raw !== 'object') return;
@@ -294,6 +351,7 @@ export function createChapter(ctx) {
       if (raw.assigned) assigned = true;
       if (raw.home) home = true;
       if (raw.epilogue) epilogue = true;
+      if (isCaptain(raw.side)) side = raw.side;
       if (raw.raced) raced = true;
       if (raw.slept) slept = true;
       if (Array.isArray(raw.sites)) for (const s of SITES) if (raw.sites.includes(s) && !sites.includes(s)) sites.push(s);
@@ -323,6 +381,6 @@ export function createChapter(ctx) {
       ctx.onSave();
       return true;
     },
-    state: () => ({ stage, home, epilogue, raced, slept, sites: sites.slice(), picks: { ...picks }, seen: seen.slice(), assigned, clock: { ...clock }, ez: { ...ez, lost: ez.lost.slice() } }),
+    state: () => ({ stage, home, epilogue, side, raced, slept, sites: sites.slice(), picks: { ...picks }, seen: seen.slice(), assigned, clock: { ...clock }, ez: { ...ez, lost: ez.lost.slice() } }),
   };
 }

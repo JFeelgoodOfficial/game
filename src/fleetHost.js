@@ -11,8 +11,10 @@
 // chunk of their own, so the title screen does not pay for them.
 
 import * as THREE from 'three';
-import { questStage } from './journal.js';
+import { questStage, addCodex } from './journal.js';
 import { sun } from './sun.js';
+import { openDialogue, isDialogueOpen } from './dialogue.js';
+import { uiSound } from './sfx.js';
 
 export const fleetLost = new Set(); // ships destroyed for good (the story saves it)
 
@@ -26,7 +28,25 @@ let fleets = null, explosions = null;
 let loading = false, failed = 0, retryAt = 0, wait = 2.5;
 let gone = false; // the worldship left and took the war with it: no fleets at all
 let hooks = null; // the story, once it has them: { story, onLost, kick, sunDir, refuge }
-let VOICE = null, CAPTAINS = null;
+let VOICE = null, CAPTAINS = null, WAR_LOSS = null;
+// The war costs something before it stops: about a minute into it one of
+// Rustia's escorts, the Last Seam, is broken by a Saturnian lance, and Vask is
+// heard telling his fleet. It happens once (saved here, since the story's own
+// save does not exist yet), and on any save where the war is already over it
+// has already happened: the truce is made over that ship.
+const LOSS_KEY = 'fgsf.warloss', LOSS_SHIP = 'rustia:w1';
+let lossT = 55;
+const lossDone = () => {
+  try {
+    return localStorage.getItem(LOSS_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+const warOver = () => {
+  const st = questStage(TENRETNI);
+  return st === 'done' || st === 'ship';
+};
 
 // What is said on a flagship while the three worlds are still at war.
 const prewar = {
@@ -55,6 +75,8 @@ function build(mods) {
   const [F, E, D] = mods;
   VOICE = D.VOICE;
   CAPTAINS = D.CAPTAINS;
+  WAR_LOSS = D.WAR_LOSS;
+  if (lossDone() || warOver()) fleetLost.add(LOSS_SHIP);
   explosions = E.createExplosions(deps.scene);
   fleets = F.createFleets({
     scene: deps.scene,
@@ -107,6 +129,22 @@ export function stepFleetHost(dt, t, flying) {
   fleets.war(st !== 'done' && st !== 'ship');
   if (hooks && hooks.sunDir) sunDir.copy(hooks.sunDir);
   else sunDir.copy(sun.group.position).sub(deps.camera.position).normalize();
+  // the Last Seam
+  if (!hooks && flying && !lossDone() && fleets.warState().k > 0.95 && !isDialogueOpen() && (lossT -= dt) <= 0) {
+    try {
+      localStorage.setItem(LOSS_KEY, '1');
+    } catch { /* it will happen again next session: no harm */ }
+    if (fleets.destroy(LOSS_SHIP)) {
+      addCodex('The Last Seam');
+      uiSound('toggle');
+      const c = CAPTAINS.rustia;
+      openDialogue({
+        speaker: { name: `${c.title} ${c.names[0]}`, species: LABELS.rustia, cityId: 'Emberwright' },
+        cine: { kind: 'comm', from: WAR_LOSS.from },
+        lines: WAR_LOSS.lines.slice(),
+      });
+    }
+  }
   if (!hooks) {
     fleets.update(dt, t, null);
     explosions.update(dt, deps.camera);
@@ -129,6 +167,11 @@ export function fleetsGone() {
 }
 
 export const hostFleets = () => fleets;
+// dev: the war's one loss (seconds until it, and whether it has happened); `soon` brings it on
+export const hostLoss = (soon) => {
+  if (soon != null) lossT = soon;
+  return { in: lossT, done: lossDone() };
+};
 export const hostPlace = (t) => fleets && fleets.place(t);
 export const hostNearest = (pos) => (fleets && !gone ? fleets.nearest(pos) : null);
 export const hostSite = (ship) => (fleets ? fleets.site(ship) : null);

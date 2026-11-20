@@ -11,7 +11,7 @@ export const CAPTAINS = {
 
 export const VOICE = {
   rustia: {
-    truce: ['We have stopped shooting at each other. All three fleets saw what came through, and what it did to Terra.', 'Nobody knows what happens next. If it moves on another world, come and find me.'],
+    truce: ['We have stopped shooting at each other. I buried the Last Seam a week ago and I have not stopped being angry. But all three fleets saw what came through, and what it did to Terra.', 'Nobody knows what happens next. If it moves on another world, come and find me.'],
     // before Tenretni: the three worlds are at war with each other
     war: [
       'You picked a day to visit. That is Saturnia off the port bow and the mall fleet behind it, and all three of us are shooting.',
@@ -21,7 +21,8 @@ export const VOICE = {
     warCrew: ['Forty years of this. My father shot at the same ships.', 'Hold on to something. They are coming round again.'],
     hello: [
       'You are the pilot off that freighter. Wipe your boots. This deck was a smelter floor before it was a warship.',
-      'We watched that thing drink two oceans. Rustia has no ocean, and it is coming anyway.',
+      'A week ago Saturnia broke the Last Seam and killed two hundred and six of mine. My brother with them. Today I am asked to fly beside the ship that did it.',
+      'I will. That thing drank two oceans. Rustia has no ocean, and it is coming anyway.',
       'Three fleets, three peoples who do not like each other much. Nobody has got us all in one place.',
     ],
     ask: 'Open a channel to this ship?',
@@ -39,7 +40,8 @@ export const VOICE = {
     warCrew: ['We sing before every pass. It does not make it better.', 'I have never met one of the iron people. I have only shot at them.'],
     hello: [
       'Be welcome. You have come a long way through a great deal of noise.',
-      'We have sung over every world it has taken. We are tired of that song.',
+      'It was my lance that broke the Last Seam. I gave the order. Vask knows it. I do not ask him to forgive it, only to stand beside me until this is done.',
+      'We have sung over every world that thing has taken. We are tired of that song.',
       'Our lances are true but they are few. It would take all of us, at once, at its heart.',
     ],
     ask: 'Ask for a channel to this ship?',
@@ -65,4 +67,15 @@ export const VOICE = {
     open: ['Your channel is active! Is there anything else I can help you with today?'],
     crew: ['Clean up on deck nine. It is always deck nine.', 'These lights were for the sales floor. Now they are targeting. Same lights.'],
   },
+};
+
+// The war's one loss, heard by everyone on the open band about a minute into
+// a new game (src/fleetHost.js). The truce is made over this ship.
+export const WAR_LOSS = {
+  from: 'EMBERWRIGHT — ALL RUSTIA SHIPS, OPEN BAND',
+  lines: [
+    'All ships, this is Vask. The Last Seam is gone. A Saturnian lance took her amidships and she broke in two.',
+    'Two hundred and six hands. My brother was her gunner.',
+    'Mark the time. Mark who fired. I will have an answer for every one of them, if it takes me the rest of my life.',
+  ],
 };

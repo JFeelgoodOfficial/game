@@ -395,3 +395,84 @@ export const RACE = {
     },
   ],
 };
+
+// --- the argument, and who the pilot stands with ---------------------------------
+// In the Pavilion the three captains disagree about helping Tenretni. Any of
+// them will ask the pilot to settle it; what is chosen is saved (`side`, a
+// captain's id) and is heard again all the way down: on the dive, from the
+// Keeper, at the offer of Entry Zero, and at the reveal.
+export const ARGUMENT = {
+  prompt: 'ALL THREE ARE LOOKING AT YOU. WHO IS RIGHT?',
+  options: [
+    { label: 'VASK. WE HELP NOBODY UNTIL THEY PROVE IT.', outcomeTag: 'ch:side:vask' },
+    { label: 'MARROW. HELPING IS THE ONLY WAY BACK.', outcomeTag: 'ch:side:marrow' },
+    { label: 'LUX. I AM AFRAID TOO. WE GO ANYWAY.', outcomeTag: 'ch:side:lux' },
+    { label: 'NOT YET', outcomeTag: 'ch:side:none' },
+  ],
+  // what the one who was agreed with says, there and then
+  reply: {
+    vask: ['Then we do this my way. You fly their ship, and I stand behind you with the tally in my hand.', 'The first thing they hide from us, we stop. Marrow, Lux: you heard the pilot.'],
+    marrow: ['Thank you. Then we help them, with our eyes open, and we bring our people home.', 'Orrin, you may count the cost as loudly as you like. I would rather you did.'],
+    lux: ['Oh, thank goodness. I thought I was the only one.', 'Fine. We are all terrified and we are going. That is the most honest plan this fleet has ever had.'],
+  },
+  // what each of them says in the Pavilion afterwards: [side][captain]
+  after: {
+    vask: {
+      vask: ['You backed me. I will not forget it. Now go up and hear the machine out, and bring me every word.'],
+      marrow: ['So it is to be suspicion. Very well. Suspicion has kept Rustia alive; perhaps it will keep us.'],
+      lux: ['If Vask is in charge of being angry, I can go back to being scared. That is a relief, honestly.'],
+    },
+    marrow: {
+      vask: ['You chose the Cantor. I will come anyway. Somebody still has to count.'],
+      marrow: ['Go up and hear what they ask. Whatever it is, you do not carry it alone.'],
+      lux: ['Marrow makes it sound brave. I am going to borrow that for as long as it lasts.'],
+    },
+    lux: {
+      vask: ['Afraid. Hm. I have been afraid for thirty years below decks. I called it being careful.'],
+      marrow: ['You said the true thing, pilot. I only said the hopeful one.'],
+      lux: ['You are scared too. Good. I mean, not good. But good. Go up. I will be right here.'],
+    },
+  },
+  // one more line on the dive, after the clocks: [seconds, captain, line]
+  dive: {
+    vask: [41, 'vask', 'I AM WATCHING THEIR CLOCK AND OURS. IF EITHER ONE LIES, WE TURN ROUND.'],
+    marrow: [41, 'marrow', 'EVERY MINUTE IS A YEAR THEY SLEEP. FLY WELL. THEY ARE WAITING ON YOU.'],
+    lux: [41, 'lux', 'NOBODY IS PRETENDING ANY MORE. I LIKE US BETTER THIS WAY. GO ON, PILOT.'],
+  },
+  // the Keeper's last line when the pilot is back
+  keeper: {
+    vask: 'Your captain Vask watched us for a thousand years. He found nothing hidden. We left nothing to find, because he was watching.',
+    marrow: 'Your captain Marrow told her people we could be trusted before we had earned it. We have spent a thousand years trying to make that true.',
+    lux: 'Your captain Lux told everyone she was afraid of us. The people here still say it to each other, when they are about to do something difficult.',
+  },
+  // the Archivist's last line when Entry Zero is accepted
+  accept: {
+    vask: 'Your three captains are going with you. Vask says it is to watch us. You agreed with him once. We did not argue.',
+    marrow: 'Your three captains are going with you. Marrow asked before we could. She says it is the same errand as the first.',
+    lux: 'Your three captains are going with you. Lux says she would rather be afraid in company. We are learning what that means.',
+  },
+  // what is said aboard the vessel when entry zero has been seen
+  reveal: {
+    vask: ['vask', 'So that is why it takes. Not hunger. Fear. I came down here to watch an enemy, and you let me. Log it. Now we go up and tell them.'],
+    marrow: ['marrow', 'It was frightened. All this time. We were right to help it, and it never knew how to ask. Log it. Now we go up and tell them.'],
+    lux: ['lux', 'It is scared of losing things. That is all it ever was. I know exactly how that feels. Log it. We are going up to tell them.'],
+  },
+};
+
+// --- what was carried: the five picks, and what came of them ----------------------
+// The things taken on the light ship are the first things the city makes real
+// when the pilot is back: they stand in the City of Light, the Keeper names
+// them, the captains whose worlds they came from speak of them, and the world
+// they add up to can be flown in the race.
+export const CARRIED = {
+  codex: 'What You Carried',
+  // {list}: the labels of what was taken, in a row
+  keeper: 'We began with what you carried out of the archive: {list}. They were the first things we made real, and they stand in this city.',
+  // a captain, of the thing taken from their own world: {thing} is its label
+  talk: {
+    marrow: 'Out of all Saturnia you carried {thing}. It was the first of ours they woke. I go and stand by it most evenings.',
+    lux: 'You took {thing} out of the mall. Of everything in there! It is out past the terrace now, and honestly it has never looked better.',
+  },
+  // the world the picks make, in the race
+  racer: { id: 'yours', name: 'YOURS', note: 'THE WORLD YOU MADE', drive: 0xfff0b0 },
+};

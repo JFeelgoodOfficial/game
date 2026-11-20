@@ -1030,6 +1030,7 @@ export const storyState = () => ({
   ended, met, landed: farLanded,
   ch: chapter.state(), settling: chapter.settling(), offer: chapter.ezOpen(),
   picks: chapter.count(), ready: chapter.ready(),
+  carried: chapter.carried().map((c) => c.frag.label), side: chapter.side(),
 });
 
 // Build the megaworld (hidden, weightless until applied). Once.

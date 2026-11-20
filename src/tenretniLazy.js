@@ -27,7 +27,7 @@
 
 import { startAutoWarp } from './autopilot.js';
 import { questStage } from './journal.js';
-import { initFleetHost, stepFleetHost, hostNearest, hostSite, hostHold, hostPlace, hostFleets } from './fleetHost.js';
+import { initFleetHost, stepFleetHost, hostNearest, hostSite, hostHold, hostPlace, hostFleets, hostLoss } from './fleetHost.js';
 
 export const SECRET = 'tenretni';
 
@@ -154,5 +154,6 @@ export const tenretniDebug = () => ({
   far: () => mod && mod.debugFar(),
   story: () => mod && mod.debugStory(),
   chapter: () => (mod ? mod.chapterDebug() : null),
+  warLoss: hostLoss,
   state: () => (mod ? mod.state() : { loaded: false, stage: questStage(SECRET) }),
 });

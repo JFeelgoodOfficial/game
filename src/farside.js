@@ -693,6 +693,7 @@ export function createFarside(ctx) {
       epi: city ? city.info().epi : null,
       districts: city ? city.info().districts : null,
       race: city ? city.info().race : null,
+      taken: city ? city.info().taken : 0,
       life: city ? city.info().life : null,
       raceSet: city ? city.info().raceSet : null,
       raceProbe: city ? city.info().raceProbe : null,

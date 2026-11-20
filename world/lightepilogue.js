@@ -419,7 +419,7 @@ export function createEpilogue(k) {
     rig.group.position.set(x, S.y, z);
     standRig(rig, S.y);
     root.add(rig.group);
-    const npc = { x, y: S.y, z, role: 'captain', talk: () => ({ speaker: { name: c.name, species: c.species, cityId: 'The City of Light' }, lines: (chapter.reached('ez_era') ? ERA.talk[c.id] : EPILOGUE.talk[c.id]) || [] }) };
+    const npc = { x, y: S.y, z, role: 'captain', talk: () => ({ speaker: { name: c.name, species: c.species, cityId: 'The City of Light' }, lines: (chapter.reached('ez_era') ? ERA.talk[c.id] : [...(EPILOGUE.talk[c.id] || []), ...(chapter.carriedLine && chapter.carriedLine(c.id) ? [chapter.carriedLine(c.id)] : [])]) || [] }) };
     k.npcs.push(npc);
     return { c, rig, npc, yaw: Math.atan2(dir.x, dir.z), want: Math.atan2(dir.x, dir.z), slot: (i / CAPTAINS.length) * Math.PI * 2 + 0.6, moving: false, floor: S.y, pace: 0 };
   });

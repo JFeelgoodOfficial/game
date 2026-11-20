@@ -43,7 +43,7 @@ const CAPTAINS = [
     id: 'vask', name: 'Shift-Captain Orrin Vask', species: 'Rustia', seed: 0x51a, at: [-9, -8], face: 0.9,
     lines: [
       'They offered every hand a room with a window. I told them where to put the window.',
-      'Every world on the chart. I have the list, and every name on it. Asleep, they say. Kept. I call that taken.',
+      'Every world on the chart. I have the list, and every name on it, under the two hundred and six from the Last Seam. Asleep, they say. Kept. I call that taken.',
       'I will not help them. But I will go wherever you go, pilot, and I will be watching them the whole way. Somebody has to count what this costs.',
     ],
   },
@@ -159,7 +159,7 @@ export function buildPavilion(k) {
     const solid = { x, z, r: 0.7, top: Infinity };
     colliders.push(solid);
     capSolids.push(solid);
-    npcs.push({ x, y: 0, z, role: 'captain', table: true, talk: () => ({ speaker: { name: c.name, species: c.species, cityId: 'The Pavilion' }, lines: c.lines }) });
+    npcs.push({ x, y: 0, z, role: 'captain', table: true, talk: () => (k.chapter ? k.chapter.captainTalk(c, c.lines) : { speaker: { name: c.name, species: c.species, cityId: 'The Pavilion' }, lines: c.lines }) });
   }
   // --- the steward, by the lift ---
   const LIFT = { x: P.x + P.r - 7, z: P.z }; // the Pavilion's east side
