@@ -39,12 +39,14 @@ const PLINTH_R = 7.4; // the ring the fragments stand on
 // own pedestal: `d` from the room's middle, `y` up, `s` its size, `tag` how
 // high over it its name hangs. The sky is the room's whole sky; the light
 // hangs in it; the ground lies furthest out, the life nearest.
+// `more`: the same thing again, further off, so the place has a few of them
+// and not one: [angle off its own, distance, size].
 const SHOW = {
-  sky: { d: 0, y: 0, s: 30, tag: [19, 17] },
-  ground: { d: 23, y: -1.6, s: 9.5, tag: [23, 12.5] },
-  structures: { d: 17.5, y: -0.4, s: 6.5, tag: [17.5, 11.6] },
-  life: { d: 13.6, y: 0.1, s: 4.2, tag: [13.6, 7.6] },
-  light: { d: 27, y: 9, s: 6.5, tag: [27, 20.5] },
+  sky: { d: 0, y: 0, s: 38, tag: [19, 17] },
+  ground: { d: 30, y: -2.2, s: 15, tag: [22, 15], more: [[0.7, 44, 20], [-0.75, 40, 14]] },
+  structures: { d: 19, y: -0.6, s: 7.5, tag: [19, 12.6], more: [[0.42, 30, 9], [-0.5, 36, 11]] },
+  life: { d: 14, y: 0, s: 4.6, tag: [14, 8], more: [[0.55, 20, 4.2], [-0.6, 24, 5]] },
+  light: { d: 34, y: 12, s: 9, tag: [27, 25] },
 };
 const MINI_S = 0.46; // the one on the pedestal
 const DOME_R = 56; // (inside the hull on every side: it is drawn over it, not through it)
@@ -247,7 +249,18 @@ export function createLightShip(ctx) {
     const beamGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(f.x, 1.5, f.z), new THREE.Vector3(f.tx, f.sh.tag[1] - 1, f.tz)]);
     const beam = new THREE.Line(beamGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
     room.rg.add(show.group, small.group, nameBig, nameSmall, beam);
-    return { show, small, nameBig, nameSmall, beam };
+    // ...and a few more of it, further out and to either side
+    const more = (f.sh.more || []).map(([da, d, sc], i) => {
+      const m = buildHoloProp(room.w.id, f.layer, frag, room.w.layers, { world: true, scale: sc });
+      const a = f.a + da;
+      m.group.position.set(room.cx + Math.cos(a) * d, f.sh.y * (sc / f.sh.s), room.cz + Math.sin(a) * d);
+      m.group.scale.setScalar(sc);
+      m.group.rotation.y = Math.atan2(-Math.cos(a), -Math.sin(a)) + (i ? 0.6 : -0.4);
+      m.off = 1.7 + i * 2.3; // (so they do not all move as one)
+      room.rg.add(m.group);
+      return m;
+    });
+    return { show, small, nameBig, nameSmall, beam, more };
   }
 
   // --- forward: the way to the bridge, shut until the archive has been walked ---
@@ -464,6 +477,10 @@ export function createLightShip(ctx) {
           if (f.mini) {
             const m = f.mini;
             m.show.group.visible = m.small.group.visible = m.nameBig.visible = m.nameSmall.visible = m.beam.visible = close;
+            for (const x of m.more) {
+              x.group.visible = close;
+              if (close) x.tick(t + x.off);
+            }
             if (close) {
               // the one the pilot is standing at (or has taken) is lit up, and
               // a line of light joins the plinth to the thing it stands for
@@ -473,7 +490,6 @@ export function createLightShip(ctx) {
               m.small.tick(t);
               m.show.glow(f.glow);
               m.small.glow(f.glow);
-              m.show.group.scale.setScalar(f.sh.s * (1 + f.glow * 0.06));
               m.small.group.position.y = 1.3 + 0.05 * Math.sin(t * 1.3 + f.x) + f.lift * 0.35;
               m.small.group.rotation.y = t * 0.35 + f.z;
               m.small.group.scale.setScalar(MINI_S * (1 + f.lift * 0.3));

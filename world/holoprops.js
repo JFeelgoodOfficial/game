@@ -25,7 +25,15 @@ function kit(color, second, o) {
   const c = new THREE.Color(color), c2 = new THREE.Color(second ?? color);
   const fills = [], lines = [];
   const fill = (col = c, op = 0.5) => {
-    const m = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op, depthWrite: false, fog: false, side: THREE.DoubleSide });
+    // Out in the room's world a thing is the thing: solid, lit by the room's
+    // sun, standing in the landscape. What is light itself (the layer called
+    // light, and anything in a sky) is drawn as light. Only the one on the
+    // pedestal is a hologram.
+    let m;
+    if (world && !o.lightlike) m = new THREE.MeshLambertMaterial({ color: col, emissive: col.clone().multiplyScalar(0.3), flatShading: true, fog: false, side: THREE.DoubleSide });
+    else if (world) m = new THREE.MeshBasicMaterial({ color: col.clone().lerp(WHITE, 0.25), transparent: true, opacity: o.sky ? 0.8 : 0.95, depthWrite: !o.sky, fog: false, side: THREE.DoubleSide });
+    else m = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op, depthWrite: false, fog: false, side: THREE.DoubleSide });
+    if (world) op = m.opacity;
     m.userData.op = op;
     fills.push(m);
     return m;
@@ -46,13 +54,13 @@ function kit(color, second, o) {
   const add = (geo, x = 0, y = 0, z = 0, b = false, parent = group) => {
     const mesh = new THREE.Mesh(geo, b ? mB : mA);
     mesh.position.set(x, y, z);
-    mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 24), b ? lB : lA));
+    if (!world) mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 24), b ? lB : lA)); // (a hologram's edges; a real thing has none)
     parent.add(mesh);
     return mesh;
   };
   const box = (w, h, d, x, y, z, b, p) => add(new THREE.BoxGeometry(w, h, d), x, y, z, b, p);
   const cyl = (rt, rb, h, x, y, z, b, p, seg = 12) => add(new THREE.CylinderGeometry(rt, rb, h, seg), x, y, z, b, p);
-  const ball = (r, x, y, z, b, p) => add(new THREE.SphereGeometry(r, 10, 7), x, y, z, b, p);
+  const ball = (r, x, y, z, b, p) => add(new THREE.SphereGeometry(r, world ? 18 : 10, world ? 12 : 7), x, y, z, b, p);
   const cone = (r, h, x, y, z, b, p, seg = 8) => add(new THREE.ConeGeometry(r, h, seg), x, y, z, b, p);
   const torus = (R, r, x, y, z, b, p) => add(new THREE.TorusGeometry(R, r, 6, 28), x, y, z, b, p);
   const sub = (x = 0, y = 0, z = 0, parent = group) => {
@@ -89,7 +97,16 @@ function kit(color, second, o) {
   const dome = (b = false) => (world ? sub() : add(new THREE.SphereGeometry(1, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), 0, 0, 0, b));
   // the ground a thing stands on
   const pad = (r = 1, b = true) => (world ? sub() : cyl(r, r, 0.04, 0, 0.02, 0, b, group, 24));
-  return { group, anim, add, box, cyl, ball, cone, torus, sub, figure, dots, dome, pad, fills, lines, c, c2 };
+  // light that is a glow and not a body (an aurora, a haze): see-through and added to what is behind it
+  const soft = (op = 0.5) => {
+    for (const m of [mA, mB]) {
+      m.transparent = true;
+      m.opacity = m.userData.op = op;
+      m.blending = THREE.AdditiveBlending;
+      m.depthWrite = false;
+    }
+  };
+  return { group, anim, add, box, cyl, ball, cone, torus, sub, figure, dots, dome, pad, soft, world, fills, lines, c, c2 };
 }
 
 const WHITE = new THREE.Color(0xffffff), INK = new THREE.Color(0x0b1c33);
@@ -158,6 +175,7 @@ const PROPS = {
     // curtains of light over a dark horizon
     light(k) {
       k.pad(1, true);
+      if (k.world) k.soft(0.55);
       for (let i = 0; i < 5; i++) {
         const geo = new THREE.PlaneGeometry(0.34, 1.1, 1, 8);
         const m = k.add(geo, -0.68 + i * 0.34, 0.85, 0);
@@ -436,6 +454,7 @@ const PROPS = {
         const w = Math.sqrt(1 - (i / 5) ** 2) * 0.72;
         k.box(w, 0.07, 0.02, 0, 0.1 + i * 0.11, -0.86, true);
       }
+      if (k.world) return; // (the lines on the floor are the pedestal's picture of it; the room has a floor)
       const grid = k.sub();
       for (let i = -3; i <= 3; i++) k.box(0.012, 0.012, 1.6, i * 0.24, 0.02, 0, false, grid);
       k.anim.push((t) => (grid.position.x = ((t * 0.08) % 0.24) - 0.12));
@@ -502,7 +521,7 @@ const PROPS = {
 export function buildHoloProp(worldId, layer, frag, layers, o = {}) {
   const col = frag.col ?? frag.land ?? frag.a;
   const second = frag.b ?? frag.high ?? (layer === 'light' || layer === 'life' ? layers.sky.a : layers.ground.land);
-  const k = kit(col, second, o);
+  const k = kit(col, second, { ...o, lightlike: layer === 'light' || layer === 'sky', sky: layer === 'sky' });
   const make = PROPS[worldId] && PROPS[worldId][layer];
   if (make) make(k);
   else k.ball(0.5, 0, 0.6, 0); // (a world added to the list before it is drawn here)
@@ -516,6 +535,7 @@ export function buildHoloProp(worldId, layer, frag, layers, o = {}) {
     glow(g) {
       if (Math.abs(g - lit) < 0.02) return;
       lit = g;
+      if (o.world) return; // (a real thing does not brighten for being looked at)
       for (const m of k.fills) m.opacity = Math.min(1, m.userData.op * (0.85 + g * 0.6));
       for (const m of k.lines) m.opacity = 0.75 + g * 0.25;
     },
