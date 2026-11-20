@@ -21,8 +21,9 @@
 //
 // One clock and a pose from it. At its end the stage is `ez_beyond`, which is
 // where the saga stops: a bridge, the people on it, the archive lit behind
-// them, and the dark. Nothing is built past it. A pilot who comes back to the
-// game at that stage is put straight here (src/game.js).
+// them, and the dark. A pilot who comes back to the game at that stage is put
+// straight here (src/game.js). What comes after is another chapter (GDD
+// 5.7.7, src/horizon.js), begun from the console at this bridge's helm.
 
 import * as THREE from 'three';
 import { C, EZ_NEW_WORLDS } from '../src/constants.js';

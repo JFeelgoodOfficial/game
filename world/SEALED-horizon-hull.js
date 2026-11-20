@@ -94,7 +94,7 @@ export function createHull(ctx) {
   group.add(mergedMesh(glow, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false })));
   // the corner of round cells
   const cornerMat = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false });
-  const NC = Math.min(90, Math.round(tier.hzCells / 20));
+  const NC = Math.min(90, Math.round(tier.hzC / 20));
   const corner = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.5, 2), cornerMat, NC);
   const _m = new THREE.Matrix4();
   for (let i = 0; i < NC; i++) {
@@ -108,7 +108,7 @@ export function createHull(ctx) {
   group.add(first.group);
 
   // the lights the ring gives off: a cloud of them (seen), and a few that come by close (they matter)
-  const NL = tier.hzLights;
+  const NL = tier.hzB;
   const seeds = new Float32Array(NL * 4);
   let sd = 0x9e3779b9;
   const rnd = () => ((sd = (Math.imul(sd, 1664525) + 1013904223) >>> 0) / 4294967296);
@@ -133,7 +133,7 @@ export function createHull(ctx) {
   const things = [];
   function thing(id, c) {
     const [x, z] = SPOT[id];
-    const fig = createFigure(COLOURS[id], id === 'freighter' ? Math.round(tier.hzFig * 1.2) : tier.hzFig, id === 'freighter' ? 1.5 : 2.0, id === 'freighter' ? 6 : 0.85);
+    const fig = createFigure(COLOURS[id], id === 'freighter' ? Math.round(tier.hzD * 1.2) : tier.hzD, id === 'freighter' ? 1.5 : 2.0, id === 'freighter' ? 6 : 0.85);
     fig.mesh.position.set(x, 0, z);
     group.add(fig.mesh);
     const patch = new THREE.Mesh(new THREE.CircleGeometry(id === 'freighter' ? 3.4 : 1.5, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: COLOURS[id], fog: false }));
@@ -169,7 +169,7 @@ export function createHull(ctx) {
   const n3 = () => chapter.hz.get('n3');
   const backCount = () => things.filter((t) => t.c && t.state === 'back').length;
   const open = () => things.filter((t) => t.state === 'hull').length;
-  const lookTime = () => Math.max(3, C.HZ_LOOK_TIME - C.HZ_LOOK_HELP * backCount());
+  const lookTime = () => Math.max(3, C.HZ_D2 - C.HZ_D3 * backCount());
 
   function show(th) {
     th.fig.mesh.visible = th.state === 'hull';
@@ -189,14 +189,14 @@ export function createHull(ctx) {
       site.st.say(HULL.freighter);
       if (open() > 0) {
         timing = true;
-        fadeT = C.HZ_FADE;
+        fadeT = C.HZ_D6;
         queueSay([HULL.timer], 4);
       } else queueSay([], 6); // (nobody else to look for: a moment, and then the ring)
     } else {
       chapter.hz.set('n3', (n3() || '-') + LETTER[th.id]);
       const lines = [HULL.back[th.id]];
       if (open() > 0) lines.push(HULL.help[th.id]);
-      queueSay(lines, 0);
+      queueSay(lines, 0, { n: Math.max(0, Math.floor(fadeT)) });
     }
     return true;
   }
@@ -310,7 +310,7 @@ export function createHull(ctx) {
       }
       if (things[0].state === 'back' && open() > 0) {
         timing = true;
-        fadeT = C.HZ_FADE;
+        fadeT = C.HZ_D6;
       }
       setCorner();
       afterDeath = memo.died ? 1.5 : 0;
@@ -342,12 +342,12 @@ export function createHull(ctx) {
       beam.visible = lampLive() && !busy;
       beam.position.copy(_o);
       beam.lookAt(_o.x + _dir.x, _o.y + _dir.y, _o.z + _dir.z);
-      beam.scale.set(all ? 3.2 : 1.6, all ? 3.2 : 1.6, C.HZ_LOOK_RANGE);
+      beam.scale.set(all ? 3.2 : 1.6, all ? 3.2 : 1.6, C.HZ_D1);
       beam.material.opacity = all ? 0.22 : 0.08;
       lampHud.update();
 
       // --- the lights that come by close: one in the beam takes the look ---
-      const solo = chapter.crew().length === 0 ? C.HZ_LIGHTS_NEAR_SOLO : 1;
+      const solo = chapter.crew().length === 0 ? C.HZ_D8 : 1;
       let stolen = false;
       for (const dr of drift) {
         const a = t * dr.w + dr.ph;
@@ -355,7 +355,7 @@ export function createHull(ctx) {
         if (all) {
           _to.subVectors(dr.m.position, _o);
           const r = _to.length();
-          if (r < C.HZ_LOOK_RANGE && _to.dot(_dir) / r > 0.992) stolen = true;
+          if (r < C.HZ_D1 && _to.dot(_dir) / r > 0.992) stolen = true;
         }
       }
       if (stolen && !stolenSaid && !busy) {
@@ -371,7 +371,7 @@ export function createHull(ctx) {
         } else if (open() === 0) timing = false;
         else if (Math.floor(fadeT) % 30 === 0 && Math.floor(fadeT + d) % 30 !== 0) chapterHud.say(HULL.left.replace('{n}', String(Math.floor(fadeT))), 3);
       }
-      const drain = timing ? Math.max(0, (C.HZ_FADE - fadeT - C.HZ_FADE_GRACE) / (C.HZ_FADE - C.HZ_FADE_GRACE)) : 0;
+      const drain = timing ? Math.max(0, (C.HZ_D6 - fadeT - C.HZ_D7) / (C.HZ_D6 - C.HZ_D7)) : 0;
       let walkN = 0;
       for (const th of things) {
         th.fig.U.uTime.value = t;
@@ -381,8 +381,8 @@ export function createHull(ctx) {
           const ready = !th.c || things[0].state === 'back';
           _to.set(th.x - _o.x, 1.0 - _o.y, th.z - _o.z);
           const r = _to.length();
-          const on = ready && all && !stolen && r < C.HZ_LOOK_RANGE && _to.dot(_dir) / Math.max(r, 1e-3) > Math.cos(C.HZ_LOOK_CONE);
-          th.hold = Math.max(0, Math.min(1, th.hold + (on ? d / (th.c ? lookTime() : 5) : -C.HZ_LOOK_SINK * d)));
+          const on = ready && all && !stolen && r < C.HZ_D1 && _to.dot(_dir) / Math.max(r, 1e-3) > Math.cos(C.HZ_D5);
+          th.hold = Math.max(0, Math.min(1, th.hold + (on ? d / (th.c ? lookTime() : 5) : -C.HZ_D4 * d)));
           th.fig.U.uHold.value = th.hold;
           if (th.hold >= 1) bringBack(th);
         } else if (th.state === 'back' && th.rig) {
@@ -433,7 +433,7 @@ export function createHull(ctx) {
       if (phase === 'wake') {
         _to.set(CORNER.x - _o.x, 1.4 - _o.y, CORNER.z - _o.z);
         const r = _to.length();
-        if (all && r < C.HZ_LOOK_RANGE + 4 && _to.dot(_dir) / Math.max(r, 1e-3) > Math.cos(C.HZ_LOOK_CONE * 1.4)) wake += d / C.HZ_WAKE_TIME;
+        if (all && r < C.HZ_D1 + 4 && _to.dot(_dir) / Math.max(r, 1e-3) > Math.cos(C.HZ_D5 * 1.4)) wake += d / C.HZ_D9;
         cornerMat.color.setRGB(0.5, 1, 0.7).multiplyScalar(0.9 + 2 * wake);
         if (wake >= 1) woken();
       }
@@ -468,15 +468,15 @@ export function createHull(ctx) {
     }),
     dbg: {
       // bring one thing back as the lamp would ('freighter' or a captain's id)
-      restore(id) {
+      back(id) {
         const th = things.find((x) => x.id === id);
         return th && !site.st.busy() ? bringBack(th) : false;
       },
-      fade: (sec) => (timing ? ((fadeT = sec), true) : false),
-      corner: () => (chapter.reached('hz_bell8') && c2() == null && phase === '' && !site.st.busy() ? (useCorner(), true) : false),
-      listen: () => (phase === 'listen' ? (nextBandTo(bandIndex('radio')), true) : false),
-      wake: (v = 1) => (phase === 'wake' ? ((wake = v), true) : false),
-      hatch: () => (c2() != null && phase === '' && !site.st.busy() ? ((site.portal = 'hz:keel'), true) : false),
+      clock: (sec) => (timing ? ((fadeT = sec), true) : false),
+      end: () => (chapter.reached('hz_bell8') && c2() == null && phase === '' && !site.st.busy() ? (useCorner(), true) : false),
+      tune: () => (phase === 'listen' ? (nextBandTo(bandIndex('radio')), true) : false),
+      fill: (v = 1) => (phase === 'wake' ? ((wake = v), true) : false),
+      door: () => (c2() != null && phase === '' && !site.st.busy() ? ((site.portal = 'hz:keel'), true) : false),
     },
   });
   function nextBandTo(i) {

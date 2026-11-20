@@ -50,7 +50,7 @@ export function createDeck(ctx) {
   chart.group.position.set(TABLE.x, 0.97, TABLE.z + 0.1);
   chart.show(false);
   group.add(chart.group);
-  const motes = createMotes(CH_TIER[Q.tier].hzMotes);
+  const motes = createMotes(CH_TIER[Q.tier].hzA);
   motes.points.scale.setScalar(0.9);
   motes.points.position.set(TABLE.x, 1.7, TABLE.z);
   group.add(motes.points);
@@ -72,8 +72,8 @@ export function createDeck(ctx) {
 
   let local = 0; // seconds in this place, for the clocks
   let seat = false, yaw = 0, pitch = 0.8, baseYaw = 0, allHeld = 0, lastBand = -1;
-  let phase = ''; // '' | 'burn' | 'after'
-  let burn = 0, burned = false, burnWait = 0, left = C.HZ_FALL, afterT = 0, afterStep = 0;
+  let phase = ''; // '' | 'hold' (the burn) | 'after'
+  let burn = 0, burned = false, burnWait = 0, left = C.HZ_T1, afterT = 0, afterStep = 0;
   let turned = false, turning = false, swirl = 0;
   let queue = null, queueT = 0, queueI = 0; // lines said one after another after a sighting
   const aim = new THREE.Vector3();
@@ -91,8 +91,8 @@ export function createDeck(ctx) {
     chart.U.uLit.value = morph;
   }
   const leftAt = (b) => {
-    const k = (b - C.HZ_BURN_BEST) / C.HZ_BURN_BEST;
-    return C.HZ_FALL + (C.HZ_MOST - C.HZ_FALL) * Math.max(-0.4, 1 - k * k);
+    const k = (b - C.HZ_B1) / C.HZ_B1;
+    return C.HZ_T1 + (C.HZ_T2 - C.HZ_T1) * Math.max(-0.4, 1 - k * k);
   };
 
   // --- bell1 ---
@@ -177,11 +177,11 @@ export function createDeck(ctx) {
     site.st.play(S3A, C.HZ_S3A, {
       cam: tableCam,
       onEnd() {
-        phase = 'burn';
+        phase = 'hold';
         burn = 0;
         burned = false;
         burnWait = 0;
-        left = C.HZ_FALL;
+        left = C.HZ_T1;
       },
     });
   }
@@ -195,8 +195,8 @@ export function createDeck(ctx) {
     phase = 'after';
     afterT = 0;
     afterStep = 0;
-    const k = (left - C.HZ_FALL) / (C.HZ_MOST - C.HZ_FALL);
-    site.st.say(b < 0.2 ? COUNT.none : b > C.HZ_BURN_BEST && k < 0.8 ? COUNT.long : COUNT.best, null, 8);
+    const k = (left - C.HZ_T1) / (C.HZ_T2 - C.HZ_T1);
+    site.st.say(b < 0.2 ? COUNT.none : b > C.HZ_B1 && k < 0.8 ? COUNT.long : COUNT.best, null, 8);
   }
   function playS3B() {
     phase = '';
@@ -246,7 +246,7 @@ export function createDeck(ctx) {
     act() {
       if (seat) nextBand(1);
     },
-    prompt: () => (phase === 'burn' ? COUNT.burn : ''),
+    prompt: () => (phase === 'hold' ? COUNT.burn : ''),
     enter() {
       local = 0;
       seat = false;
@@ -255,7 +255,7 @@ export function createDeck(ctx) {
       turning = false;
       site.hidePilot = false;
       crew.muster();
-      sky.fall(C.HZ_FALL - tau());
+      sky.fall(C.HZ_T1 - tau());
       sky.U.uRite.value = n1() & 1 ? 1 : 0;
       sky.U.uShip.value = chapter.reached('hz_bell3') ? 1 : 0;
       sky.U.uPort.value = sky.U.uStar.value = 0;
@@ -279,7 +279,7 @@ export function createDeck(ctx) {
       const w = site.st.walker();
       if (w) sky.mesh.position.copy(w);
       const T = tau();
-      sky.fall(C.HZ_FALL - T);
+      sky.fall(C.HZ_T1 - T);
       if (turned || turning) swirl += d * 0.03; // (X3: the dragging is real; seeing it this easily is not)
       sky.U.uSwirl.value = swirl;
       sky.U.uTime.value = t;
@@ -288,8 +288,8 @@ export function createDeck(ctx) {
       setHum(0.3);
       // the clocks: from the moment they are spoken of
       if (chapter.reached('hz_bell2') || site.st.u() >= 24) {
-        if (turned) showClocks(T, C.HZ_TO_ROOF - (T - HZ_TAU[2]), true);
-        else showClocks(T, (phase !== '' || turning ? left : chapter.hz.get('n4') ?? C.HZ_FALL) - T);
+        if (turned) showClocks(T, C.HZ_T4 - (T - HZ_TAU[2]), true);
+        else showClocks(T, (phase !== '' || turning ? left : chapter.hz.get('n4') ?? C.HZ_T1) - T);
       }
       crew.tick(d, t, site.st.speaker);
 
@@ -314,9 +314,9 @@ export function createDeck(ctx) {
           const near = Math.acos(Math.min(1, aim.dot(s.dir)));
           sky.U.uMark.value[i].set(s.dir.x, s.dir.y, s.dir.z, done & (1 << i) ? 0.35 : inBand ? 1 : 0.12);
           if (s.band === 'radio' && inBand) radioNear = Math.max(0, 1 - near / 1.2);
-          if (inBand && near < C.HZ_AIM && !(done & (1 << i))) {
+          if (inBand && near < C.HZ_A1 && !(done & (1 << i))) {
             s.held += d;
-            if (s.held >= C.HZ_SIGHT_TIME) logSight(i);
+            if (s.held >= C.HZ_A2) logSight(i);
           } else s.held = 0;
         }
         setRadio(live && lamp.band === bandIndex('radio'), radioNear);
@@ -326,7 +326,7 @@ export function createDeck(ctx) {
           doseTicks(6, d);
         }
         // every band, on what is ahead
-        if (done === ALL && input.allBands && live && Math.acos(Math.min(1, aim.dot(AHEAD))) < C.HZ_AIM * 1.5) {
+        if (done === ALL && input.allBands && live && Math.acos(Math.min(1, aim.dot(AHEAD))) < C.HZ_A1 * 1.5) {
           allHeld += d;
           if (allHeld > 1.5) {
             allHeld = 0;
@@ -349,7 +349,7 @@ export function createDeck(ctx) {
           if (queueI >= queue.length) queue = null;
         }
       }
-      if (phase === 'burn') {
+      if (phase === 'hold') {
         burnWait += d;
         if (input.brake) {
           burn += d;
@@ -357,9 +357,9 @@ export function createDeck(ctx) {
           left = leftAt(burn);
           setHum(1);
         } else if (burned) endBurn(burn);
-        else if (burnWait > C.HZ_BURN_WAIT) endBurn(0);
+        else if (burnWait > C.HZ_B2) endBurn(0);
         else if (burnWait > 12 && burnWait - d <= 12) site.st.say(COUNT.nudge);
-        if (burn > C.HZ_BURN_BEST * 3) endBurn(burn);
+        if (burn > C.HZ_B1 * 3) endBurn(burn);
       } else if (phase === 'after') {
         afterT += d;
         if (afterStep === 0 && afterT > 7.5) {
@@ -370,12 +370,12 @@ export function createDeck(ctx) {
       }
     },
     info: () => ({
-      place: 'deck', stage: chapter.stage(), seat, phase, n1: n1(), burn: +burn.toFixed(2), left: Math.round(left), turned,
-      shadowDeg: +(shadowAngle(C.HZ_FALL - tau()) * 57.2958).toFixed(1), shadowAtHorizon: +(shadowAngle(C.HZ_FALL) * 57.2958).toFixed(2),
-      homeStop: Math.round(homeSeen(0)), crew: crew.aboard(), open: +sky.U.uOpen.value.toFixed(2),
+      place: 'deck', stage: chapter.stage(), seat, phase, n1: n1(), burn: +burn.toFixed(2), left: Math.round(left), ready: turned,
+      k0: +(shadowAngle(C.HZ_T1 - tau()) * 57.2958).toFixed(1), k1: +(shadowAngle(C.HZ_T1) * 57.2958).toFixed(2),
+      k2: Math.round(homeSeen(0)), crew: crew.aboard(), open: +sky.U.uOpen.value.toFixed(2),
     }),
     dbg: {
-      lamp: () => (chapter.stage() === 'hz_bell2' && !seat ? (takeSeat(), true) : false),
+      seat: () => (chapter.stage() === 'hz_bell2' && !seat ? (takeSeat(), true) : false),
       // aim the lamp at a sighting, in its band (the hold is then played out by the place)
       aim(i) {
         const s = sights[i];
@@ -385,8 +385,8 @@ export function createDeck(ctx) {
         while (lamp.band !== s.bandI) nextBand(1);
         return true;
       },
-      count: () => (chapter.stage() === 'hz_bell3' && !turned && phase === '' && !site.st.busy() ? (playS3(), true) : false),
-      burn: (b) => (phase === 'burn' ? (endBurn(b), true) : false),
+      table: () => (chapter.stage() === 'hz_bell3' && !turned && phase === '' && !site.st.busy() ? (playS3(), true) : false),
+      hold: (b) => (phase === 'hold' ? (endBurn(b), true) : false),
       door: () => (turned ? ((site.portal = 'hz:hall'), true) : false),
     },
   });

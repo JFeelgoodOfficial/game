@@ -6,15 +6,15 @@
 // WHAT IS PHYSICS HERE (a non-spinning hole of mass M, G = c = 1, M as a time;
 // an observer who fell from rest far away, the "rain" frame):
 //
-//   proper time, horizon to the end        (4/3) M               HZ_FALL
-//   the most anyone can have inside        pi M                  HZ_MOST
+//   proper time, horizon to the end        (4/3) M               HZ_T1
+//   the most anyone can have inside        pi M                  HZ_T2
 //       (from rest at the horizon, then free fall: one burn and then
 //        nothing. Any thrust after that shortens it. Lewis & Kwan 2007.)
 //   where the ship is, by the time left    x = sqrt(r / 2M) = (tau / (4M/3))^(1/3)
 //   home, as seen                          d(v)/d(tau) = 1 / (1 + beta), beta = 1 / x
 //       half speed at the horizon, slowing to a stop. All of home ever seen:
 //       4M (F(1) - F(x)), F(x) = x^3/3 - x^2/2 + x - ln(1 + x); at the end
-//       0.5607 M (HZ_HOME_STOP). An infaller does NOT see the outside's future
+//       0.5607 M (HZ_T3). An infaller does NOT see the outside's future
 //       run fast: they see a finite stretch that slows to a halt, because
 //       later light cannot catch them.
 //   the dark ahead                         q = 27 M^2 / r^2,
@@ -48,7 +48,7 @@ import { C } from '../src/constants.js';
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 // x = sqrt(r / 2M) from the proper time left on the rain path
-const xOf = (tauLeft) => Math.cbrt(clamp01(tauLeft / C.HZ_FALL)) || 1e-3;
+const xOf = (tauLeft) => Math.cbrt(clamp01(tauLeft / C.HZ_T1)) || 1e-3;
 const F = (x) => (x * x * x) / 3 - (x * x) / 2 + x - Math.log(1 + x);
 function pEdge(x) {
   const beta = 1 / x, q = 27 / (4 * x * x * x * x);

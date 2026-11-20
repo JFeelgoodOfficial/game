@@ -34,7 +34,7 @@ import { createSky } from './SEALED-horizon-sky.js';
 import { R, ease, bandIndex, buildShell, createCrew, makeSite, createChart, createFigure, showClocks, COLOURS } from './SEALED-horizon-ship.js';
 import { S5, S6, DX2, CHART, AFTER_DEATH } from './SEALED-horizon-words.js';
 
-export const ROOF_TAU = HZ_TAU[2] + C.HZ_TO_ROOF; // the ship's clock at the roof
+export const ROOF_TAU = HZ_TAU[2] + C.HZ_T4; // the ship's clock at the roof
 const STREAMS = CHART.streams.map((s) => ({ ...s, bandI: bandIndex(s.band) }));
 const ROOF = CHART.roof.map(bandIndex);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -74,22 +74,22 @@ export function createHelm(ctx) {
     site.st.say(CHART.barks[k], vars);
   };
   const streamX = (s, tt) => s.x0 + s.slope * (tt - s.t0);
-  const tau = () => HZ_TAU[4] + (ROOF_TAU - HZ_TAU[4]) * clamp((t - C.HZ_ENTRY_X) / 1.25, 0, 1);
-  const remain = () => (x + 2 - t) / C.HZ_CHART_RATE; // seconds to the port roof, as it is going
+  const tau = () => HZ_TAU[4] + (ROOF_TAU - HZ_TAU[4]) * clamp((t - C.HZ_C6) / 1.25, 0, 1);
+  const remain = () => (x + 2 - t) / C.HZ_C5; // seconds to the port roof, as it is going
 
   function reset() {
-    x = t = C.HZ_ENTRY_X;
+    x = t = C.HZ_C6;
     lean = 0;
     forced = null;
     auto = false;
     reserve = 1;
     dose = 0;
     leanT = starT = 0;
-    roofLeft = C.HZ_TO_ROOF - (HZ_TAU[4] - HZ_TAU[2]);
+    roofLeft = C.HZ_T4 - (HZ_TAU[4] - HZ_TAU[2]);
     for (const k of Object.keys(said)) said[k] = false;
     for (let i = 0; i < STREAMS.length; i++) side[i] = Math.sign(x - streamX(STREAMS[i], t)) || 1;
     chart.reset();
-    chart.ship(x, t, -C.HZ_RIVER);
+    chart.ship(x, t, -C.HZ_C1);
     resetLamp(false);
     lamp.canAll = false;
     lastBand = lamp.band;
@@ -100,7 +100,7 @@ export function createHelm(ctx) {
     phase = 'dead';
     dose = 1;
     memo.died = 'chart';
-    site.st.play(DX2, C.HZ_DEATH, {
+    site.st.play(DX2, C.HZ_SX, {
       pose(u) {
         shell.wallU.uWhite.value = ease(0, 5, u);
         chapterHud.white(ease(4.5, 7.5, u));
@@ -157,7 +157,7 @@ export function createHelm(ctx) {
     act() {
       if (phase === 'fly') nextBand(1);
     },
-    prompt: () => (phase === 'fly' && remain() <= C.HZ_LETGO_WARN ? CHART.hands : ''),
+    prompt: () => (phase === 'fly' && remain() <= C.HZ_C13 ? CHART.hands : ''),
     enter() {
       chapter.advance('hz_bell5');
       crew.muster();
@@ -197,21 +197,21 @@ export function createHelm(ctx) {
         // (auto, for a test: fly the ship's old course, wear each line's colour, and let go at the roof)
         let want = forced != null ? forced : moveAxes().strafe;
         if (auto) {
-          const roofT = C.HZ_OLD_X + 2;
-          const slopeOld = (C.HZ_OLD_X - C.HZ_ENTRY_X) / (roofT - C.HZ_ENTRY_X);
-          const xo = C.HZ_ENTRY_X + slopeOld * (t - C.HZ_ENTRY_X);
-          want = left < C.HZ_LETGO + 1.5 ? 0 : clamp((slopeOld + (xo - x) * 5 + C.HZ_RIVER) / C.HZ_LEAN, -1, 1);
+          const roofT = C.HZ_C7 + 2;
+          const slopeOld = (C.HZ_C7 - C.HZ_C6) / (roofT - C.HZ_C6);
+          const xo = C.HZ_C6 + slopeOld * (t - C.HZ_C6);
+          want = left < C.HZ_C14 + 1.5 ? 0 : clamp((slopeOld + (xo - x) * 5 + C.HZ_C1) / C.HZ_C3, -1, 1);
           for (const s of STREAMS) if (t > s.t0 - 0.06 && t < s.t0 + s.len && Math.abs(x - streamX(s, t)) < 0.09) setBand(s.bandI);
           if (left < 7) setBand(ROOF[Math.floor(clamp(x + 1, 0, 0.999) * 5)]);
         }
         if (reserve <= 0) want = 0;
-        lean += (want - lean) * Math.min(1, d * C.HZ_LEAN_EASE);
-        const slope = clamp(-C.HZ_RIVER + lean * C.HZ_LEAN, -C.HZ_SLOPE, C.HZ_SLOPE);
-        const dc = d * C.HZ_CHART_RATE, t0 = t;
+        lean += (want - lean) * Math.min(1, d * C.HZ_C4);
+        const slope = clamp(-C.HZ_C1 + lean * C.HZ_C3, -C.HZ_C2, C.HZ_C2);
+        const dc = d * C.HZ_C5, t0 = t;
         x += slope * dc;
         t += dc;
-        reserve = Math.max(0, reserve - Math.abs(lean) * C.HZ_BURN * d);
-        roofLeft = Math.max(0, roofLeft - d * 31 * (1 + C.HZ_COST * lean * lean));
+        reserve = Math.max(0, reserve - Math.abs(lean) * C.HZ_C9 * d);
+        roofLeft = Math.max(0, roofLeft - d * 31 * (1 + C.HZ_C10 * lean * lean));
         if (lamp.band !== lastBand) bandClick((lastBand = lamp.band));
         // the other lines: crossed in their own band they pass through; in any other they cost dose
         for (let i = 0; i < STREAMS.length; i++) {
@@ -220,7 +220,7 @@ export function createHelm(ctx) {
           if (now !== side[i] && t >= s.t0 && t0 <= s.t0 + s.len) {
             if (lamp.band === s.bandI) bark('through');
             else {
-              dose += s.width * C.HZ_STREAM_DOSE;
+              dose += s.width * C.HZ_C8;
               bark('hit', { n: Math.round(dose * 100) });
             }
           }
@@ -228,7 +228,7 @@ export function createHelm(ctx) {
         }
         // the starboard roof
         const ds = (2 - t - x) / 1.4142;
-        if (x > -0.25 && ds < C.HZ_GLARE) dose += C.HZ_GLARE_DOSE * d * (1 - ds / C.HZ_GLARE) * (x > 0 ? 4 : 1);
+        if (x > -0.25 && ds < C.HZ_C11) dose += C.HZ_C12 * d * (1 - ds / C.HZ_C11) * (x > 0 ? 4 : 1);
         if (lean > 0.5) {
           if ((starT += d) > 1.5) bark('starboard');
         } else starT = 0;
@@ -236,19 +236,19 @@ export function createHelm(ctx) {
         if (reserve < 0.25) bark('spent');
         if (left < 45) bark('roof');
         // the last of it: the helm is let go
-        if (left <= C.HZ_LETGO_WARN) {
+        if (left <= C.HZ_C13) {
           chapter.advance('hz_bell6');
           bark('ten');
         }
-        if (left <= C.HZ_LETGO) {
+        if (left <= C.HZ_C14) {
           bark('four');
-          if (Math.abs(want) > 0.05) dose += C.HZ_LETGO_DOSE * d;
+          if (Math.abs(want) > 0.05) dose += C.HZ_C15 * d;
         }
         doseTicks(dose * 14, d);
         if (x > 0 && t >= 2 - x) dose = 1; // through the starboard roof: nothing does that
         else if (x <= 0 && t >= x + 2) {
           const band = ROOF[Math.floor(clamp(x + 1, 0, 0.999) * 5)];
-          dose += lamp.band !== band ? C.HZ_ROOF_MISS : band === bandIndex('xray') ? C.HZ_ROOF_XRAY : C.HZ_ROOF_MATCH;
+          dose += lamp.band !== band ? C.HZ_C18 : band === bandIndex('xray') ? C.HZ_C17 : C.HZ_C16;
           if (dose < 1) cross();
         }
         if (dose >= 1 && phase === 'fly') die();
@@ -256,7 +256,7 @@ export function createHelm(ctx) {
       }
       // the window agrees with the chart
       const T = tau();
-      sky.fall(C.HZ_FALL - T);
+      sky.fall(C.HZ_T1 - T);
       const dPort = (x + 2 - t) / 1.4142, dStar = (2 - t - x) / 1.4142;
       if (phase === 'fly' || phase === 'intro') {
         sky.U.uPort.value = 1 - clamp(dPort / 0.7, 0, 1);

@@ -667,28 +667,38 @@ export const C = {
   EZ_LAUNCH_TIME: 74.0, // how long it lasts
   EZ_LAUNCH_CROSS: 56.0, // seconds in, the horizon is crossed
 
-  // --- The chapter past the horizon (GDD 5.7.7; src/horizon.js). What each is for is in the chapter's own files. ---
-  HZ_HOLE_SUNS: 4.0e9, // the hole's mass, in suns
-  HZ_M: 19702, // s: G M / c^3 for that mass (4.9255e-6 s per sun)
-  HZ_FALL: 26269, // s: (4/3) M
-  HZ_MOST: 61896, // s: pi M
-  HZ_HOME_STOP: 11047, // s: 0.5607 M
-  HZ_SPIN: 0.6,
-  HZ_TO_ROOF: 6720, // s (illustrative)
-  HZ_S1: 55, HZ_S2: 40, HZ_S3A: 25, HZ_S3B: 42, HZ_S4: 30, HZ_S4B: 14, HZ_S5: 22, HZ_S6: 30, // scene lengths, s
-  HZ_S7A: 12, HZ_S7: 52, HZ_S8: 22, HZ_S8A: 36, HZ_S8B: 25, HZ_S9: 20, HZ_S10: 72, HZ_DEATH: 8, HZ_DEATH_FULL: 12,
-  HZ_AIM: 0.17, // rad: how near a sighting has to be to the middle of the view
-  HZ_SIGHT_TIME: 1.2, // s held on a sighting to log it
-  HZ_BURN_BEST: 3.2, // s
-  HZ_BURN_WAIT: 20, // s
-  HZ_RIVER: 0.30, HZ_SLOPE: 0.80, HZ_LEAN: 0.62, HZ_LEAN_EASE: 4.0, HZ_CHART_RATE: 0.0075,
-  HZ_ENTRY_X: 0.42, HZ_OLD_X: -0.3, HZ_STREAM_DOSE: 0.9, HZ_BURN: 0.008, HZ_COST: 3.0,
-  HZ_GLARE: 0.12, HZ_GLARE_DOSE: 0.5, HZ_LETGO_WARN: 10, HZ_LETGO: 4, HZ_LETGO_DOSE: 0.12,
-  HZ_ROOF_MATCH: 0.10, HZ_ROOF_XRAY: 0.35, HZ_ROOF_MISS: 0.60,
-  HZ_LOOK_RANGE: 14, HZ_LOOK_TIME: 9, HZ_LOOK_HELP: 2, HZ_LOOK_SINK: 0.08, HZ_LOOK_CONE: 0.3,
-  HZ_FADE: 120, HZ_FADE_GRACE: 20, HZ_LIGHTS_NEAR_SOLO: 0.5, HZ_WAKE_TIME: 8,
-  HZ_GAP: 0.09, HZ_GAP_EVERY: 0.22, HZ_KEEL_RATE: 3.0, HZ_KEEL_PULL: 0.2, HZ_TRICKLE: 0.02, HZ_CALL: 3, HZ_NUDGE: 0.35, HZ_RING_X: -0.75,
-  HZ_LOOK_SEC: 6,
+  // --- The chapter past the horizon (GDD 5.7.7). Read only by world/SEALED-horizon-*.js; the legend is at the
+  // top of world/SEALED-horizon-ship.js. Plain numbers only (the dev panel binds every key of C). ---
+  HZ_MASS: 4.0e9, // solar masses
+  HZ_M: 19702, HZ_T1: 26269, HZ_T2: 61896, HZ_T3: 11047, HZ_T4: 6720, // seconds
+  HZ_S1: 55, HZ_S2: 40, HZ_S3A: 25, HZ_S3B: 42, HZ_S4: 30, HZ_S4B: 14, HZ_S5: 22, HZ_S6: 30, // scene lengths, seconds
+  HZ_S7A: 12, HZ_S7: 52, HZ_S8: 22, HZ_S8A: 36, HZ_S8B: 25, HZ_S9: 20, HZ_S10: 72, HZ_SX: 8, HZ_SX1: 12, // scene lengths, seconds
+  HZ_A1: 0.17, // radians
+  HZ_A2: 1.2, // seconds
+  HZ_B1: 3.2, HZ_B2: 20, // seconds
+  HZ_C1: 0.30, HZ_C2: 0.80, HZ_C3: 0.62, // slopes, 0..1
+  HZ_C4: 4.0, // 1/s
+  HZ_C5: 0.0075, // chart units per second
+  HZ_C6: 0.42, HZ_C7: -0.3, // chart units
+  HZ_C8: 0.9, HZ_C9: 0.008, HZ_C10: 3.0, // multipliers
+  HZ_C11: 0.12, // chart units
+  HZ_C12: 0.5, // per second
+  HZ_C13: 10, HZ_C14: 4, // seconds
+  HZ_C15: 0.12, // per second
+  HZ_C16: 0.10, HZ_C17: 0.35, HZ_C18: 0.60, // 0..1
+  HZ_D1: 14, // units
+  HZ_D2: 9, HZ_D3: 2, // seconds
+  HZ_D4: 0.08, // per second
+  HZ_D5: 0.3, // radians
+  HZ_D6: 120, HZ_D7: 20, // seconds
+  HZ_D8: 0.5, // multiplier
+  HZ_D9: 8, // seconds
+  HZ_E1: 0.09, HZ_E2: 0.22, // chart units
+  HZ_E3: 3.0, // multiplier
+  HZ_E4: 0.2, // slope
+  HZ_E5: 0.02, // per second
+  HZ_E6: 0.35, // 0..1
+  HZ_E7: -0.75, // chart units
   // --- the light ship as a home base (src/homebase.js, src/voyage.js, GDD 5.7.8) ---
   BASE_CAPTURE: 560.0, // the bay's beam takes the helm inside this (times ATMO_SHELL), measured from the middle of the hull
   BASE_BAY_STANDOFF: 430.0, // how far astern of the pad the run-in begins, and how far ahead of it a launch lets go
@@ -727,7 +737,7 @@ export const EZ_LIGHT = 'sun';
 // Whether the Tenretni made a ring of young planets from the shell's strata
 // (world/launch.js). Not decided: off, they rest.
 export const EZ_NEW_WORLDS = true;
-// The chapter past the horizon (GDD 5.7.7): the ship's clock at the start of each of its stages, s.
+// The chapter past the horizon (GDD 5.7.7): one number per stage, seconds (world/SEALED-horizon-*.js).
 export const HZ_TAU = [600, 1500, 2700, 3600, 4500, 9000, 9900, 10300, 10800, 11400];
 
 // The example system (world/example-system.js): whether its planet is built.
@@ -753,10 +763,10 @@ export const BASE_EXAMPLE_PLANET = true;
 // shards: ice adrift between the ocean globes; school: bodies in each group of
 // creatures; eaters / leeches / feeders: how many of each are after the vessel in a zone.
 export const CH_TIER = {
-  low: { people: 8, rigNear: 0, flood: 3, dream: 3, lanterns: 80, birds: 40, rivals: 3, wake: 50, crowd: 60, motes: 500, shards: 150, school: 12, eaters: 6, leeches: 3, feeders: 3, hzMotes: 60, hzLights: 120, hzCells: 600, hzFig: 400 },
-  medium: { people: 14, rigNear: 38, flood: 6, dream: 6, lanterns: 220, birds: 110, rivals: 5, wake: 100, crowd: 150, motes: 1400, shards: 400, school: 24, eaters: 10, leeches: 4, feeders: 5, hzMotes: 120, hzLights: 300, hzCells: 1200, hzFig: 900 },
-  high: { people: 19, rigNear: 60, flood: 6, dream: 6, lanterns: 360, birds: 180, rivals: 5, wake: 130, crowd: 240, motes: 2200, shards: 700, school: 36, eaters: 14, leeches: 5, feeders: 6, hzMotes: 200, hzLights: 500, hzCells: 1800, hzFig: 1400 },
-  ultra: { people: 19, rigNear: 90, flood: 6, dream: 6, lanterns: 480, birds: 240, rivals: 6, wake: 160, crowd: 320, motes: 3000, shards: 1000, school: 48, eaters: 18, leeches: 6, feeders: 8, hzMotes: 260, hzLights: 700, hzCells: 2400, hzFig: 1800 },
+  low: { people: 8, rigNear: 0, flood: 3, dream: 3, lanterns: 80, birds: 40, rivals: 3, wake: 50, crowd: 60, motes: 500, shards: 150, school: 12, eaters: 6, leeches: 3, feeders: 3, hzA: 60, hzB: 120, hzC: 600, hzD: 400 },
+  medium: { people: 14, rigNear: 38, flood: 6, dream: 6, lanterns: 220, birds: 110, rivals: 5, wake: 100, crowd: 150, motes: 1400, shards: 400, school: 24, eaters: 10, leeches: 4, feeders: 5, hzA: 120, hzB: 300, hzC: 1200, hzD: 900 },
+  high: { people: 19, rigNear: 60, flood: 6, dream: 6, lanterns: 360, birds: 180, rivals: 5, wake: 130, crowd: 240, motes: 2200, shards: 700, school: 36, eaters: 14, leeches: 5, feeders: 6, hzA: 200, hzB: 500, hzC: 1800, hzD: 1400 },
+  ultra: { people: 19, rigNear: 90, flood: 6, dream: 6, lanterns: 480, birds: 240, rivals: 6, wake: 160, crowd: 320, motes: 3000, shards: 1000, school: 48, eaters: 18, leeches: 6, feeders: 8, hzA: 260, hzB: 700, hzC: 2400, hzD: 1800 },
 };
 
 export const TIERS = {

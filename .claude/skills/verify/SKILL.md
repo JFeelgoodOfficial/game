@@ -933,3 +933,87 @@ neither `fgsf.tenretni` nor `fgsf.voyage`; a `ch.stage: 'done'` save
 round-trips its `ch` unchanged with no `hz` key and no `fgsf.voyage`; a
 `ch.stage: 'ez_beyond'` save still ends on the launch bridge
 (`far().state().launch`) with `base.state().dock === 'landing'`.
+
+## The chapter past the horizon (GDD 5.7.7)
+
+Structure only: what happens in it is in files named `SEALED-*`, which are not
+to be opened or quoted. Host `src/horizon.js`; five places in
+`world/SEALED-horizon-{deck,hall,helm,hull,keel}.js`, shared code in
+`-ship.js` and `-sky.js`, every word in `-words.js`, tunables `HZ_*` in
+`src/constants.js` (blank names on purpose; the legend is in the sealed ship
+file).
+
+Handles: `h = __debug.tenretni.hz()`.
+- `h.state()` → `{built, inside, stage, hz: {d, lost, cp}, resume}`;
+  `h.site()` → the info of the place being walked (`place`, `stage`, `scene`
+  seconds or -1, `held`, `asking`, `pending`, `phase`, and the place's own
+  fields).
+- `h.go(stage)`, `h.hopTo(key)` (through one of the chapter's doors from a
+  place of the chapter), `h.seek(u)`, `h.skip()` (false while a decision is
+  up), `h.crew(ids)` (who is aboard; set it BEFORE entering a place),
+  `h.audit()` (every scene's lines as the crew aboard would be shown them),
+  `h.effects()`, and `h.dbg(name, ...args)` for a place's own steps:
+  - deck: `seat`, `aim(i)` (0..3; each sets a bit of `n1` after about a
+    second), `table`, `hold(seconds)`, `door`
+  - hall: `talk(i)` (a payload), `take(i)` (0..6), `mid`, `door`
+  - helm: `set(x, t)`, `lean(v)`, `band(i)`, `dose(v)`, `auto()`
+  - hull: `back(id)` (`'freighter'` first, then each captain's id),
+    `clock(seconds)`, `end`, `tune`, `fill(v)`, `door`
+  - keel: `set(x, t)`, `lean(v)`, `auto()`, `touch()`
+- Decisions are cinematic talks: `__debug.cine.text()`, `.advance()`,
+  `.pick(i)`. A decision closed without a pick (key `x`) is asked again within
+  a second.
+
+Doors: `hz:deck`, `hz:hall`, `hz:helm`, `hz:hull`, `hz:keel`; `hz:back` puts
+the story back to its last checkpoint (the engine calls `chapter.hz.die()`).
+From a far-side seed with `ch.stage: 'ez_beyond'` the pilot is on the launch
+bridge at its helm console: `input.interact = true` goes in (or
+`__debug.base.door('hz:deck')`).
+
+Stages and where a reload at each puts the pilot (`h.state().resume`):
+`hz_bell1`..`hz_bell3` deck, `hz_bell4` hall, `hz_bell5`, `hz_bell6` helm,
+`hz_bell7`, `hz_bell8` hull, `hz_bell9`, `hz_bell10` keel, then `hz_open` (the
+home base bridge: `tenretni.voyage().state().open` and
+`tenretni.base().state().inside === 'bridge'`).
+
+Record (`ch.hz.d` in `fgsf.tenretni`): `n1` integer bitmask (15 when full),
+`n4` integer, `c1` integer 0..6, `n2` integer 0..100, `n3` string, `c2`
+`'a'` | `'b'`, `t` integer. Checkpoints: `c1` (offered in the hall, door
+`hz:hall`, committed on arriving at the hull) and `c2` (offered on the hull,
+door `hz:hull`, committed in the keel). `ch.hz.lost` is a list of captain ids.
+Useful seeds: `ch.stage: 'hz_bell3', hz: {d: {n1: 15, n4: 61896}}` (deck, last
+door open); `'hz_bell4'` with the same `d` (hall); `'hz_bell7'` with `d` plus
+`c1: 4, n2: 10` (hull); `'hz_bell9'` with `d` plus `n3: '-lvm', c2: 'a'`
+(keel).
+
+A pass by handles, waiting on state each time (about four and a half minutes
+headless; the helm alone is three unless jumped):
+1. deck: `h.skip()` until `site().scene < 0`; `dbg('seat')`; `dbg('aim', i)`
+   for 0..3 and wait for bit i of `site().n1`; `aim(3)` with
+   `input.allBands = true` until a scene starts; skip; `dbg('table')`; skip;
+   wait `site().phase === 'hold'`; `dbg('hold', 3.2)` (or hold `input.brake`
+   for three seconds); wait for the next scene, skip; `site().ready`;
+   `dbg('door')`.
+2. hall: skip; wait `site().pending === 'c1'`; `dbg('take', i)`;
+   `dbg('mid')`; `cine.pick(0)`; skip; `dbg('door')`.
+3. helm: skip; `dbg('set', -0.2, 1.62)` to jump (optional); `dbg('auto')`;
+   wait `site().phase === 'cross'`; skip; the hull is entered.
+4. hull: skip; `dbg('back', 'freighter')`, then each captain aboard; a scene
+   starts by itself; skip; `stage === 'hz_bell8'`; `dbg('end')`; skip;
+   `dbg('tune')`; wait `site().asking`; `cine.pick(0 | 1)`; with 0,
+   `dbg('fill', 1)`; skip; `dbg('door')`.
+5. keel: skip; `dbg('auto')`; wait `site().through`; skip; the bridge.
+
+The three ways back to a checkpoint (each must leave `chapter().stage()` and
+`hz.state()` as they were at the asking, with `cp.key` still set): in the
+hall, `dbg('door')` with nothing taken and `cine.pick(0)`; at the helm,
+`dbg('set', 0.6, 1.2)` then `dbg('lean', 1)`; in the keel, `dbg('touch')`.
+`dbg('clock', 0.1)` on the hull, once `'freighter'` is back and before the
+rest, adds ids to `ch.hz.lost`; those must still be there after a later
+`touch()`.
+
+Checks that must hold: `h.audit()` for all eight crews (three captains to
+none) has no empty scene among the ones every crew sees and no `{...}` left in
+a line other than `{n}`; on the deck `site().k1` is 42.1 and `site().k2`
+11048; no `PLACEHOLDER` in any `SEALED-horizon-*` file; a
+`ch.stage: 'ez_beyond'` save writes no `hz` key until the deck's second stage.

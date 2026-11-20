@@ -153,7 +153,7 @@ export function createHall(ctx) {
       chapter.hz.decide('c1', 'keep');
       dead = true;
       memo.died = 'full';
-      site.st.play(DX1, C.HZ_DEATH_FULL, {
+      site.st.play(DX1, C.HZ_SX1, {
         pose(u) {
           wallU.uWhite.value = ease(3, 10, u);
           sky.U.uPort.value = 4 * ease(4, 10, u);
@@ -196,7 +196,7 @@ export function createHall(ctx) {
       dead = false;
       wallU.uWhite.value = 0;
       sky.U.uPort.value = 0;
-      sky.fall(C.HZ_FALL - HZ_TAU[3]);
+      sky.fall(C.HZ_T1 - HZ_TAU[3]);
       place.mesh.visible = false;
       chapter.advance('hz_bell4');
       setStands();
@@ -225,7 +225,7 @@ export function createHall(ctx) {
       }
       setHum(0.25);
       const tau = HZ_TAU[3] + local;
-      showClocks(tau, C.HZ_TO_ROOF - (tau - HZ_TAU[2]), true);
+      showClocks(tau, C.HZ_T4 - (tau - HZ_TAU[2]), true);
       const px = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((C.FOV * Math.PI) / 360);
       for (const s of stands) {
         if (!s.planet.group.visible) continue;
@@ -248,15 +248,15 @@ export function createHall(ctx) {
         memo.died = null;
       }
     },
-    info: () => ({ place: 'hall', stage: chapter.stage(), c1: c1(), carried, fallen, pending: chapter.hz.pending(), dead, planets: stands.filter((s) => s.planet.group.visible).length, tierCells: CH_TIER[Q.tier].hzCells }),
+    info: () => ({ place: 'hall', stage: chapter.stage(), c1: c1(), carried, fallen, pending: chapter.hz.pending(), dead, planets: stands.filter((s) => s.planet.group.visible).length, tierCells: CH_TIER[Q.tier].hzC }),
     dbg: {
       talk: (i) => standTalk(stands[i]),
-      lift(i) {
+      take(i) {
         if (dead || chosen() || !stands[i] || site.st.busy()) return false;
         carried = i;
         return true;
       },
-      well: () => (carried >= 0 && !chosen() && !site.st.busy() ? (askWell(), true) : false),
+      mid: () => (carried >= 0 && !chosen() && !site.st.busy() ? (askWell(), true) : false),
       door: () => (site.st.busy() || dead ? false : chosen() ? ((site.portal = 'hz:helm'), true) : (askDoor(), true)),
     },
   });

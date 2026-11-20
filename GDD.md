@@ -1038,7 +1038,7 @@ Shared by them: `world/SEALED-horizon-words.js` (every word and data table), `wo
 
 Later chapters read them with `chapter.hz.get(key)`. Captains can be lost in this chapter; `chapter.crew()` is `CAPTAINS` less `ez.lost` and `hz.lost`, and every scene is written for every crew from all three to none.
 
-**Decisions, death and restore.** A decision is a dialogue choice the place holds on until one option is picked; SKIP never passes one. The rule the owner asked for (die, and be put back just before the decision that led to it; a choice survived stays made) is one mechanism in `src/chapter.js`:
+**Decisions, death and restore.** A decision is a dialogue choice the place holds on until one option is picked, asked again if the panel is closed without a pick; SKIP runs a scene to its end or its next hold and never passes a decision. The rule the owner asked for (die, and be put back just before the decision that led to it; a choice survived stays made) is one mechanism in `src/chapter.js`:
 
 - `hz.offer(key, to)` when a decision is shown: the stage and the record as they stand are kept as the checkpoint, with the door (`to`) back to the asking.
 - `hz.decide(key, option)` when it is answered.
@@ -1053,9 +1053,9 @@ A place that kills the pilot raises `portal = 'hz:back'`; `farHop` in `src/tenre
 
 **The ending.** The last place calls `ctx.openSpace()` (`src/tenretni.js`): the stage becomes `hz_open`, the megaworld is stowed for good (`far.stow()`), the first system is mounted, and the door it returns leads onto the home base's bridge. Every branch ends there. What the chapter leaves aboard is `horizon.effects()` (5.7.8).
 
-**Tunables.** The `HZ_*` block in `src/constants.js` (numbers, inside `C`), the non-numeric `HZ_*` exports after it, and four `CH_TIER` counts: `hzMotes`, `hzLights`, `hzCells`, `hzFig`.
+**Tunables.** The `HZ_*` block in `src/constants.js` (numbers, inside `C`), the `HZ_TAU` export after it, and four `CH_TIER` counts: `hzA`, `hzB`, `hzC`, `hzD`. The names are neutral on purpose and the comments give units only; the legend that says what each one does is in `world/SEALED-horizon-ship.js`.
 
-**Debug.** `__debug.tenretni.hz()` is the host: `go(stage)`, `hopTo(key)`, `site()`, `seek(u)`, `skip()`, `crew(ids)`, `state()`. `__debug.tenretni.chapter().hz` has `state()`, `pending()`, `die()`; `chapter().setCrewDebug(ids)` sets who is aboard. `__debug.base.door('hz:*')` walks through a door.
+**Debug.** `__debug.tenretni.hz()` is the host: `go(stage)`, `hopTo(key)`, `site()`, `seek(u)`, `skip()`, `crew(ids)`, `audit()` (every scene's lines as the crew aboard would be shown them), `dbg(name, ...args)` (the current place's own handles), `state()`. `__debug.tenretni.chapter().hz` has `state()`, `pending()`, `die()`; `chapter().setCrewDebug(ids)` sets who is aboard. `__debug.base.door('hz:*')` walks through a door.
 
 **How to verify.** The recipes are in `.claude/skills/verify/SKILL.md` under "The chapter past the horizon". What must hold: every stage is reached by play from an `ez_beyond` save and by `go(stage)` and a reload; every ending leaves `voyage().state().open` true with the pilot on the home base's bridge; each decision plays with all eight crews; a death after each decision restores the stage and record to the checkpoint and a survived choice persists across a reload; SKIP works on every scene and stops at a decision; an older save loads unchanged.
 
