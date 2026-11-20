@@ -285,7 +285,7 @@ export function createChapter(ctx) {
     archivistTalk: () => (at(stage) >= at('ez_era') ? ERA.archivist : at(stage) < at('ez_offer') ? OFFER.ask : OFFER.remind),
     // the light ship, at the gallery, a million years on: the last question
     launchTalk: () => LAUNCH.ask,
-    // the saga's last stage: inside the hole, and nothing built past it
+    // Entry Zero's last stage: inside the hole (the chapter of GDD 5.7.7 carries on from it)
     setBeyond() {
       if (advance('ez_beyond')) addCodex(LAUNCH.codex);
     },

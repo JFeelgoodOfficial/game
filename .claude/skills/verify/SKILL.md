@@ -852,3 +852,84 @@ docking is needed: after `launch()` the game parks on the landing, steps out
 and hops to the bridge by itself (`onLaunch` true, `launch.u` -1,
 `farLanding.state().far` 4000). With any earlier stage the ship stays in
 flight (`farLanding.state().dock` `'sky'`).
+
+## The light ship as a home base (GDD 5.7.8)
+
+Seed a far-side save in open space: `fgsf.journal` `{quests: {tenretni: 'ship'}}`
+and `fgsf.tenretni` `{city: [0.956, 0.174, -0.236], at: 'terra', eaten:
+['neptunia', 'wyattmattoe'], size: 1.2, end: 'far', star: [0, 0, -9000], met:
+true, landed: true, ch: {stage: 'hz_open', picks: {}, seen: [], epilogue: true,
+home: true, ez: {stay: 'vask', lost: ['lux']}}}`. Optionally `fgsf.voyage`
+`{v: 1, at: 'proving', visited: ['horizon', 'proving'], crew: ['marrow']}` to
+boot in the example system with a captain on the trip. Seed with an init script
+guarded by a `sessionStorage` flag so a reload keeps what the game then saved.
+
+Boot: `__debug.launch()`, wait for `tenretni.chapter()`, then poll until
+`base.state().beyondStep === 2 && base.state().doorT < 0 &&
+tenretni.base().state().inside === 'bridge'`. That is the whole resume path:
+parked in the bay, stepped out, through the door to the bridge. `tenretni.far()`
+stays null on such a save (the megaworld is never built).
+
+Serve the game for a headless run with hot reload off, or a file saved mid-run
+reloads the page under the test: a second config that spreads `vite.config.js`
+and sets `server: { hmr: false, port: 5174, strictPort: true }`, `root` the repo.
+
+`__debug.base`: `state()` → `{phase, dock, platform, landState, skyLanding,
+lift, beyondStep, doorT, doorTo, armed: {bay, system}, ship, speed, bay,
+isolated, far}`; `door(key)` walks through any hop key from a walked place
+(`base:bay`, `base:bridge`, `base:bridge-aft`, `base:helm`, `base:archive`,
+`base:archive-up`, `base:holo`, `hz:*`); `board()` from the bay puts the pilot
+in the seat, parked; `launch()` starts the run out of the forward mouth (free
+flight when `landState === null`, about `BASE_BAY_LIFT` seconds, leaving at
+~240 u/s); `approach([x, y, z], dist = 1400)` puts the freighter that way off
+the hull flying in, and it must reach `landState === 'landed'` with `dock ===
+'bay'` from astern, ahead, either side, above and below; `dock()` parks;
+`stepOut()` walks the bay. `systemApproach()` / `systemDock()` /
+`systemStepOut()` do the same for the current system's nearest dock.
+`guests()` → the captains standing in the freighter's hall.
+
+`tenretni.base().state()` → `{built, inside: 'bay' | 'bridge' | 'archive' |
+null, bay: info, bridge: {u, end, warp, going, crew, figures, star, bodies},
+archive: info, places, crew: [{id, lost, along}], bridgeSeek(sec)}`.
+`tenretni.voyage()` → `state()` `{open, applied, at, visited, crew, systems,
+docks, planets, star, record}`, `travel(id)` (the swap itself, no passage),
+`setCrew(ids)`, `instance(id)` (a built system: the example's has `go(stage)`).
+`tenretni.openSpace()` is what the chapter of 5.7.7 calls at its end.
+
+The chart by hand: `walkSite().capital.place(0, 0, -5.2)` on the bridge, `e`,
+`e`, then a digit. `#dlgPanel` lists every charted system but the current one
+and STAY HERE; picking one sets `bridge.going`, `bridge.u` runs 0..9 with the
+bars up (`e` skips), `voyage().state().at` changes at the middle, and
+`fgsf.voyage` is written. With the freighter out of the bay the chart refuses.
+
+The holodeck: from the archive (`base.door('base:archive')`),
+`holodeck.catalog()` → rows `{id, label, note, unlocked, show}`: terra, rustia,
+wavemall prime, actuality, shadowreach, wyattmattoe, saturnia, neptunia,
+stevenlacey, lightcity, then seven locked rows. `holodeck.startFrom(id)` starts
+one; `holodeck.active()` is its id; key `g` ends it and
+`tenretni.base().state().inside` is `'archive'` again. Compare `isolation()`,
+`phase` and the count of `planets` with `removed` before and after: they must
+match for every program. The console is at `place(2.2, 0, 25)`; `e` opens
+`#holopanel` (`holodeck.panel()` → `{open, rows, pick(i)}`), and picking a
+locked row does nothing. The City of Light program first frames from the
+balcony; `saturnia` is the only program that is not isolated.
+
+The example system (`proving`): `voyage().state()` lists dock `relay` and
+planet `cinder`. At the relay, `place(0, 0.14, -31.8)` and `e` reads the log:
+record `{stage: 'logged'}` under `fgsf.voyage.chapters.proving`. Cinder: put
+the ship at `planet.group.position + sunDir * radius * 1.5` falling in at 120
+u/s; the world takes the helm (`landState` `'auto'` then `'landed'`), `g`
+steps out (`walk.planet.cfg.name === 'cinder'`), `g` boards. Then
+`base.approach()` home. A `launch()` mid-flight (the reset) must come back to
+the bridge with `voyage().state().at` unchanged.
+
+The roster: bay console at `place(20, 0, 7.6)`, `e`, a digit toggles a captain,
+`x` closes. `voyage().state().crew`, `base().state().bay.crew` (waiting by the
+pad), `base.guests()` after `board()`, and at the relay
+`voyage().state().record.crew` moving with the walker.
+
+Load checks that must hold after any change here: a fresh profile writes
+neither `fgsf.tenretni` nor `fgsf.voyage`; a `ch.stage: 'done'` save
+round-trips its `ch` unchanged with no `hz` key and no `fgsf.voyage`; a
+`ch.stage: 'ez_beyond'` save still ends on the launch bridge
+(`far().state().launch`) with `base.state().dock === 'landing'`.

@@ -31,6 +31,8 @@ import { BASE, CREW_TALK } from '../world/base-dialogue.js';
 import { openHoloPanel } from './holoPanel.js';
 import * as THREE from 'three';
 
+const PROGRAM_AT = new THREE.Vector3(0, 0, -14);
+
 // ctx: { scene, camera, chapter, voyage(): src/voyage.js, hideFleet(),
 //        startHolo(id, back), catalog(): the holodeck's rows, shuttleHome(): the
 //        freighter is in the bay, effects(): what the chapter past the horizon
@@ -158,7 +160,8 @@ export function createHomebase(ctx) {
           return null;
         }
       }
-      return { site: city, spawn: city.spawn, yaw: city.spawnYaw, look: 'lightcity' };
+      // (stood on the balcony, clear of the door it would otherwise arrive through)
+      return { site: city, spawn: PROGRAM_AT, yaw: Math.PI, look: 'lightcity' };
     },
     getBay,
     // A door key -> where it leads: { site, spawn, yaw, look, out }. `look` is a
