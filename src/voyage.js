@@ -217,6 +217,8 @@ export function createVoyage(ctx) {
         if (!base.group.userData.shift) {
           base.group.userData.shift = true;
           addShiftable(base.group);
+          // home is on the chart from anywhere in a system
+          addNavBody({ id: 'lightship', label: 'THE LIGHT SHIP', pos: base.group.position, dot: 7, radius: 260, logDist: 2400, color: '#bfe6ff', station: true, kind: 'station' });
         }
       }
       mount(at);
