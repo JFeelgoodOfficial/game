@@ -35,7 +35,8 @@ const CSS = `
 
 const TITLE = 'HOLODECK', SUB = 'WORLDS HELD BY TENRETNI', LOCKED = 'NOT YET ASSIMILATED';
 let panel = null;
-let title = null, sub = null;
+let title = null, sub = null, foot = null;
+const FOOT = 'NUMBER — RUN · X — CLOSE';
 let list = null;
 let open = false;
 let rows = []; // what is on screen: [{ id, label, note, unlocked }]
@@ -69,9 +70,9 @@ export function initHoloPanel() {
   sub.textContent = SUB;
   list = document.createElement('div');
   list.className = 'hp-list';
-  const foot = document.createElement('div');
+  foot = document.createElement('div');
   foot.className = 'hp-foot';
-  foot.textContent = 'NUMBER — RUN · X — CLOSE';
+  foot.textContent = FOOT;
   panel.append(title, sub, list, foot);
   document.body.appendChild(panel);
 }
@@ -87,6 +88,7 @@ export function openHoloPanel(programs, picked, opts = {}) {
   title.textContent = opts.title || TITLE;
   sub.textContent = opts.sub || SUB;
   const lockedNote = opts.locked || LOCKED;
+  if (foot) foot.textContent = opts.foot || FOOT;
   list.textContent = '';
   rows.forEach((r, i) => {
     const b = document.createElement('button');

@@ -25,6 +25,7 @@
 import { createBaseVessel } from '../world/basevessel.js';
 import { createBaseBridge } from '../world/basebridge.js';
 import { createLightShip } from '../world/lightship.js';
+import { createLightCity } from '../world/lightcity.js';
 import { CAPTAINS } from '../world/chapter-dialogue.js';
 import { BASE, CREW_TALK } from '../world/base-dialogue.js';
 import { openHoloPanel } from './holoPanel.js';
@@ -32,11 +33,14 @@ import * as THREE from 'three';
 
 // ctx: { scene, camera, chapter, voyage(): src/voyage.js, hideFleet(),
 //        startHolo(id, back), catalog(): the holodeck's rows, shuttleHome(): the
-//        freighter is in the bay }
+//        freighter is in the bay, effects(): what the chapter past the horizon
+//        left aboard (src/horizon.js), applied as it stands }
 export function createHomebase(ctx) {
   const { chapter } = ctx;
   const voyage = () => ctx.voyage();
   let bay = null, bridge = null, archive = null;
+  let city = null, cityBroken = false; // the City of Light, as a holodeck program
+  const fx = () => (ctx.effects && ctx.effects()) || null;
   const talkTurn = {}; // which of a captain's lines is next
 
   // --- the trip's roster: a panel of the captains who are left ---
@@ -48,8 +52,9 @@ export function createHomebase(ctx) {
     openHoloPanel(rows, (id) => {
       voyage().toggleCrew(id);
       if (bridge) bridge.muster();
+      if (bay) bay.muster();
       roster(); // shown again, as it now stands (X closes it)
-    }, { title: BASE.rosterTitle, sub: BASE.rosterSub });
+    }, { title: BASE.rosterTitle, sub: BASE.rosterSub, foot: BASE.rosterFoot });
   }
   function holodeck() {
     openHoloPanel(ctx.catalog(), (id) => ctx.startHolo(id, 'base:holo'), { title: BASE.holoTitle, sub: BASE.holoSub, locked: BASE.holoLocked });
@@ -59,7 +64,8 @@ export function createHomebase(ctx) {
   function talk(c) {
     const own = CREW_TALK[c.id];
     const here = voyage().talk(c.id) || [];
-    const pool = [...here, ...own.any];
+    const left = fx()?.talk?.[c.id] || [];
+    const pool = [...left, ...here, ...own.any];
     const i = (talkTurn[c.id] = ((talkTurn[c.id] ?? -1) + 1) % pool.length);
     return { speaker: { name: c.name, species: c.species, cityId: 'The light ship' }, lines: [pool[i]], cine: true };
   }
@@ -85,7 +91,10 @@ export function createHomebase(ctx) {
 
   // --- the rooms ---
   function getBay() {
-    if (!bay) bay = createBaseVessel({ sunDir: voyage().sunDir, roster });
+    if (!bay) {
+      bay = createBaseVessel({ sunDir: voyage().sunDir, roster, crew: () => voyage().crew(), crewTalk: (c) => crewTalk(c, 'trip') });
+      bay.setMarks(fx()?.marks);
+    }
     if (!bay.group.parent) ctx.scene.add(bay.group);
     return bay;
   }
@@ -115,6 +124,7 @@ export function createHomebase(ctx) {
       bridge = createBaseBridge({
         scene: ctx.scene, chapter, hideFleet: ctx.hideFleet, sky,
         aboard: (id) => !chapter.lost(id) && !voyage().along(id),
+        figures: () => fx()?.figures || [],
         talk, chart, choose,
         arrive: (id) => voyage().travel(id),
       });
@@ -131,15 +141,32 @@ export function createHomebase(ctx) {
     return archive;
   }
 
+  const crewTalk = (c, kind) => ({ speaker: { name: c.name, species: c.species, cityId: kind === 'ride' ? 'The freighter' : 'The light ship' }, lines: CREW_TALK[c.id][kind] || CREW_TALK[c.id].any.slice(0, 1) });
   return {
     bay: () => (bay ? bay : null),
+    // A place of the megaworld's as a holodeck program: the City of Light as
+    // the archive kept it, with no story in it (the same city world/lightcity.js
+    // builds for the far side, told nothing of the chapter). { site, spawn, yaw, look } | null.
+    program(id) {
+      if (id !== 'lightcity' || cityBroken) return null;
+      if (!city) {
+        try {
+          city = createLightCity({ scene: ctx.scene, camera: ctx.camera, hideFleet: ctx.hideFleet, chapter: null, greet: () => BASE.programGreet });
+        } catch (err) {
+          cityBroken = true;
+          console.warn('[homebase] the City of Light could not be built as a program', err);
+          return null;
+        }
+      }
+      return { site: city, spawn: city.spawn, yaw: city.spawnYaw, look: 'lightcity' };
+    },
     getBay,
     // A door key -> where it leads: { site, spawn, yaw, look, out }. `look` is a
     // render preset (src/isolate.js); `out` leaves the pause for the world.
     hop(key) {
       if (!chapter.open()) return null;
       switch (key) {
-        case 'base:bay': { const s = getBay(); return { site: s, spawn: s.fromLift, yaw: s.fromLiftYaw, out: true }; }
+        case 'base:bay': { const s = getBay(); voyage().place(); return { site: s, spawn: s.fromLift, yaw: s.fromLiftYaw, out: true }; }
         case 'base:bridge': { const s = getBridge(); return { site: s, spawn: s.spawn, yaw: s.spawnYaw, look: 'dive' }; }
         case 'base:bridge-aft': { const s = getBridge(); return { site: s, spawn: s.fromAft, yaw: s.fromAftYaw, look: 'dive' }; }
         case 'base:helm': { const s = getBridge(); return { site: s, spawn: s.atHelm, yaw: s.atHelmYaw, look: 'dive' }; }
@@ -151,6 +178,8 @@ export function createHomebase(ctx) {
     },
     // A door aboard has just been walked through (asking clears it).
     door() {
+      // (a door walked through inside a program leads nowhere: only G ends it)
+      if (city && city.inside() && city.portal) city.portal = null;
       for (const s of [bridge, archive, bay]) {
         if (!s || !s.inside() || !s.portal) continue;
         let to = s.portal;
@@ -162,7 +191,7 @@ export function createHomebase(ctx) {
     },
     roster,
     holodeck,
-    crewTalk: (c, kind) => ({ speaker: { name: c.name, species: c.species, cityId: 'The freighter' }, lines: CREW_TALK[c.id][kind] || CREW_TALK[c.id].any.slice(0, 1) }),
+    crewTalk,
     state: () => ({
       built: { bay: !!bay, bridge: !!bridge, archive: !!archive },
       inside: bridge && bridge.inside() ? 'bridge' : archive && archive.inside() ? 'archive' : bay && bay.inside() ? 'bay' : null,

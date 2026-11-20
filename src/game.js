@@ -77,7 +77,12 @@ import {
   onPatioDeck,
   nearHoloPanel,
   holoPanelSpot,
+  syncGuests,
+  tickGuests,
+  nearGuest,
+  guestState,
 } from './interior.js';
+import { openDialogue, advanceDialogue, isDialogueOpen, closeDialogue } from './dialogue.js';
 import { initBlackHole, updateBlackHole, blackhole } from './blackhole.js';
 import {
   isIsolatingWorld,
@@ -869,6 +874,7 @@ if (import.meta.env.DEV) {
         phase = 'walk';
         return true;
       },
+      guests: () => guestState(),
       state: () => ({
         phase, dock: dock.id, platform: platformDock ? platformDock.id : null, landState, skyLanding, lift: skyLiftT, beyondStep, doorT, doorTo,
         armed: { bay: BAY_DOCK.armed, system: SYSTEM_DOCK.armed },
@@ -2698,8 +2704,14 @@ function frame(now) {
     // whichever popup is up.
     // (Handled here because input.interact is consumed right after the
     // phase blocks, before the UI section below runs.)
+    // captains riding along on a trip from the light ship stand in the hall (GDD 5.7.8)
+    const trip = tripCrew();
+    syncGuests(trip);
+    if (standing) tickGuests(trip, delta, now / 1000);
+    else if (isDialogueOpen()) closeDialogue(); // (nobody is talked to from the seat)
     if (standing && input.interact) {
-      if (isCreditsOpen()) closeCredits();
+      if (isDialogueOpen()) advanceDialogue();
+      else if (isCreditsOpen()) closeCredits();
       else if (isArtViewOpen()) closeArtView();
       else if (isTerrariumViewOpen()) closeTerrariumView();
       else if (isHoloPanelOpen()) closeHoloPanel();
@@ -2709,6 +2721,7 @@ function frame(now) {
         if (art) openArtView(art.file, art.title);
         else if (nearTank()) openTerrariumView();
         else if (nearHoloPanel()) openHoloPanel(holoPrograms(), startHolo);
+        else if (trip && nearGuest()) openDialogue(trip.talk(nearGuest()), {});
       }
     }
     setCockpitStanding(standing);
@@ -3245,6 +3258,7 @@ function frame(now) {
             if (art) prompt = art.prompt || (art.prompt = `${art.title.toUpperCase()} · E — VIEW`);
             else if (nearTank()) prompt = 'THE TERRARIUM · E — LOOK CLOSER';
             else if (nearHoloPanel()) prompt = 'HOLODECK · E — CHOOSE PROGRAM';
+            else if (!isDialogueOpen() && nearGuest()) prompt = BASE.guestPrompt;
           }
         }
         hudPrompt = prompt;

@@ -102,7 +102,7 @@ export function createSceneClock(o) {
 // they are aboard, by another who is if not, and with nobody left aboard it is
 // `solo` that is shown (what the pilot sees for himself, or the ship reports),
 // or nothing at all where `solo` is null. `by: null` is the ship: no speaker.
-// Returns the captain who said it (or null).
+// Returns the id of the captain who said it (or null), so the right figure can be seen to speak.
 export function crewSay(chapter, line, sec = 7) {
   if (!line) return null;
   const crew = chapter.crew();
@@ -115,7 +115,7 @@ export function crewSay(chapter, line, sec = 7) {
     // (a line borrowed from a lost captain may be given other words for who is left)
     const text = who.id !== line.by && line.other && line.other[who.id] ? line.other[who.id] : line.text;
     chapterHud.say(`${who.short} — ${text}`, sec);
-    return who;
+    return who.id;
   }
   if (line.solo) chapterHud.say(line.solo, sec);
   return null;

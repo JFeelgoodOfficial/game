@@ -100,6 +100,7 @@ const WALL_FRAG = /* glsl */ `
 // ctx: { scene, chapter, hideFleet(),
 //        sky(): { star: Vector3 dir | null, starCol: Color, bodies: [{ dir: Vector3, col: Color, k }] }
 //        aboard(id): the captain is on the bridge (alive, and not out on a trip)
+//        figures(): [{ id, build() -> THREE.Group, talk(), at?: [x, z] }] others a chapter has left aboard
 //        talk(captain) -> dialogue payload, chart() -> dialogue payload,
 //        choose(tag) -> payload | null | { travel: id, label },  arrive(id) }
 export function createBaseBridge(ctx) {
@@ -164,7 +165,24 @@ export function createBaseBridge(ctx) {
     npcs.push(npc);
     return { c, rig, npc, x, z, on: false };
   });
+  const extras = [];
   function muster() {
+    // anyone a chapter has left aboard (built once, where it says or along the aft rail)
+    for (const f of ctx.figures ? ctx.figures() : []) {
+      if (extras.some((e) => e.id === f.id)) continue;
+      try {
+        const g = f.build();
+        const i = extras.length;
+        const at = f.at || [4.6 - 1.9 * i, R - 3.2];
+        g.position.set(at[0], 0, at[1]);
+        group.add(g);
+        npcs.push({ x: at[0], y: 0, z: at[1], role: 'figure', talk: () => f.talk() });
+        extras.push({ id: f.id, g });
+      } catch (err) {
+        console.warn('[homebase] a figure could not be stood on the bridge', err);
+        extras.push({ id: f.id, g: null });
+      }
+    }
     for (const m of crew) {
       m.on = ctx.aboard(m.c.id);
       m.rig.group.visible = m.on;
@@ -333,7 +351,7 @@ export function createBaseBridge(ctx) {
     places: { helm: [0, 0, -R + 4.4], aft: [AFT.x, 0, AFT.z - 1], lift: [LIFT.x, 0, LIFT.z] },
     info: () => ({
       u: +u.toFixed(1), end: T, warp: +skyU.uWarp.value.toFixed(2), going: going ? going.travel : null,
-      crew: crew.filter((m) => m.on).map((m) => m.c.id), star: skyU.uStarOn.value > 0,
+      crew: crew.filter((m) => m.on).map((m) => m.c.id), figures: extras.filter((e) => e.g).map((e) => e.id), star: skyU.uStarOn.value > 0,
       bodies: skyU.uBody.value.filter((b) => b.w > 0).length,
     }),
     seek(x) {

@@ -25,7 +25,7 @@ import { ship } from './ship.js';
 import { sun } from './sun.js';
 import { originOffset, addShiftable } from './origin.js';
 import { setNebulaDim } from './nebula.js';
-import { setFarFieldExtra } from './isolate.js';
+import { setFarFieldExtra, isolated } from './isolate.js';
 import { addNavBody, setNavHidden } from './nav.js';
 import { SYSTEMS, systemById, FIRST_SYSTEM } from './systems.js';
 import { CAPTAINS } from '../world/chapter-dialogue.js';
@@ -41,6 +41,7 @@ export function createVoyage(ctx) {
   let at = FIRST_SYSTEM;
   const visited = [];
   let crew = []; // captains out on the trip (a subset of those alive)
+  let crewV = 0; // bumped whenever that changes
   const records = {}; // chapters' records as loaded, until each is built
   const built = {}; // id -> { sys, inst, docks, planets, root }
   let mounted = null;
@@ -107,7 +108,7 @@ export function createVoyage(ctx) {
     built[sys.id] = b;
     if (sys.create) {
       try {
-        b.inst = sys.create({ scene: ctx.scene, camera: ctx.camera, chapter, voyage: api, sunDir, save });
+        b.inst = sys.create({ scene: ctx.scene, camera: ctx.camera, chapter, voyage: api, sunDir, save, crewTalk: ctx.crewTalk });
       } catch (err) {
         console.warn(`[voyage] ${sys.id} could not be built`, err);
       }
@@ -133,7 +134,8 @@ export function createVoyage(ctx) {
   }
   function show(b, on) {
     for (const d of b.docks) {
-      d.site.group.visible = on;
+      // (mounted from the bridge, under the pause: nothing of space is shown until the pause is let go)
+      d.site.group.visible = on && !isolated.active;
       d.site.group.userData.away = !on;
       if (on) {
         addNavBody(d.nav);
@@ -143,6 +145,7 @@ export function createVoyage(ctx) {
     for (const { p, nav } of b.planets) {
       ctx.showPlanet(p, on);
       p.group.userData.away = !on;
+      if (isolated.active) p.group.visible = false;
       if (on) {
         addNavBody(nav);
         setNavHidden(nav.pos, false);
@@ -178,6 +181,13 @@ export function createVoyage(ctx) {
       starRoot.visible = false;
     }
     starRoot.userData.away = !starRoot.visible;
+    // out here there is one star and no sky to fill the shadows: a little is given back, so a figure's dark side can be seen
+    if (sun.ambient && !isolated.active) {
+      sun.ambient.color.set(0x8a96b8);
+      sun.ambient.intensity = Math.max(sun.ambient.intensity, 0.85);
+    }
+    starRoot.position.copy(ctx.camera.position).addScaledVector(sunDir, C.BASE_STAR_DIST);
+    if (isolated.active) starRoot.visible = false;
     show(mounted, true);
     setNebulaDim(sys.nebula ?? 0.2);
     const F = ctx.fleets();
@@ -201,7 +211,8 @@ export function createVoyage(ctx) {
       applied = true;
       const base = ctx.base();
       if (base) {
-        base.group.visible = true;
+        base.group.visible = !isolated.active; // (let go from inside a paused room, it is shown when the pause is)
+        base.group.userData.away = false;
         setFarFieldExtra(base.group);
         if (!base.group.userData.shift) {
           base.group.userData.shift = true;
@@ -212,10 +223,12 @@ export function createVoyage(ctx) {
       save();
     },
     applied: () => applied,
+    place, // (a door about to lead out into the world: everything where it belongs first)
+    crewVersion: () => crewV,
     update(dt, t, cam) {
       if (!applied || !mounted) return;
       place();
-      if (starRoot.visible) starRoot.position.copy(cam).addScaledVector(sunDir, C.BASE_STAR_DIST);
+      if (!starRoot.userData.away) starRoot.position.copy(cam).addScaledVector(sunDir, C.BASE_STAR_DIST);
       if (sun.light) sun.light.position.copy(sunDir);
       const base = ctx.base();
       if (base) base.update(dt, t, cam);
@@ -238,12 +251,14 @@ export function createVoyage(ctx) {
     along: (id) => crew.includes(id) && !chapter.lost(id),
     setCrew(ids) {
       crew = CAPTAINS.filter((c) => ids.includes(c.id) && !chapter.lost(c.id)).map((c) => c.id);
+      crewV++;
       save();
       return crew.slice();
     },
     toggleCrew(id) {
       if (chapter.lost(id) || !CAPTAINS.some((c) => c.id === id)) return false;
       crew = crew.includes(id) ? crew.filter((x) => x !== id) : CAPTAINS.filter((c) => c.id === id || crew.includes(c.id)).map((c) => c.id);
+      crewV++;
       save();
       return true;
     },
@@ -281,7 +296,7 @@ export function createVoyage(ctx) {
       systems: SYSTEMS.map((s) => ({ id: s.id, label: s.sealed ? null : s.label, sealed: !!s.sealed, built: !!built[s.id] })),
       docks: mounted ? mounted.docks.map((d) => ({ id: d.id, pos: d.site.group.position.toArray().map(Math.round) })) : [],
       planets: mounted ? mounted.planets.map(({ p }) => ({ name: p.cfg.name, pos: p.group.position.toArray().map(Math.round), removed: !!p.removed })) : [],
-      star: starRoot.visible, record: mounted && mounted.inst && mounted.inst.state ? mounted.inst.state() : null,
+      star: !starRoot.userData.away, record: mounted && mounted.inst && mounted.inst.state ? mounted.inst.state() : null,
     }),
   };
   return api;

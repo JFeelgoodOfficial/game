@@ -28,6 +28,7 @@ export const BASE = {
   // the roster
   rosterTitle: 'THE TRIP',
   rosterSub: 'WHO RIDES IN THE FREIGHTER · PICK TO CHANGE',
+  rosterFoot: 'NUMBER — CHANGE · X — CLOSE',
   rosterAlong: 'COMING ALONG',
   rosterStay: 'STAYING ABOARD',
   rosterNone: 'NOBODY IS LEFT TO ASK',
@@ -39,6 +40,9 @@ export const BASE = {
   chartNowhere: 'NOTHING ELSE IS CHARTED YET.',
   chartNeedShuttle: 'THE FREIGHTER IS NOT IN THE BAY. THE SHIP WILL NOT LEAVE WITHOUT IT.',
   travelSay: 'COURSE SET — {to}',
+  // a place of the megaworld's, as a holodeck program: whoever is spoken to there
+  programGreet: { speaker: { name: 'A record', species: 'the archive', cityId: 'The City of Light' }, lines: ['THIS IS THE CITY AS THE ARCHIVE KEPT IT.', 'NOBODY IN IT CAN SEE YOU. G ENDS THE PROGRAM.'] },
+  guestPrompt: 'E — TALK',
   arriveSay: '{to}',
 };
 

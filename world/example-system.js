@@ -21,12 +21,13 @@ import * as THREE from 'three';
 import { C, BASE_EXAMPLE_PLANET } from '../src/constants.js';
 import { tint, box, cyl, mergedMesh, floorOf } from './capital.js';
 import { EXAMPLE } from './example-dialogue.js';
+import { createCrewFollow } from './crewFollow.js';
 
 export const EXAMPLE_STAGES = ['arrived', 'docked', 'logged'];
 const SNAP = 1.2;
 const ZERO = new THREE.Vector3();
 const PAD_Z = 34, PAD_R = 22, WAY_HW = 4, MAST_Z = -34;
-const COL = { deck: 0x191712, deckLight: 0x2a2620, trim: 0x3a342a, hull: 0x100f0c };
+const COL = { deck: 0x3a352a, deckLight: 0x5a5244, trim: 0x6a6050, hull: 0x24211a };
 const GLOW = { amber: 0xffb45a, pale: 0xfff0c8, red: 0xff5a4a };
 
 // Cinder: a config for src/planet.js, as the home system's worlds are, with
@@ -47,8 +48,8 @@ const CINDER = {
   shape: { ridge: 0.55, ridgeFreq: 2.4, valley: 0.35 },
   iceLat: 2,
   palette: {
-    deep: new THREE.Color(0x2a221e), shallow: new THREE.Color(0x3a2e28), sand: new THREE.Color(0x5a4638),
-    low: new THREE.Color(0x6b5040), mid: new THREE.Color(0x4a3c36), high: new THREE.Color(0x8a7a70),
+    deep: new THREE.Color(0x5a4a40), shallow: new THREE.Color(0x7a6252), sand: new THREE.Color(0xa88868),
+    low: new THREE.Color(0xb08a6a), mid: new THREE.Color(0x8a7264), high: new THREE.Color(0xd0c0b0),
   },
   water: null,
   clouds: false,
@@ -58,7 +59,7 @@ const CINDER = {
   label: EXAMPLE.planet.label,
 };
 
-// ctx: { scene, camera, chapter, voyage, sunDir, save() }
+// ctx: { scene, camera, chapter, voyage, sunDir, save(), crewTalk(captain) }
 export function createExampleSystem(ctx) {
   let stage = 'arrived';
   const at = (s) => EXAMPLE_STAGES.indexOf(s);
@@ -105,7 +106,10 @@ export function createExampleSystem(ctx) {
   lamp.position.set(0, 47, MAST_Z - 2.6);
   group.add(lamp);
 
-  let walker = null;
+  // whoever came along in the freighter follows the pilot round the relay
+  const crew = createCrewFollow({ group, floorY: 0.14, talk: ctx.crewTalk });
+
+  let walker = null, walkerLive = null;
   const site = {
     group,
     planet: { group: { position: ZERO }, sunDir: ctx.sunDir },
@@ -117,7 +121,7 @@ export function createExampleSystem(ctx) {
     padR: PAD_R,
     spawn: new THREE.Vector3(8, 0.14, PAD_Z - 7),
     leaveHint: EXAMPLE.relay.leaveHint,
-    npcs: [],
+    npcs: crew.npcs,
     consoles: [{
       x: 0, y: 0.14, z: MAST_Z + 2.2, r: 2.4, prompt: EXAMPLE.relay.logPrompt,
       use() {
@@ -127,14 +131,20 @@ export function createExampleSystem(ctx) {
     }],
     onChoice: () => null,
     portal: null,
-    setWalker(p) {
+    setWalker(p, live) {
       walker = p || null;
+      walkerLive = p ? live || null : null;
     },
     onEnter() {
       advance('docked');
+      crew.set(ctx.voyage.crew());
+    },
+    onLeave() {
+      crew.set([]);
     },
     inside: () => !!walker,
     update(dt, t) {
+      if (walker) crew.tick(dt, t, walkerLive);
       lamp.material.color.setHex(GLOW.red).multiplyScalar(0.5 + 1.5 * Math.max(0, Math.sin(t * 2.2)));
     },
     places: { pad: [8, 0.14, PAD_Z - 7], log: [0, 0.14, MAST_Z + 2.2] },
@@ -152,7 +162,7 @@ export function createExampleSystem(ctx) {
     restore(raw) {
       if (raw && EXAMPLE_STAGES.includes(raw.stage)) stage = raw.stage;
     },
-    state: () => ({ stage, relay: site.places }),
+    state: () => ({ stage, relay: site.places, crew: crew.state() }),
     // dev: jump its stage, either way
     go(s) {
       if (!EXAMPLE_STAGES.includes(s)) return false;

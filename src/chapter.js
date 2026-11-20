@@ -51,6 +51,7 @@ export const STAGES = [
   'ez_offer', 'ez_descent', 'ez_firewall', 'ez_deep', 'ez_centre', 'ez_relics', 'ez_reveal', 'ez_ascent', 'ez_era', 'ez_launch', 'ez_beyond',
   // Past the horizon (GDD 5.7.7). `hz_open` is where it lets go: the light ship
   // and its crew in open space, and every later chapter a system it goes to (5.7.8).
+  'hz_bell1', 'hz_bell2', 'hz_bell3', 'hz_bell4', 'hz_bell5', 'hz_bell6', 'hz_bell7', 'hz_bell8', 'hz_bell9', 'hz_bell10',
   'hz_open',
 ];
 
@@ -471,6 +472,13 @@ export function createChapter(ctx) {
       }
     },
 
+    // dev: who is aboard, whatever the save says (every crew from all three to none can be tried)
+    setCrewDebug(ids) {
+      ez.lost = [];
+      hz.lost = CAPTAINS.filter((c) => !ids.includes(c.id)).map((c) => c.id);
+      ctx.onSave();
+      return CAPTAINS.filter((c) => !gone(c.id)).map((c) => c.id);
+    },
     // dev (__debug.tenretni.chapter()): jump the story to a stage, either way
     go(s) {
       if (!STAGES.includes(s)) return false;

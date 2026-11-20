@@ -21,6 +21,7 @@ import { C } from '../src/constants.js';
 import { tint, box, cyl, mergedMesh, floorOf } from './capital.js';
 import { buildHangar } from './lightvessel.js';
 import { BASE } from './base-dialogue.js';
+import { createCrewFollow } from './crewFollow.js';
 
 const SNAP = 1.2;
 const ZERO = new THREE.Vector3();
@@ -28,7 +29,8 @@ const COL = { deck: 0x12171c, deckLight: 0x1d262e, trim: 0x27333d, hull: 0x0c101
 const GLOW = { line: 0x7fe6ff, pad: 0xffe2a0, lift: 0xbfa8ff, warn: 0xff9a5a };
 
 // ctx: { sunDir: live unit vector toward the system's star, roster(): open the
-// trip roster (src/homebase.js) }
+// trip roster (src/homebase.js), crew(): captain ids out on the trip,
+// crewTalk(captain) -> what one of them says, waiting by the freighter }
 export function createBaseVessel(ctx) {
   const group = new THREE.Group();
   group.visible = false;
@@ -39,15 +41,17 @@ export function createBaseVessel(ctx) {
   hull.yard.visible = false; // it left its yard a long time ago
   hull.era(true); // ...finished: the corner that was never built is there
   hull.root.rotation.y = Math.PI; // bow along -z
-  hull.root.position.set(0, 0, 0);
-  hull.root.updateMatrixWorld(true);
-  const bb = new THREE.Box3().setFromObject(hull.vessel);
-  // sit the keel on the bay's roof, the hull's middle over the pad
-  hull.root.position.set(-(bb.min.x + bb.max.x) / 2, ROOF - bb.min.y, -(bb.min.z + bb.max.z) / 2);
-  const size = bb.getSize(new THREE.Vector3());
-  // the middle of the hull, bay-local: what the dock's stand-in is centred on
-  const centre = new THREE.Vector3(0, ROOF + size.y / 2, 0);
-  const hullR = 0.5 * size.length();
+  // In its own frame (world/lightvessel.js) the block of cells is 150 wide, 270
+  // tall and 420 long, from z -460 to -40, with the spine and the bow's bulb
+  // running on ahead of it to +360 and the drive astern. Turned about, the
+  // block is what the bay hangs under: its keel on the bay's roof, its middle
+  // over the pad. The spine goes on ahead, high over the way out.
+  const BLOCK = { hw: 75, hh: 135, z0: 40, z1: 460 }; // (after the turn)
+  hull.root.position.set(0, ROOF + BLOCK.hh, -(BLOCK.z0 + BLOCK.z1) / 2);
+  // the middle of the block, bay-local: what the dock's stand-in is centred on
+  const centre = new THREE.Vector3(0, ROOF + BLOCK.hh, 0);
+  const hullR = Math.hypot(BLOCK.hw, BLOCK.hh, (BLOCK.z1 - BLOCK.z0) / 2);
+  const bowTip = (BLOCK.z0 + BLOCK.z1) / 2 + 360; // how far ahead of the middle the bow reaches
 
   // --- the bay ---
   const lit = [], glow = [];
@@ -107,7 +111,25 @@ export function createBaseVessel(ctx) {
   );
   group.add(beacon);
 
-  let walker = null;
+  // whoever is coming along waits by the freighter, starboard of the pad
+  const crew = createCrewFollow({
+    group, floorY: 0, talk: ctx.crewTalk,
+    post: [[PAD_R + 2.5, -5, -Math.PI / 2], [PAD_R + 4.5, -1.5, -Math.PI / 2], [PAD_R + 2.5, 2, -Math.PI / 2]],
+  });
+  // marks a chapter has left on the ship (src/horizon.js effects()): small lit plates on the port frames
+  const marks = [];
+  function setMarks(list) {
+    for (const m of list || []) {
+      if (marks.some((x) => x.id === m.id)) continue;
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.4, 1.4), new THREE.MeshBasicMaterial({ color: m.color, fog: false }));
+      const i = marks.length;
+      mesh.position.set(-HW + 1.9, 2.2 + 1.9 * (i % 3), -HL + 6 + 26 * Math.floor(i / 3));
+      group.add(mesh);
+      marks.push({ id: m.id, mesh });
+    }
+  }
+
+  let walker = null, walkerLive = null;
   const site = {
     group,
     planet: { group: { position: ZERO }, sunDir: ctx.sunDir },
@@ -122,21 +144,26 @@ export function createBaseVessel(ctx) {
     fromLift: new THREE.Vector3(-HW + 12, 0, -24), // coming back down from the ship
     fromLiftYaw: -Math.PI / 2,
     leaveHint: BASE.bayLeave,
-    npcs: [],
+    npcs: crew.npcs,
     consoles,
     onChoice: () => null,
     portal: null,
-    setWalker(p) {
+    setWalker(p, live) {
       walker = p || null;
+      walkerLive = p ? live || null : null;
     },
     onEnter() {
       site.portal = null;
+      crew.set(ctx.crew());
     },
+    muster: () => crew.set(ctx.crew()),
+    setMarks,
     inside: () => !!walker,
     // what the dock (src/game.js BAY_DOCK) flies by, all bay-local
     dock: {
       centre,
-      radius: Math.max(C.BASE_CAPTURE, hullR + 120),
+      // (wide enough that an approach from dead ahead begins beyond the bow)
+      radius: Math.max(C.BASE_CAPTURE, (bowTip + 60) / C.ATMO_SHELL),
       hover: new THREE.Vector3(0, 0.14, C.BASE_BAY_STANDOFF), // astern of the stern mouth
       exit: new THREE.Vector3(0, 0.14, -C.BASE_BAY_STANDOFF), // clear of the forward one
     },
@@ -144,11 +171,12 @@ export function createBaseVessel(ctx) {
     // `cam`: the camera's world position
     update(dt, t, cam) {
       hull.tick(t);
+      if (group.visible && crew.count()) crew.tick(dt, t, walkerLive);
       beacon.visible = cam.distanceToSquared(group.position) > 500 * 500;
       beacon.material.opacity = 0.14 + 0.08 * Math.sin(t * 2.1);
     },
     places: { pad: [8, 0, 9], lift: [-HW + 12, 0, -24], roster: [PAD_R + 5, 0, 7.6], stern: [0, 0, HL - 4], bow: [0, 0, -HL + 4] },
-    info: () => ({ cells: hull.cells, hullR: Math.round(hullR), centre: centre.toArray().map(Math.round), radius: Math.round(site.dock.radius) }),
+    info: () => ({ crew: crew.state(), marks: marks.map((m) => m.id), cells: hull.cells, hullR: Math.round(hullR), centre: centre.toArray().map(Math.round), radius: Math.round(site.dock.radius) }),
   };
   return site;
 }

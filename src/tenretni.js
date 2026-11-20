@@ -64,6 +64,9 @@ import { createVoyage } from './voyage.js';
 import { createHomebase } from './homebase.js';
 import { createHorizon } from './horizon.js';
 import { buildPlanet, bakePlanet } from './planet.js';
+import { buildCaptain, liveCaptain } from '../world/captainDress.js';
+import { poseRig } from '../world/aliens.js';
+import { standRig } from '../world/rigGround.js';
 import { grantUpgrade, hasUpgrade } from './inventory.js';
 import { sun } from './sun.js';
 import { blackhole } from './blackhole.js';
@@ -1037,8 +1040,28 @@ export const chapterDebug = () => chapter;
 // the ship's own rooms; `voyage` where it is and what system is round it.
 let voyage = null, homebase = null, horizon = null;
 let game = null; // what src/game.js lends: { startHolo(id, back), shuttleHome() }
-// the captains riding in the freighter, for its interior (src/game.js): { ids, talk(id) } | null
-export const tripCrew = () => (ended === 'far' && chapter.open() && voyage && homebase ? { ids: voyage.crew(), talk: (id) => homebase.crewTalk(chapter.crew().find((c) => c.id === id), 'ride') } : null);
+// The captains riding in the freighter, for its interior (src/interior.js
+// guests; the figures are this chunk's to build): { v, ids, talk(id), make(id)
+// -> rig, live(rig, dt, t, floorY, yaw) } | null. `v` changes when `ids` does.
+const trip = {
+  v: -1, ids: [],
+  talk: (id) => homebase.crewTalk(chapter.crew().find((c) => c.id === id), 'ride'),
+  make: (id) => buildCaptain(id),
+  live(rig, dt, t, floorY, yaw) {
+    rig.group.rotation.y = yaw;
+    poseRig(rig, dt, t, 'idle', 0);
+    standRig(rig, floorY);
+    liveCaptain(rig, dt, t, false, 0);
+  },
+};
+export function tripCrew() {
+  if (ended !== 'far' || !chapter.open() || !voyage || !homebase) return null;
+  if (trip.v !== voyage.crewVersion()) {
+    trip.v = voyage.crewVersion();
+    trip.ids = voyage.crew();
+  }
+  return trip;
+}
 export const voyageDebug = () => voyage;
 export const homebaseDebug = () => homebase;
 export const horizonDebug = () => horizon;
@@ -1048,6 +1071,7 @@ function initVoyage() {
     scene, camera, chapter,
     base: () => (chapter.open() && homebase ? homebase.getBay() : null),
     fleets: () => fleets,
+    crewTalk: (c) => homebase.crewTalk(c, 'trip'),
     // a world made after boot (world/example-system.js): out of space until its system is mounted
     addPlanet(cfg) {
       try {
@@ -1072,6 +1096,7 @@ function initVoyage() {
     startHolo: (id, back) => game.startHolo(id, back),
     shuttleHome: () => game.shuttleHome(),
     catalog,
+    effects: () => (horizon && chapter.open() ? horizon.effects() : null),
   });
   try {
     horizon = createHorizon({ scene, camera, chapter, hideFleet, openSpace });
@@ -1093,7 +1118,7 @@ export function openSpace() {
 export function farHop(key) {
   if (ended !== 'far' || typeof key !== 'string') return null;
   // dying in the chapter is a door too: back to the asking (src/chapter.js hz.die)
-  if (key === 'hz:back') key = chapter.hz.die() || (horizon && horizon.resume ? horizon.resume() : null);
+  if (key === 'hz:back') key = chapter.hz.die() || (horizon ? horizon.resumeKey() : null);
   if (!key) return null;
   return (homebase && homebase.hop(key)) || (voyage && voyage.applied() && voyage.hop(key)) || (horizon && horizon.hop(key)) || null;
 }
@@ -1156,7 +1181,7 @@ export const farBeyond = () => {
   if (ended !== 'far') return null;
   if (chapter.open()) return voyage && voyage.applied() ? { dock: 'bay', hop: 'base:helm' } : null;
   if (!far || !chapter.reached('ez_beyond')) return null;
-  const hop = horizon && horizon.resume ? horizon.resume() : null;
+  const hop = horizon ? horizon.resumeKey() : null;
   return { dock: 'landing', hop: hop || 'launch' };
 };
 
@@ -1467,7 +1492,9 @@ const ARCHIVE_LOCKED = [
 ];
 const holoOff = new Set(); // programs that could not be started this session
 export function catalog() {
-  const rows = ARCHIVE.filter((r) => holoKind(r.id)).map((r) => ({ id: r.id, label: r.label, note: r.id === 'neptunia' && game && game.reachBlown() ? 'THE WRECK' : r.note, unlocked: !holoOff.has(r.id) }));
+  // (`rooms`: records the chapter past the horizon has shut, src/horizon.js effects())
+  const shut = (horizon && chapter.open() && horizon.effects().rooms) || {};
+  const rows = ARCHIVE.filter((r) => holoKind(r.id)).map((r) => ({ id: r.id, label: r.label, note: r.id === 'neptunia' && game && game.reachBlown() ? 'THE WRECK' : r.note, unlocked: !holoOff.has(r.id) && shut[r.id] !== false, show: true }));
   for (const r of ARCHIVE_LOCKED) rows.push({ id: r.id, label: r.label || '', note: '', unlocked: false, show: !!r.show });
   return rows;
 }
