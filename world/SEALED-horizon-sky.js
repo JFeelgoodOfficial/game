@@ -135,7 +135,7 @@ const FRAG = /* glsl */ `
     } else {
       // --- past the roof: the ring, and what shows through its middle ---
       float a = ang(d, uRing);
-      vec3 plain = stars(d) + vec3(0.03, 0.04, 0.07) * h31(floor(d * 9.0));
+      vec3 plain = stars(d) + stars(d.zxy * 1.7) * 0.5;
       float inside = smoothstep(uRingR, uRingR * 0.96, a);
       col = plain * max(uFar, inside);
       col += vec3(1.0, 0.98, 0.94) * (exp(-pow((a - uRingR) / (0.004 + uRingR * 0.012), 2.0)) * 3.0 + 0.25 * exp(-abs(a - uRingR) * 30.0));

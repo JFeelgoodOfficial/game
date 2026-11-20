@@ -13,7 +13,7 @@ import { createHall } from '../world/SEALED-horizon-hall.js';
 import { createHelm } from '../world/SEALED-horizon-helm.js';
 import { createHull } from '../world/SEALED-horizon-hull.js';
 import { createKeel } from '../world/SEALED-horizon-keel.js';
-import { effectsOf } from '../world/SEALED-horizon-ship.js';
+import { effectsOf, auditLines } from '../world/SEALED-horizon-ship.js';
 
 // door -> [the place, how it is made, the render look (src/isolate.js)]
 const DOORS = {
@@ -82,6 +82,8 @@ export function createHorizon(ctx) {
     seek: (u) => (current() ? current().seek(u) : false),
     skip: () => (current() ? current().skip() : false),
     crew: (ids) => chapter.setCrewDebug(ids),
+    // every scene's lines as the crew aboard would be shown them (a test of the writing's cover)
+    audit: () => auditLines(chapter),
     // a place's own handles, by name
     dbg(name, ...args) {
       const s = current();

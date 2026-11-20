@@ -166,6 +166,7 @@ export function createHelm(ctx) {
       sky.U.uShip.value = 0;
       input.bandPrev = input.lampToggle = false;
       lampHud.show(true, false, CHART.keys);
+      chapterHud.racing(true); // (a seat: the on-foot key list is not for this)
       afterDeath = memo.died ? 1.2 : 0;
       if (!memo.taught) {
         memo.taught = true;
@@ -175,6 +176,7 @@ export function createHelm(ctx) {
     },
     leave() {
       lampHud.show(false);
+      chapterHud.racing(false);
       setDread(0);
     },
     tick(d, tm) {

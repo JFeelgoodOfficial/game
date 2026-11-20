@@ -594,13 +594,13 @@ export function createMotes(n) {
         p.x *= 1.0 - 0.9 * uStretch;
         p.y += 0.03 * sin(uTime * 0.7 + position.x * 9.0);
         vec4 mv = modelViewMatrix * vec4(p, 1.0);
-        gl_PointSize = 60.0 / -mv.z;
+        gl_PointSize = clamp(22.0 / -mv.z, 1.5, 7.0);
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: /* glsl */ `
       void main() {
         float d = length(gl_PointCoord - 0.5);
-        gl_FragColor = vec4(vec3(0.7, 1.0, 1.1) * smoothstep(0.5, 0.0, d), 1.0);
+        gl_FragColor = vec4(vec3(0.7, 1.0, 1.1) * smoothstep(0.5, 0.0, d) * 0.8, 1.0);
       }`,
   }));
   pts.frustumCulled = false;
@@ -668,4 +668,27 @@ export function effectsOf(chapter) {
     marks: chapter.hz.state().lost.map((id) => ({ id, color: COLOURS[id] })),
     talk,
   };
+}
+
+// (for a test) every scene's lines as this crew would be shown them: { scene: [text, ...] }
+import * as WORDS from './SEALED-horizon-words.js';
+export function auditLines(chapter) {
+  const out = {};
+  const take = (name, list) => {
+    out[name] = shownLines(chapter, list);
+  };
+  for (const k of ['S1', 'S2', 'S3A', 'S3B', 'S4', 'S4B', 'DX1', 'S5', 'S6', 'DX2', 'S7A', 'S7', 'S8', 'S8A', 'S8B', 'S9', 'DX3', 'S10']) take(k, WORDS[k].lines);
+  take('TONE', WORDS.TONE);
+  take('LAMP', WORDS.LAMP.sights.flatMap((s) => s.say));
+  take('COUNT', [WORDS.COUNT.nudge, WORDS.COUNT.best, WORDS.COUNT.long, WORDS.COUNT.none, WORDS.COUNT.fight]);
+  take('BARKS', Object.values(WORDS.CHART.barks));
+  take('HULL', [WORDS.HULL.freighter, WORDS.HULL.timer, WORDS.HULL.stolen, ...Object.values(WORDS.HULL.back), ...Object.values(WORDS.HULL.help), ...WORDS.HULL.lost, ...Object.values(WORDS.HULL.near)]);
+  take('KEEL', [WORDS.KEEL.now, WORDS.KEEL.leans, WORDS.KEEL.miss]);
+  take('DEATH', Object.values(WORDS.AFTER_DEATH));
+  WORDS.HALL.look.forEach((alts, i) => {
+    const f = facts(chapter);
+    const l = alts.find((x) => fits(chapter, x, f) && (chapter.crew().length || x.solo));
+    out[`LOOK${i}`] = l ? shownLines(chapter, [l]) : [];
+  });
+  return out;
 }

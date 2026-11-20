@@ -125,11 +125,13 @@ export function createDeck(ctx) {
     lastBand = lamp.band;
     input.bandPrev = input.lampToggle = false;
     lampHud.show(true, false, lamp.canAll ? LAMP.all : LAMP.keys);
+    chapterHud.racing(true); // (a seat: the on-foot key list is not for this)
   }
   function leaveSeat() {
     seat = false;
     site.hidePilot = false;
     lampHud.show(false);
+    chapterHud.racing(false);
     setRadio(false, 0);
     for (let i = 0; i < sights.length; i++) sky.U.uMark.value[i].w = 0;
   }
@@ -287,7 +289,7 @@ export function createDeck(ctx) {
       // the clocks: from the moment they are spoken of
       if (chapter.reached('hz_bell2') || site.st.u() >= 24) {
         if (turned) showClocks(T, C.HZ_TO_ROOF - (T - HZ_TAU[2]), true);
-        else showClocks(T, (phase !== '' ? left : chapter.hz.get('n4') ?? C.HZ_FALL) - T);
+        else showClocks(T, (phase !== '' || turning ? left : chapter.hz.get('n4') ?? C.HZ_FALL) - T);
       }
       crew.tick(d, t, site.st.speaker);
 

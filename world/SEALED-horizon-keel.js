@@ -38,7 +38,7 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const REST = -0.35; // where the ship keeps itself, left alone
 const RATE = C.HZ_CHART_RATE * C.HZ_KEEL_RATE;
 const RING_AHEAD = new THREE.Vector3(-0.55, 0.3, -0.78).normalize();
-const RING_ASTERN = new THREE.Vector3(0.12, 0.35, 1).normalize();
+const RING_ASTERN = new THREE.Vector3(0.8, 0.45, 0.35).normalize(); // (off the starboard quarter: clear of the archive's arc)
 
 export function createKeel(ctx) {
   const { chapter, memo } = ctx;
@@ -155,11 +155,11 @@ export function createKeel(ctx) {
       },
       cam(pos, target, u) {
         const k = ease(10, 20, u) * (1 - ease(34, 46, u));
-        pos.set(3.0 - 6 * ease(30, 60, u), 2.7, 5.8);
-        target.set(AHEAD.x * 60 + 40 * k, 6 + 10 * k, -60 + 110 * k);
+        pos.set(-3.0 + 3 * ease(40, 60, u), 2.7, 5.8);
+        target.set(AHEAD.x * 60 * (1 - k) + RING_ASTERN.x * 60 * k, 6 * (1 - k) + RING_ASTERN.y * 60 * k, -60 * (1 - k) + RING_ASTERN.z * 60 * k);
       },
       onEnd() {
-        chapter.hz.set('t', Math.round(endTau || tau()));
+        chapter.hz.set('t', Math.round((endTau || HZ_TAU[9]) + C.HZ_S10));
         site.portal = ctx.openSpace();
       },
     });
@@ -182,6 +182,7 @@ export function createKeel(ctx) {
       chapter.advance('hz_bell9');
       crew.muster();
       reset();
+      chapterHud.racing(true); // (a seat: the on-foot key list is not for this)
       resetLamp(true);
       lamp.canAll = false;
       afterDeath = 0;
@@ -198,6 +199,7 @@ export function createKeel(ctx) {
     },
     leave() {
       lampHud.show(false);
+      chapterHud.racing(false);
     },
     tick(d, tm) {
       time.value = tm;
@@ -259,7 +261,7 @@ export function createKeel(ctx) {
         lampHud.update();
       }
       setHum(0.25 + 0.5 * Math.abs(lean));
-      showClocks(through ? endTau + local * 0 + site.st.u() : tau(), null, false, ROOF_TAU);
+      showClocks(through ? (endTau || HZ_TAU[9]) + Math.max(0, site.st.u()) : tau(), null, false, ROOF_TAU);
     },
     info: () => ({ place: 'keel', stage: chapter.stage(), phase, x: +x.toFixed(3), t: +t.toFixed(3), lean: +lean.toFixed(2), reserve: +reserve.toFixed(2), open: isOpen(t), through, c2: chapter.hz.get('c2'), pending: chapter.hz.pending(), crew: crew.aboard() }),
     dbg: {
