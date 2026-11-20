@@ -39,7 +39,7 @@ import { addBody } from './gravity.js';
 import { setFarFieldExtra } from './isolate.js';
 import { setNebulaDim } from './nebula.js';
 import { addNavBody, setNavHidden, showNavToast } from './nav.js';
-import { buildMegaworld, cageAt, CAGE_PERIOD, PATTERN_PERIOD } from '../world/megaworld.js';
+import { buildMegaworld, cageAt, CAGE_PERIOD, PATTERN_PERIOD, CAGE_TOP, LITE_MAX, liteRange } from '../world/megaworld.js';
 import { buildFarHole } from '../world/farhole.js';
 import { createFarLanding } from '../world/farlanding.js';
 import { createLightCity } from '../world/lightcity.js';
@@ -64,7 +64,37 @@ const ARRIVAL = [
   [20, 'THE WORMHOLE HAS CLOSED BEHIND US.'],
   [29, 'THOSE ARE STARS. IT KEEPS THEM IN CAGES.'],
   [38, 'AND THAT IS A BLACK HOLE. THE LINES RUN UP INTO IT.'],
+  [47, 'SOMETHING ON THAT LANDING HAS A BEAM ON US. IT WILL LET US LOOK ROUND THE CAGE. NOT LEAVE IT.'],
 ];
+// What the pilot is told on straying past the leash (see leash(), below).
+const LEASH_WARN = 'THE BEAM IS TIGHTENING. TURN BACK TOWARD THE CAGE.';
+
+// The tractor beam from the landing's pad to the ship while it is brought in.
+const BEAM_VERT = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+const BEAM_FRAG = /* glsl */ `
+  varying vec2 vUv;
+  uniform float uTime;
+  uniform float uLen;
+  uniform float uOn;
+  void main() {
+    // brightest along the axis seen from the side: the edges of the tube
+    float side = abs(sin(vUv.x * 3.14159265));
+    float body = 0.25 + 0.75 * pow(1.0 - side, 2.0);
+    // rings of light running down it, toward the pad
+    float run = 0.55 + 0.45 * sin(vUv.y * uLen * 0.012 + uTime * 9.0);
+    // gone before it reaches the ship (uv.y is 1 there), so it never fills the canopy
+    float fromShip = (1.0 - vUv.y) * uLen;
+    float near = smoothstep(60.0, 700.0, fromShip);
+    vec3 col = vec3(0.56, 1.0, 0.82) * body * run * near * uOn * 0.9;
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
 
 // What the pilot is told on the terrace of the City of Light (the owner's
 // words to change: this is a first draft from the story so far).
@@ -157,8 +187,11 @@ export function createFarside(ctx) {
   let sx = 0, sz = 0;
   // ...and the landing stands between that star and the arrival point
   let landX = 0, landZ = 0;
+  let homeX = 0, homeZ = 0; // the landing's star (lattice space): the leash is held from it
   for (let i = 20; i < CAGE_PERIOD; i++) {
     if (cageAt(i, i, _c)) {
+      homeX = _c.x;
+      homeZ = _c.z;
       sx = _c.x + C.FAR_ARRIVE_DX;
       sz = _c.z + C.FAR_ARRIVE_DZ;
       const k = C.FAR_LAND_OUT / Math.hypot(C.FAR_ARRIVE_DX, C.FAR_ARRIVE_DZ);
@@ -341,6 +374,66 @@ export function createFarside(ctx) {
   const near = [];
   for (let i = 0; i < K; i++) near.push({ ix: 0, iz: 0, lx: 0, lz: 0, d2: Infinity });
 
+  // --- the leash ---
+  // Until the Landing has had the helm once, the pilot is free to look round
+  // the caged star it stands beside, and no further: up to half the cage's
+  // height again over its top, and out to half its radius again past its
+  // plate. Coming in from the wormhole the pilot starts far outside that, so
+  // until the zone is reached the bound is how close they have got, plus a
+  // little: flying toward the cage is always allowed, turning away is not.
+  // Past the bound the beam warns, then (after FAR_LEASH_GRACE) pulls.
+  const ZONE_R = C.FAR_CAGE_PAD * C.FAR_LEASH;
+  const ZONE_TOP = CAGE_TOP * C.FAR_LEASH;
+  let best = Infinity; // nearest the pilot has been to the star, horizontally
+  let outT = 0; // seconds past the bound
+  let exploreT = 0; // seconds of free flight on the far side this visit
+  let warned = false;
+  const leashState = { r: 0, h: 0, bound: 0, out: false };
+
+  // --- the tractor beam: pad to ship while the Landing brings it in ---
+  const beamU = { uTime: { value: 0 }, uLen: { value: 1 }, uOn: { value: 0 } };
+  const beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(1, 0.35, 1, 20, 1, true).translate(0, 0.5, 0),
+    new THREE.ShaderMaterial({
+      vertexShader: BEAM_VERT,
+      fragmentShader: BEAM_FRAG,
+      uniforms: beamU,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    })
+  );
+  beam.frustumCulled = false;
+  beam.visible = false;
+  scene.add(beam);
+  setFarFieldExtra(beam);
+  let beamT = -1; // seconds since the Landing took the helm, -1 when it has not
+  const _pad = new THREE.Vector3();
+  const _bd = new THREE.Vector3();
+  const _up = new THREE.Vector3(0, 1, 0);
+  function stepBeam(dt, t) {
+    if (beamT < 0) return;
+    beamT += dt;
+    _pad.copy(landing.pad).applyQuaternion(landing.group.quaternion).add(landing.group.position);
+    _bd.subVectors(ship.position, _pad);
+    const len = _bd.length();
+    // let go once the skids are down (or it has had far longer than any approach takes)
+    if (len < 25 || beamT > C.FAR_AUTOLAND_TIME + 20) {
+      beamT = -1;
+      beam.visible = false;
+      return;
+    }
+    beam.visible = true;
+    beam.position.copy(_pad);
+    beam.quaternion.setFromUnitVectors(_up, _bd.multiplyScalar(1 / len));
+    const w = THREE.MathUtils.clamp(len * 0.0025, 5, 40); // widest at the ship end
+    beam.scale.set(w, len, w);
+    beamU.uTime.value = t;
+    beamU.uLen.value = len;
+    beamU.uOn.value = Math.min(beamT / 0.6, 1);
+  }
+
   // --- the wormhole, closing (this session's arrival only) ---
   const wormU = { uTime: { value: 0 }, uPower: { value: 0 }, uHdr: { value: C.TENRETNI_HDR } };
   const worm = new THREE.Mesh(
@@ -368,6 +461,7 @@ export function createFarside(ctx) {
   let slotT = 0;
   let cellX = NaN, cellZ = NaN;
   let pointCount = 0;
+  let liteCount = 0;
   let alt = C.FAR_ARRIVE_ALT;
   const light = new THREE.Vector3(-0.35, 0.25, -0.9).normalize();
   const _d = new THREE.Vector3();
@@ -450,11 +544,13 @@ export function createFarside(ctx) {
       addNavBody(s.nav);
       setNavHidden(s.star, false);
     }
-    // pass two: every other cage in reach, as a point. Positions are held
-    // from the camera's own cell corner, so fp32 has tens of km to carry and
-    // not the whole world.
+    // pass two: every other cage in reach, as a point, and the nearer of them
+    // as lite cages too. Positions are held from the camera's own cell
+    // corner, so fp32 has tens of km to carry and not the whole world.
     const arr = mega.stars.attr.array;
-    let n = 0;
+    const lite = mega.cage.lite.attr.array;
+    const lr2 = liteRange() * liteRange();
+    let n = 0, nl = 0;
     for (let dz = -REACH; dz <= REACH && n < C.FAR_CAGE_POINTS; dz++) {
       for (let dx = -REACH; dx <= REACH && n < C.FAR_CAGE_POINTS; dx++) {
         if (!cageAt(cx + dx, cz + dz, _c)) continue;
@@ -465,8 +561,17 @@ export function createFarside(ctx) {
         arr[n * 3 + 1] = 0;
         arr[n * 3 + 2] = _c.z - cz * S;
         n++;
+        if (nl < LITE_MAX && (_c.x - lx) * (_c.x - lx) + (_c.z - lz) * (_c.z - lz) < lr2) {
+          lite[nl * 3] = _c.x - cx * S;
+          lite[nl * 3 + 1] = 0;
+          lite[nl * 3 + 2] = _c.z - cz * S;
+          nl++;
+        }
       }
     }
+    mega.cage.lite.attr.needsUpdate = true;
+    mega.cage.lite.set(nl);
+    liteCount = nl;
     pointCount = n;
     mega.stars.attr.needsUpdate = true;
     mega.stars.points.geometry.setDrawRange(0, n);
@@ -508,6 +613,14 @@ export function createFarside(ctx) {
     sp.uniforms.uTime.value = t;
     sp.uniforms.uFade.value = fade;
     sp.uniforms.uLand.value.set(landX - lx, landZ - lz, 2600);
+    // ...and the distant city's blocks on theirs
+    const bl = mega.blocks;
+    bl.mesh.position.set(cam.x, gy, cam.z);
+    bl.uniforms.uTileOff.value.set(wrap(lx, bl.tile), wrap(lz, bl.tile));
+    bl.uniforms.uOffCage.value.copy(gu.uOffCage.value);
+    bl.uniforms.uTime.value = t;
+    bl.uniforms.uFade.value = fade;
+    bl.uniforms.uLand.value.set(landX - lx, landZ - lz, 2600);
 
     // the cages
     if (Math.floor(lx / S) !== cellX || Math.floor(lz / S) !== cellZ || slotT >= RESLOT) {
@@ -542,6 +655,7 @@ export function createFarside(ctx) {
       s.cage.star.visible = s.cage.glow.visible = !era || rite > 0.01;
       if (era) s.cage.glow.material.opacity = 0.22 * rite;
     }
+    mega.cage.lite.star.visible = !era || rite > 0.01;
     mega.cage.starU.uHdr.value = era ? starHdr * rite : starHdr;
     mega.cage.frameU.uCore.value.w = era ? coreW * rite : coreW;
     const kept = mega.kept;
@@ -559,6 +673,8 @@ export function createFarside(ctx) {
     // the stars beyond
     const st = mega.stars;
     st.points.position.set(cam.x + (cellX * S - lx), gy, cam.z + (cellZ * S - lz));
+    mega.cage.lite.group.position.copy(st.points.position);
+    st.uniforms.uLite.value = liteRange();
     st.uniforms.uScale.value = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((camera.fov * Math.PI) / 360);
     st.uniforms.uCamAlt.value = alt;
     st.uniforms.uFade.value = era ? fade * rite : fade;
@@ -606,6 +722,11 @@ export function createFarside(ctx) {
       body.radius = C.FAR_RADIUS;
       placeBody();
       cellX = NaN; // look round again from wherever the reset put the ship
+      // the leash starts over from wherever that is
+      best = Infinity;
+      outT = 0;
+      exploreT = 0;
+      warned = false;
       if (first) {
         // arrived under the white: nothing fades up, the mouth is still open
         fade = 1;
@@ -645,6 +766,7 @@ export function createFarside(ctx) {
         } else if (F.stationed() && d > C.FAR_LAND_HOLD * 1.3) F.station(null);
       }
       landing.update(dt, t, camera.position);
+      stepBeam(dt, t);
       if (sayT >= 0 && flying) {
         sayT += dt;
         for (const [at, text] of ARRIVAL) if (sayLast < at && sayT >= at) showNavToast(text, 7);
@@ -652,6 +774,33 @@ export function createFarside(ctx) {
         if (sayT > ARRIVAL[ARRIVAL.length - 1][0]) sayT = -1;
       }
       place(t);
+    },
+    // The leash (above): asked every physics tick in free flight until the
+    // Landing has had the helm once. True when it is time to pull.
+    leash(dt) {
+      if (!active) return false;
+      const lx = originOffset.x + ship.position.x + sx - homeX;
+      const lz = originOffset.z + ship.position.z + sz - homeZ;
+      const r = Math.hypot(lx, lz);
+      const h = ship.position.y - groundY();
+      best = Math.min(best, r);
+      const bound = Math.max(ZONE_R, best + C.FAR_LEASH_SLACK);
+      const out = r > bound || h > ZONE_TOP;
+      Object.assign(leashState, { r: Math.round(r), h: Math.round(h), bound: Math.round(bound), out });
+      exploreT += dt;
+      if (out) {
+        outT += dt;
+        if (!warned) showNavToast(LEASH_WARN, 4);
+        warned = true;
+      } else {
+        outT = 0;
+        warned = false;
+      }
+      return outT >= C.FAR_LEASH_GRACE || exploreT >= C.FAR_EXPLORE_TIME;
+    },
+    // The Landing has taken the helm: the beam, from its pad to the ship.
+    beam() {
+      beamT = 0;
     },
     // The places that are walked: 'pad' (the landing), 'city' (through its
     // door) and 'ship' (the light ship, boarded from the city's gallery); the
@@ -727,6 +876,8 @@ export function createFarside(ctx) {
         dist: Math.round(s.star.distanceTo(ship.position)),
       })),
       points: pointCount,
+      lite: liteCount,
+      blocks: mega.blocks.count(),
       towers: mega.towers.count(),
       wormhole: worm.visible,
       light: light.toArray(),
@@ -737,6 +888,8 @@ export function createFarside(ctx) {
         riteSaid = false;
       },
       bodyRadius: body.radius,
+      leash: { ...leashState, zoneR: ZONE_R, zoneTop: ZONE_TOP, best: Math.round(best), outT: +outT.toFixed(2), exploreT: +exploreT.toFixed(1) },
+      beam: beam.visible,
     }),
   };
 }

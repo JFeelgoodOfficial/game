@@ -508,7 +508,18 @@ and count `framenavigated`). Then `tenretni.state().ended === 'far'`, the saved
 `navMenu.rows('planets')` is only CAGED STAR.
 
 `tenretni.far().state()` → `{active, fade, altitude, groundY, cell, cages:
-[{cell, abs, dist}], points, towers, wormhole, bodyRadius}`. `tenretni` is a
+[{cell, abs, dist}], points, lite, blocks, towers, wormhole, bodyRadius,
+leash, beam}`. `lite` is how many distant cages are drawn as instanced cages
+(not points); `blocks` the distant city's instance count (tier-dependent).
+The leash (first visit, until the Landing has had the helm): `leash` →
+`{r, h, bound, out, zoneR: 7800, zoneTop: 22500, best, outT, exploreT}`,
+`r`/`h` the ship's horizontal distance from the landing's star (cell 21,21)
+and height over the plane. Put the ship 5 km from that star 9 km up: `out`
+false and no landing. Move it to r 9.5 km (or h 23.5 km): the toast reads
+`THE BEAM IS TIGHTENING…`, and 4 s later `skyState().landState` is `'auto'`
+with `dock: 'landing'` and `beam` true, then `'landed'` with `beam` false.
+From the arrival point, backing ~3 km further from the star than it has been
+pulls the same way; 1.4 km does not. `FAR_EXPLORE_TIME` (240 s) pulls anyway. `tenretni` is a
 snapshot object: read `tenretni.state().loaded`, not `tenretni.loaded`. Checks
 that must hold: `launch()` and `page.reload()` both come back to the far side
 at the arrival point with the fleet in formation and no ending button; a cage's

@@ -16,6 +16,23 @@ uniform vec4 uCore;
 // and daylight of whatever strength there is. Unset (0) everywhere else.
 uniform float uEra;
 uniform float uDayK;
+#ifdef HAZE
+// Standing on the megaworld (world/megaworld.js): the haze the ground is
+// drawn into, on the same curve as megaGround.frag's, so a tower and the
+// plate behind it go grey together.
+uniform vec3 uHaze;
+uniform float uHorizon;
+uniform float uAged;
+uniform vec3 uDayCol;
+vec3 hazed(vec3 col, float dist) {
+  float fr = clamp(dist / uHorizon, 0.0, 1.0);
+  float haze = smoothstep(0.10, 0.92, fr);
+  vec3 hz = uHaze * (0.7 + 1.6 * smoothstep(0.6, 1.0, fr));
+  hz = mix(hz, vec3(0.05, 0.16, 0.36) * (0.5 + 3.0 * smoothstep(0.7, 1.0, fr)), uAged);
+  hz = mix(hz, mix(vec3(0.07, 0.13, 0.22), uDayCol * 0.5, 0.45) * (0.25 + uDayK) * (0.6 + 1.4 * smoothstep(0.6, 1.0, fr)), uEra);
+  return mix(col, hz, haze * 0.94);
+}
+#endif
 
 float hash(vec3 p) {
   p = fract(p * 0.3183099 + 0.1);
@@ -42,9 +59,21 @@ void main() {
   float wh = hash(wc + 3.7);
   float on = step(mix(0.88, 0.992, uEra), wh);
   vec3 wcol = mix(vec3(0.15, 1.0, 0.45), vec3(0.3, 0.75, 1.0), step(0.93, wh));
+#ifdef HAZE
+  // a long way off a window is under a pixel: rather than a shimmer of on and
+  // off, the wall glows with what its windows add up to
+  float wpx = length(fwidth(vPos * uWin));
+  float wk = 1.0 - smoothstep(0.6, 1.6, wpx);
+  lit += wcol * on * uHdr * (0.6 + 0.4 * sin(uTime * 1.3 + wh * 50.0)) * wk;
+  lit += vec3(0.17, 0.97, 0.47) * (1.0 - wk) * mix(0.035, 0.003, uEra) * uHdr;
+#else
   lit += wcol * on * uHdr * (0.6 + 0.4 * sin(uTime * 1.3 + wh * 50.0));
+#endif
   // roofs glow: the tops of the towers carry the brightest light
   lit += vec3(0.2, 1.0, 0.55) * smoothstep(0.93, 1.0, vUp) * uHdr * 0.4 * step(0.55, plate) * (1.0 - uEra);
 
+#ifdef HAZE
+  lit = hazed(lit, length(vView));
+#endif
   gl_FragColor = vec4(lit, 1.0);
 }
