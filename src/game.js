@@ -155,6 +155,7 @@ import {
   playTrackAt,
   isMusicPlaying,
   trackTitles,
+  musicArea,
 } from './music.js';
 import { initRadioPopup, openRadioPopup, closeRadioPopup, isRadioPopupOpen } from './radioPopup.js';
 import { initVehicleMenu, toggleVehicleMenu, closeVehicleMenu } from './vehicleMenu.js';
@@ -782,6 +783,7 @@ if (import.meta.env.DEV) {
       playTrackAt,
       isMusicPlaying,
       trackTitles,
+      area: musicArea,
     },
     navState,
     tenretni: tenretniDebug(),

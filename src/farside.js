@@ -71,15 +71,16 @@ const ARRIVAL = [
 const GREETING = {
   speaker: { name: 'The Keeper', species: 'Tenretni', cityId: 'The City of Light' },
   lines: [
-    'You carried it through. Every world we took is in the room behind your seat, and now it is here.',
-    'What you flew over is the works. This is what the works are for.',
-    'The hole above us holds more time than any star holds light. We draw a little of it up, and we spend it here.',
-    'We took your worlds to learn them. We did not know another way to keep a thing.',
-    'You came to see where it all went. We counted on that. We are not certain it was fair.',
-    'Stand on the balcony as long as you like. The door stays open.',
+    'Pilot. I am the Keeper. This is the City of Light, and you are safe in it. So are the fleets.',
+    'First, what you most want to know. Nobody on your worlds is dead. We took every world whole and we keep every one of them: each person, asleep, exactly as they were.',
+    'We found those worlds in your navigation log. You did not give it to us. We took that too.',
+    'We keep things because we were made to. We have never learned how to give one back. We think you can teach us, and we will ask you to try.',
+    'The one who will ask is the Archivist. It is waiting in your suite: cross the bridge to the Pavilion, east of here, and take the lift.',
+    'Your captains are in the Pavilion. They are angry. They are right to be.',
   ],
 };
 
+const FAR_UP = new THREE.Vector3(0, 1, 0); // the megaworld is flat: up is up
 const wrap = (v, p) => ((v % p) + p) % p;
 
 // ctx: { scene, camera, sunWorld — tenretni's live unit vector toward the
@@ -616,6 +617,7 @@ export function createFarside(ctx) {
       place(performance.now() / 1000);
     },
     update(dt, t, flying) {
+      ship.levelUp = active ? FAR_UP : null;
       if (!active) return;
       fade = Math.min(fade + dt / C.FAR_FADE_IN, 1);
       slotT += dt;
@@ -691,6 +693,7 @@ export function createFarside(ctx) {
       epi: city ? city.info().epi : null,
       districts: city ? city.info().districts : null,
       race: city ? city.info().race : null,
+      taken: city ? city.info().taken : 0,
       life: city ? city.info().life : null,
       raceSet: city ? city.info().raceSet : null,
       raceProbe: city ? city.info().raceProbe : null,

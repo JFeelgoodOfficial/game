@@ -20,6 +20,8 @@ export const input = {
                  // W is full thrust (see ship.js), so nothing in the cockpit
                  // reads this.
   brake: false, // Space — jump on foot (nothing in flight: the throttle is the only way to slow)
+  rollLeft: false, // [ held, or the dash's left roll paddle — bank left
+  rollRight: false, // ] held, or the right paddle
   warp: false, // F (or the on-screen WARP button) — thrust x100, stops dead on release
   lookUp: false, // V, held — glance up through the overhead window
   toggleWalk: false, // G edge-trigger: disembark onto a planet / board. main.js reads and zeroes it.
@@ -153,6 +155,9 @@ function setKey(e, down) {
     case 'KeyF':
     case 'KeyJ': input.warp = down; break;
     case 'KeyV': input.lookUp = down; break;
+    // roll: the two paddles either side of the CODEX disc (Q, E, Z and C are all taken)
+    case 'BracketLeft': input.rollLeft = down; break;
+    case 'BracketRight': input.rollRight = down; break;
     // G and C are edge-triggered on keydown only; main.js consumes and zeroes them.
     case 'KeyG': if (down) input.toggleWalk = true; break; // disembark onto a planet
     case 'KeyC': if (down) input.toggleInterior = true; break; // stand up in the ship

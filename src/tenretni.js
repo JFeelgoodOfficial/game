@@ -52,8 +52,11 @@ import { Q } from './quality.js';
 import { questStage, setQuestStage, addCodex } from './journal.js';
 import { setPlanetDrain, setPlanetShip, setPlanetScale, setPlanetMelt, removePlanet, planets } from './planet.js';
 import { createAssimilator } from './assimilate.js';
-import { createFleets } from './fleets.js';
-import { createExplosions } from './explosion.js';
+import * as fleetsMod from './fleets.js';
+import * as explosionMod from './explosion.js';
+import * as fleetWords from '../world/fleet-dialogue.js';
+import { adoptFleets, fleetsGone, fleetLost as lost } from './fleetHost.js';
+import { CAPTAINS, VOICE } from '../world/fleet-dialogue.js';
 import { createEndgame } from './endgame.js';
 import { createFarside } from './farside.js';
 import { createChapter } from './chapter.js';
@@ -157,7 +160,6 @@ let starSaved = null; // the new star's absolute position (saved)
 // The war (src/fleets.js): begins with the worldship's first meal.
 let fleets = null;
 let explosions = null;
-const lost = new Set(); // ships destroyed by gunfire (saved); siege losses follow from `eaten`
 const comms = {}; // faction -> true once its captain has opened a channel (saved)
 const _siege = { name: null, k: 0 };
 const waterDone = () => Object.keys(WATER_WORLDS).every((k) => eaten.includes(k));
@@ -461,6 +463,7 @@ function loadSaved() {
     if (raw?.at && LABELS[raw.at]) at = raw.at;
     if (Array.isArray(raw?.eaten)) eaten = raw.eaten.filter((n) => !!LABELS[n]);
     if (raw?.end === 'gone' || raw?.end === 'star' || raw?.end === 'far') ended = raw.end;
+    if (ended === 'gone') fleetsGone(); // (no war to come back to)
     if (Array.isArray(raw?.star) && raw.star.length === 3 && raw.star.every(Number.isFinite)) starSaved = raw.star;
     if (raw?.calling && !ended) ended = 'star'; // the call was made: it finished
     if (Array.isArray(raw?.lost)) for (const id of raw.lost) if (typeof id === 'string') lost.add(id);
@@ -755,44 +758,44 @@ const STORY = {
       const left = Object.keys(WATER_WORLDS).filter((k) => !eaten.includes(k));
       return { speaker, cine: cineOnce(`warden:ate:${eaten.length}`), lines: left.length
         ? [
-          `${WATER_WORLDS[eaten[eaten.length - 1]]} is part of this world now. We are larger. The count is correct.`,
+          `${WATER_WORLDS[eaten[eaten.length - 1]]} is part of this world now. Nothing on it was destroyed. Everything on it is kept. Everyone.`,
           `One world with water remains in your log: ${WATER_WORLDS[left[0]]}. The navigation deck is open to you.`,
           // the war has started by now: say where the pilot's next errand is
-          'The other worlds have launched their fleets. Iron, song and commerce. Their captains will want a word with you.',
+          'The three worlds that were fighting each other have stopped. Their fleets are watching us instead. Their captains will want a word with you.',
         ]
         : [
           'Two oceans. Both ours. This world has air again, and a shield over its heart.',
-          'You have been useful, pilot. Tenretni does not forget what is useful: your vessel has a new room. Starboard side of your gallery.',
-          'It holds what we hold. Every world we take in will be there for you to walk. The first is the ice world you gave us.',
-          'We no longer need a heading. The count continues without you.',
+          'You have been useful, pilot. Your vessel has a new room, on the starboard side of your gallery.',
+          'It shows what we keep. Every world we take in is there for you to walk, whole, with everyone on it. The first is the ice world you led us to.',
+          'We no longer need a heading from you. We have your whole log. We will go to every world in it.',
         ] };
     }
     if (role === 'warden') {
       if (at !== 'terra') {
         return { speaker, cine: cineOnce(`warden:at:${at}`), lines: [
-          `${hereName()}. Water confirmed. The count is correct.`,
-          'We hold here. What happens next is not yours to choose.',
-          'The navigation deck remains open to you. There is one other world with water in your log.',
+          `${hereName()}. It has water. We are taking it in now: its sea, its ground, its people. All of it will be kept.`,
+          'You cannot stop this. You can watch.',
+          'There is one other world with water in your log. When this is done, go to the navigation deck and send us there.',
         ] };
       }
       return { speaker, cine: cineOnce('warden:intro'), lines: [
-        'Pilot. Your vessel was read on approach. Its navigation log has been copied. All of it.',
-        'This world has been recompiled. Its core is the engine. It moves now.',
-        'It does not move without a heading. The heading is yours to give. That is the arrangement.',
-        'We require a planet with water. Your log holds two. Go to the navigation deck and choose.',
+        'Pilot. We are Tenretni. We keep things. We took this world apart to keep it, and everyone who lived on it is kept with it.',
+        'We read your ship as it came in. We copied your navigation log: every world you have ever visited.',
+        'This world is our ship now. Its core is the engine. It needs a heading, and we have decided you will give it.',
+        'We need a planet with water. Your log has two. Go to the navigation deck, east of here, and choose one.',
       ] };
     }
     if (role === 'navigator') {
       return { speaker, lines: at === 'terra'
-        ? ['The chart is yours. We drew it from your log.', 'Two worlds with water. Use the console.']
+        ? ['This chart is drawn from your log. Without you we would not have known where to go.', 'Two worlds have water. Choose one at the console.']
         : [`Arrived: ${hereName()}.`, 'The console will still take a heading.'] };
     }
-    if (role === 'sentry') return { speaker, lines: ['You are expected. Walk.'] };
+    if (role === 'sentry') return { speaker, lines: ['You are expected. The Warden is on the dais, straight ahead.'] };
     if (role === 'operator') return { speaker, lines: ['Core output nominal.', 'Do not touch the consoles. Not these.'] };
     const counts = [
       'Four hundred and twelve trillion, nine hundred billion, six. Seven. Eight.',
-      'One ocean. Removed. Next.',
-      'Tenretni counts. Tenretni is never wrong. Tenretni counts.',
+      'One ocean. Kept. Next.',
+      'We count what we keep. We have never lost one. We do not know how to stop.',
     ];
     return { speaker, lines: [counts[i % counts.length]] };
   },
@@ -923,7 +926,7 @@ function ateOne(name, k1) {
   if (!fleets && !ended) {
     startWar();
     hailT = 3; // a captain calls once the pilot is back at the helm (stepHail)
-    showNavToast('THE OTHER WORLDS HAVE SEEN IT. FLEETS ARE LAUNCHING.', 8);
+    showNavToast('THE THREE FLEETS HAVE TURNED TO FACE THE WORLDSHIP.', 8);
   }
   if (PROGRAMS.some((p) => p.id === name) && hasUpgrade('holodeck')) {
     showViewToast(`HOLODECK — NEW PROGRAM: ${LABELS[name].toUpperCase()}`, 7);
@@ -940,23 +943,23 @@ function thank() {
 
 function startWar() {
   if (fleets || ended === 'gone' || !eaten.length) return;
-  explosions = createExplosions(scene);
-  fleets = createFleets({
-    scene,
-    find: worldByName,
-    explode: (pos, scale) => {
-      explosions.fire(pos, scale);
-      // close enough to feel it
+  // The hulls are the fleet host's (src/fleetHost.js): they have been out
+  // there fighting each other since the game began. From here their sieges,
+  // their losses and what their captains say are this story's.
+  const h = adoptFleets({
+    story: FLEET_STORY,
+    onLost: () => save(),
+    // close enough to feel it
+    kick: (pos) => {
       if (pos.distanceToSquared(camera.position) < 9e6) fx.kick = Math.max(fx.kick, 0.5);
     },
-    lost,
-    onLost: (id) => {
-      lost.add(id);
-      save();
-    },
-    story: FLEET_STORY,
     sunDir: sunWorld,
-  });
+    // where a flagship goes when its world has been taken: off the worldship
+    refuge: () => (ended ? null : terra),
+  }, [fleetsMod, explosionMod, fleetWords]);
+  if (!h) return;
+  fleets = h.fleets;
+  explosions = h.explosions;
   endgame = createEndgame({
     scene, camera, terra, fx, setRumble,
     extra: coin ? [coin] : [],
@@ -1022,6 +1025,13 @@ let arriveT = 0; // seconds flown on the far side this visit
 // ...and everything after the suite (src/chapter.js, GDD 5.7.4), saved with it
 const chapter = createChapter({ onSave: () => save() });
 export const chapterDebug = () => chapter;
+// What the CODEX needs to say where the story is on the far side (src/codexData.js).
+export const storyState = () => ({
+  ended, met, landed: farLanded,
+  ch: chapter.state(), settling: chapter.settling(), offer: chapter.ezOpen(),
+  picks: chapter.count(), ready: chapter.ready(),
+  carried: chapter.carried().map((c) => c.frag.label), side: chapter.side(),
+});
 
 // Build the megaworld (hidden, weightless until applied). Once.
 function loadFar() {
@@ -1034,6 +1044,8 @@ function loadFar() {
       onMet: () => {
         if (met) return;
         met = true;
+        addCodex('The Kept');
+        addCodex('The Three Captains');
         save();
         addCodex('The City of Light');
       },
@@ -1126,46 +1138,6 @@ const fallbackStar = () => [terra.group.position.x, terra.group.position.y, terr
 
 // What the fleets' people say. A captain will open a comm channel if asked;
 // with all three open the pilot can call them together (the ending).
-const CAPTAINS = {
-  rustia: { title: 'Shift-Captain', names: ['Orrin Vask', 'Dela Roon', 'Haim Kett'] },
-  saturnia: { title: 'Cantor', names: ['Ilse Marrow', 'Teo Vandry', 'Suvi Aln'] },
-  'wavemall prime': { title: 'Floor Manager', names: ['Brandi Lux', 'Chad Meridian', 'Tawny Voss'] },
-};
-const VOICE = {
-  rustia: {
-    hello: [
-      'You are the pilot off that freighter. Wipe your boots. This deck was a smelter floor before it was a warship.',
-      'We watched that thing drink two oceans. Rustia has no ocean, and it is coming anyway.',
-      'Three fleets, three peoples who do not like each other much. Nobody has got us all in one place.',
-    ],
-    ask: 'Open a channel to this ship?',
-    yes: ['Done. One word from you and every furnace I have is pointed where you say.', 'Get the other two. Then get close to it, and call.'],
-    open: ['Channel is open. We are listening for you. Do not waste it.'],
-    crew: ['Seam pressure is holding. Mostly.', 'My brother went down the Emberdeep and came up a gunner. Strange days.'],
-  },
-  saturnia: {
-    hello: [
-      'Be welcome. You have come a long way through a great deal of noise.',
-      'We have sung over every world it has taken. We are tired of that song.',
-      'Our lances are true but they are few. It would take all of us, at once, at its heart.',
-    ],
-    ask: 'Ask for a channel to this ship?',
-    yes: ['It is given. When you call, the halos will answer.', 'Go to the iron people, and to the bright ones. Then stand before it and call.'],
-    open: ['We hold the channel open and we hold you in mind.'],
-    crew: ['The rings ring true today.', 'I have never fired in anger. I am practising the anger.'],
-  },
-  'wavemall prime': {
-    hello: [
-      'Hi! Welcome aboard the fleet, are you finding everything okay?',
-      'So that planet thing is technically a competitor now. Corporate has approved a response.',
-      'We cannot coordinate with the other fleets without a customer-side point of contact. That could be you!',
-    ],
-    ask: 'Sign up for a direct channel?',
-    yes: ['Amazing. You are all signed up. Call us any time and the whole fleet attends, no purchase necessary.', 'Get the other two on board and we will see you at the event.'],
-    open: ['Your channel is active! Is there anything else I can help you with today?'],
-    crew: ['Clean up on deck nine. It is always deck nine.', 'These lights were for the sales floor. Now they are targeting. Same lights.'],
-  },
-};
 const captainOf = (ship) => {
   const c = CAPTAINS[ship.faction];
   const i = Number(ship.id.slice(-1)) % c.names.length;
@@ -1189,10 +1161,10 @@ function hailPayload() {
     speaker: captainOf(lead),
     cine: { kind: 'comm', from: lead.name.toUpperCase() },
     lines: [
-      'Freighter pilot. This is a warship of the fleet. We saw what that world did, and we saw you on its deck.',
-      `Three fleets are up: ours, ${others[0]} and ${others[1]}. Three peoples, and nobody we all trust to speak for us.`,
-      'Come aboard one ship of each fleet and ask its captain for a channel. Your chart has us under FLEETS.',
-      'When you hold all three, stand in front of that thing and call. We will come.',
+      `Freighter pilot. This is ${captainOf(lead).name}, flagship ${lead.name}. We saw what that world did, and we saw you on its deck.`,
+      `Yesterday Rustia, ${others[0]} and ${others[1]} were at war with each other. Today we have stopped, and nobody trusts anybody enough to give the order to fight that thing together.`,
+      'You are none of ours. So it will be you. Board the three flagships, one of each fleet, and ask each captain for a channel: Vask on Emberwright, Marrow on Halo of Morning, Lux on Saturday Forever. Your chart has us under FLEETS.',
+      'When you hold all three channels, fly up to that thing and call. All three fleets will come at once.',
     ],
   };
 }
@@ -1226,7 +1198,7 @@ function markFleetObjectives() {
   for (const b of getBodies()) {
     if (b.kind !== 'ship') continue;
     const s = fleets.ships.find((x) => x.id === b.id);
-    b.objective = !!(live && s && s.alive && s.kind === 'warship' && !comms[s.faction]);
+    b.objective = !!(live && s && s.alive && s.lead && !comms[s.faction]);
   }
 }
 
@@ -1235,6 +1207,10 @@ const FLEET_STORY = {
     const v = VOICE[ship.faction];
     const speaker = captainOf(ship);
     if (ended) return { speaker, lines: ['It is over.'] };
+    // Tenretni has come and the war has stopped, but nobody has called yet
+    if (questStage(FLEETS_QUEST) === undefined) {
+      return { speaker, lines: v.truce.slice() };
+    }
     if (comms[ship.faction]) {
       const n = Object.keys(VOICE).filter((f) => comms[f]).length;
       return { speaker, lines: [...v.open, n >= 3 ? 'All three fleets are on your word. Go and stand in front of it.' : `${n} of three fleets are with you.`] };
@@ -1277,6 +1253,7 @@ const FLEET_STORY = {
   },
   onHit(id) {
     if (fleets.destroy(id)) showViewToast('TARGET DESTROYED. THAT WAS ONE OF OURS.', 6);
+    else if (fleets.ships.find((x) => x.id === id && x.lead)) showViewToast('THE LANCE WILL NOT FIRE ON A FLAGSHIP.', 5);
   },
 };
 const _targets = [];
@@ -1358,7 +1335,7 @@ function stepExit(delta) {
 // The worldship is out of this system for good.
 function gone() {
   ended = 'gone';
-  if (fleets) fleets.clear();
+  fleetsGone();
   removePlanet(terra, true);
   setNavHidden(terra.group.position, true);
   wormU.uPower.value = 0.65;

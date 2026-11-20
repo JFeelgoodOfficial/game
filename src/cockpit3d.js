@@ -55,6 +55,8 @@ let lever, leverArm, leverGlowMat; // the throttle: its base group, the swinging
 let leverDrag = null; // { id, y, oy } — a pointer holding the throttle
 let leverShown = 0; // eased handle position, -1..1
 let buttons = [];
+let rollBtns = []; // the two slender roll paddles either side of the CODEX disc: { group, mat, flag }
+const rollHeld = new Map(); // pointer id -> paddle
 let codexBtn = null, codexFaceMat = null, codexRingMat = null; // the centre disc (CODEX)
 let codexFlash = 0;
 const flashByCode = new Map(); // KeyG/etc -> button, for keyboard flashes
@@ -182,6 +184,28 @@ function buildConsole() {
   hit.position.y = 0.09 * k;
   codexBtn.add(hit);
   g.add(codexBtn);
+
+  // Roll: one slender paddle either side of the disc, held to bank. Like the
+  // disc they are not row buttons and stay out of `buttons` ([ and ] on a
+  // keyboard). Roll went with the old dash; over the megaworld's flat horizon
+  // a ship left banked had no way to come level again.
+  rollBtns = [-1, 1].map((side) => {
+    const grp = new THREE.Group();
+    grp.position.set(side * (0.45 * k + 0.17), 0.74, -0.25);
+    const mat = new THREE.SpriteMaterial({ map: paddleTexture(side), transparent: true, depthTest: false, opacity: 0.6 });
+    const face = new THREE.Sprite(mat);
+    face.scale.set(0.17 * k, 0.4 * k, 1);
+    face.position.y = 0.11 * k;
+    grp.add(face);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(0.14 * k, 0.04, 0.3), dark);
+    grp.add(base);
+    const h = new THREE.Sprite(new THREE.SpriteMaterial({ visible: false, depthTest: false }));
+    h.scale.set(0.24 * k, 0.46 * k, 1);
+    h.position.y = 0.11 * k;
+    grp.add(h);
+    g.add(grp);
+    return { group: grp, mat, flag: side < 0 ? 'rollLeft' : 'rollRight', name: side < 0 ? 'ROLL L' : 'ROLL R' };
+  });
   // The additive emitter cone that used to rise from the projector is gone —
   // it was pure haze over the dash. The hologram it projects still glows.
 
@@ -335,6 +359,39 @@ function keyGlyph(key) {
 // into a single camera-facing sprite (like label()) so it stays crisp and
 // readable at the dash's steep viewing angle — a 3D torus would foreshorten
 // into an unreadable arc. Returns the sprite; caller positions it.
+// A roll paddle's face: a tall rounded slip with a curled arrow, the way it
+// banks. `side`: -1 left, 1 right.
+function paddleTexture(side) {
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 150;
+  const g = c.getContext('2d');
+  const col = '#' + CYAN.toString(16).padStart(6, '0');
+  g.fillStyle = 'rgba(6,11,17,0.82)';
+  g.strokeStyle = col;
+  g.lineWidth = 5;
+  g.beginPath();
+  g.roundRect(5, 5, 54, 140, 22);
+  g.fill();
+  g.stroke();
+  g.strokeStyle = g.fillStyle = '#dff4f8';
+  g.lineWidth = 6;
+  g.lineCap = 'round';
+  g.translate(32, 78);
+  g.scale(side, 1);
+  // an arc over the top, and the head at its far end pointing down
+  g.beginPath();
+  g.arc(0, 0, 17, Math.PI * 1.05, Math.PI * 1.95);
+  g.stroke();
+  g.beginPath();
+  g.moveTo(17, 14); g.lineTo(6, -4); g.lineTo(27, -6);
+  g.closePath();
+  g.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.anisotropy = 4;
+  return tex;
+}
+
 function keycap(keyText, color, icon) {
   const c = document.createElement('canvas');
   c.width = 128;
@@ -716,6 +773,16 @@ function beginAt(id, cx, cy, type) {
     return true;
   }
 
+  // the roll paddles beside it: held, like the lever
+  for (const r of rollBtns) {
+    if (!raycaster.intersectObject(r.group, true).length) continue;
+    rollHeld.set(id, r);
+    input[r.flag] = true;
+    uiSound('toggle');
+    lastConsumed = true;
+    return true;
+  }
+
   // throttle: grab it and hold it off-centre. `oy` is where it was grabbed.
   if (raycaster.intersectObject(lever, true).length) {
     leverDrag = { id, y: cy, oy: cy };
@@ -774,6 +841,11 @@ function moveAt(id, cx, cy) {
 }
 
 function endAt(id) {
+  const rp = rollHeld.get(id);
+  if (rp) {
+    rollHeld.delete(id);
+    input[rp.flag] = false;
+  }
   if (leverDrag && id === leverDrag.id) dropLever();
   if (wheelDrag && id === wheelDrag.id) wheelDrag = null;
   const b = pointerButtons.get(id);
@@ -977,6 +1049,8 @@ export function updateCockpit3d(ship, delta, phase) {
     codexRingMat.color.set(GOLD).multiplyScalar(0.4 + on * 0.45);
   }
 
+  for (const r of rollBtns) r.mat.opacity += ((input[r.flag] ? 1 : 0.55) - r.mat.opacity) * Math.min(dt * 10, 1);
+
   // button lit state: held buttons track their input flag, NAV tracks the
   // hologram, everything else only flashes on press
   for (let i = 0; i < buttons.length; i++) {
@@ -1013,6 +1087,7 @@ export function cockpitDebug() {
     },
     wheelRot: () => (wheel ? wheel.rotation.z : 0),
     pressCodex, // the centre disc
+    rollNames: () => rollBtns.map((r) => r.name),
     codexLit: () => (codexFaceMat ? codexFaceMat.opacity : null),
     // the throttle: what it is set to, whether a pointer holds it, where the
     // handle is drawn; setLever(v) holds it at v as a finger would (null lets go)
@@ -1026,7 +1101,7 @@ export function cockpitDebug() {
     // verification
     screenPos(name) {
       const b =
-        name === 'CODEX' ? codexBtn : name === 'LEVER' ? leverArm.children[2] : name === 'WHEEL' ? wheel : buttons.find((x) => x.userData.def.name === name);
+        name === 'CODEX' ? codexBtn : name === 'ROLL L' || name === 'ROLL R' ? rollBtns.find((r) => r.name === name)?.group : name === 'LEVER' ? leverArm.children[2] : name === 'WHEEL' ? wheel : buttons.find((x) => x.userData.def.name === name);
       if (!b || !dom) return null;
       const v = b.getWorldPosition(new THREE.Vector3()).project(camera);
       const r = dom.getBoundingClientRect();

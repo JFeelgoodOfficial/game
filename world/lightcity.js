@@ -37,6 +37,7 @@ import { DEMO } from './chapter-dialogue.js';
 import { chapterHud } from '../src/chapterHud.js';
 import { loadFirstEntry, worldFrom } from './firstcreature.js';
 import { createEntryOffer } from './entryoffer.js';
+import { buildHoloProp } from './holoprops.js';
 import { OFFER, LAUNCH } from './entryzero-dialogue.js';
 import { ERA } from '../src/era.js';
 import { createEraCity } from './eracity.js';
@@ -893,6 +894,30 @@ export function createLightCity(ctx) {
   // districts and its racing are not built, or are put out of use if they were.
   let grown = null; // world/eracity.js
   let eraSaid = false;
+  // What the pilot carried out of the archive (the five picks on the light
+  // ship), made real: once the ship is home each stands out round the terrace
+  // at the size of the place, so what was chosen is what the city has.
+  // [angle round the terrace, distance, height, size] by the kind of thing.
+  let taken = null;
+  const TAKEN_AT = { sky: [520, 300, 90], light: [560, 240, 60], ground: [520, -90, 130], structures: [400, -30, 70], life: [300, 40, 42] };
+  const TAKEN_A = [1.0, 0.82, 1.18, 0.66, 1.34];
+  const buildTaken = (ch) => ch.carried().map((c, i) => {
+    const [d, y, sc] = TAKEN_AT[c.layer];
+    const a = TAKEN_A[i % TAKEN_A.length] * Math.PI;
+    const m = buildHoloProp(c.world, c.layer, c.frag, c.layers, { world: true, scale: sc });
+    m.group.position.set(Math.cos(a) * d, y, TERR_Z + Math.sin(a) * d);
+    m.group.scale.setScalar(sc);
+    m.group.rotation.y = Math.atan2(-Math.cos(a), -Math.sin(a));
+    group.add(m.group);
+    return m;
+  });
+  // a race flown to the end: it went through the thing the pilot drew, too
+  const raceDone = () => {
+    const ch = ctx.chapter;
+    if (!ch) return;
+    ch.markRaced();
+    ch.markSite('monument');
+  };
   const eraNow = () => !!ctx.chapter && ctx.chapter.reached('ez_era');
   const retire = (from) => {
     for (let i = from; i < consoles.length; i++) {
@@ -1008,10 +1033,18 @@ export function createLightCity(ctx) {
         if (!race && ch.epilogue() && !eraNow()) {
           try {
             const n0 = consoles.length;
-            race = createWorldRace({ group, camera: ctx.camera, colliders, consoles, way: epi ? epi.way : null, towers: city.parts.slice(0, 2), hit: epi ? epi.hit : null });
+            race = createWorldRace({ group, camera: ctx.camera, colliders, consoles, way: epi ? epi.way : null, towers: city.parts.slice(0, 2), hit: epi ? epi.hit : null, onFinish: raceDone, chapter: ctx.chapter });
             retire(n0);
           } catch (err) {
             console.warn('[lightcity] the race could not be built', err);
+          }
+        }
+        if (!taken && ch.home()) {
+          try {
+            taken = buildTaken(ch);
+          } catch (err) {
+            console.warn('[lightcity] what was carried could not be built', err);
+            taken = [];
           }
         }
         if (epi) epi.stop(); // (puts the light ship where the story has it)
@@ -1083,11 +1116,18 @@ export function createLightCity(ctx) {
       if (!race && ctx.chapter && ctx.chapter.epilogue() && epi && !epi.held() && !eraNow()) {
         try {
           const n0 = consoles.length;
-          race = createWorldRace({ group, camera: ctx.camera, colliders, consoles, way: epi ? epi.way : null, towers: city.parts.slice(0, 2), hit: epi ? epi.hit : null });
+          race = createWorldRace({ group, camera: ctx.camera, colliders, consoles, way: epi ? epi.way : null, towers: city.parts.slice(0, 2), hit: epi ? epi.hit : null, onFinish: raceDone, chapter: ctx.chapter });
           retire(n0);
         } catch (err) {
           console.warn('[lightcity] the race could not be built', err);
           race = { held: () => false, running: () => false, camera: () => false, onChoice: () => undefined, tick() {}, stop() {}, quitPrompt: () => null, state: () => null };
+        }
+      }
+      if (taken) {
+        const on = !eraNow(); // (a million years on they are long gone back into the ground)
+        for (const m of taken) {
+          m.group.visible = on;
+          if (on) m.tick(t);
         }
       }
       if (race) race.tick(dt, t);
@@ -1112,7 +1152,7 @@ export function createLightCity(ctx) {
       terrace: [0, 0, TERR_Z + 8], greeter: [0, 0, GREET.z + 2.6], gallery: [GALL_X, 0, TERR_Z],
       ...pavilion.places,
     },
-    info: () => ({ life: life ? life.state() : null, towers: city.towers, cells: hangar.cells, demo: demo ? demo.state() : null, districts: districts ? districts.state() : null, race: race ? race.state() : null, raceSet: race ? race.debugSet : null, raceProbe: race ? race.debugProbe : null, epi: epi ? epi.state() : null, offer: offer ? offer.state() : null, era: ERA.value, grown: grown ? grown.state() : null, corner: hangar.corner(), ship: hangar.vessel.visible }),
+    info: () => ({ taken: taken ? taken.length : 0, life: life ? life.state() : null, towers: city.towers, cells: hangar.cells, demo: demo ? demo.state() : null, districts: districts ? districts.state() : null, race: race ? race.state() : null, raceSet: race ? race.debugSet : null, raceProbe: race ? race.debugProbe : null, epi: epi ? epi.state() : null, offer: offer ? offer.state() : null, era: ERA.value, grown: grown ? grown.state() : null, corner: hangar.corner(), ship: hangar.vessel.visible }),
   };
   return site;
 }

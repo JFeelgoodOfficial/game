@@ -20,6 +20,10 @@ import * as THREE from 'three';
 import { addNavBody, setNavHidden } from './nav.js';
 import { shipClasses, buildShip, buildDeck } from '../world/warships.js';
 import { buildRig, poseRig } from '../world/aliens.js';
+import { buildCaptain, liveCaptain } from '../world/captainDress.js';
+
+// who commands each flagship (world/captainDress.js): the same three figures the City of Light has
+const FLAG_CAPTAIN = { rustia: 'vask', saturnia: 'marrow', 'wavemall prime': 'lux' };
 
 const FACTIONS = ['rustia', 'saturnia', 'wavemall prime'];
 const NAV_COLOR = { rustia: '#ff8a4a', saturnia: '#fff0c0', 'wavemall prime': '#ff5fc4' };
@@ -48,11 +52,12 @@ void main() {
 }`;
 const FIGHT_FRAG = `
 varying float vA;
+uniform vec3 uTint; // whose fighters these are: Tenretni's green, or another fleet's colour
 void main() {
   vec2 q = gl_PointCoord * 2.0 - 1.0;
   float d = dot(q, q);
   if (d > 1.0) discard;
-  gl_FragColor = vec4(vec3(0.25, 1.0, 0.5) * exp(-d * 3.0) * vA * 1.3, 1.0);
+  gl_FragColor = vec4(uTint * exp(-d * 3.0) * vA * 1.3, 1.0);
 }`;
 // tracers: each segment is alive for a slice of a repeating second
 const TRACE_VERT = `
@@ -120,12 +125,15 @@ export function createFleets(ctx) {
   const add = (ship) => {
     ship.group = buildShip(ship.cls, mats[ship.faction].lit, mats[ship.faction].glow);
     ship.group.visible = false;
-    ship.alive = !ctx.lost.has(ship.id);
+    // a flagship is never lost: it is where its fleet's captain is, and the
+    // story needs all three of them to the end
+    ship.alive = ship.lead || !ctx.lost.has(ship.id);
     ship.fight = null;
     ship.label = `${classes[ship.faction].label} · ${ship.name.toUpperCase()}`;
     ctx.scene.add(ship.group);
     ships.push(ship);
-    if (ship.alive) {
+    // only the three flagships are on the chart: they are the ones to board
+    if (ship.alive && ship.lead) {
       addNavBody({
         id: ship.id, label: ship.label, pos: ship.group.position, dot: 3,
         radius: ship.cls.radius, logDist: ship.cls.radius * 2.4, color: NAV_COLOR[ship.faction], kind: 'ship',
@@ -137,7 +145,7 @@ export function createFleets(ctx) {
     const c = classes[f];
     for (let i = 0; i < 3; i++) {
       add({
-        id: `${f}:w${i}`, name: c.names[i], faction: f, kind: 'warship', cls: c.warship,
+        id: `${f}:w${i}`, name: c.names[i], faction: f, kind: 'warship', cls: c.warship, lead: i === 0, fi,
         orbit: { k: 2.0 + i * 0.55, rate: 0.012 - i * 0.002, phase: (i / 3) * 6.283 + fi, incl: (i - 1) * 0.35 },
       });
     }
@@ -164,10 +172,10 @@ export function createFleets(ctx) {
     const pg = new THREE.BufferGeometry();
     pg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     pg.setAttribute('aSeed', new THREE.BufferAttribute(seed, 4));
-    const uTime = { value: 0 };
+    const uTime = { value: 0 }, tint = new THREE.Color(0.25, 1.0, 0.5);
     const pts = new THREE.Points(pg, new THREE.ShaderMaterial({
       vertexShader: FIGHT_VERT, fragmentShader: FIGHT_FRAG,
-      uniforms: { uTime, uR: { value: R } },
+      uniforms: { uTime, uR: { value: R }, uTint: { value: tint } },
       transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
     }));
     pts.frustumCulled = false;
@@ -193,7 +201,7 @@ export function createFleets(ctx) {
     lines.frustumCulled = false;
     g.add(lines);
     ship.group.add(g);
-    ship.fight = { group: g, uTime };
+    ship.fight = { group: g, uTime, tint };
   }
 
   let held = null; // id of the ship the pilot is docked on or walking: it cannot be lost
@@ -222,7 +230,19 @@ export function createFleets(ctx) {
   let lastT = 0;
 
   // one of the crew: an alien rig (world/aliens.js) standing at its post
-  const people = (seed) => {
+  const people = (seed, captain) => {
+    if (captain) {
+      // a flagship's captain, as themselves: dressed, with a face
+      const rig = buildCaptain(captain);
+      return {
+        group: rig.group,
+        lift: rig.groundOffset ?? rig.params.groundOffset ?? 0,
+        update(dt, t) {
+          poseRig(rig, dt, t, 'idle', 0);
+          liveCaptain(rig, dt, t, false, 0);
+        },
+      };
+    }
     const rig = buildRig(seed, 'fleet');
     return {
       group: rig.group,
@@ -233,7 +253,35 @@ export function createFleets(ctx) {
     };
   };
 
-  function lose(ship, boom = true) {
+  // Before Tenretni the three worlds are at war with each other: every warship
+  // is out at one place between them, flying passes through the others. `k`
+  // 1 at war .. 0 home on its guard orbit (it eases: they break off and go home
+  // when the thing comes through). Nothing is lost in it; it is staged.
+  const war = { on: false, k: 0, center: new THREE.Vector3(), boomT: 3 };
+  const GREEN = new THREE.Color(0.25, 1.0, 0.5);
+  const _w = new THREE.Vector3();
+  function warCenter() {
+    war.center.set(0, 0, 0);
+    let n = 0;
+    for (const f of FACTIONS) {
+      const p = ctx.find(f);
+      if (!p || p.removed) continue;
+      war.center.add(p.group.position);
+      n++;
+    }
+    if (!n) return false;
+    war.center.divideScalar(n);
+    // not in the sun: stand off it, on the side the middle already leans to
+    if (ctx.avoid) {
+      _w.subVectors(war.center, ctx.avoid.pos);
+      if (_w.lengthSq() < 1) _w.set(1, 0.2, 0);
+      if (_w.length() < ctx.avoid.r) war.center.copy(ctx.avoid.pos).addScaledVector(_w.normalize(), ctx.avoid.r);
+    }
+    return true;
+  }
+
+  function lose(ship, boom = true, force = false) {
+    if (ship.lead && !force) return;
     if (!ship.alive || ship.id === held) return;
     ship.alive = false;
     ship.group.visible = false;
@@ -265,6 +313,9 @@ export function createFleets(ctx) {
     let slot = 0;
     const dt = Math.min(Math.max(t - lastT, 0), 0.1);
     lastT = t;
+    // (the war eases in and out here, on the same clock the poses use)
+    war.k += ((war.on ? 1 : 0) - war.k) * (1 - Math.exp(-dt / (war.on ? 2 : 9)));
+    const warOk = war.k > 0.001 && warCenter();
     if (follow.on && station.on) {
       let n = 0;
       for (const s of ships) if (s.alive) n++;
@@ -347,15 +398,36 @@ export function createFleets(ctx) {
         continue;
       }
       if (s.kind === 'warship') {
-        const p = ctx.find(s.faction);
-        if (!p || p.removed) continue; // update() loses it
+        let p = ctx.find(s.faction);
         const o = s.orbit;
-        const R = (p.baseRadius ?? p.radius) * o.k + 300;
-        const a = o.phase + t * o.rate;
+        let R, rate = o.rate;
+        if (!p || p.removed) {
+          // its world is gone. An escort goes with it (update() loses it); a
+          // flagship stands off the thing that took it, and waits for the call.
+          p = s.lead && ctx.refuge ? ctx.refuge() : null;
+          if (!p) continue;
+          R = (p.baseRadius ?? p.radius) * 3.2 + 1800 + s.fi * 500;
+          rate = 0.004;
+        } else R = (p.baseRadius ?? p.radius) * o.k + 300;
+        const a = o.phase + t * rate;
         const ci = Math.cos(o.incl), si = Math.sin(o.incl);
         _a.set(Math.cos(a) * R, Math.sin(a) * R * si, Math.sin(a) * R * ci);
         _d.set(-Math.sin(a), Math.cos(a) * si, Math.cos(a) * ci); // along the orbit
         s.group.position.copy(p.group.position).add(_a);
+        if (war.k > 0.001 && warOk) {
+          // out at the fight: a wide pass round the middle, each ship on its
+          // own tilted ring, the three fleets turning opposite ways through it
+          const i = Number(s.id.slice(-1));
+          const turn = s.fi % 2 ? -1 : 1;
+          const wr = 1500 + i * 900 + s.fi * 260;
+          const wa = s.fi * 2.1 + i * 1.3 + t * turn * (0.05 - i * 0.008);
+          const tilt = (s.fi - 1) * 0.5 + (i - 1) * 0.22;
+          const ct = Math.cos(tilt), st = Math.sin(tilt);
+          _b.set(Math.cos(wa) * wr, Math.sin(wa) * wr * st, Math.sin(wa) * wr * ct).add(war.center);
+          const kk = ease(war.k);
+          s.group.position.lerp(_b, kk);
+          if (kk > 0.5) _d.set(-Math.sin(wa) * turn, Math.cos(wa) * st * turn, Math.cos(wa) * ct * turn);
+        }
         aim(s);
         if (muster.on) {
           // called in: from the orbit to a place on the ring, bow to the centre
@@ -401,6 +473,12 @@ export function createFleets(ctx) {
         mats.saturnia.glow.color.setScalar(1.15 + cheer * 1.6 * (0.5 + 0.5 * Math.sin(t * 7 + 2)));
         mats['wavemall prime'].glow.color.multiplyScalar(1 + cheer * (0.5 + 0.5 * Math.sin(t * 11 + 4)));
       }
+      // the war's own fireworks: something goes up out there every few seconds
+      if (war.k > 0.9 && (war.boomT -= dt) <= 0) {
+        war.boomT = 2.5 + r() * 4;
+        _w.set(r() - 0.5, (r() - 0.5) * 0.5, r() - 0.5).multiplyScalar(5200).add(war.center);
+        ctx.explode(_w, 60 + r() * 90);
+      }
       for (const s of ships) {
         if (!s.alive) continue;
         if (s.site && s.id === held) s.site.update(dt, t);
@@ -408,19 +486,25 @@ export function createFleets(ctx) {
         if (s.kind === 'warship') {
           const p = ctx.find(s.faction);
           if (!p || p.removed) {
-            lose(s);
+            lose(s); // (not a flagship: see place())
+            if (s.fight) s.fight.group.visible = false;
             continue;
           }
-          // the siege takes them one at a time
+          // the siege takes the escorts one at a time; and before any of
+          // that, the three fleets are at each other
           const mine = !!siege && siege.name === s.faction;
-          if (mine && !s.fight) buildFight(s);
+          const atWar = war.k > 0.5;
+          if ((mine || atWar) && !s.fight) buildFight(s);
           if (s.fight) {
             // not round the ship the pilot is standing on: tracers start
             // inside the hull and strobe across the deck
-            s.fight.group.visible = mine && s.id !== held;
+            s.fight.group.visible = (mine || atWar) && s.id !== held;
             s.fight.uTime.value = t;
+            // whose fighters are round it: Tenretni's, or the next fleet's
+            if (mine) s.fight.tint.copy(GREEN);
+            else s.fight.tint.set(NAV_COLOR[FACTIONS[(s.fi + 1) % 3]]);
           }
-          if (mine && siege.k > (Number(s.id.slice(-1)) + 1) / 3.6) {
+          if (mine && !s.lead && siege.k > Number(s.id.slice(-1)) / 2.6) {
             lose(s);
             ctx.onLost(s.id);
           }
@@ -432,14 +516,23 @@ export function createFleets(ctx) {
     },
     // The walkable deck of a ship (world/warships.js), built on first boarding.
     site(ship) {
-      if (!ship.site) ship.site = buildDeck(ship, mats[ship.faction], people, ctx.story, ctx.sunDir);
+      if (!ship.site) {
+        // (the first figure buildDeck stands is the captain: world/warships.js)
+        let first = true;
+        const crew = (seed) => {
+          const cap = first && ship.lead ? FLAG_CAPTAIN[ship.faction] : null;
+          first = false;
+          return people(seed, cap);
+        };
+        ship.site = buildDeck(ship, mats[ship.faction], crew, ctx.story, ctx.sunDir);
+      }
       return ship.site;
     },
     // The nearest ship that is still there, for docking.
     nearest(pos) {
       let best = null, bd = Infinity;
       for (const s of ships) {
-        if (!s.alive || !s.group.visible) continue;
+        if (!s.alive || !s.group.visible || !s.lead) continue; // only a flagship takes a visitor
         const d = s.group.position.distanceToSquared(pos);
         if (d < bd) {
           bd = d;
@@ -505,16 +598,25 @@ export function createFleets(ctx) {
     // Destroy one by id (the guns). Returns true if it was alive.
     destroy(id) {
       const s = ships.find((x) => x.id === id);
-      if (!s || !s.alive) return false;
+      if (!s || !s.alive || s.lead) return false;
       lose(s);
       ctx.onLost(id);
       return true;
     },
     // Everything goes (the worldship has left, or the system has ended).
     clear() {
-      for (const s of ships) lose(s, false);
+      for (const s of ships) lose(s, false, true);
+    },
+    // At war with each other (before Tenretni), or not.
+    war(on) {
+      war.on = !!on;
+    },
+    warState: () => ({ on: war.on, k: war.k, center: war.center.toArray().map(Math.round) }),
+    // The saved losses were read after the ships were built (src/fleetHost.js).
+    syncLost() {
+      for (const s of ships) if (!s.lead && s.alive && ctx.lost.has(s.id)) lose(s, false);
     },
     alive: (faction, kind = 'warship') => ships.filter((s) => s.alive && s.kind === kind && (!faction || s.faction === faction)),
-    state: () => ships.map((s) => ({ id: s.id, alive: s.alive, kind: s.kind, pos: s.group.position.toArray().map(Math.round) })),
+    state: () => ships.map((s) => ({ id: s.id, alive: s.alive, kind: s.kind, lead: !!s.lead, pos: s.group.position.toArray().map(Math.round) })),
   };
 }

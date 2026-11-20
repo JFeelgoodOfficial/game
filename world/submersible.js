@@ -34,6 +34,7 @@
 //
 // One clock for what is said on arrival; everything else is where the hull is.
 
+import { setMusicArea } from '../src/music.js';
 import * as THREE from 'three';
 import { C, CH_TIER, EZ_LIGHT } from '../src/constants.js';
 import { Q } from '../src/quality.js';
@@ -883,6 +884,8 @@ export function createSubmersible(ctx) {
       if (chapter.stage() === 'ez_ascent') startEmerge();
     },
     onLeave() {
+      setMusicArea(1); // the radio comes back with the daylight
+
       if (!inside) return;
       inside = false;
       group.visible = false;
@@ -907,6 +910,8 @@ export function createSubmersible(ctx) {
       prev = null;
     },
     tick(dt, t) {
+      if (inside) setMusicArea(0); // no radio inside the megaworld: only what is down here
+
       chapterHud.tick(dt);
       time.value = t;
       const d = Math.min(dt, 0.1);

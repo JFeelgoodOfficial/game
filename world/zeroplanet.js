@@ -252,7 +252,7 @@ export function createCentre(k) {
           wasSolid = false; // (nothing went: it was shown)
           k.cine(false);
           if (k.chapter.advance('ez_reveal')) addCodex(REVEAL.codex);
-          k.speak(REVEAL.after, 8);
+          k.speak(k.chapter && k.chapter.revealAfter ? k.chapter.revealAfter(REVEAL.after) : REVEAL.after, 9);
         }
         return null;
       }

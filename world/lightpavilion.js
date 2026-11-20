@@ -42,40 +42,54 @@ const CAPTAINS = [
   {
     id: 'vask', name: 'Shift-Captain Orrin Vask', species: 'Rustia', seed: 0x51a, at: [-9, -8], face: 0.9,
     lines: [
-      'They gave every hand a room with a window. Thirty years below decks, and I have a window.',
-      'I asked what it costs. The tall one said it had not thought of that.',
-      'I will sleep with my boots on a while yet. But I will sleep.',
+      'They offered every hand a room with a window. I told them where to put the window.',
+      'Every world on the chart. I have the list, and every name on it, under the two hundred and six from the Last Seam. Asleep, they say. Kept. I call that taken.',
+      'I will not help them. But I will go wherever you go, pilot, and I will be watching them the whole way. Somebody has to count what this costs.',
     ],
   },
   {
     id: 'marrow', name: 'Cantor Ilse Marrow', species: 'Saturnia', seed: 0x7c3, at: [9, -8], face: -0.9,
     lines: [
-      'We rang every bell when we were shown our halls. The sound carries differently here. Further.',
-      'Our world is gone and we are housed. I do not yet know what to call that.',
-      'Go up and see yours, pilot. They say it looks out on everything.',
+      'Vask wants to fight them. With what? We are fifteen ships over a machine the size of the sky.',
+      'They say our people are asleep, not dead, and that they do not know how to wake them. I have listened to them say it. I believe them.',
+      'If there is one way to get anyone back, it goes through whatever they ask of you. Go up and hear it, pilot. Then decide. I will stand with what you choose.',
     ],
   },
   {
     id: 'lux', name: 'Floor Manager Brandi Lux', species: 'Wavemall Prime', seed: 0x2e9, at: [0, 10], face: Math.PI,
     lines: [
-      'Pilot! They comped the WHOLE fleet. Suites. Skyline views. No checkout time.',
-      'I asked for the catch. There is always a catch. The concierge just looked at me.',
-      'Yours is the tall one. Take the lift. Tell me if the minibar is real.',
+      'They comped the whole fleet. Suites. Skyline views. No checkout time. I said yes before I thought about it.',
+      'Then I thought about it. Everyone I ever sold anything to is in a box somewhere under this floor, and I am up here with a minibar.',
+      'I am scared, pilot. I took the room because I am scared. Go up and hear what they want. If it gets my people back, I will carry your bags.',
     ],
   },
 ];
 const STEWARD = {
   speaker: { name: 'The Steward', species: 'Tenretni', cityId: 'The City of Light' },
   lines: [
-    'Every ship’s company has been given rooms. There are more rooms than people. There always were.',
-    'Yours is at the top of the tower behind me. Its walls are glass, all the way round.',
-    'You wanted to see everything. We thought you should be able to.',
-    'The lift is here. It goes up when it is asked.',
+    'I am the Steward. Every ship’s company has been given rooms. One of your captains has refused his. It is kept for him.',
+    'Your suite is at the top of the tower behind me. The Archivist is waiting for you there.',
+    'The lift is beside me. Stand on it and press E.',
   ],
 };
 
 // `k`: the city's kit { group, lit, glow, glass, surfaces, colliders, rail(ax, az, bx, bz),
 //      npcs, consoles, glowMat, chapter — src/chapter.js, or none }. Returns { tick(dt, t, walker), rooms, floors, setWalker(p) }.
+// A night, as the eye has it: the dark comes over, holds, and lifts.
+let sleepEl = null;
+function sleepFade() {
+  if (!sleepEl) {
+    sleepEl = document.createElement('div');
+    sleepEl.id = 'suiteSleep';
+    sleepEl.style.cssText = 'position:fixed;inset:0;background:#02030a;opacity:0;pointer-events:none;z-index:22;transition:opacity 1.3s ease;display:flex;align-items:center;justify-content:center;color:#cfe6ff;font:600 15px/1.5 "Courier New",monospace;letter-spacing:0.18em;text-align:center';
+    document.body.appendChild(sleepEl);
+  }
+  sleepEl.textContent = 'YOU SLEEP.';
+  sleepEl.style.opacity = '1';
+  setTimeout(() => (sleepEl.textContent = 'MORNING, BY THE CITY\'S CLOCK.'), 2600);
+  setTimeout(() => (sleepEl.style.opacity = '0'), 4600);
+}
+
 export function buildPavilion(k) {
   const { lit, glow, glass, surfaces, colliders, rail, npcs, consoles } = k;
   const P = PAV, S = SUITE;
@@ -145,7 +159,7 @@ export function buildPavilion(k) {
     const solid = { x, z, r: 0.7, top: Infinity };
     colliders.push(solid);
     capSolids.push(solid);
-    npcs.push({ x, y: 0, z, role: 'captain', table: true, talk: () => ({ speaker: { name: c.name, species: c.species, cityId: 'The Pavilion' }, lines: c.lines }) });
+    npcs.push({ x, y: 0, z, role: 'captain', table: true, talk: () => (k.chapter ? k.chapter.captainTalk(c, c.lines) : { speaker: { name: c.name, species: c.species, cityId: 'The Pavilion' }, lines: c.lines }) });
   }
   // --- the steward, by the lift ---
   const LIFT = { x: P.x + P.r - 7, z: P.z }; // the Pavilion's east side
@@ -209,6 +223,17 @@ export function buildPavilion(k) {
   at(4.2, 0.2, 2.6, -9.1, 1.36, 0.2, COL.blue, 0.5);
   solid(-8.8, -0.2, 2.6);
   solid(-7.4, -3.0, 2.2);
+  // ...and it can be slept in: a night in the suite is one of the things the
+  // Archivist waits for (src/chapter.js). The dark comes down and lifts again.
+  consoles.push({
+    x: S.x - 5.6, y: S.y, z: S.z - 0.4, r: 3.0, prompt: 'E — SLEEP',
+    off: () => !!(k.chapter && k.chapter.reached('ez_era')),
+    use() {
+      sleepFade();
+      if (k.chapter) k.chapter.markSlept();
+      return null;
+    },
+  });
   // a curved seat looking at the heart of the city, and a low table
   for (let i = -1; i <= 1; i++) {
     const a = -Math.PI / 2 + i * 0.42 + 0.5;
