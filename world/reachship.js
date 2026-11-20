@@ -1265,6 +1265,35 @@ export function createReachShip(planet, def) {
 
   // After the charge (world/shatter.js): the hull is cut loose from the sea
   // and handed to the debris field, dark. No pad, no riser, no swell.
+  // The Crown Seal (src/crownErrand.js): Madame Ossva kept it on the bridge,
+  // over the captain's chair, and the blast did not mark it. It is its own
+  // mesh because wreck() puts out the merged glow, and its own small light so
+  // the bridge windows show where it is from across the dark deck.
+  const relic = new THREE.Group();
+  {
+    const gold = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.7, 1.2, 0.36) });
+    const core = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.3, 2.0, 1.1) });
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.08, 32), gold);
+    disc.rotation.x = Math.PI / 2;
+    const boss = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 12), core);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.035, 8, 40), gold);
+    relic.add(disc, boss, rim);
+  }
+  relic.position.set(0, H.T3 + 1.7, -28.6);
+  relic.visible = false;
+  hull.add(relic);
+  const relicLight = new THREE.PointLight(0xffd27a, 0, 26, 1.6);
+  relicLight.position.copy(relic.position);
+  relicLight.visible = false;
+  hull.add(relicLight);
+  function setRelicVisible(v) {
+    const on = !!v && wrecked;
+    if (relic.visible === on) return;
+    relic.visible = on;
+    relicLight.visible = on;
+    relicLight.intensity = on ? 14 : 0;
+  }
+
   let wrecked = false;
   function wreck(parent) {
     if (wrecked) return;
@@ -1464,7 +1493,7 @@ export function createReachShip(planet, def) {
   });
 
   const ship = {
-    tube, wreck,
+    tube, wreck, relic, setRelicVisible, rooms: ROOMS,
     get wrecked() { return wrecked; },
     anchor, hull, sea, structure, surfaces, walls, pose,
     update, poseAt, padPose, asCity, groundLocalYAt, walkFloorYAt, homes,

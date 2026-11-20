@@ -362,6 +362,35 @@ swell inside it (`reachShip.pose` → `{heave, pitch, roll}`).
 - After touching src/shaders/{surface,water,cloud}.frag re-run the Sky City
   steps and walk a Terra town: all planets share those shaders.
 
+## The Crown errand (GDD 5.7.6)
+
+Stage is `journal().quests['terra-errand']`; `__debug.errand(stage)` sets it,
+`errand()` reads it (saved: seed `fgsf.journal` / `fgsf.inventory` before load
+rather than leaving a stage behind). Cargo ids `crownFurniture`, `raceCar`,
+`crownSeal`; the chosen suite piece is `inventory().decor`.
+
+- **Terra.** `walkSite().city.homeTower` is the pilot's tower (`topY` 66,
+  `bedSpot`, `propIds()` for what stands in the suite; `city.elevator.propIds()`
+  for Axilo's penthouse). Stand at `bedSpot` on the suite floor: prompt
+  `E — SLEEP`. `walkSite().sleep()` then `walkStep(200)`; `sleepState().sunDot`
+  rises to about 0.25. Axilo is `city.homes.find(h => h.penthouse).anchor`;
+  stand 2 in front of him along `face`.
+- **WaveMall.** Maribel is `interiorCrowds[0].citizens[0]` (floor-0 frame);
+  `walkSite().mallPicks.spots` lists the six pieces `{id, level, x, y, z}` in
+  their floor's frame. Prompts `E — TAKE THE …` only at stage `pick` with no
+  piece owned.
+- **Sky City.** `walkSite().sky.cantor.spot` is the High Cantor. At stage
+  `race` the booth prompt reads `E — RACE VEX HALCYON`; to force a win set
+  `race.cars[0].done = true; finishT = 1` with the others not done, `walkStep(5)`.
+- **The wreck** (needs `reachBlow()` or a `blown` save): `wreckApproach()` →
+  `skyState().landState` `'auto'` then `'landed'`; `wreckDock()` skips the
+  flight; `wreckStepOut()`; `wreckState()` → `{inside, lampOn, lampI, sunI,
+  ambI, relic, held, q}`. `q` must not change while `held`. `walkSite().capital
+  .places` has `pad`, `stairs`, `bridge`. The walked route is flight deck →
+  side ramp (x 17) → main deck → outboard stair (x 20, z -54 to -27) → tier-2
+  walkway aft to z -54 → stair up (x 16) → round the rail's end at z -32 →
+  aft door (x 0, z -34). Press `l` for the lamp.
+
 ## Tenretni (the governor's secret)
 `__debug.tenretni` → `{loaded, load(), arrive(), start(), seek(u), state()}`.
 The chunk only loads when `journal().quests.tenretni` is `armed` or `done`:

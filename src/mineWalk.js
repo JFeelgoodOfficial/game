@@ -27,6 +27,7 @@
 // menu tearing the whole walk down while we are underground — isolate.js has
 // already restored the renderer for flight, so only the scene state is undone.
 
+import { secretHeld, emberdeepOpen, emberdeepJustOpened } from './crownErrand.js';
 import * as THREE from 'three';
 import { C } from './constants.js';
 import { input, moveAxes } from './input.js';
@@ -611,7 +612,7 @@ export function emberDelivery(def, speaker, fillLine) {
 export const SECRET_QUEST = 'tenretni';
 export function secretOffer(def) {
   const sec = def?.mine?.secret;
-  if (!sec || !hasUpgrade('patio')) return null;
+  if (!sec || !hasUpgrade('patio') || secretHeld()) return null;
   const st = questStage(SECRET_QUEST);
   if (st !== undefined && st !== 'declined') return null;
   return {
@@ -637,7 +638,9 @@ export function secretOutcome(def, speaker, yes) {
 export function emberAside(def, fillLine) {
   const m = def?.mine;
   if (!m) return [];
-  return [fillLine(hasUpgrade('patio') ? m.after : m.hint)];
+  if (hasUpgrade('patio')) return [fillLine(m.after)];
+  if (!emberdeepOpen()) return [fillLine(m.sealed)];
+  return emberdeepJustOpened() ? [fillLine(m.reopened), fillLine(m.hint)] : [fillLine(m.hint)];
 }
 
 // dev/verification handle (__debug.walkSite().mine)

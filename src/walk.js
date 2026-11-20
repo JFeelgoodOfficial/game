@@ -40,7 +40,9 @@ import { nearestCity, wonderLocalDir, citiesForWorld } from '../world/cityRegist
 import { createCreatures } from '../world/creatures.js';
 import { createWarzone, WARZONE_WORLDS } from '../world/warzone.js';
 import { createWavemallPrime, createCrowd as createWavemallCrowd } from '../world/wavemallprime.js';
-import { HEADS as WAVEMALL_HEADS } from '../world/wavemall-dialogue.js';
+import { HEADS as WAVEMALL_HEADS, CROWN_ERRAND as MALL_ERRAND } from '../world/wavemall-dialogue.js';
+import { createMallPicks } from '../world/mallPicks.js';
+import { DECOR, ownedDecor } from './inventory.js';
 import { createWyattmattoe } from '../world/wyattmattoe.js';
 import { createActuality, ACTUALITY_SITE } from '../world/actuality.js';
 import { settings } from './settings.js';
@@ -91,6 +93,8 @@ export { enterCoinWalk, coinActive, coinBeginLeave, coinLeft } from './coinWalk.
 // The Emberdeep under rustia's town (src/mineWalk.js): a flat walker NESTED in
 // the planet walk — you ride a cage down and come back up to the same spot.
 import * as mineWalk from './mineWalk.js';
+import * as errand from './crownErrand.js';
+import { fadeTo } from './fade.js';
 import { createMineHead } from '../world/minehead.js';
 
 const LOOK_SENS = 0.0022; // radians of look per pixel of mouse travel
@@ -226,6 +230,7 @@ let surfaceMaterials = null;
 // Interior occupants (wavemall prime only): one small crowd per store lobby.
 // Each rides its wing's district-local frame.
 let interiorCrowds = []; // [{ module, groupParent }]
+let mallPicks = null; // the six pieces set out for the Crown errand (world/mallPicks.js)
 // Wave Mall's transfer chain — the "Your Call is Important to Us" quest.
 // stage 0..8 = the level currently holding your call (8 = Feluzia's win).
 // One shared object handed to every wavemall crowd so the department heads
@@ -268,7 +273,13 @@ function setObjective(target) {
 export function walkObjective() {
   // Nothing is asked of you in the cottage — a quest line left over from the
   // last town would be exactly the wrong thing to read there.
-  if (cottageWalk.cottageActive() || skyWalk.skyActive() || capitalWalk.capitalActive() || coinWalk.coinActive() || sub) return null;
+  if (cottageWalk.cottageActive() || coinWalk.coinActive() || sub) return null;
+  // The flat walkers (the Sky City, decks and the wreck) have no tour of their
+  // own, but the Crown errand passes through them.
+  if (skyWalk.skyActive() || capitalWalk.capitalActive()) {
+    const o = errand.errandObjective();
+    return o ? `OBJECTIVE — ${o.toUpperCase()}` : null;
+  }
   return objectiveText;
 }
 const TALK_DIST_CROWD = 2.6; // ~ aliens talkTriggerDist
@@ -659,6 +670,7 @@ function spawnWorldEntities(planet) {
           materials: surfaceMaterials, employeeRatio: 0.35,
           deptName: f.dept.name, deptAccent: f.dept.accent,
           level: f.level, chainState: wavemallChain,
+          headStory: f.level === 0 ? maribelStory : null,
         }
       );
       f.group.add(m.group);
@@ -666,6 +678,15 @@ function spawnWorldEntities(planet) {
       m.hostInvQuat = f.invQuat;
       interiorCrowds.push(m);
     }
+    mallPicks = createMallPicks(wavemall.floors, {
+      open: errand.canPickDecor,
+      take: (id) => {
+        if (!errand.pickDecor(id)) return false;
+        setObjective(errand.errandObjective());
+        return true;
+      },
+    });
+    setObjective(errand.errandObjective());
     return;
   }
 
@@ -770,10 +791,13 @@ function spawnWorldEntities(planet) {
         padLocal: cityDef.pad,
         citizens: cityDef.citizens,
         metro: cityDef.metro,
+        homeTower: cityDef.homeTower, // the pilot's own tower (terra)
+        onSleep: beginSleep,
         quality: settings.quality,
         materials: surfaceMaterials, // shared PBR registry — city NEVER disposes it
       });
     city.def = cityDef;
+    syncSuiteProps();
     if (!city.persistent) planet.surface.add(city.group);
     _cityInvQuat.copy(city.group.quaternion).invert();
 
@@ -886,6 +910,11 @@ function spawnWorldEntities(planet) {
       if (tourStage < cityDef.wonders.length) armTourBeacon(tourStage);
       else armReturnBeacon();
     }
+    // A second errand already accepted here (the Reach's charge) is the thing
+    // to be reminded of when no tour beacon is.
+    if (!objectiveText && cityDef.charge && questStage(CHARGE_QUEST) === 'go') {
+      setObjective(cityDef.charge.objective);
+    }
 
     // The town is under siege: first-person combat over the whole city. The
     // civilians stay put in their homes; the quests above keep working.
@@ -899,7 +928,10 @@ function spawnWorldEntities(planet) {
     // of the cover as well as the houses; it joins city.structures the same
     // way the cover does, so walls, deck and ballistics all just work.
     if (cityDef.mine) {
-      mineHead = createMineHead(city, { onDescend: descendMine, seed: cityDef.seed ^ 0x3b3a11 });
+      mineHead = createMineHead(city, {
+        onDescend: descendMine, seed: cityDef.seed ^ 0x3b3a11,
+        locked: () => !errand.emberdeepOpen(), cityId: cityDef.id,
+      });
       city.group.add(mineHead.group);
       city.structures.push(mineHead.structure);
     }
@@ -939,6 +971,9 @@ function spawnWorldEntities(planet) {
   creatures.group.position.copy(_localUp).multiplyScalar(creatR);
   planet.surface.add(creatures.group);
   _creatInvQuat.copy(creatures.group.quaternion).invert();
+
+  // Nothing local asking for attention: show what the Crown errand wants next.
+  if (!objectiveText) setObjective(errand.errandObjective());
 }
 
 // Board the ship: lift back to disembark altitude, nose pointed away from the
@@ -948,6 +983,7 @@ export function exitWalk(camera) {
   // The cottage's exit is a phase transition (white flash -> resetToStart), so
   // game.js owns it. Here we only tear the world down.
   if (cottageWalk.cottageActive()) return cottageWalk.exitCottageWalk();
+  if (sleepT >= 0) { sleepT = -1; fadeTo(0, 0); }
   if (capitalWalk.capitalActive()) return capitalWalk.exitCapitalWalk();
   if (skyWalk.skyActive()) return skyWalk.exitSkyWalk();
   if (coinWalk.coinActive()) return coinWalk.exitCoinWalk(camera);
@@ -1019,6 +1055,7 @@ export function exitWalk(camera) {
     citizens.dispose();
     citizens = null;
   }
+  if (mallPicks) { mallPicks.dispose(); mallPicks = null; }
   for (const m of interiorCrowds) {
     m.group.parent?.remove(m.group); // wavemall level frame
     m.dispose();
@@ -1119,6 +1156,8 @@ export function stepWalk(dt) {
   // physics step, so the rising floor and the walker stay in exact lockstep
   // (city.update only handles visuals: neon, motes, traffic).
   if (city?.elevator) city.elevator.step(dt);
+  if (city?.homeTower) city.homeTower.step(dt);
+  stepSleep(dt);
 
   // Co-rotate with the planet's spin so the ground doesn't slide underfoot —
   // you turn with the planet's day, the way standing on a world works. The
@@ -1147,7 +1186,7 @@ export function stepWalk(dt) {
 
   // --- mouse look ---
   // A cinematic talk (cineTalk.js) has the camera: no looking about.
-  if (cineHeld()) input.mouseX = input.mouseY = 0;
+  if (cineHeld() || sleepT >= 0) input.mouseX = input.mouseY = 0;
   wzLookDX += input.mouseX;
   wzLookDY += input.mouseY;
   // Aiming down sights slows the look, the way a magnified sight picture does.
@@ -1223,7 +1262,7 @@ export function stepWalk(dt) {
   // --- planar movement: velocity approaches the wish direction ---
   _right.crossVectors(walk.heading, _up).normalize();
   const axes = moveAxes(); // WASD, or the analog touch stick when it's pushed
-  if (cineHeld()) axes.fwd = axes.strafe = axes.mag = 0; // stood still, being spoken to
+  if (cineHeld() || sleepT >= 0) axes.fwd = axes.strafe = axes.mag = 0; // stood still, being spoken to (or asleep)
   const fwd = axes.fwd;
   const strafe = axes.strafe;
   const moveMag = axes.mag; // scales speed, so a half-pushed stick walks
@@ -1895,6 +1934,7 @@ export function updateWalkVisuals(dt, t) {
     // Citizens and the elevator buttons share the city's flat local frame.
     playerLocalInto(city.group, _cityInvQuat, _playerLocal);
     if (city.elevator) scanModule(city.elevator, 2.6);
+    if (city.homeTower && sleepT < 0) scanModule(city.homeTower, 2.6);
     if (mineHead) {
       mineHead.update(t);
       scanModule(mineHead.module, 1.9); // inside the cage
@@ -1944,6 +1984,13 @@ export function updateWalkVisuals(dt, t) {
     for (const m of interiorCrowds) {
       m.update(dt, playerLocalInto(m.hostGroup, m.hostInvQuat, _playerLocal), sunDot);
       scanModule(m, TALK_DIST_CROWD);
+    }
+    if (mallPicks) {
+      mallPicks.update(t);
+      for (const m of mallPicks.modules) {
+        playerLocalInto(m.hostGroup, m.hostInvQuat, _playerLocal);
+        scanModule(m, 3.4);
+      }
     }
   }
   if (actuality) {
@@ -2172,6 +2219,85 @@ function advanceTour() {
   // st === n means the tower-door return beacon — the governor takes it from here.
 }
 
+// Maribel's part in the Crown errand (wavemallprime.js `headStory`): the
+// welcome and the chair, the reminder while the pilot browses, then the race
+// car once a piece is chosen. Null when the story has no business with her.
+function maribelStory() {
+  const st = errand.errandStage();
+  if (st === 'mall') {
+    errand.mallTourDone();
+    setObjective(errand.errandObjective());
+    return { only: true, cine: true, lines: MALL_ERRAND.welcome };
+  }
+  if (st === 'pick') {
+    if (!errand.mallCarReady()) return { only: true, lines: MALL_ERRAND.remind };
+    const item = DECOR[ownedDecor()[0]]?.name ?? 'piece';
+    errand.mallCarGiven();
+    setObjective(errand.errandObjective());
+    return { only: true, cine: true, lines: MALL_ERRAND.car.map((l) => l.replace('{{item}}', item)) };
+  }
+  if (st === 'car') return { lines: [MALL_ERRAND.after] };
+  if (errand.isAlly(errand.ALLY_WAVEMALL)) return { lines: [MALL_ERRAND.ally] };
+  return null;
+}
+
+// What stands in the two penthouses follows the story (crownErrand.js).
+function syncSuiteProps() {
+  const ids = errand.suiteProps();
+  city?.elevator?.setProps?.(ids);
+  city?.homeTower?.setProps?.(ids);
+}
+
+// ---------------------------------------------------------------------------
+// The bed in the pilot's suite (world/city.js home tower, 'E — SLEEP'): a cut
+// to black, the sun brought round to the next morning, and back. The ground is
+// frozen while you walk and planet.js swings the SUN instead (spinPhase feeds
+// sunDrift), so the night passes by adding to spinPhase; it is re-derived from
+// the real rotation on lift-off, so nothing of this survives into flight.
+// ---------------------------------------------------------------------------
+const SLEEP_DARK = 1.0, SLEEP_WAKE = 1.6, SLEEP_END = 3.0;
+let sleepT = -1;
+const _sleepSun = new THREE.Vector3();
+function beginSleep() {
+  if (sleepT >= 0 || !walk.active || !walk.planet) return false;
+  closeDialogue();
+  walk.vel.set(0, 0, 0);
+  sleepT = 0;
+  fadeTo(1, SLEEP_DARK * 0.9);
+  return true;
+}
+// The smallest turn of the day that puts the sun low in the morning sky here.
+function morningTurn(planet) {
+  const base = planet.sunBase ?? SUN;
+  const drift = planet.sunDrift || 0;
+  const N = 144, at = (i) => {
+    _sleepSun.copy(base).applyAxisAngle(_yAxisV, -(drift + (i / N) * Math.PI * 2));
+    return _up.dot(_sleepSun);
+  };
+  let best = 0, bestDot = -Infinity;
+  for (let i = 1; i <= N; i++) {
+    const d0 = at(i - 1), d1 = at(i);
+    if (d1 > d0 && d0 < 0.22 && d1 >= 0.22) return (i / N) * Math.PI * 2; // rising through morning
+    if (d1 > bestDot) { bestDot = d1; best = i; }
+  }
+  return (best / N) * Math.PI * 2; // polar site: no sunrise, take the brightest hour
+}
+function stepSleep(dt) {
+  if (sleepT < 0) return;
+  const before = sleepT;
+  sleepT += dt;
+  if (before < SLEEP_WAKE && sleepT >= SLEEP_WAKE) {
+    const planet = walk.planet;
+    planet.spinPhase = (planet.spinPhase || 0) + morningTurn(planet);
+    const moved = errand.slept();
+    fadeTo(0, SLEEP_END - SLEEP_WAKE);
+    showViewToast(`MORNING — ${(city?.def?.name ?? 'HOME').toUpperCase()}`, 5);
+    if (moved || !objectiveText) setObjective(errand.errandObjective());
+  }
+  if (sleepT >= SLEEP_END) sleepT = -1;
+}
+export const walkSleep = () => beginSleep(); // dev/verification (__debug.sleep)
+
 // Governor dialogue (world/citizens.js setGovernorHandler): offer, reminder,
 // completion + reward, thanks — all from the registry quest block.
 function governorInteract(c, { fill, speakerFor }) {
@@ -2184,18 +2310,42 @@ function governorInteract(c, { fill, speakerFor }) {
   const fillLine = (l) => fill(l, c);
   const ember = mineWalk.emberDelivery(def, speaker, fillLine);
   if (ember) return ember;
-  const aside = mineWalk.emberAside(def, fillLine);
+  // The Crown errand (src/crownErrand.js, terra): its beats outrank the tour
+  // too, and between beats it adds one reminder to whatever he says.
+  const story = errand.errandTalk(def, speaker, fillLine);
+  if (story) {
+    syncSuiteProps();
+    if (typeof questStage(def.id) !== 'number') setObjective(errand.errandObjective());
+    return story;
+  }
+  const aside = [...mineWalk.emberAside(def, fillLine), ...errand.errandAside(def)];
   // The secret rides on any of his lines that do not already end in a choice
   // (undefined until the patio is fitted, and again once he has told it).
   const secret = mineWalk.secretOffer(def) ?? undefined;
   if (!q) return { speaker, lines: [fill('Welcome to {{cityName}}.', c), ...aside], offer: secret };
   const st = questStage(def.id);
+  // Towns with a second errand (registry `charge` — Neptunia's Reach). To the
+  // pilot Axilo sent she offers it at once, wherever her own survey stands.
+  const ch = def.charge;
+  if (ch) {
+    const cs = questStage(CHARGE_QUEST);
+    if (cs === 'go') return { speaker, lines: [fill(ch.remind, c)] };
+    if (errand.chargeOpen()) {
+      const options = [{ label: ch.accept, outcomeTag: `menu:${def.id}:gov:charge` }];
+      if (st === undefined) options.push({ label: ch.surveyFirst, outcomeTag: `menu:${def.id}:gov:survey` });
+      options.push({ label: ch.decline, outcomeTag: `menu:${def.id}:gov:later` });
+      return {
+        speaker,
+        cine: true,
+        lines: ch.errandOffer.map((l) => fill(l, c)),
+        offer: { kind: 'choice', prompt: ch.prompt, options },
+      };
+    }
+  }
   if (st === 'done') {
-    // Towns with a second errand (registry `charge` — Neptunia's Reach).
-    const ch = def.charge;
     if (ch) {
       const cs = questStage(CHARGE_QUEST);
-      if (cs === undefined) {
+      if (cs === undefined && errand.chargeOpenLegacy()) {
         return {
           speaker,
           cine: true,
@@ -2210,7 +2360,6 @@ function governorInteract(c, { fill, speakerFor }) {
           },
         };
       }
-      if (cs === 'go') return { speaker, lines: [fill(ch.remind, c)] };
     }
     return { speaker, lines: [fill(q.thanks, c), ...aside], offer: secret };
   }
@@ -2218,7 +2367,7 @@ function governorInteract(c, { fill, speakerFor }) {
     return {
       speaker,
       cine: true,
-      lines: q.offer.map((l) => fill(l, c)),
+      lines: [...errand.errandAside(def), ...q.offer.map((l) => fill(l, c))],
       offer: {
         kind: 'choice',
         prompt: 'Walk the tour?',
@@ -2293,8 +2442,27 @@ governorInteract.onOutcome = (tag) => {
   }
   if (m[2] === 'charge' && def.charge) {
     setQuestStage(CHARGE_QUEST, 'go'); // unseals the riser lift (world/reachtube.js)
+    removeBeacon(); // a half-walked survey gives way to this
+    clearWaypoint();
     setObjective(def.charge.objective);
+    // Her survey's reward goes with the job: nobody will be left to hand it over.
+    if (def.quest?.reward) grantItem(def.quest.reward);
     return { speaker: citizens.speakerFor(gov), lines: def.charge.go.map((l) => citizens.fill(l, gov)) };
+  }
+  if (m[2] === 'survey' && def.quest) {
+    // "Tell me about the survey first": her tour pitch, with its own choice.
+    return {
+      speaker: citizens.speakerFor(gov),
+      lines: def.quest.offer.map((l) => citizens.fill(l, gov)),
+      offer: {
+        kind: 'choice',
+        prompt: 'Walk the tour?',
+        options: [
+          { label: 'I’ll walk the tour.', outcomeTag: `menu:${def.id}:gov:accept` },
+          { label: 'Another time.', outcomeTag: `menu:${def.id}:gov:later` },
+        ],
+      },
+    };
   }
   if (m[2] !== 'accept') return null; // 'later' just closes the panel
   setQuestStage(def.id, 0);
@@ -2475,7 +2643,7 @@ export function vehicleState() {
 export function walkSite() {
   return {
     city, parked, citizens, wonders, dressing, wavemall, actuality,
-    shadowreach, interiorCrowds, warzone,
+    shadowreach, interiorCrowds, warzone, mallPicks,
     creatures, diamondRain, marineSnow, planetSky, wyattmattoe,
     cottage: cottageWalk.cottageSite(),
     sky: skyWalk.skySite(),
@@ -2483,6 +2651,9 @@ export function walkSite() {
     coin: coinWalk.coinSite(),
     minehead: mineHead,
     mine: mineWalk.mineSite(),
+    // The bed (walkSite().sleep()): { asleep, sunDot } to assert the night passed.
+    sleep: () => beginSleep(),
+    sleepState: () => ({ asleep: sleepT >= 0, sunDot: walk.planet ? _up.dot(walk.planet.sunDir ?? SUN) : null }),
     // Governor-tour beacon internals, for headless verification. The up vector
     // is here because the tilt bug it fixes is invisible to a position-only
     // payload — assert it against the true surface normal at the base.

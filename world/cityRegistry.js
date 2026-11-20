@@ -83,6 +83,41 @@ export const CITIES = [
       complete: 'You’ve walked the valley’s two hearts. Take the Meridian ultralight — the sky between them is yours now.',
       thanks: 'The valley looks better from your altitude, pilot. The Crown keeps your berth open.',
     },
+    // The pilot's own tower (world/city.js buildTower `home`): taller than the
+    // governor's, a suite on top with a bed.
+    homeTower: { top: 66, speed: 4.4 },
+    // The Crown errand (src/crownErrand.js owns the stages; these are his words).
+    errand: {
+      welcome: [
+        'Pilot. Welcome home. Meridian Crown kept your berth, and more than a berth.',
+        'The tall tower across the plaza is yours. The suite at the top has a bed that does not move. Stay a while.',
+        'One small thing first. I ordered a chair from the WaveMall Flagship, and they will not ship it past their own doors.',
+        'Fetch it for me. Ask for Maribel. And while you are there, pick out something for your own rooms.',
+      ],
+      welcomeLate: [
+        'Pilot. Welcome home. The tall tower across the plaza is yours, and the suite at the top.',
+        'You have been to Neptunia already, I hear. Then you know the Indigo Reach.',
+        'Its governor held the Crown Seal, this city’s founding seal, lent out long ago and never returned. Bring it home.',
+      ],
+      remind: 'The errand stands, pilot.',
+      debrief: [
+        'The chair. And two worlds that answer when Terra calls.',
+        'The mall I expected. Saturnia swore against this valley before you were born, and you raced them out of it.',
+        'You did very well. Get some rest; your suite is waiting. In the morning I have a new assignment for you.',
+      ],
+      restRemind: 'Sleep first, pilot. The tall tower. I will not brief a tired flyer.',
+      mission: [
+        'You slept. Good. Now the hard one.',
+        'Madame Ossva, on the Indigo Reach over Neptunia, holds the Crown Seal: this city’s founding seal, lent out long ago and never returned.',
+        'She will give it up for one thing. Her mining project needs a pilot to ride the riser to the sea floor and arm a charge.',
+        'Help her with it, and bring the Seal home.',
+      ],
+      deliver: [
+        'The Seal. Unmarked. A world broke around it and it did not notice.',
+        'Keep it in your suite, pilot, where the plaza can see its light. The Crown is in your debt.',
+      ],
+      after: 'The Seal burns in your window every night. The valley sleeps better for it.',
+    },
     citizens: [
       { name: 'Patron Axilo', role: 'governor', dialogue: 'governor', home: 'penthouse' },
       { name: 'Voss Enterin', role: 'merchant', dialogue: 'vendor', vars: { goods: 'valley amber and hull ceramic' } },
@@ -136,6 +171,9 @@ export const CITIES = [
     mine: {
       name: 'Emberdeep No. 1',
       // one aside appended to his usual lines until the patio is fitted...
+      // ...while the cage is chained (until Neptunia breaks, crownErrand.js)...
+      sealed: 'The Emberdeep is chained, pilot. The seam went cold, and I do not send a cage down a cold seam. It would take something shaking this whole system to wake it.',
+      reopened: 'You felt it? Something broke, out past the ring, and the seam is glowing again. I have had the chain off the cage since morning.',
       hint: 'And if you ever ride the cage down the Emberdeep — the headframe by the pad road — bring me up a piece of ember ore. I miss the glow up here.',
       // ...the hand-over, carrying ore...
       deliver: [
@@ -220,6 +258,16 @@ export const CITIES = [
         'It will open the crust and let the deep out. That is this ship’s whole errand, and it wants one thing more: a hand to arm it.',
         'Ride the lift down. Find the charge. Arm it for detonation, then come back up and tell me it is ready. We fire from the bridge, once you are clear.',
       ],
+      // To the pilot Patron Axilo sent (the Crown errand, src/crownErrand.js):
+      // she says what the lift is, why it is sealed and what he gets for it,
+      // survey or no survey.
+      errandOffer: [
+        'Axilo’s pilot. I know why he sent you. The Crown Seal sits on my bridge, behind this chair, and it has sat there since before he was Patron.',
+        'He may have it back. But the Reach does not fish. The riser amidships runs two hundred fathoms to the floor, and at its foot we have seated a mining charge in the bedrock.',
+        'It will open the crust and let the deep out, and it wants one thing more: a hand to arm it. The riser lift is sealed on my order. Say yes and I unseal it for you.',
+        'Ride it down, arm the charge, come back up and tell me it is ready. Then the Seal leaves with you.',
+      ],
+      surveyFirst: 'Tell me about the survey first.',
       prompt: 'Go down the riser?',
       accept: 'I’ll arm it.',
       decline: 'Not yet.',
@@ -227,7 +275,7 @@ export const CITIES = [
         'The lift is unsealed for you. Midships, under the derrick.',
         'You will have company on the way down. The glass is thick. Look as long as you like.',
       ],
-      remind: 'The charge is not armed until you arm it. The lift waits under the derrick. Come and tell me when it is ready.',
+      remind: 'The charge is not armed until you arm it. The lift waits under the derrick, unsealed. Come and tell me when it is ready, and the Seal is yours.',
       objective: 'RIDE THE RISER DOWN — ARM THE CHARGE — REPORT TO THE GOVERNOR',
     },
     citizens: [

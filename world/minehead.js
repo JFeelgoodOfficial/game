@@ -347,13 +347,22 @@ export function createMineHead(city, opts = {}) {
   // ---- interaction ---------------------------------------------------------
   const cagePos = new THREE.Vector2(spot.x, spot.z);
   const entity = { kind: 'cage', pos: cagePos, y: by, prompt: 'E — RIDE THE CAGE DOWN' };
+  // The cage is chained until the host says otherwise (opts.locked: the Crown
+  // errand keeps the Emberdeep shut until Neptunia has broken).
+  const LOCKED = {
+    speaker: { name: 'EMBERDEEP No. 1', species: 'winding house', cityId: opts.cityId },
+    lines: ['CAGE CHAINED — BY ORDER OF THE BARON.', 'The seam has gone cold. Nobody rides down until it wakes.'],
+  };
   const module = {
     nearestInteractable(playerLocal, maxDist) {
       if (Math.abs(playerLocal.y - by) > 2.5) return null;
       const dx = cagePos.x - playerLocal.x, dz = cagePos.y - playerLocal.z;
-      return dx * dx + dz * dz < maxDist * maxDist ? entity : null;
+      if (dx * dx + dz * dz >= maxDist * maxDist) return null;
+      entity.prompt = opts.locked?.() ? 'E — TRY THE CAGE' : 'E — RIDE THE CAGE DOWN';
+      return entity;
     },
     interact() {
+      if (opts.locked?.()) return LOCKED;
       opts.onDescend?.();
       return null; // no dialogue; walk.js releases the entity on null
     },
