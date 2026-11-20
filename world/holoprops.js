@@ -6,11 +6,13 @@
 // Here every fragment is a small hologram of the thing itself, moving: riders
 // coming down a slope, a dragon flying a circle, steps going up.
 //
-//   buildHoloProp(worldId, layer, frag, layers) -> { group, tick(t), glow(k) }
+//   buildHoloProp(worldId, layer, frag, layers, o) -> { group, tick(t), glow(k) }
 //
-// A prop fills about a unit of radius and stands on y = 0. The room shows one
-// large (the diorama on its floor) and one small (on the pedestal); both are
-// this. `frag` is the fragment's entry in WORLDS (world/chapter-dialogue.js),
+// A prop fills about a unit of radius and stands on y = 0. Each is built
+// twice: once at the size of the place, out in the world the room projects
+// round the pilot (the aurora in its sky, the riders on a slope beyond the
+// pedestals, the dragon over the far city), and once small, on the pedestal
+// it is taken from. Both are this. `frag` is the fragment's entry in WORLDS (world/chapter-dialogue.js),
 // `layers` the whole world's, for a second colour.
 
 import * as THREE from 'three';
@@ -18,7 +20,8 @@ import * as THREE from 'three';
 // One prop's own two materials: a translucent fill and a bright line. Not
 // additive: each room closes a bright sky round the pilot, and light added to
 // a bright sky is no picture at all.
-function kit(color, second) {
+function kit(color, second, o) {
+  const world = !!o.world, S = o.scale || 1;
   const c = new THREE.Color(color), c2 = new THREE.Color(second ?? color);
   const fills = [], lines = [];
   const fill = (col = c, op = 0.5) => {
@@ -74,7 +77,7 @@ function kit(color, second) {
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    const m = new THREE.PointsMaterial({ color: (b ? c2 : c).clone().lerp(WHITE, 0.5), size, transparent: true, opacity: 0.95, depthWrite: false, fog: false });
+    const m = new THREE.PointsMaterial({ color: (b ? c2 : c).clone().lerp(WHITE, 0.5), size: size * (world ? S * 0.3 : 1), transparent: true, opacity: 0.95, depthWrite: false, fog: false });
     fills.push(m);
     m.userData.op = 0.95;
     const pts = new THREE.Points(g, m);
@@ -82,9 +85,10 @@ function kit(color, second) {
     return pts;
   };
   // the half dome a sky is shown under
-  const dome = (b = false) => add(new THREE.SphereGeometry(1, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), 0, 0, 0, b);
+  // (out in the room's world the room's own sky is the dome, and its floor the ground: neither is drawn)
+  const dome = (b = false) => (world ? sub() : add(new THREE.SphereGeometry(1, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), 0, 0, 0, b));
   // the ground a thing stands on
-  const pad = (r = 1, b = true) => cyl(r, r, 0.04, 0, 0.02, 0, b, group, 24);
+  const pad = (r = 1, b = true) => (world ? sub() : cyl(r, r, 0.04, 0, 0.02, 0, b, group, 24));
   return { group, anim, add, box, cyl, ball, cone, torus, sub, figure, dots, dome, pad, fills, lines, c, c2 };
 }
 
@@ -295,7 +299,7 @@ const PROPS = {
   stevenlacey: {
     // a flat sky in eight bands, and square clouds
     sky(k) {
-      for (let i = 0; i < 8; i++) k.box(1.7, 0.15, 0.03, 0, 0.1 + i * 0.16, -0.4, i % 2 === 1);
+      for (let i = 0; i < 8; i++) k.box(1.9, 0.15, 0.03, 0, 0.1 + i * 0.16, -0.95, i % 2 === 1);
       for (let i = 0; i < 3; i++) {
         const cl = k.sub(0, 0.75 + i * 0.25, 0.1 * i);
         k.box(0.42, 0.14, 0.1, 0, 0, 0, true, cl);
@@ -493,10 +497,12 @@ const PROPS = {
   },
 };
 
-export function buildHoloProp(worldId, layer, frag, layers) {
+// `o.world`: this one stands out in the room's projected world, at `o.scale`,
+// not on a pedestal: no dome or pad of its own, and its loose points sized to match.
+export function buildHoloProp(worldId, layer, frag, layers, o = {}) {
   const col = frag.col ?? frag.land ?? frag.a;
   const second = frag.b ?? frag.high ?? (layer === 'light' || layer === 'life' ? layers.sky.a : layers.ground.land);
-  const k = kit(col, second);
+  const k = kit(col, second, o);
   const make = PROPS[worldId] && PROPS[worldId][layer];
   if (make) make(k);
   else k.ball(0.5, 0, 0.6, 0); // (a world added to the list before it is drawn here)

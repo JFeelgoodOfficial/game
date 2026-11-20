@@ -35,8 +35,18 @@ const HALL_HW = 5, HALL_Z0 = 34, HALL_Z1 = -62; // the walk: aft end, forward en
 const ROOM_R = 11, ROOM_X = 24; // a room's floor, and how far off the walk its centre is
 const ROOM_Z = [14, -14, -42];
 const PLINTH_R = 7.4; // the ring the fragments stand on
-const SHOW_R = 4.9; // inside it, the ring the same five things are shown on, large and moving
-const SHOW_S = 1.5, MINI_S = 0.46; // how big: the showing, and the one on the pedestal
+// Where each kind of thing stands in the world the room projects, out past its
+// own pedestal: `d` from the room's middle, `y` up, `s` its size, `tag` how
+// high over it its name hangs. The sky is the room's whole sky; the light
+// hangs in it; the ground lies furthest out, the life nearest.
+const SHOW = {
+  sky: { d: 0, y: 0, s: 30, tag: [19, 17] },
+  ground: { d: 23, y: -1.6, s: 9.5, tag: [23, 12.5] },
+  structures: { d: 17.5, y: -0.4, s: 6.5, tag: [17.5, 11.6] },
+  life: { d: 13.6, y: 0.1, s: 4.2, tag: [13.6, 7.6] },
+  light: { d: 27, y: 9, s: 6.5, tag: [27, 20.5] },
+};
+const MINI_S = 0.46; // the one on the pedestal
 const DOME_R = 56; // (inside the hull on every side: it is drawn over it, not through it)
 const ZERO = new THREE.Vector3();
 
@@ -184,8 +194,9 @@ export function createLightShip(ctx) {
     whole.holo(0.55);
     rg.add(whole.group);
 
-    // its five fragments: each shown large on the floor, moving, as the thing
-    // it is, and again small on the plinth it is taken from (world/holoprops.js)
+    // its five fragments: each out in the room's world at the size of the
+    // place, moving, as the thing it is, and again small on the plinth it is
+    // taken from (world/holoprops.js)
     const frags = LAYERS.map((layer, k) => {
       const a = (side > 0 ? 0 : Math.PI) + (k - 2) * 0.62; // fanned round the far side
       const x = cx + Math.cos(a) * PLINTH_R, z = cz + Math.sin(a) * PLINTH_R;
@@ -199,9 +210,8 @@ export function createLightShip(ctx) {
       );
       ring.position.set(x, 1.14, z);
       rg.add(ring);
-      const f = { layer, x, z, sx: cx + Math.cos(a) * SHOW_R, sz: cz + Math.sin(a) * SHOW_R, mini: null, ring, lift: 0, glow: 0 }; // (what stands on it is made when the room is first come near)
-      // a pad of light where the large one stands
-      glow.push(tint(new THREE.TorusGeometry(1.25, 0.03, 5, 36).rotateX(Math.PI / 2).translate(f.sx, 0.05, f.sz), w.layers[layer].col ?? w.layers[layer].a ?? w.layers[layer].land, 1.0));
+      const sh = SHOW[layer];
+      const f = { layer, x, z, a, sh, sx: cx + Math.cos(a) * sh.d, sz: cz + Math.sin(a) * sh.d, tx: cx + Math.cos(a) * sh.tag[0], tz: cz + Math.sin(a) * sh.tag[0], mini: null, ring, lift: 0, glow: 0 }; // (what stands on it is made when the room is first come near)
       consoles.push({
         x, y: 0, z, r: 2.3,
         get prompt() {
@@ -217,23 +227,24 @@ export function createLightShip(ctx) {
     rooms.push(room);
   });
 
-  // One fragment's two holograms and their names. `show`: the large one on the
-  // floor; `small`: the one on the plinth; `beam`: a line of light between
+  // One fragment's two holograms and their names. `show`: the one out in the
+  // room's world; `small`: the one on the plinth; `beam`: a line of light between
   // them, lit while the pilot stands at that plinth.
   function makeMini(room, f) {
     const frag = room.w.layers[f.layer];
     const col = '#' + new THREE.Color(frag.col ?? frag.a ?? frag.land).lerp(new THREE.Color(0xffffff), 0.45).getHexString();
-    const show = buildHoloProp(room.w.id, f.layer, frag, room.w.layers);
-    show.group.position.set(f.sx, 0.12, f.sz);
-    show.group.scale.setScalar(SHOW_S);
+    const show = buildHoloProp(room.w.id, f.layer, frag, room.w.layers, { world: true, scale: f.sh.s });
+    show.group.position.set(f.sx, f.sh.y, f.sz);
+    show.group.scale.setScalar(f.sh.s);
+    show.group.rotation.y = Math.atan2(-Math.cos(f.a), -Math.sin(f.a)); // its far side is the room's far side
     const small = buildHoloProp(room.w.id, f.layer, frag, room.w.layers);
     small.group.position.set(f.x, 1.3, f.z);
     small.group.scale.setScalar(MINI_S);
-    const nameBig = holoName(frag.label, col, 0.52);
-    nameBig.position.set(f.sx, 3.3, f.sz);
+    const nameBig = holoName(frag.label, col, 1.5);
+    nameBig.position.set(f.tx, f.sh.tag[1], f.tz);
     const nameSmall = holoName(frag.label, col, 0.36);
     nameSmall.position.set(f.x, 2.75, f.z);
-    const beamGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(f.x, 1.5, f.z), new THREE.Vector3(f.sx, 1.2, f.sz)]);
+    const beamGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(f.x, 1.5, f.z), new THREE.Vector3(f.tx, f.sh.tag[1] - 1, f.tz)]);
     const beam = new THREE.Line(beamGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
     room.rg.add(show.group, small.group, nameBig, nameSmall, beam);
     return { show, small, nameBig, nameSmall, beam };
@@ -462,7 +473,7 @@ export function createLightShip(ctx) {
               m.small.tick(t);
               m.show.glow(f.glow);
               m.small.glow(f.glow);
-              m.show.group.scale.setScalar(SHOW_S * (1 + f.glow * 0.14));
+              m.show.group.scale.setScalar(f.sh.s * (1 + f.glow * 0.06));
               m.small.group.position.y = 1.3 + 0.05 * Math.sin(t * 1.3 + f.x) + f.lift * 0.35;
               m.small.group.rotation.y = t * 0.35 + f.z;
               m.small.group.scale.setScalar(MINI_S * (1 + f.lift * 0.3));

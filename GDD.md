@@ -158,7 +158,7 @@ Real G at real masses produces float32 problems and timescales in hours. Use a s
 | Mouse | Pitch and yaw torque |
 | W | Thrust forward — full power. W *is* the boost; there is no separate boost key |
 | S | Thrust reverse (base power) |
-| Q / E | Roll |
+| [ / ] | Roll (also the two paddles either side of the CODEX disc). Over the megaworld the wings ease level when neither is held. |
 | Space | Counter-thrust (kill velocity, held) |
 
 Pointer lock on click. No menus.

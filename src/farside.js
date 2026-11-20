@@ -33,7 +33,6 @@ import * as THREE from 'three';
 import { C } from './constants.js';
 import { ship } from './ship.js';
 import { sun } from './sun.js';
-import { setMusicArea } from './music.js';
 import { Q } from './quality.js';
 import { originOffset, addShiftable } from './origin.js';
 import { addBody } from './gravity.js';
@@ -619,8 +618,6 @@ export function createFarside(ctx) {
     },
     update(dt, t, flying) {
       ship.levelUp = active ? FAR_UP : null;
-      // no radio inside the megaworld: only what the hollow sounds like (world/entryzero-audio.js)
-      setMusicArea(active && ((sub && sub.inside()) || (ground && ground.inside())) ? 0 : 1);
       if (!active) return;
       fade = Math.min(fade + dt / C.FAR_FADE_IN, 1);
       slotT += dt;

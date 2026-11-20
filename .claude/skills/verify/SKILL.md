@@ -89,9 +89,14 @@ CAMERA, STAND, LAND, NAV in that order), `press(name, on)`, `litOf(name)`,
 `{value, held, shown}`, `setLever(v)` holds the throttle at v (-1..1) as a
 finger would and `setLever(null)` lets go (it must read 0 on the next frame).
 The throttle is `input.throttle`; W and S are the same lever at full throw.
-There is no roll and no flight brake: Q, E and Space must leave
-`ship.angularVelocity.z` and the speed alone in flight, and Space must still
-jump on foot. Lift-off from a pad is throttle up (`setLever(1)` or W). Touch:
+There is no flight brake: Space must leave the speed alone in flight, and must
+still jump on foot. Roll is `[` and `]` (`input.rollLeft/rollRight`) and two
+paddles either side of the CODEX disc, which are not row buttons:
+`cockpit.rollNames()` → `['ROLL L', 'ROLL R']`, `cockpit.screenPos('ROLL R')`;
+holding one drives `ship.angularVelocity.z` (left positive) and it must read
+false again on release. Q and E must still leave it alone. Over the megaworld
+`ship.levelUp` is (0, 1, 0) and a banked ship left alone comes level in about
+ten seconds; everywhere else it is null. Lift-off from a pad is throttle up (`setLever(1)` or W). Touch:
 a context with `hasTouch: true`, then CDP `Input.dispatchTouchEvent` at
 `screenPos('LEVER')` and a touchMove 80 px up or down; check the wheel is
 still on screen while the lever is held. Look at 16:9, 4:3 and a phone shape.
@@ -442,7 +447,18 @@ worlds: allow 10 s+ and long screenshot timeouts. `tenretni.clock(sec)` sets
 the idle clock: a large value makes the next meal start at once, a large
 negative one holds it off. `state()` adds `clock, next, exiting, ended`.
 
-Fleets: exist once `eaten` has any entry. `tenretni.state().fleets` →
+Fleets: exist from the first seconds of free flight on any save
+(src/fleetHost.js), before the Tenretni chunk is loaded: `tenretni.fleets()` is
+the live object either way. `fleets().warState()` → `{on, k, center}`: on a
+fresh game `k` rises to 1 and all nine warships fly passes round `center` with
+fighter swarms in each other's colours; with `quests.tenretni` `done` or `ship`
+it is 0 and they are on guard orbits. Only the three flagships (`state()[i].lead`:
+`rustia:w0`, `saturnia:w0`, `wavemall prime:w0`) are on the chart
+(`navMenu.rows('fleets')` is exactly three rows), can be docked on, give a
+channel, and cannot be destroyed (`destroy(id)` returns false; an old save's
+`lost` entry for one is ignored). Before Tenretni a flagship's captain says
+that people's `VOICE.war` lines (world/fleet-dialogue.js) and offers nothing.
+The story adopts the fleets once `eaten` has any entry. `tenretni.state().fleets` →
 `[{id, alive, kind, pos}]` (ids like `rustia:w0`, `saturnia:f1`,
 `wavemall prime:w2`); `tenretni.fleets()` is the live object (`ships[].group`,
 `destroy(id)`, `alive(faction)`). `navMenu.rows('fleets')` lists them and
@@ -530,6 +546,29 @@ frame: gallery (-112, 0, -77), Pavilion centre (92, 0, -77), its lift pad
 (`walkSite().capital.prompt()` reads the pad's prompt; `.floor` reads 300 in
 the suite). Walking pace in the city is 10 u/s (twice the usual 5).
 
+The world race is one plain circuit (`world/racecourse.js` `circuit()`): two
+laps, about 21 gates of radius 20, no more than ~35° of turn in any 100 units.
+Start it at the Starter's stand: `capital.place(9.5, 0, -61)`, `e` until
+`#dlgPanel` shows WHICH WORLD?, then a digit. Hands off, the help alone clears
+the gates (`race.missed` stays 0). `raceSet({ s: 0.985, lap: 1 })` jumps to the
+finish.
+
+The light ship's rooms (`world/holoprops.js`): each fragment is a moving
+hologram of the thing, built twice: out in the world the room projects (the
+sky's is the room's whole sky, the light hangs in it, ground, structures and
+life stand 13 to 27 beyond the room's middle past their own plinths: `SHOW` in
+world/lightship.js) and small on its plinth, each with a name sprite. From
+`place(cx - side * 8.5, 0, cz)` facing the far side with `cWalk.pitch = 0.22` a
+screenshot must show the five named things; standing within 2.6 of a plinth
+lights its pair and draws a line between them.
+
+The radio is silent inside the megaworld: `__debug.radio.area()` → `{area, to}`
+reads `to: 0` while `far().state().inSub` or `onGround`, 1 otherwise, and the
+radio popup says NO SIGNAL DOWN HERE.
+
+The CODEX has an objective at every stage past the wormhole
+(`codex.data().next[0]`): seed a stage and check it is not empty.
+
 City life (`world/lightlife.js`): `far().state().life` → `{people, figures,
 walking, at, lanes, craft, craftAt}`. Saturday's way in is its west end: from
 `place(46, 0, -152)` facing +x (`cWalk.yaw` ≈ π/2) with `input.forward`, the
@@ -562,7 +601,12 @@ on a timeout.
 Entry Zero (GDD 5.7.5): the stages after `done` are `ez_offer`, `ez_descent`,
 `ez_firewall`, `ez_deep`, `ez_centre`, `ez_relics`, `ez_reveal`, `ez_ascent`,
 `ez_era`, `ez_launch`, `ez_beyond`; `chapter().go(stage)` takes them, and
-`chapter().ezOpen()` reads true once `done` and `epilogue` both hold. Seed
+`chapter().ezOpen()` reads true once `done` and `epilogue` hold and the pilot
+has settled in: `chapter().settling()` → `{raced, slept, sites, need: 4, due}`
+(`markRaced()`, `markSlept()`, `markSite('seam' | 'bell' | 'saturday' |
+'monument')` set them; a finished world race sets `raced` and `monument`, the
+three district finds set theirs, the suite bed's `E — SLEEP` sets `slept`).
+A save at `ez_offer` or later is open regardless. Seed
 `ch.ez = {log, frags, stay, lost, node, clock}` (`log`: one bit per lamp band,
 63 is all six; `frags`: one bit per relic, 7 is all three; `stay`: a captain
 id; `lost`: captain ids). `chapter().state().ez` reads it back. The story
