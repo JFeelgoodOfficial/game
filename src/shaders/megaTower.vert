@@ -17,6 +17,7 @@ uniform float uR;
 uniform float uFade;
 uniform float uTaper; // how far a tower narrows toward its top, 0..1 (by its seed)
 uniform vec3 uLand; // the landing: xz from the camera, and the radius kept clear round it
+uniform vec2 uInner; // rises from the roofs between these distances (a finer layer is drawn inside)
 
 varying vec3 vPos;
 varying vec3 vWorldNormal;
@@ -29,7 +30,7 @@ void main() {
   float d = length(rel);
   // sinks into the roofscape toward the tile's edge, where the ground shader
   // takes over (and where the depth buffer stops telling them apart)
-  float g = 1.0 - smoothstep(0.34 * uTile, 0.48 * uTile, d);
+  float g = (1.0 - smoothstep(0.34 * uTile, 0.48 * uTile, d)) * smoothstep(uInner.x, uInner.y, d);
   vec2 L = rel + uOffCage;
   vec3 cg = cage(floor(L / uS));
   g *= mix(1.0, smoothstep(uPad, uPad * 1.2, distance(L, cg.xy)), cg.z);

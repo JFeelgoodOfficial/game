@@ -535,13 +535,21 @@ export const C = {
   FAR_HOLE_HDR: 1.0, // emissive scale of the disc
   FAR_HOLE_DIST: 500000.0, // where it is drawn (its quad's corners must stay inside the far plane)
   // The megastructures: kilometre-scale spires on a wide tile, for a skyline.
-  FAR_SPIRE_TILE: 65536.0,
+  FAR_SPIRE_TILE: 131072.0, // (they stand out to ~60 km: the skyline)
+  FAR_BLOCK_TILE: 98304.0, // the distant city's blocks, out to ~45 km (world/megaworld.js)
   FAR_SPIRE_MAX: 2600.0,
   // The landing (world/farlanding.js): the one place the pilot can put down.
   FAR_LAND_OUT: 6400.0, // from the first caged star, toward the arrival point
   FAR_LAND_ALT: 1200.0, // pad above the plane: clear of the canopy floor and its drag
   FAR_LAND_CAPTURE: 640.0, // the dock's stand-in radius (captures at 1.25 of this)
-  FAR_AUTOLAND_DELAY: 7.0, // seconds after coming through before the Landing takes the helm (the first time only)
+  // The leash (src/farside.js leash()): the first time through, the pilot may
+  // fly round the landing's caged star, up to FAR_LEASH x the cage's height and
+  // out to FAR_LEASH x its plate's radius, before the Landing's beam brings
+  // the ship down.
+  FAR_LEASH: 1.5,
+  FAR_LEASH_SLACK: 2000.0, // on the way in from the wormhole: how far back from the nearest yet the pilot may turn
+  FAR_LEASH_GRACE: 4.0, // seconds past the bound (warned) before the beam pulls
+  FAR_EXPLORE_TIME: 240.0, // ...and however it goes, it pulls this long after arriving
   FAR_AUTOLAND_TIME: 24.0, // ...and the longest that approach may take: it is a long way off
   FAR_LAND_HOLD: 1400.0, // inside this the fleet goes to its station overhead
   FAR_LAND_RING_R: 3200.0, // the station ring...

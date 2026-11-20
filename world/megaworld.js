@@ -8,9 +8,13 @@
 // of where the camera is:
 //
 //   ground   one polar disc under the camera; the city is its fragment shader
-//   towers   one instanced box on a tile that wraps round the camera
-//   cages    the nearest few caged stars, built in full
-//   stars    every other caged star out to the horizon, one point each
+//   towers   instanced boxes on tiles that wrap round the camera: the near
+//            towers, the distant city's blocks out to ~45 km, and the spires
+//            for a skyline out to ~60 km; all drawn into the ground's haze
+//   cages    the nearest few caged stars, built in full; the rest in range
+//            (LITE_RANGE, by tier) as a lighter instanced cage and star
+//   stars    every other caged star out to the horizon, one point each (only
+//            its halo where a lite cage is drawn)
 //
 // The cages stand on a jittered lattice. Which cells hold one, and where in
 // the cell, is an integer hash small enough to be exact in fp32, written once
@@ -35,7 +39,19 @@ import hullFrag from '../src/shaders/tenretniHull.frag?raw';
 // Towers by quality tier (medium is the Iris Xe target, GDD 2.1).
 const TOWERS = { low: 4000, medium: 11000, high: 17000, ultra: 24000 };
 // The megastructures: kilometre-scale spires on a wider tile, for a skyline.
-const SPIRES = { low: 90, medium: 220, high: 360, ultra: 520 };
+const SPIRES = { low: 360, medium: 880, high: 1440, ultra: 2080 };
+// The distant city: big blocks on a wide tile, standing from where the towers
+// sink to where the haze takes everything, so the roofscape runs on to the
+// skyline instead of ending in a flat grid a few kilometres out.
+const BLOCKS = { low: 6000, medium: 18000, high: 26000, ultra: 34000 };
+// Caged stars drawn as real cages (a lighter build of the frame) out to this
+// far; beyond it a star is a point.
+const LITE_RANGE = { low: 90000, medium: 160000, high: 240000, ultra: 320000 };
+export const liteRange = () => LITE_RANGE[Q.tier] || LITE_RANGE.medium;
+export const LITE_MAX = 160; // instances the lite cages are built for
+// The top of a cage: the north pole of the frame and the spire on it.
+const SPIRE_H = 4400;
+export const CAGE_TOP = C.FAR_CAGE_HEIGHT + C.FAR_CAGE_RING_R + SPIRE_H;
 export const CAGE_PERIOD = 64; // the lattice repeats every this many cells
 export const PATTERN_PERIOD = 1024; // ...and each ground pattern every this many of its own
 
@@ -77,7 +93,7 @@ function rng(seed) {
 
 // --- the ground ---
 
-function buildGround() {
+function buildGround(haze) {
   // rings spaced by a constant ratio: metres apart under the camera, tens of
   // kilometres apart at the rim, where a triangle is still a few pixels
   const SEG = 96, RINGS = 64, R0 = 40;
@@ -107,7 +123,7 @@ function buildGround() {
   const uniforms = {
     uR: { value: C.FAR_RADIUS },
     uS: { value: C.FAR_CAGE_SPACING },
-    uAged: { value: 0 }, // 0 as the pilot found it .. 1 a thousand years on (GDD 5.7.4)
+    uAged: haze.uAged, // 0 as the pilot found it .. 1 a thousand years on (GDD 5.7.4)
     // a million years on (GDD 5.7.5): shared, set by src/farside.js
     uEra: ERA,
     uRite: RITE,
@@ -124,14 +140,20 @@ function buildGround() {
     uTime: { value: 0 },
     uHdr: { value: C.TENRETNI_HDR },
     uStarHdr: { value: C.FAR_STAR_HDR },
-    uHorizon: { value: 300000 },
+    uHorizon: haze.uHorizon,
     uFade: { value: 0 },
-    uHaze: { value: new THREE.Color(C.FAR_HAZE) },
+    uHaze: haze.uHaze,
   };
   const material = new THREE.ShaderMaterial({
     vertexShader: groundVert,
     fragmentShader: CAGE_GLSL + groundFrag,
     uniforms,
+    // tens of kilometres out the depth buffer is coarser than a block is
+    // tall: pushed back a step, the ground never comes up through what
+    // stands on it
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 2,
   });
   // the traces and the relief are look, not structure: above the low tier only
   const detail = () => {
@@ -152,8 +174,9 @@ function buildGround() {
 // --- the towers ---
 
 // One layer of towers. `o`: { counts by tier, tile, lot, hMin, hMax, wide (of
-// the lot), win, taper, seed }.
-function buildTowers(sunDir, o) {
+// the lot), win, taper, seed, inner: [from, to] the range it rises over from
+// the camera (where a finer layer hands over to it) }.
+function buildTowers(sunDir, haze, o) {
   // Every tier's towers are laid out once; the tier only says how many of
   // them are drawn, so a change of quality in flight costs one number.
   const count = Math.max(...Object.values(o.counts));
@@ -225,11 +248,14 @@ function buildTowers(sunDir, o) {
     uPad: { value: C.FAR_CAGE_PAD },
     uR: { value: C.FAR_RADIUS },
     uFade: { value: 0 },
+    uInner: { value: new THREE.Vector2(...(o.inner || [-2, -1])) },
+    ...haze,
   };
   const mesh = new THREE.Mesh(geo, new THREE.ShaderMaterial({
     vertexShader: CAGE_GLSL + towerVert,
     fragmentShader: hullFrag,
     uniforms,
+    defines: { HAZE: '' },
   }));
   mesh.frustumCulled = false;
   return { mesh, uniforms, tile: o.tile, count: () => geo.instanceCount };
@@ -315,45 +341,50 @@ function collectorSpots() {
   return [-1.05, 1.05].map((off) => new THREE.Vector3(Math.cos(az + off) * R, GANTRY_H + 620, Math.sin(az + off) * R));
 }
 
-function frameGeometry() {
-  const H = C.FAR_CAGE_HEIGHT, R = C.FAR_CAGE_RING_R, T = C.FAR_CAGE_TUBE;
+// `lite`: the build drawn for the cages beyond the nearest few, instanced by
+// the dozen: a third of the segments round each ring, half round each tube, and tubes a little heavier so a frame
+// tens of kilometres off is still a line and not a shimmer.
+function frameGeometry(lite = false) {
+  const H = C.FAR_CAGE_HEIGHT, R = C.FAR_CAGE_RING_R, T = C.FAR_CAGE_TUBE * (lite ? 1.3 : 1);
+  const n = (k) => (lite ? Math.max(4, Math.round(k / 3)) : k); // segments round a ring
+  const m = (k) => (lite ? Math.max(3, Math.round(k / 2)) : k); // ...and round a tube
   const parts = [];
   const add = (g) => parts.push(g.toNonIndexed());
   // three meridian rings, one sixth of a turn apart
-  for (let i = 0; i < 3; i++) add(new THREE.TorusGeometry(R, T, 8, 56).rotateY((i * Math.PI) / 3).translate(0, H, 0));
+  for (let i = 0; i < 3; i++) add(new THREE.TorusGeometry(R, T, m(8), n(56)).rotateY((i * Math.PI) / 3).translate(0, H, 0));
   // the equator, and a lighter ring in each hemisphere
-  add(new THREE.TorusGeometry(R, T * 1.15, 8, 56).rotateX(Math.PI / 2).translate(0, H, 0));
+  add(new THREE.TorusGeometry(R, T * 1.15, m(8), n(56)).rotateX(Math.PI / 2).translate(0, H, 0));
   const lat = 0.7;
   for (const s of [-1, 1]) {
-    add(new THREE.TorusGeometry(R * Math.cos(lat), T * 0.75, 8, 48).rotateX(Math.PI / 2).translate(0, H + s * R * Math.sin(lat), 0));
+    add(new THREE.TorusGeometry(R * Math.cos(lat), T * 0.75, m(8), n(48)).rotateX(Math.PI / 2).translate(0, H + s * R * Math.sin(lat), 0));
   }
   // the pedestal: a drum on the plate, a column up to the south pole
-  add(new THREE.CylinderGeometry(R * 0.82, R * 1.18, 1300, 28).translate(0, 650, 0));
-  add(new THREE.CylinderGeometry(R * 0.2, R * 0.46, H - R - 1300 + T, 14).translate(0, 1300 + (H - R - 1300 + T) / 2, 0));
+  add(new THREE.CylinderGeometry(R * 0.82, R * 1.18, 1300, m(28)).translate(0, 650, 0));
+  add(new THREE.CylinderGeometry(R * 0.2, R * 0.46, H - R - 1300 + T, m(14)).translate(0, 1300 + (H - R - 1300 + T) / 2, 0));
   // four pylons carrying the equator
   for (let i = 0; i < 4; i++) {
     const a = (i * Math.PI) / 2 + Math.PI / 4;
-    add(new THREE.CylinderGeometry(T * 0.8, T * 1.5, H, 8).translate(Math.cos(a) * (R + T * 1.2), H / 2, Math.sin(a) * (R + T * 1.2)));
+    add(new THREE.CylinderGeometry(T * 0.8, T * 1.5, H, m(8)).translate(Math.cos(a) * (R + T * 1.2), H / 2, Math.sin(a) * (R + T * 1.2)));
   }
   // a gantry ring round the foot of it all, on eight legs, over the roofs
   const GR = C.FAR_CAGE_PAD * 0.9, GH = GANTRY_H;
-  add(new THREE.TorusGeometry(GR, T * 0.7, 8, 72).rotateX(Math.PI / 2).translate(0, GH, 0));
-  add(new THREE.TorusGeometry(GR * 0.78, T * 0.4, 6, 64).rotateX(Math.PI / 2).translate(0, GH * 0.62, 0));
+  add(new THREE.TorusGeometry(GR, T * 0.7, m(8), n(72)).rotateX(Math.PI / 2).translate(0, GH, 0));
+  add(new THREE.TorusGeometry(GR * 0.78, T * 0.4, m(6), n(64)).rotateX(Math.PI / 2).translate(0, GH * 0.62, 0));
   for (let i = 0; i < 8; i++) {
     const a = (i * Math.PI) / 4 + Math.PI / 8;
-    add(new THREE.CylinderGeometry(T * 0.45, T * 0.8, GH, 6).translate(Math.cos(a) * GR, GH / 2, Math.sin(a) * GR));
+    add(new THREE.CylinderGeometry(T * 0.45, T * 0.8, GH, m(6)).translate(Math.cos(a) * GR, GH / 2, Math.sin(a) * GR));
     // a spar from each leg in to the pedestal
     add(new THREE.BoxGeometry(GR - R * 1.1, T * 0.35, T * 0.35).translate((GR + R * 1.1) / 2, GH * 0.62, 0).rotateY(-a));
   }
   // the collectors: a drum on the ring with a throat for what comes down
   for (const p of collectorSpots()) {
-    add(new THREE.CylinderGeometry(560, 760, 420, 16).translate(p.x, GH + 210, p.z));
-    add(new THREE.CylinderGeometry(300, 520, 260, 16).translate(p.x, GH + 520, p.z));
-    add(new THREE.TorusGeometry(640, T * 0.3, 6, 28).rotateX(Math.PI / 2).translate(p.x, GH + 430, p.z));
+    add(new THREE.CylinderGeometry(560, 760, 420, m(16)).translate(p.x, GH + 210, p.z));
+    add(new THREE.CylinderGeometry(300, 520, 260, m(16)).translate(p.x, GH + 520, p.z));
+    add(new THREE.TorusGeometry(640, T * 0.3, m(6), n(28)).rotateX(Math.PI / 2).translate(p.x, GH + 430, p.z));
   }
   // the spire on the north pole, with two yards
   const top = H + R;
-  add(new THREE.CylinderGeometry(T * 0.22, T * 1.3, 4400, 8).translate(0, top + 2200, 0));
+  add(new THREE.CylinderGeometry(T * 0.22, T * 1.3, SPIRE_H, m(8)).translate(0, top + SPIRE_H / 2, 0));
   add(new THREE.BoxGeometry(2400, T * 0.5, T * 0.5).translate(0, top + 1500, 0));
   add(new THREE.BoxGeometry(T * 0.5, T * 0.5, 1500).translate(0, top + 2700, 0));
   const geo = mergeGeometries(parts, false);
@@ -362,7 +393,47 @@ function frameGeometry() {
   return geo;
 }
 
-function buildCages(sunDir) {
+// The lite cages (every cage in range but the nearest few): the frame and the
+// star, each one instanced draw. `aOff` is the cage's foot from the mesh's own
+// origin, which src/farside.js keeps at the camera's lattice cell corner, so
+// fp32 only ever holds a few hundred kilometres.
+const LITE_FRAME_VERT = /* glsl */ `
+  attribute vec3 aOff;
+  uniform float uR;
+  varying vec3 vPos;
+  varying vec3 vWorldNormal;
+  varying vec3 vView;
+  varying float vUp;
+  void main() {
+    vPos = position;
+    vUp = 0.0;
+    vWorldNormal = normal;
+    vec4 world = modelMatrix * vec4(aOff.x + position.x, position.y, aOff.z + position.z, 1.0);
+    vec2 foot = (modelMatrix * vec4(aOff.x, 0.0, aOff.z, 1.0)).xz - cameraPosition.xz;
+    world.y -= dot(foot, foot) / (2.0 * uR); // on the curve the ground is drawn with
+    vView = cameraPosition - world.xyz;
+    gl_Position = projectionMatrix * viewMatrix * world;
+  }
+`;
+const LITE_STAR_VERT = /* glsl */ `
+  attribute vec3 aOff;
+  uniform float uR;
+  uniform float uH;
+  varying vec3 vDir;
+  varying vec3 vN;
+  varying vec3 vView;
+  void main() {
+    vDir = normalize(position);
+    vN = normal;
+    vec4 world = modelMatrix * vec4(aOff.x + position.x, uH + position.y, aOff.z + position.z, 1.0);
+    vec2 foot = (modelMatrix * vec4(aOff.x, 0.0, aOff.z, 1.0)).xz - cameraPosition.xz;
+    world.y -= dot(foot, foot) / (2.0 * uR);
+    vView = cameraPosition - world.xyz;
+    gl_Position = projectionMatrix * viewMatrix * world;
+  }
+`;
+
+function buildCages(sunDir, haze) {
   const H = C.FAR_CAGE_HEIGHT;
   const starU = { uTime: { value: 0 }, uHdr: { value: C.FAR_STAR_HDR }, uFade: { value: 0 } };
   const starMat = new THREE.ShaderMaterial({ vertexShader: STAR_VERT, fragmentShader: STAR_FRAG, uniforms: starU });
@@ -374,8 +445,9 @@ function buildCages(sunDir) {
     uCore: { value: new THREE.Vector4(0, H, 0, 2.6) },
     uEra: ERA,
     uDayK: DAY.k,
+    ...haze,
   };
-  const frameMat = new THREE.ShaderMaterial({ vertexShader: FRAME_VERT, fragmentShader: hullFrag, uniforms: frameU });
+  const frameMat = new THREE.ShaderMaterial({ vertexShader: FRAME_VERT, fragmentShader: hullFrag, uniforms: frameU, defines: { HAZE: '' } });
   const starGeo = new THREE.SphereGeometry(C.FAR_CAGE_STAR_R, 40, 24);
   const frameGeo = frameGeometry();
   const glow0 = makeGlowSprite(0xffa050, C.FAR_CAGE_STAR_R * 2.4, 0.22);
@@ -390,7 +462,38 @@ function buildCages(sunDir) {
     group.visible = false;
     cages.push({ group, glow, star });
   }
-  return { cages, starU, frameU };
+
+  // ...and the rest, lite
+  const off = new THREE.InstancedBufferAttribute(new Float32Array(LITE_MAX * 3), 3);
+  off.setUsage(THREE.DynamicDrawUsage);
+  const instanced = (src) => {
+    const g = new THREE.InstancedBufferGeometry();
+    g.index = src.index;
+    for (const k of ['position', 'normal']) g.setAttribute(k, src.getAttribute(k));
+    g.setAttribute('aOff', off);
+    g.instanceCount = 0;
+    return g;
+  };
+  const uR = { value: C.FAR_RADIUS };
+  const liteFrame = new THREE.Mesh(
+    instanced(frameGeometry(true)),
+    new THREE.ShaderMaterial({ vertexShader: LITE_FRAME_VERT, fragmentShader: hullFrag, uniforms: { ...frameU, uR }, defines: { HAZE: '' } })
+  );
+  const liteStar = new THREE.Mesh(
+    instanced(new THREE.SphereGeometry(C.FAR_CAGE_STAR_R, 20, 12)),
+    new THREE.ShaderMaterial({ vertexShader: LITE_STAR_VERT, fragmentShader: STAR_FRAG, uniforms: { ...starU, uR, uH: { value: H } } })
+  );
+  const lite = new THREE.Group();
+  for (const m of [liteFrame, liteStar]) {
+    m.frustumCulled = false;
+    lite.add(m);
+  }
+  // how many of the attribute's slots are drawn
+  const setLite = (n) => {
+    liteFrame.geometry.instanceCount = liteStar.geometry.instanceCount = n;
+    lite.visible = n > 0;
+  };
+  return { cages, starU, frameU, lite: { group: lite, star: liteStar, attr: off, set: setLite } };
 }
 
 // --- every other caged star, out to the horizon ---
@@ -401,10 +504,13 @@ const POINT_VERT = /* glsl */ `
   uniform float uStarR;
   uniform float uScale; // pixels per world unit at distance 1
   uniform float uCamAlt;
+  uniform float uLite; // inside this the star is drawn as a sphere in its cage: only the halo here
   varying float vFade;
+  varying float vCore;
   void main() {
     vec4 w = modelMatrix * vec4(position, 1.0);
     float d = distance(w.xz, cameraPosition.xz);
+    vCore = smoothstep(uLite * 0.9, uLite, d);
     w.y += uH - d * d / (2.0 * uR);
     // seen only while the world's own curve has not taken it
     float reach = sqrt(2.0 * uR * max(uCamAlt, 1.0)) + sqrt(2.0 * uR * (uH + uStarR));
@@ -419,11 +525,12 @@ const POINT_FRAG = /* glsl */ `
   uniform float uHdr;
   uniform float uFade;
   varying float vFade;
+  varying float vCore;
   void main() {
     float r = length(gl_PointCoord * 2.0 - 1.0);
     if (r > 1.0) discard;
     // a white-hot disc the size of the star, and its glow out to the edge
-    float core = 1.0 - smoothstep(0.46, 0.60, r);
+    float core = (1.0 - smoothstep(0.46, 0.60, r)) * vCore;
     float halo = pow(1.0 - r, 2.6);
     vec3 col = vec3(1.0, 0.62, 0.26) * core * uHdr * 0.9 + vec3(1.0, 0.42, 0.12) * halo * 0.3;
     gl_FragColor = vec4(col * vFade * uFade, 1.0);
@@ -442,6 +549,7 @@ function buildPoints() {
     uStarR: { value: C.FAR_CAGE_STAR_R },
     uScale: { value: 600 },
     uCamAlt: { value: C.FAR_ARRIVE_ALT },
+    uLite: { value: 0 },
     uHdr: { value: C.FAR_STAR_HDR },
     uFade: { value: 0 },
   };
@@ -493,21 +601,35 @@ function buildSun() {
 export function buildMegaworld(sunDir) {
   const root = new THREE.Group();
   root.visible = false;
-  const ground = buildGround();
+  // the haze, shared by the ground and everything standing on it; uHorizon is
+  // set from the camera's height every frame (src/farside.js)
+  const haze = {
+    uHaze: { value: new THREE.Color(C.FAR_HAZE) },
+    uHorizon: { value: 300000 },
+    uAged: { value: 0 },
+    uDayCol: DAY.col,
+  };
+  const ground = buildGround(haze);
   // half-block lots: two towers can share a block's frontage
-  const towers = buildTowers(sunDir, {
+  const towers = buildTowers(sunDir, haze, {
     counts: TOWERS, tile: C.FAR_TILE, lot: C.FAR_BLOCK / 2, hMin: C.FAR_TOWER_MIN, hMax: C.FAR_TOWER_MAX,
     wide: 0.45, win: 0.032, taper: 0, seed: 0x7e17e7,
   });
   // one to a district, and far fewer than there are districts
-  const spires = buildTowers(sunDir, {
+  const spires = buildTowers(sunDir, haze, {
     counts: SPIRES, tile: C.FAR_SPIRE_TILE, lot: C.FAR_DISTRICT, hMin: 800, hMax: C.FAR_SPIRE_MAX,
     wide: 0.16, win: 0.0075, taper: 0.62, seed: 0x5e17a,
   });
-  const cage = buildCages(sunDir);
+  // the distant city: rises where the towers sink, and runs on into the haze
+  const blocks = buildTowers(sunDir, haze, {
+    counts: BLOCKS, tile: C.FAR_BLOCK_TILE, lot: C.FAR_DISTRICT / 4, hMin: 140, hMax: 980,
+    wide: 0.4, win: 0.012, taper: 0.3, seed: 0xb10c5,
+    inner: [0.3 * C.FAR_TILE, 0.44 * C.FAR_TILE],
+  });
+  const cage = buildCages(sunDir, haze);
   const stars = buildPoints();
   const kept = buildSun();
-  root.add(ground.mesh, towers.mesh, spires.mesh, stars.points, kept.points);
+  root.add(ground.mesh, towers.mesh, blocks.mesh, spires.mesh, cage.lite.group, stars.points, kept.points);
   for (const c of cage.cages) root.add(c.group);
-  return { root, ground, towers, spires, cage, stars, kept, collectors: collectorSpots() };
+  return { root, ground, towers, blocks, spires, cage, stars, kept, haze, collectors: collectorSpots() };
 }

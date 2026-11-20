@@ -1021,7 +1021,6 @@ let farBroken = false;
 let farFirst = false; // this session's arrival: the wormhole is still closing behind
 let met = false; // the pilot has been greeted in the City of Light (saved)
 let farLanded = false; // the Landing has had the pilot's helm once (saved): it does not take it unasked again
-let arriveT = 0; // seconds flown on the far side this visit
 // ...and everything after the suite (src/chapter.js, GDD 5.7.4), saved with it
 const chapter = createChapter({ onSave: () => save() });
 export const chapterDebug = () => chapter;
@@ -1072,17 +1071,19 @@ export const farDoor = () => (ended === 'far' && far ? far.door() : null);
 // ship, and that is where a game come back to belongs (src/game.js).
 export const farBeyond = () => ended === 'far' && !!far && chapter.reached('ez_beyond');
 
-// The first time through, the megaworld does what the Sky City does: a little
-// after the pilot arrives, the Landing takes the helm and flies the ship down
-// to its pad, however far off it is. True once, when that is due (src/game.js
-// asks every physics tick in free flight); never again after any landing there.
+// The first time through, the megaworld does what the Sky City does, after a
+// while: the pilot may look round the caged star the Landing stands beside
+// (src/farside.js leash()), and once they stray past it, or have had long
+// enough, the Landing's beam takes the helm and brings the ship down to its
+// pad. True once, when that is due (src/game.js asks every physics tick in
+// free flight); never again after any landing there.
 export function farWantsLanding(dt) {
   if (ended !== 'far' || !far || farLanded) return false;
-  arriveT += dt;
-  return arriveT >= C.FAR_AUTOLAND_DELAY;
+  return far.leash(dt);
 }
-// The Landing has the helm (asked for, or flown into).
+// The Landing has the helm (asked for, or flown into): its beam shows.
 export function farMarkLanded() {
+  if (far) far.beam();
   if (farLanded) return;
   farLanded = true;
   save();
@@ -1127,7 +1128,6 @@ function applyFar() {
   if (!far) return;
   far.apply(farFirst);
   farFirst = false;
-  arriveT = 0;
   // every ship that came through keeps station on the pilot, over the canopy
   if (fleets) fleets.follow(ship, null, 1, { snap: true, floorY: far.floor });
 }
