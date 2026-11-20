@@ -1,0 +1,175 @@
+// The light ship as a home base (GDD 5.7.8): its rooms, the lifts between
+// them, and what is done aboard between chapters.
+//
+// Three places are walked. The bay (world/basevessel.js) is in the world,
+// under the hull, with the pilot's freighter on its pad; the bridge
+// (world/basebridge.js) and the archive (world/lightship.js, the room the
+// megaworld chapter walked, with a holodeck by its aft door) are walked under
+// the universe's pause, like every room the far side has. The far side builds
+// those rooms for its own story and retires them when that story has done with
+// them (src/farside.js); these are the home base's own, built the first time
+// each is walked into and kept.
+//
+// It knows the story only through `chapter` (who is aboard) and `voyage`
+// (where the ship is, who is out on a trip).
+//
+// Doors are hop keys, `base:*`, resolved by hop(); src/game.js whites out and
+// stands the walker in the place it names:
+//
+//   base:bay       down to the bay (out of the pause)
+//   base:bridge    the bridge, off the lift     base:bridge-aft  ...from the archive
+//   base:archive   the archive, from the bridge base:archive-up  ...off the lift from the bay
+//   base:holo      the archive, at the holodeck (a program has ended)
+//   base:helm      the bridge, at the helm (a chapter has let the ship go)
+
+import { createBaseVessel } from '../world/basevessel.js';
+import { createBaseBridge } from '../world/basebridge.js';
+import { createLightShip } from '../world/lightship.js';
+import { CAPTAINS } from '../world/chapter-dialogue.js';
+import { BASE, CREW_TALK } from '../world/base-dialogue.js';
+import { openHoloPanel } from './holoPanel.js';
+import * as THREE from 'three';
+
+// ctx: { scene, camera, chapter, voyage(): src/voyage.js, hideFleet(),
+//        startHolo(id, back), catalog(): the holodeck's rows, shuttleHome(): the
+//        freighter is in the bay }
+export function createHomebase(ctx) {
+  const { chapter } = ctx;
+  const voyage = () => ctx.voyage();
+  let bay = null, bridge = null, archive = null;
+  const talkTurn = {}; // which of a captain's lines is next
+
+  // --- the trip's roster: a panel of the captains who are left ---
+  function roster() {
+    const crew = chapter.crew();
+    const rows = crew.length
+      ? crew.map((c) => ({ id: c.id, label: c.name.toUpperCase(), note: voyage().along(c.id) ? BASE.rosterAlong : BASE.rosterStay, unlocked: true }))
+      : [{ id: 'none', label: BASE.rosterNone, note: '', unlocked: false, show: true, lockedNote: ' ' }];
+    openHoloPanel(rows, (id) => {
+      voyage().toggleCrew(id);
+      if (bridge) bridge.muster();
+      roster(); // shown again, as it now stands (X closes it)
+    }, { title: BASE.rosterTitle, sub: BASE.rosterSub });
+  }
+  function holodeck() {
+    openHoloPanel(ctx.catalog(), (id) => ctx.startHolo(id, 'base:holo'), { title: BASE.holoTitle, sub: BASE.holoSub, locked: BASE.holoLocked });
+  }
+
+  // --- what a captain on the bridge says ---
+  function talk(c) {
+    const own = CREW_TALK[c.id];
+    const here = voyage().talk(c.id) || [];
+    const pool = [...here, ...own.any];
+    const i = (talkTurn[c.id] = ((talkTurn[c.id] ?? -1) + 1) % pool.length);
+    return { speaker: { name: c.name, species: c.species, cityId: 'The light ship' }, lines: [pool[i]], cine: true };
+  }
+  // --- the chart ---
+  function chart() {
+    const v = voyage();
+    const here = v.system();
+    const lines = [BASE.chartHere.replace('{here}', here.label)];
+    if (!ctx.shuttleHome()) return { speaker: BASE.chartSpeaker, lines: [...lines, BASE.chartNeedShuttle] };
+    const courses = v.courses();
+    if (!courses.length) return { speaker: BASE.chartSpeaker, lines: [...lines, BASE.chartNowhere] };
+    return {
+      speaker: BASE.chartSpeaker, lines,
+      offer: { kind: 'choice', prompt: BASE.chartPrompt, options: [...courses.map((s) => ({ label: s.label, outcomeTag: `base:go:${s.id}` })), { label: BASE.chartStay, outcomeTag: 'base:stay' }] },
+    };
+  }
+  function choose(tag) {
+    const m = /^base:go:(.+)$/.exec(tag || '');
+    if (!m) return null;
+    const to = voyage().courses().find((s) => s.id === m[1]);
+    return to ? { travel: to.id, label: to.label } : null;
+  }
+
+  // --- the rooms ---
+  function getBay() {
+    if (!bay) bay = createBaseVessel({ sunDir: voyage().sunDir, roster });
+    if (!bay.group.parent) ctx.scene.add(bay.group);
+    return bay;
+  }
+  const _sky = { star: null, starCol: new THREE.Color(), bodies: [] };
+  const _pool = Array.from({ length: 8 }, () => ({ dir: new THREE.Vector3(), col: new THREE.Color(), k: 1 }));
+  function sky() {
+    const v = voyage();
+    const sys = v.system();
+    _sky.star = sys.star ? v.sunDir : null;
+    if (sys.star) _sky.starCol.set(sys.star.color);
+    _sky.bodies.length = 0;
+    const st = v.bodies();
+    const b = getBay().group.position;
+    for (let i = 0; i < st.length && i < _pool.length; i++) {
+      const o = _pool[i];
+      o.dir.copy(st[i].pos).sub(b);
+      if (o.dir.lengthSq() < 1) continue;
+      o.dir.normalize();
+      o.col.set(st[i].color);
+      o.k = st[i].k;
+      _sky.bodies.push(o);
+    }
+    return _sky;
+  }
+  function getBridge() {
+    if (!bridge) {
+      bridge = createBaseBridge({
+        scene: ctx.scene, chapter, hideFleet: ctx.hideFleet, sky,
+        aboard: (id) => !chapter.lost(id) && !voyage().along(id),
+        talk, chart, choose,
+        arrive: (id) => voyage().travel(id),
+      });
+    }
+    return bridge;
+  }
+  function getArchive() {
+    if (!archive) {
+      archive = createLightShip({
+        scene: ctx.scene, hideFleet: ctx.hideFleet, chapter,
+        base: { fore: 'base:bridge-aft', aft: 'base:bay', forePrompt: BASE.archiveFore, aftPrompt: BASE.toBay, leaveHint: BASE.toBay.replace('E — ', ''), holoPrompt: BASE.holodeck, holodeck },
+      });
+    }
+    return archive;
+  }
+
+  return {
+    bay: () => (bay ? bay : null),
+    getBay,
+    // A door key -> where it leads: { site, spawn, yaw, look, out }. `look` is a
+    // render preset (src/isolate.js); `out` leaves the pause for the world.
+    hop(key) {
+      if (!chapter.open()) return null;
+      switch (key) {
+        case 'base:bay': { const s = getBay(); return { site: s, spawn: s.fromLift, yaw: s.fromLiftYaw, out: true }; }
+        case 'base:bridge': { const s = getBridge(); return { site: s, spawn: s.spawn, yaw: s.spawnYaw, look: 'dive' }; }
+        case 'base:bridge-aft': { const s = getBridge(); return { site: s, spawn: s.fromAft, yaw: s.fromAftYaw, look: 'dive' }; }
+        case 'base:helm': { const s = getBridge(); return { site: s, spawn: s.atHelm, yaw: s.atHelmYaw, look: 'dive' }; }
+        case 'base:archive': { const s = getArchive(); return { site: s, spawn: s.fromBridge, yaw: s.fromBridgeYaw, look: 'lightship' }; }
+        case 'base:archive-up': { const s = getArchive(); return { site: s, spawn: s.spawn, yaw: s.spawnYaw, look: 'lightship' }; }
+        case 'base:holo': { const s = getArchive(); return { site: s, spawn: s.atHolo, yaw: s.atHoloYaw, look: 'lightship' }; }
+        default: return null;
+      }
+    },
+    // A door aboard has just been walked through (asking clears it).
+    door() {
+      for (const s of [bridge, archive, bay]) {
+        if (!s || !s.inside() || !s.portal) continue;
+        let to = s.portal;
+        s.portal = null;
+        if (s === bay && to === 'base:archive') to = 'base:archive-up';
+        return to;
+      }
+      return null;
+    },
+    roster,
+    holodeck,
+    crewTalk: (c, kind) => ({ speaker: { name: c.name, species: c.species, cityId: 'The freighter' }, lines: CREW_TALK[c.id][kind] || CREW_TALK[c.id].any.slice(0, 1) }),
+    state: () => ({
+      built: { bay: !!bay, bridge: !!bridge, archive: !!archive },
+      inside: bridge && bridge.inside() ? 'bridge' : archive && archive.inside() ? 'archive' : bay && bay.inside() ? 'bay' : null,
+      bay: bay ? bay.info() : null, bridge: bridge ? bridge.info() : null, archive: archive ? archive.info() : null,
+      bridgeSeek: (x) => bridge && bridge.seek(x),
+      places: { bay: bay ? bay.places : null, bridge: bridge ? bridge.places : null, archive: archive ? archive.places : null },
+      crew: CAPTAINS.map((c) => ({ id: c.id, lost: chapter.lost(c.id), along: voyage().along(c.id) })),
+    }),
+  };
+}

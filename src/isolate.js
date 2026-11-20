@@ -175,7 +175,9 @@ function setFarFieldVisible(v, keep) {
   // (`gone`: the far side, src/tenretni.js, has left these behind for good)
   for (const d of deepNebulae) if (d.group) d.group.visible = v && !d.gone;
   for (const s of stations) if (s.group) s.group.visible = v && !s.gone;
-  for (const o of farExtra) o.visible = v;
+  // (`away`: put away by whoever owns it — a stowed megaworld, a system the
+  // light ship is not in, src/voyage.js — and not to be brought back by this)
+  for (const o of farExtra) o.visible = v && !o.userData.away;
   setNebulaVisible(v);
 }
 

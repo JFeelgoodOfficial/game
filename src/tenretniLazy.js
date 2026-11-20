@@ -134,6 +134,20 @@ export const farBeyond = () => (mod ? mod.farBeyond() : false);
 export const farWantsLanding = (dt) => (mod ? mod.farWantsLanding(dt) : false);
 export const farMarkLanded = () => mod && mod.farMarkLanded();
 
+// Past the megaworld (GDD 5.7.7, 5.7.8). farHop: a door of the chapter, the
+// light ship or the system it is in -> { site, spawn, yaw, look, out }.
+// baseDock: the light ship's bay, to dock in; voyageDock: the current
+// system's nearest dock. holoCatalog / holoKind / holoSite: the light ship's
+// holodeck (every world the archive keeps, and how each is gone into).
+export const farHop = (key) => (mod ? mod.farHop(key) : null);
+export const baseDock = () => (mod ? mod.baseDock() : null);
+export const voyageDock = (pos) => (mod ? mod.voyageDock(pos) : null);
+export const holoCatalog = () => (mod ? mod.catalog() : []);
+export const holoKind = (id) => (mod ? mod.holoKind(id) : null);
+export const holoSite = (id) => (mod ? mod.holoSite(id) : null);
+export const holoFailed = (id) => mod && mod.holoFailed(id);
+export const tripCrew = () => (mod ? mod.tripCrew() : null);
+
 // where the story is past the wormhole, for the CODEX (null until the chunk is in)
 export const farStory = () => (mod ? mod.storyState() : null);
 
@@ -154,6 +168,10 @@ export const tenretniDebug = () => ({
   far: () => mod && mod.debugFar(),
   story: () => mod && mod.debugStory(),
   chapter: () => (mod ? mod.chapterDebug() : null),
+  voyage: () => (mod ? mod.voyageDebug() : null),
+  base: () => (mod ? mod.homebaseDebug() : null),
+  hz: () => (mod ? mod.horizonDebug() : null),
+  openSpace: () => (mod ? mod.openSpace() : null),
   warLoss: hostLoss,
   state: () => (mod ? mod.state() : { loaded: false, stage: questStage(SECRET) }),
 });

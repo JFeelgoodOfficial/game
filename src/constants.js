@@ -666,6 +666,20 @@ export const C = {
   // The launch (world/launch.js): the light ship, out from the megaworld and into the hole.
   EZ_LAUNCH_TIME: 74.0, // how long it lasts
   EZ_LAUNCH_CROSS: 56.0, // seconds in, the horizon is crossed
+  // --- the light ship as a home base (src/homebase.js, src/voyage.js, GDD 5.7.8) ---
+  BASE_CAPTURE: 560.0, // the bay's beam takes the helm inside this (times ATMO_SHELL), measured from the middle of the hull
+  BASE_BAY_STANDOFF: 430.0, // how far astern of the pad the run-in begins, and how far ahead of it a launch lets go
+  BASE_BAY_RUN: 5.0, // seconds from the standoff in to the pad
+  BASE_BAY_LIFT: 3.6, // seconds from the pad out through the forward mouth
+  BASE_BAY_HW: 30.0, // the bay deck: half its width
+  BASE_BAY_HL: 84.0, // ...and half its length
+  BASE_BAY_ROOF: 34.0, // the underside of the hull over it
+  BASE_STAR_DIST: 240000.0, // how far off a system's star is drawn
+  BASE_TRAVEL_TIME: 9.0, // seconds a passage between systems is watched for, from the bridge
+  BASE_DOCK_HOVER: 150.0, // a system's outpost: how high over its pad the descent begins
+  BASE_FOLLOW_SPEED: 6.0, // a captain keeping up, on foot (u/s)
+  BASE_FOLLOW_GAP: 2.6, // ...and how far off the pilot's shoulder they walk
+  BASE_GUEST_TALK: 1.9, // how near a captain riding in the freighter is talked to (m)
 };
 
 // How far each band of the lamp reaches, in units, by what it is shining
@@ -690,6 +704,11 @@ export const EZ_LIGHT = 'sun';
 // Whether the Tenretni made a ring of young planets from the shell's strata
 // (world/launch.js). Not decided: off, they rest.
 export const EZ_NEW_WORLDS = true;
+
+// The example system (world/example-system.js): whether its planet is built.
+// It is the one piece of the home base that makes a world after boot
+// (src/planet.js buildPlanet); off, the system is its outpost alone.
+export const BASE_EXAMPLE_PLANET = true;
 
 // --- quality tiers (src/quality.js) ---
 // Kept out of C on purpose: tuning.js binds C to the dev panel, and these are
