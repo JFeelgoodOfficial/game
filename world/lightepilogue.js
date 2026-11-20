@@ -187,6 +187,7 @@ export function createEpilogue(k) {
           point: center.clone().addScaledVector(side, best.px * SPAN).addScaledVector(up0, best.py * SPAN),
           dir: dir.clone(),
           room: best.room * SPAN - 15, // clear air round the middle of the gap
+          west: (best.px + 1) * SPAN, // from the gap to the edge the race goes home round (world/racecourse.js)
           ringed: best.score >= 1,
         };
       }

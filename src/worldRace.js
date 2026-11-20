@@ -36,9 +36,9 @@ import { createRaceFx } from '../world/racefx.js';
 import { RACE, CAPTAINS } from '../world/chapter-dialogue.js';
 
 const KEY = 'fgsf.worldrace';
-const LAPS = 3;
-const BASE = 92; // units a second, a world of speed 1, no boost
-const PENALTY = 2; // seconds for a gate missed
+const LAPS = 2; // (the lap is a third longer than it was, and three of the old one was a long time to be losing)
+const BASE = 82; // units a second, a world of speed 1, no boost
+const PENALTY = 1; // seconds for a gate missed
 const DRAFT = 46; // how far behind another world its pull is felt
 const ASSIST = 0.6; // how hard the pilot's stick is helped toward the next gate (0 none, 1 the stick's full throw)
 const STAND = { x: 9.5, z: -63.5 }; // the Starter's stand, on the terrace
@@ -147,7 +147,7 @@ export function createWorldRace(k) {
       const want = RACE.worlds.find((w) => w.id === names[i].want);
       const w = want && !taken.has(want.id) ? want : free();
       taken.add(w.id);
-      entries.push({ name: names[i].name, world: w, skill: 0.93 + 0.035 * ((i * 7) % 4) });
+      entries.push({ name: names[i].name, world: w, skill: 0.86 + 0.035 * ((i * 7) % 4) });
     }
     // the grid: two abreast back from the line, the pilot in the middle of it
     const slot = entries.map((_, i) => i);
@@ -255,7 +255,8 @@ export function createWorldRace(k) {
       if (gt) {
         const toGate = ((gt.s - r.s + 1) % 1) * course.length;
         const near = toGate < 220 ? 1 - toGate / 220 : 0;
-        const help = ASSIST * Math.min(1, 0.35 + near) * Math.min(1, Math.hypot(ax, ay) * 4);
+        // (half of it is there with the stick at rest: a world left alone now drifts to the gate rather than past it)
+        const help = ASSIST * Math.min(1, 0.35 + near) * Math.max(0.5, Math.min(1, Math.hypot(ax, ay) * 4));
         ax = Math.max(-1, Math.min(1, ax + Math.max(-1, Math.min(1, (gt.across - r.x) / 6)) * help * (1 - 0.6 * Math.abs(ax))));
         ay = Math.max(-1, Math.min(1, ay + Math.max(-1, Math.min(1, (gt.up - r.y) / 6)) * help * (1 - 0.6 * Math.abs(ay))));
       }
@@ -286,7 +287,7 @@ export function createWorldRace(k) {
           r.meter = Math.min(1, r.meter + 0.3);
           event = 1;
         } else {
-          r.slow = 0.6;
+          r.slow = r.ai ? 0.6 : 0.3;
           r.missed = (r.missed || 0) + 1;
           event = 2;
         }
@@ -311,7 +312,7 @@ export function createWorldRace(k) {
   // and round anything it is about to run into.
   function think(r, t) {
     const gt = course.gates[r.gate] || course.gates[0];
-    const wob = (1.02 - r.skill) * 60; // the less sure, the wider of the mark
+    const wob = (1.0 - r.skill) * 60; // the less sure, the wider of the mark
     let tx = gt.across + Math.sin(t * 0.9 + r.seed * 5) * wob, ty = gt.up + Math.cos(t * 0.7 + r.seed * 3) * wob;
     // only close to a gate does it really commit to it; between gates it drifts back to the middle
     const toGate = ((gt.s - r.s + 1) % 1) * course.length;
@@ -322,9 +323,10 @@ export function createWorldRace(k) {
     r.ay = Math.max(-1, Math.min(1, (ty - r.y) / 7));
     // boost when there is plenty, or when the pilot is getting away
     const gap = progress(me) - progress(r);
-    r.wantBoost = r.meter > 0.75 || (gap > 0.02 && r.meter > 0.25 && Math.sin(t * 0.5 + r.seed) > 0);
+    r.wantBoost = gap > -0.03 && (r.meter > 0.75 || (gap > 0.02 && r.meter > 0.25 && Math.sin(t * 0.5 + r.seed) > 0));
     // (a field that strings right out is no race: those well behind find a little more, those well ahead ease)
-    r.rubber = gap > 0.06 ? 1.06 : gap < -0.06 ? 0.95 : 1;
+    // (and they wait for a pilot who is behind: this is the first race most people fly)
+    r.rubber = gap > 0.06 ? 1.04 : gap < -0.02 ? 0.9 : 1;
   }
 
   // Worlds in each other's way: they shove, by weight, and whoever is tucked in behind another is pulled along.
@@ -466,6 +468,7 @@ export function createWorldRace(k) {
         } else if (ev === 4) {
           state = 'done';
           T = 0;
+          if (k.onFinish) k.onFinish(); // a race flown to the end, in any place (the Archivist waits on it: src/chapter.js)
           rank();
           place = order.indexOf(me);
           const isBest = !(best[me.world.id] <= time);

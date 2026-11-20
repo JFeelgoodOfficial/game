@@ -893,6 +893,13 @@ export function createLightCity(ctx) {
   // districts and its racing are not built, or are put out of use if they were.
   let grown = null; // world/eracity.js
   let eraSaid = false;
+  // a race flown to the end: it went through the thing the pilot drew, too
+  const raceDone = () => {
+    const ch = ctx.chapter;
+    if (!ch) return;
+    ch.markRaced();
+    ch.markSite('monument');
+  };
   const eraNow = () => !!ctx.chapter && ctx.chapter.reached('ez_era');
   const retire = (from) => {
     for (let i = from; i < consoles.length; i++) {
@@ -1008,7 +1015,7 @@ export function createLightCity(ctx) {
         if (!race && ch.epilogue() && !eraNow()) {
           try {
             const n0 = consoles.length;
-            race = createWorldRace({ group, camera: ctx.camera, colliders, consoles, way: epi ? epi.way : null, towers: city.parts.slice(0, 2), hit: epi ? epi.hit : null });
+            race = createWorldRace({ group, camera: ctx.camera, colliders, consoles, way: epi ? epi.way : null, towers: city.parts.slice(0, 2), hit: epi ? epi.hit : null, onFinish: raceDone });
             retire(n0);
           } catch (err) {
             console.warn('[lightcity] the race could not be built', err);
@@ -1083,7 +1090,7 @@ export function createLightCity(ctx) {
       if (!race && ctx.chapter && ctx.chapter.epilogue() && epi && !epi.held() && !eraNow()) {
         try {
           const n0 = consoles.length;
-          race = createWorldRace({ group, camera: ctx.camera, colliders, consoles, way: epi ? epi.way : null, towers: city.parts.slice(0, 2), hit: epi ? epi.hit : null });
+          race = createWorldRace({ group, camera: ctx.camera, colliders, consoles, way: epi ? epi.way : null, towers: city.parts.slice(0, 2), hit: epi ? epi.hit : null, onFinish: raceDone });
           retire(n0);
         } catch (err) {
           console.warn('[lightcity] the race could not be built', err);

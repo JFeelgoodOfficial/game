@@ -8,6 +8,8 @@ export const C = {
   // --- flight model (GDD 3.4) ---
   ANGULAR_DAMPING: 0.94, // per physics tick, at 60hz
   LINEAR_DAMPING: 1.0, // exactly 1.0. no drag in vacuum.
+  ROLL_TORQUE: 0.03, // rad/s of roll per physics tick while a roll paddle is held
+  AUTO_LEVEL: 0.02, // per tick: how hard the wings are brought level where there is a horizon (ship.levelUp)
   TORQUE_SCALE: 0.0008, // rad/s of angular velocity per pixel of mouse travel
   THRUST: 12.0, // units/s^2 along local forward
   BOOST_MULTIPLIER: 7.0, // thrust multiplier while W is held. W IS the boost —

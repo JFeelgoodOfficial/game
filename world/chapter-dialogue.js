@@ -332,7 +332,8 @@ export const RACE = {
   prompt: 'E — RACE THE WORLDS',
   lines: [
     'They build small ones now, for sport. Half the size of the one that came for Terra, and nobody inside.',
-    'Three laps. Through the gates of light: over the Pavilion, up round the sky, back over the three quarters.',
+    'Two laps of one plain circuit. Out along the straight, through the thing you drew, one wide turn round the end of it, and home over two low hills.',
+    'Fly through the gates of light. The next one is gold. You are helped toward it; a missed gate costs a second.',
     'W and S climb and dive. A and D turn. SPACE spends your boost. Clean gates earn it back.',
     'Keep clear of the towers and of the thing across the city. A world that touches either does not come back.',
     'Your captains are flying. Sit in behind a world and it will pull you along. Lean on one and it will lean back.',

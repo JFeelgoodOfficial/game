@@ -76,6 +76,21 @@ const STEWARD = {
 
 // `k`: the city's kit { group, lit, glow, glass, surfaces, colliders, rail(ax, az, bx, bz),
 //      npcs, consoles, glowMat, chapter — src/chapter.js, or none }. Returns { tick(dt, t, walker), rooms, floors, setWalker(p) }.
+// A night, as the eye has it: the dark comes over, holds, and lifts.
+let sleepEl = null;
+function sleepFade() {
+  if (!sleepEl) {
+    sleepEl = document.createElement('div');
+    sleepEl.id = 'suiteSleep';
+    sleepEl.style.cssText = 'position:fixed;inset:0;background:#02030a;opacity:0;pointer-events:none;z-index:22;transition:opacity 1.3s ease;display:flex;align-items:center;justify-content:center;color:#cfe6ff;font:600 15px/1.5 "Courier New",monospace;letter-spacing:0.18em;text-align:center';
+    document.body.appendChild(sleepEl);
+  }
+  sleepEl.textContent = 'YOU SLEEP.';
+  sleepEl.style.opacity = '1';
+  setTimeout(() => (sleepEl.textContent = 'MORNING, BY THE CITY\'S CLOCK.'), 2600);
+  setTimeout(() => (sleepEl.style.opacity = '0'), 4600);
+}
+
 export function buildPavilion(k) {
   const { lit, glow, glass, surfaces, colliders, rail, npcs, consoles } = k;
   const P = PAV, S = SUITE;
@@ -209,6 +224,17 @@ export function buildPavilion(k) {
   at(4.2, 0.2, 2.6, -9.1, 1.36, 0.2, COL.blue, 0.5);
   solid(-8.8, -0.2, 2.6);
   solid(-7.4, -3.0, 2.2);
+  // ...and it can be slept in: a night in the suite is one of the things the
+  // Archivist waits for (src/chapter.js). The dark comes down and lifts again.
+  consoles.push({
+    x: S.x - 5.6, y: S.y, z: S.z - 0.4, r: 3.0, prompt: 'E — SLEEP',
+    off: () => !!(k.chapter && k.chapter.reached('ez_era')),
+    use() {
+      sleepFade();
+      if (k.chapter) k.chapter.markSlept();
+      return null;
+    },
+  });
   // a curved seat looking at the heart of the city, and a low table
   for (let i = -1; i <= 1; i++) {
     const a = -Math.PI / 2 + i * 0.42 + 0.5;

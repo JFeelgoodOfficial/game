@@ -21,31 +21,49 @@
 
 import * as THREE from 'three';
 
-// Without a monument to fly through (no drawing was ever made): up into the sky and round.
-const PATH = [
-  [0, 42, -52], [95, 48, -40], [170, 95, -95], [200, 190, -20], [120, 330, 110], [-40, 520, 150],
-  [-200, 700, 40], [-430, 620, -250], [-520, 440, -520], [-380, 390, -640], [-220, 400, -420],
-  [-70, 250, -160], [-60, 62, -150], [0, 44, -186], [80, 40, -150], [62, 42, -92],
-];
-// With one: out over the Pavilion, down among the towers to the thing the pilot
-// drew, through it, up and back over the city's heart, and home over the hangar
-// and the three districts. `g`: the gap; `d`: the way through it (unit, level).
-const pathVia = (g, d) => [
-  [0, 42, -52], [95, 48, -40], [170, 80, -80], [240, 170, -230],
-  [g.x - d.x * 230, g.y - 10, g.z - d.z * 230], [g.x - d.x * 70, g.y, g.z - d.z * 70],
-  [g.x, g.y, g.z],
-  [g.x + d.x * 80, g.y, g.z + d.z * 80], [g.x + d.x * 240, g.y + 60, g.z + d.z * 240],
-  [g.x + d.x * 330 - d.z * 160, g.y + 240, g.z + d.z * 330 + d.x * 160],
-  [60, 700, -640], [-220, 640, -560], [-430, 480, -420], [-300, 400, -250],
-  [-70, 250, -160], [-60, 62, -150], [0, 44, -186], [80, 40, -150], [62, 42, -92],
-];
+// The course is a plain circuit, after the owner's sketch of a kart track: out
+// along a straight, through the thing the pilot drew, one wide turn round the
+// end of it, a long way home with two low hills, and one wide turn back to the
+// line. (It used to climb a spiral to 700 and dive 190 in 70: the turns came
+// faster than a thumb could follow, and half the gates went by unseen.)
+//
+// `g`: the gap in the monument; `d`: the way through it (unit, level);
+// `west`: how far the gap is from the monument's edge on the left of `d`,
+// which is the edge the way home goes round.
+const START = [0, 42, -52];
+export function circuit(g, d, west) {
+  const sx = -d.z, sz = d.x; // the right of `d`
+  // the start, in the gap's own frame: `as` along d, `ls` to the right of it
+  const rx = START[0] - g.x, rz = START[2] - g.z;
+  const as = rx * d.x + rz * d.z, ls = rx * sx + rz * sz;
+  // how far over the way home runs: wide enough to clear the monument's edge,
+  // and for both end turns to be wide ones
+  const w = Math.max(520, west + 150, 560 - ls);
+  const at = (along, lat, y) => [g.x + d.x * along + sx * lat, y, g.z + d.z * along + sz * lat];
+  const mix = (a, b, k) => a + (b - a) * k;
+  const cruise = 170;
+  const r = w / 2; // the turn beyond the monument
+  const cl = (ls - w) / 2, rho = (ls + w) / 2; // the turn home: from the way back, round to the line
+  const S7 = Math.SQRT1_2;
+  return [
+    START,
+    at(as * 0.62, ls * 0.45, mix(START[1], g.y, 0.45)),
+    at(-210, 0, g.y - 6), at(0, 0, g.y), at(210, 0, g.y),
+    at(210 + r * S7, -r + r * S7, mix(g.y, cruise, 0.25)), at(210 + r, -r, mix(g.y, cruise, 0.6)), at(210 + r * S7, -r - r * S7, mix(g.y, cruise, 0.9)),
+    at(150, -w, cruise), at(-150, -w, 105), at(as * 0.55, -w, 185), at(as, -w, 130),
+    at(as - rho * S7, cl - rho * S7, 96), at(as - rho, cl, 66), at(as - rho * S7, cl + rho * S7, 48),
+  ];
+}
+// With no drawing there is no monument: the same circuit round where it would stand.
+const PLAIN = { point: { x: 445, y: 150, z: -667 }, dir: { x: 0.48, z: -0.877 }, west: 310 };
 const FRAMES = 600;
-export const GATE_R = 14; // a gate's radius (11 was a needle's eye at race speed on a phone stick)
+export const GATE_R = 20; // a gate's radius (11 was a needle's eye at race speed on a phone stick, and 14 not much better)
 export const LANE = 24; // how far off the middle a racer can get
 
 // `via`: { point, dir } from the monument (world/lightepilogue.js `way`), or nothing.
 export function createCourse(group, via) {
-  const path = via ? pathVia(via.point, via.dir) : PATH;
+  const v = via || PLAIN;
+  const path = circuit(v.point, v.dir, v.west ?? 310);
   const curve = new THREE.CatmullRomCurve3(path.map((p) => new THREE.Vector3(p[0], p[1], p[2])), true, 'centripetal');
   curve.arcLengthDivisions = 800;
   const length = curve.getLength();
@@ -73,8 +91,8 @@ export function createCourse(group, via) {
     return out.addScaledVector(lerp(U, s, _b).normalize(), upBy);
   }
 
-  // gates: one every hundred-odd units, each set off the middle its own way
-  const n = Math.round(length / 115);
+  // gates: one every couple of hundred units, each set a little off the middle its own way
+  const n = Math.round(length / 190);
   const gates = [];
   // where on the lap the monument is: gates near it are set dead centre, because the gap is where it is
   let sVia = -1;
@@ -96,7 +114,7 @@ export function createCourse(group, via) {
       d = Math.min(d, 1 - d) * length;
       off = Math.min(Math.max((d - 90) / 160, 0), 1);
     }
-    gates.push({ s, across: Math.sin(i * 2.4) * 20 * off, up: Math.cos(i * 1.7) * 12 * off });
+    gates.push({ s, across: Math.sin(i * 2.4) * 8 * off, up: Math.cos(i * 1.7) * 5 * off });
   }
   const ring = new THREE.InstancedMesh(new THREE.TorusGeometry(GATE_R, 0.55, 8, 40), new THREE.MeshBasicMaterial({ fog: false, toneMapped: false }), n);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), pos = new THREE.Vector3(), z = new THREE.Vector3(0, 0, 1), dir = new THREE.Vector3();

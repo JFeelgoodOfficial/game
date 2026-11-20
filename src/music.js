@@ -99,10 +99,14 @@ function setTrack(index) {
 }
 
 let duck = 1; // 1 full level; sfx.js lowers it while the hull is loud
+// Where the radio does not reach at all (inside the megaworld: the well, the
+// hollow, the first world). A second factor because sfx.js rewrites `duck`
+// every frame. `areaTo` is what was asked for, `area` what is heard: it fades.
+let area = 1, areaTo = 1, areaTimer = 0;
 
 function applyVolume() {
   if (!audio) return;
-  audio.volume = settings.musicVolume * duck;
+  audio.volume = Math.max(0, Math.min(1, settings.musicVolume * duck * area));
   audio.muted = settings.muted;
 }
 
@@ -113,6 +117,23 @@ export function setMusicDuck(k) {
   duck = k;
   applyVolume();
 }
+// 0 = no signal here, 1 = the radio as usual. Called every frame by whoever
+// knows where the pilot is; the fade (about 2 s) runs on its own timer so it
+// does not need a frame loop of its own.
+export function setMusicArea(k) {
+  areaTo = k > 0.5 ? 1 : 0;
+  if (areaTo === area || areaTimer) return;
+  areaTimer = setInterval(() => {
+    area += Math.sign(areaTo - area) * 0.05;
+    if (Math.abs(areaTo - area) < 0.05) {
+      area = areaTo;
+      clearInterval(areaTimer);
+      areaTimer = 0;
+    }
+    applyVolume();
+  }, 100);
+}
+export const musicArea = () => ({ area, to: areaTo });
 onSettingsChange(applyVolume);
 
 function ensureAudio() {

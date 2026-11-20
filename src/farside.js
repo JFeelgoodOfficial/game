@@ -33,6 +33,7 @@ import * as THREE from 'three';
 import { C } from './constants.js';
 import { ship } from './ship.js';
 import { sun } from './sun.js';
+import { setMusicArea } from './music.js';
 import { Q } from './quality.js';
 import { originOffset, addShiftable } from './origin.js';
 import { addBody } from './gravity.js';
@@ -80,6 +81,7 @@ const GREETING = {
   ],
 };
 
+const FAR_UP = new THREE.Vector3(0, 1, 0); // the megaworld is flat: up is up
 const wrap = (v, p) => ((v % p) + p) % p;
 
 // ctx: { scene, camera, sunWorld — tenretni's live unit vector toward the
@@ -616,6 +618,9 @@ export function createFarside(ctx) {
       place(performance.now() / 1000);
     },
     update(dt, t, flying) {
+      ship.levelUp = active ? FAR_UP : null;
+      // no radio inside the megaworld: only what the hollow sounds like (world/entryzero-audio.js)
+      setMusicArea(active && ((sub && sub.inside()) || (ground && ground.inside())) ? 0 : 1);
       if (!active) return;
       fade = Math.min(fade + dt / C.FAR_FADE_IN, 1);
       slotT += dt;

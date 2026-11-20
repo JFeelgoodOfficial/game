@@ -27,7 +27,7 @@
 //
 // Every word comes from world/chapter-dialogue.js and world/entryzero-dialogue.js.
 
-import { addCodex } from './journal.js';
+import { addCodex, codexSubjects } from './journal.js';
 import { uiSound } from './sfx.js';
 import { LAYERS } from '../world/layerplanet.js';
 import { C } from './constants.js';
@@ -41,6 +41,8 @@ export const STAGES = [
   'ez_offer', 'ez_descent', 'ez_firewall', 'ez_deep', 'ez_centre', 'ez_relics', 'ez_reveal', 'ez_ascent', 'ez_era', 'ez_launch', 'ez_beyond',
 ];
 
+// the four sights of the City of Light: the three districts' finds, and the thing built from the drawing
+export const SITES = ['seam', 'bell', 'saturday', 'monument'];
 const ALL_BANDS = (1 << BANDS.length) - 1;
 const ALL_RELICS = (1 << RELICS.length) - 1;
 const isCaptain = (id) => CAPTAINS.some((c) => c.id === id);
@@ -55,6 +57,13 @@ export function createChapter(ctx) {
   let home = false; // the light ship is back in its hangar, a long time later
   const clock = { ship: 0, world: 0 }; // what the two clocks read when the ship was down
   const ez = { log: 0, frags: 0, stay: null, lost: [], node: 0, clock: 0 };
+  // What the pilot does with the city before the Archivist comes down with
+  // Entry Zero: flies a race to the end, sees the four things worth seeing,
+  // and sleeps a night in the suite. (It used to come the moment the ship had
+  // been seen off, before the pilot had lived there at all.)
+  let raced = false, slept = false;
+  const sites = [];
+  const settled = () => raced && slept && SITES.every((s) => sites.includes(s));
 
   const at = (s) => STAGES.indexOf(s);
   function advance(to) {
@@ -87,7 +96,7 @@ export function createChapter(ctx) {
       }
       if (tag === 'ch:wait') return SUITE_WAIT;
       if (tag === 'ez:accept') {
-        if (at(stage) >= at('done') && epilogue && advance('ez_offer')) {
+        if (at(stage) >= at('done') && epilogue && settled() && advance('ez_offer')) {
           uiSound('engage');
           addCodex(OFFER.codex);
         }
@@ -177,7 +186,26 @@ export function createChapter(ctx) {
     // --- Entry Zero (GDD 5.7.5) ---
     // The offer can be made: the Keeper has been heard and the ship seen off
     // (the two happen in either order).
-    ezOpen: () => at(stage) >= at('done') && epilogue,
+    // ...and the pilot has settled in: see `settled`.
+    ezOpen: () => at(stage) >= at('done') && epilogue && (settled() || at(stage) >= at('ez_offer')),
+    // the three things asked of the pilot first
+    markRaced() {
+      if (raced) return;
+      raced = true;
+      ctx.onSave();
+    },
+    markSlept() {
+      if (slept) return;
+      slept = true;
+      ctx.onSave();
+    },
+    markSite(id) {
+      if (!SITES.includes(id) || sites.includes(id)) return false;
+      sites.push(id);
+      ctx.onSave();
+      return true;
+    },
+    settling: () => ({ raced, slept, sites: sites.slice(), need: SITES.length, due: at(stage) >= at('done') && epilogue && at(stage) < at('ez_offer') }),
     // the Archivist, at the rail (world/entryoffer.js)
     archivistTalk: () => (at(stage) >= at('ez_era') ? ERA.archivist : at(stage) < at('ez_offer') ? OFFER.ask : OFFER.remind),
     // the light ship, at the gallery, a million years on: the last question
@@ -253,7 +281,7 @@ export function createChapter(ctx) {
       const z = ez.log || ez.frags || ez.stay || ez.lost.length || ez.node || ez.clock >= 1
         ? { log: ez.log || undefined, frags: ez.frags || undefined, stay: ez.stay || undefined, lost: ez.lost.length ? ez.lost.slice() : undefined, node: ez.node || undefined, clock: Math.round(ez.clock) || undefined }
         : undefined;
-      return { stage, picks: { ...picks }, seen: seen.slice(), assigned: assigned || undefined, home: home || undefined, epilogue: epilogue || undefined, clock: clock.world ? [Math.round(clock.ship), Math.round(clock.world)] : undefined, ez: z };
+      return { stage, picks: { ...picks }, seen: seen.slice(), assigned: assigned || undefined, home: home || undefined, epilogue: epilogue || undefined, raced: raced || undefined, slept: slept || undefined, sites: sites.length ? sites.slice() : undefined, clock: clock.world ? [Math.round(clock.ship), Math.round(clock.world)] : undefined, ez: z };
     },
     restore(raw) {
       if (!raw || typeof raw !== 'object') return;
@@ -265,6 +293,16 @@ export function createChapter(ctx) {
       if (raw.assigned) assigned = true;
       if (raw.home) home = true;
       if (raw.epilogue) epilogue = true;
+      if (raw.raced) raced = true;
+      if (raw.slept) slept = true;
+      if (Array.isArray(raw.sites)) for (const s of SITES) if (raw.sites.includes(s) && !sites.includes(s)) sites.push(s);
+      // saves from before any of this was asked: what can be told was done, was done
+      try {
+        const best = JSON.parse(localStorage.getItem('fgsf.worldrace') || 'null');
+        if (best && best.best && Object.keys(best.best).length) raced = true;
+      } catch { /* no record: not raced */ }
+      const known = codexSubjects();
+      for (const [id, subject] of [['seam', 'The Wall of Names'], ['bell', 'The Ninth Bell'], ['saturday', 'Saturday']]) if (known.includes(subject) && !sites.includes(id)) sites.push(id);
       if (Array.isArray(raw.clock) && raw.clock.length === 2 && raw.clock.every(Number.isFinite)) [clock.ship, clock.world] = raw.clock;
       const z = raw.ez;
       if (z && typeof z === 'object') {
@@ -284,6 +322,6 @@ export function createChapter(ctx) {
       ctx.onSave();
       return true;
     },
-    state: () => ({ stage, home, epilogue, picks: { ...picks }, seen: seen.slice(), assigned, clock: { ...clock }, ez: { ...ez, lost: ez.lost.slice() } }),
+    state: () => ({ stage, home, epilogue, raced, slept, sites: sites.slice(), picks: { ...picks }, seen: seen.slice(), assigned, clock: { ...clock }, ez: { ...ez, lost: ez.lost.slice() } }),
   };
 }
