@@ -687,7 +687,7 @@ export const C = {
   HZ_ROOF_MATCH: 0.10, HZ_ROOF_XRAY: 0.35, HZ_ROOF_MISS: 0.60,
   HZ_LOOK_RANGE: 14, HZ_LOOK_TIME: 9, HZ_LOOK_HELP: 2, HZ_LOOK_SINK: 0.08, HZ_LOOK_CONE: 0.3,
   HZ_FADE: 120, HZ_FADE_GRACE: 20, HZ_LIGHTS_NEAR_SOLO: 0.5, HZ_WAKE_TIME: 8,
-  HZ_GAP: 0.05, HZ_GAP_EVERY: 0.22, HZ_SWING: 9.0, HZ_TRICKLE: 0.02, HZ_CALL: 3, HZ_NUDGE: 0.35, HZ_RING_X: -0.75,
+  HZ_GAP: 0.09, HZ_GAP_EVERY: 0.22, HZ_KEEL_RATE: 3.0, HZ_KEEL_PULL: 0.2, HZ_TRICKLE: 0.02, HZ_CALL: 3, HZ_NUDGE: 0.35, HZ_RING_X: -0.75,
   HZ_LOOK_SEC: 6,
   // --- the light ship as a home base (src/homebase.js, src/voyage.js, GDD 5.7.8) ---
   BASE_CAPTURE: 560.0, // the bay's beam takes the helm inside this (times ATMO_SHELL), measured from the middle of the hull
