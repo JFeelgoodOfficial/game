@@ -755,44 +755,44 @@ const STORY = {
       const left = Object.keys(WATER_WORLDS).filter((k) => !eaten.includes(k));
       return { speaker, cine: cineOnce(`warden:ate:${eaten.length}`), lines: left.length
         ? [
-          `${WATER_WORLDS[eaten[eaten.length - 1]]} is part of this world now. We are larger. The count is correct.`,
+          `${WATER_WORLDS[eaten[eaten.length - 1]]} is part of this world now. Nothing on it was destroyed. Everything on it is kept. Everyone.`,
           `One world with water remains in your log: ${WATER_WORLDS[left[0]]}. The navigation deck is open to you.`,
           // the war has started by now: say where the pilot's next errand is
-          'The other worlds have launched their fleets. Iron, song and commerce. Their captains will want a word with you.',
+          'The three worlds that were fighting each other have stopped. Their fleets are watching us instead. Their captains will want a word with you.',
         ]
         : [
           'Two oceans. Both ours. This world has air again, and a shield over its heart.',
-          'You have been useful, pilot. Tenretni does not forget what is useful: your vessel has a new room. Starboard side of your gallery.',
-          'It holds what we hold. Every world we take in will be there for you to walk. The first is the ice world you gave us.',
-          'We no longer need a heading. The count continues without you.',
+          'You have been useful, pilot. Your vessel has a new room, on the starboard side of your gallery.',
+          'It shows what we keep. Every world we take in is there for you to walk, whole, with everyone on it. The first is the ice world you led us to.',
+          'We no longer need a heading from you. We have your whole log. We will go to every world in it.',
         ] };
     }
     if (role === 'warden') {
       if (at !== 'terra') {
         return { speaker, cine: cineOnce(`warden:at:${at}`), lines: [
-          `${hereName()}. Water confirmed. The count is correct.`,
-          'We hold here. What happens next is not yours to choose.',
-          'The navigation deck remains open to you. There is one other world with water in your log.',
+          `${hereName()}. It has water. We are taking it in now: its sea, its ground, its people. All of it will be kept.`,
+          'You cannot stop this. You can watch.',
+          'There is one other world with water in your log. When this is done, go to the navigation deck and send us there.',
         ] };
       }
       return { speaker, cine: cineOnce('warden:intro'), lines: [
-        'Pilot. Your vessel was read on approach. Its navigation log has been copied. All of it.',
-        'This world has been recompiled. Its core is the engine. It moves now.',
-        'It does not move without a heading. The heading is yours to give. That is the arrangement.',
-        'We require a planet with water. Your log holds two. Go to the navigation deck and choose.',
+        'Pilot. We are Tenretni. We keep things. We took this world apart to keep it, and everyone who lived on it is kept with it.',
+        'We read your ship as it came in. We copied your navigation log: every world you have ever visited.',
+        'This world is our ship now. Its core is the engine. It needs a heading, and we have decided you will give it.',
+        'We need a planet with water. Your log has two. Go to the navigation deck, east of here, and choose one.',
       ] };
     }
     if (role === 'navigator') {
       return { speaker, lines: at === 'terra'
-        ? ['The chart is yours. We drew it from your log.', 'Two worlds with water. Use the console.']
+        ? ['This chart is drawn from your log. Without you we would not have known where to go.', 'Two worlds have water. Choose one at the console.']
         : [`Arrived: ${hereName()}.`, 'The console will still take a heading.'] };
     }
-    if (role === 'sentry') return { speaker, lines: ['You are expected. Walk.'] };
+    if (role === 'sentry') return { speaker, lines: ['You are expected. The Warden is on the dais, straight ahead.'] };
     if (role === 'operator') return { speaker, lines: ['Core output nominal.', 'Do not touch the consoles. Not these.'] };
     const counts = [
       'Four hundred and twelve trillion, nine hundred billion, six. Seven. Eight.',
-      'One ocean. Removed. Next.',
-      'Tenretni counts. Tenretni is never wrong. Tenretni counts.',
+      'One ocean. Kept. Next.',
+      'We count what we keep. We have never lost one. We do not know how to stop.',
     ];
     return { speaker, lines: [counts[i % counts.length]] };
   },
@@ -1022,6 +1022,12 @@ let arriveT = 0; // seconds flown on the far side this visit
 // ...and everything after the suite (src/chapter.js, GDD 5.7.4), saved with it
 const chapter = createChapter({ onSave: () => save() });
 export const chapterDebug = () => chapter;
+// What the CODEX needs to say where the story is on the far side (src/codexData.js).
+export const storyState = () => ({
+  ended, met, landed: farLanded,
+  ch: chapter.state(), settling: chapter.settling(), offer: chapter.ezOpen(),
+  picks: chapter.count(), ready: chapter.ready(),
+});
 
 // Build the megaworld (hidden, weightless until applied). Once.
 function loadFar() {
@@ -1034,6 +1040,8 @@ function loadFar() {
       onMet: () => {
         if (met) return;
         met = true;
+        addCodex('The Kept');
+        addCodex('The Three Captains');
         save();
         addCodex('The City of Light');
       },

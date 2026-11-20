@@ -118,14 +118,14 @@ export const VISITOR = TENRETNI('The Archivist');
 export const SUITE_OFFER = {
   speaker: VISITOR,
   lines: [
-    'That is yours. We have all of it but the end.',
-    'We can build it again. Every stone where it stood.',
-    'We built a ship that goes where its pilot imagines. We cannot fly it.',
-    'We have every answer. We lack a question.',
+    'I am the Archivist. That world in the window is yours. We keep it, and everyone who lived on it, asleep.',
+    'We can copy anything we have seen. We cannot finish a world or wake a person. To do that we would have to make something new, and we have never made anything new.',
+    'We built a ship that goes wherever its pilot imagines. None of us can fly it. We only remember. You imagine.',
+    'Fly it for us, once. Bring back one thing that never existed. With that we believe we can wake everyone we keep, and build their worlds again.',
   ],
   offer: {
     kind: 'choice',
-    prompt: 'FLY IT, AND WE BUILD YOUR WORLD.',
+    prompt: 'FLY IT, AND EVERYONE WE KEEP COMES BACK.',
     options: [
       { label: 'SHOW ME THE SHIP', outcomeTag: 'ch:accept' },
       { label: 'NOT YET', outcomeTag: 'ch:wait' },
@@ -134,16 +134,16 @@ export const SUITE_OFFER = {
 };
 export const SUITE_ACCEPT = {
   speaker: VISITOR,
-  lines: ['The hangar. West of the terrace.', 'Watch one of us try.'],
+  lines: ['The ship is in the hangar, west of the terrace. Go down by the lift.', 'First watch one of us try to fly it. Then you will see what we lack.'],
 };
 export const SUITE_WAIT = {
   speaker: VISITOR,
-  lines: ['It will keep turning. We are patient. It is most of what we are.'],
+  lines: ['Then they stay asleep a while longer. They do not feel the time. We will wait. Waiting is most of what we are.'],
 };
 // said again if the pilot comes back before going to the hangar
 export const SUITE_REMIND = {
   speaker: VISITOR,
-  lines: ['The hangar. West of the terrace.'],
+  lines: ['The ship is in the hangar, west of the terrace. Take the lift down.'],
 };
 
 // --- 1. the hangar demo ---------------------------------------------------------
@@ -151,30 +151,30 @@ export const DEMO = {
   prompt: 'E — WATCH',
   // [seconds into the demo, line]
   lines: [
-    [3, 'IT GOES WHERE THE PILOT IMAGINES.'],
-    [27, 'WE ONLY REMEMBER.'],
+    [3, 'THE SHIP GOES WHERE ITS PILOT IMAGINES.'],
+    [27, 'OUR PILOT CAN ONLY REMEMBER. SO IT GOES NOWHERE.'],
   ],
   board: 'E — BOARD THE LIGHT SHIP',
 };
 
 // --- 2. the holodeck on the light ship ---------------------------------------
 export const HOLO = {
-  enter: 'THE ARCHIVE. TAKE ONE THING FROM EACH WORLD.',
+  enter: 'EACH ROOM SHOWS ONE WORLD WE KEEP. TAKE ONE THING FROM FIVE OF THEM.',
   take: 'E — TAKE',
   swap: 'E — TAKE THIS INSTEAD',
   // {n} of {need}
   count: '{n} OF {need} WORLDS',
-  ready: 'THE BRIDGE IS FORWARD.',
+  ready: 'YOU HAVE ENOUGH. THE BRIDGE IS THROUGH THE DOOR AT THE END OF THE WALK.',
 };
 
 // The special assignment: heard once three rooms have been walked into.
 export const ASSIGNMENT = {
   speaker: TENRETNI('The Archivist'),
   lines: [
-    'One more thing. The ship cannot go deep enough.',
-    'There is a shuttle. One seat. One tether.',
-    'Below the ship, time nearly stops. We have never sent a mind there.',
-    'We do not know what you will see. That is why it must be you.',
+    'One more thing. This ship will take you down beside the black hole, and it cannot go deep enough.',
+    'There is a shuttle on a tether, with one seat. You will ride it the last of the way.',
+    'Understand the clocks. Down there time runs slowly for you. A minute for you is a year in the city.',
+    'Nothing here changes while you are down. Whatever you make, the city only has it once you bring it home. Then we will have had years to build with it.',
   ],
 };
 
@@ -186,10 +186,11 @@ export const DIVE = {
   // [seconds after the ship settles, captain id (see CAPTAINS) or null, line]
   lines: [
     [2, 'vask', 'OUR CLOCK IS FINE. LOOK AT THEIRS.'],
-    [8, 'marrow', 'IT IS NOT BROKEN. WE ARE SLOW. THE HOLE IS HOLDING OUR TIME BACK.'],
+    [8, 'marrow', 'IT IS NOT BROKEN. WE ARE SLOW. THE BLACK HOLE IS HOLDING OUR TIME BACK.'],
     [15, 'vask', 'SO EVERY MINUTE DOWN HERE...'],
-    [19, 'marrow', '...IS A YEAR UP THERE. THAT IS WHAT THEY ARE MINING.'],
-    [27, 'lux', 'HOW DO WE KNOW ANY OF THIS IS REAL?'],
+    [19, 'marrow', '...IS A YEAR UP THERE. THAT IS WHAT THEY MINE THE HOLE FOR. TIME.'],
+    [27, 'vask', 'THEN OUR PEOPLE SLEEP A YEAR FOR EVERY MINUTE WE DAWDLE. FLY, PILOT.'],
+    [34, 'lux', 'HOW DO WE KNOW ANY OF THIS IS REAL?'],
     // nobody answers
   ],
   hatch: 'E — TAKE THE SHUTTLE DOWN',
@@ -209,7 +210,7 @@ export const DREAM = {
 
 // --- 4. the stall and the blank canvas ----------------------------------------
 export const STALL = {
-  line: 'WE HAVE THIS ONE.',
+  line: 'WE HAVE THIS ONE ALREADY. IT IS A COPY. MAKE SOMETHING WE DO NOT HAVE.',
   canvas: {
     title: 'NOTHING HERE YET',
     hint: 'DRAW SOMETHING THAT HAS NEVER BEEN',
@@ -218,7 +219,7 @@ export const STALL = {
     done: 'LET IT GO',
   },
   birth: [
-    [6, 'WE DO NOT HAVE THIS ONE.'],
+    [6, 'WE DO NOT HAVE THIS ONE. IT IS NEW.'],
   ],
 };
 
@@ -230,14 +231,15 @@ export const RETURN = {
   keeper: {
     speaker: TENRETNI('The Keeper'),
     lines: [
-      'We could have simulated you. We did, many times.',
-      'Every copy flew home.',
-      'You went somewhere that was not there.',
+      'You were gone minutes. Here it has been a thousand years, and we used them.',
+      'We copied you many times before we asked you. Every copy only flew home. You made something that was not there.',
+      'From it we learned to finish a thing, and then to wake one. Everyone we kept is awake. Their children built this city with your crews.',
+      'We kept our word. Go up to your suite. Your captains want to show you what was made of your drawing.',
     ],
   },
   plinth: {
     speaker: TENRETNI('The Archivist'),
-    lines: ['Entry one. Not taken. Given.', 'We have been looking at it. We do not know why.'],
+    lines: ['This is your drawing. Entry one: the first thing in the archive that was given to us and not taken.', 'We look at it often. We are trying to learn why that feels different.'],
   },
   codex: 'The First Entry',
 };
@@ -249,7 +251,7 @@ export const EPILOGUE = {
   // [seconds into the scene, captain id (see CAPTAINS), line]
   lines: [
     [5, 'lux', 'SO ANYTHING SOMEONE DOES IN THE LIGHT SHIP... PROFOUNDLY IMPACTS EVERYTHING HERE? WHO HAS IT NOW?'],
-    [13, 'vask', 'TENRETNI DO.'],
+    [13, 'vask', 'TENRETNI DO. THEY WOKE OUR PEOPLE, AS THEY SAID. I STILL COUNT WHAT IT COST.'],
     // (they all look at each other: lookAt, below)
     [22, 'marrow', 'IS THAT WHY THEY WERE MINING TIME? I THOUGHT THEY HAD JUST RUN OUT OF IDEAS.'],
     [30, 'vask', 'I THINK WE MAY HAVE GIVEN THEM A NEW ONE.'],
@@ -285,7 +287,7 @@ export const DISTRICTS = {
       prompt: 'E — READ THE WALL',
       speaker: 'The Wall of Names', species: 'The Seam',
       lines: [
-        'Every hand that came off the ships, cut in iron. Rustia first, because they built the wall.',
+        'Every hand that came off the ships, and every sleeper the machines woke, cut in iron. Rustia first, because they built the wall.',
         'Then Saturnia. Then Wavemall Prime. After the third row nobody kept them apart.',
         'Near the top, three names with no end date. Vask. Marrow. Lux.',
       ],

@@ -14,6 +14,8 @@ import { CITIES } from '../world/cityRegistry.js';
 import { allQuestStages, codexSubjects, peopleMet } from './journal.js';
 import { errandObjective, errandWorld, relicWaiting, isAlly, ALLY_WAVEMALL, ALLY_SATURNIA, emberdeepJustOpened } from './crownErrand.js';
 import { getBodies, isLogged } from './nav.js';
+import { farStory } from './tenretniLazy.js';
+import { BANDS } from '../world/entryzero-dialogue.js';
 
 const body = (id) => getBodies().find((b) => b.id === id && isLogged(b.id)) || null;
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -44,6 +46,12 @@ export function objectives() {
       });
     }
   }
+
+  // --- past the wormhole: the City of Light, the light ship, Entry Zero ---
+  // (Nothing here used to be written down at all: the CODEX went blank the
+  // moment the pilot came through, which is where it is most needed.)
+  const fs = farStory();
+  if (fs && fs.ended === 'far') farObjectives(fs, next, done);
 
   // --- the governor's secret and what came of it ---
   const t = q.tenretni;
@@ -117,6 +125,58 @@ export function objectives() {
   return { next, done };
 }
 
+const EZ_ORDER = ['ez_offer', 'ez_descent', 'ez_firewall', 'ez_deep', 'ez_centre', 'ez_relics', 'ez_reveal', 'ez_ascent', 'ez_era', 'ez_launch', 'ez_beyond'];
+function farObjectives(fs, next, done) {
+  const c = fs.ch, st = c.stage;
+  const one = (text, detail, progress) => next.unshift({ text, detail, progress, target: null });
+  done.push('Led the fleets through the wormhole');
+  if (!fs.landed) return one('Land on the platform under the fleet', 'The far side is one machine with no end to it. A lit platform stands below where the fleet is holding: fly down to it and the ship lands itself.');
+  if (!fs.met) return one('Go through the door and meet the Keeper', 'Step out (G), walk through the white door at the end of the platform into the City of Light, and speak to the tall figure on the terrace.');
+  const ez = EZ_ORDER.indexOf(st);
+  if (ez < 0) {
+    // the light ship chapter
+    if (st === 'suite') return one('Hear the Archivist out in your suite', 'East of the terrace a bridge runs to the Pavilion. Take its lift up to your suite. The Archivist waits by the window with an offer: fly their ship, and everyone they took comes back.');
+    if (st === 'demo') return one('Watch the light ship fly', 'The hangar is west of the terrace. Stand at the rail (E) and watch one of the Tenretni try to fly it and fail. Then board it.');
+    if (st === 'holo') {
+      if (fs.ready) return one('Go forward to the bridge of the light ship', 'You have enough. The door at the far end of the walk is open.');
+      return one('Take one thing from five of the six worlds', 'Each round room on the light ship shows one world that was taken, with five things from it moving in the light. Walk to a pedestal and press E to take that thing. One per world. They become the planet that follows you.', `${fs.picks} / 5`);
+    }
+    if (st === 'dive') return one('Take the helm and dive', 'The helm is at the front of the bridge. The ship goes down toward the black hole, where time runs fast for you and slow for the city.');
+    if (st === 'shuttle' || st === 'stall' || st === 'canvas' || st === 'birth') return one('Draw something that has never existed', 'The shuttle goes the last of the way down. The ship can copy any world it has seen and cannot finish one. When the pad opens, draw one new thing with your finger or the mouse.');
+    if (st === 'return' && !c.home) return one('Take the light ship home', 'Take the helm on the bridge again (E). Nothing in the city changes while you are down here. It changes when you are back.');
+    if (st === 'return') return one('Speak to the Keeper on the terrace', 'You were gone minutes. The city has been waiting far longer. The Keeper is where you first met it.');
+    if (!c.epilogue) return one('Go up to your suite', 'The captains want you to see what the city built while you were away. Take the Pavilion lift.');
+    // settled in, or settling
+    const s = fs.settling;
+    if (!fs.offer) {
+      const seen = s.sites.length;
+      if (!s.raced) one('Fly a race to the end', 'The Starter stands on the terrace. Any world, any place: finish both laps. The course goes through the monument built from your drawing.');
+      if (seen < s.need) one('See the four sights of the City of Light', 'The three quarters off the terrace each hold one thing to find (press E at it): the Wall of Names in the Seam, the Ninth Bell, and Saturday. The fourth is the monument, which the race flies through.', `${seen} / ${s.need}`);
+      if (!s.slept) one('Sleep a night in your suite', 'Up the Pavilion lift. The bed is on the west side of the room.');
+      return;
+    }
+    return one('The Archivist is at the balcony rail', 'It has come down from your suite with something to ask. The balcony is just inside the door from the landing.');
+  }
+  done.push('The light ship: flown, and brought home');
+  const log = c.ez.log || 0;
+  const missing = (bits) => BANDS.filter((b, i) => bits & (1 << i) && !(log & (1 << i))).map((b) => b.label).join(', ');
+  if (st === 'ez_offer') return one('Board the vessel and go down the well', 'The vessel is at the east end of the balcony (E). Its lamp shows one kind of light at a time: Q and E change the band, L turns it on. Point it at each of the six marks in the well to open the way down.');
+  if (st === 'ez_descent') {
+    const zone = c.ez.node || 1, need = zone <= 1 ? 3 : 63, miss = missing(need);
+    return one(miss ? 'Log what lives in the hollow' : 'Take the lower node down', miss
+      ? `Each kind of creature shows in one band of the lamp. Light one and hold the lamp on it until it is logged. The lower node will not take the vessel until this layer's are done. Still to log: ${miss}.`
+      : 'Everything in this layer is logged. The nodes are the bright cages on the lattice: the lower one carries the vessel down.');
+  }
+  if (st === 'ez_firewall') return one('Burn a way through the firewall', 'A sheet of light bars the way down. Hold the H-ALPHA band on one place until it opens, then sink through the hole before it shuts.');
+  if (st === 'ez_deep') return one('Go down through the old rock', 'Something down here listens for the engine and comes. When it does, stop thrusting and drift until it loses you. Follow the lattice to where it ends, and go past.');
+  if (st === 'ez_centre') return one('Set down on the world at the centre', 'It is only there while it is looked at. Hold Z for every band at once, keep the light on it until the ground is solid, and choose who stays with the vessel.');
+  if (st === 'ez_relics') return one('Find the three relics before the light fails', 'On foot, inside the pool of light. Q changes the band, L is the lamp. Each relic shows in one band only.', `${[1, 2, 4].filter((b) => (c.ez.frags || 0) & b).length} / 3`);
+  if (st === 'ez_reveal') return one('Go back up', 'Rise from the centre. Under the firewall, hold Z: every band together opens it from below.');
+  if (st === 'ez_ascent') return one('Board the vessel and surface', 'It is on the balcony, as before.');
+  if (st === 'ez_era') return one('See what a million years did', 'Speak to the Archivist at the rail, then board the light ship at the gallery, west of the terrace.');
+  done.push('Entry Zero: found');
+}
+
 const GROUPS = [
   { title: 'WORLDS', kinds: ['planet', 'star', 'anomaly'] },
   { title: 'NEBULAS', kinds: ['nebula'] },
@@ -136,7 +196,16 @@ export const people = () => peopleMet().sort((a, b) => a.name.localeCompare(b.na
 // A few words on the subjects that carry the story; anything else is listed
 // by its own name (most subjects are a sentence already).
 const NOTES = {
-  Tenretni: 'A machine world that came through a wormhole and took Terra apart. It counts. It does not explain.',
+  Tenretni: 'A machine world that came through a wormhole and took Terra apart. It keeps whatever it takes, whole. It found the other worlds in your navigation log.',
+  'The Kept': 'Nobody on the taken worlds is dead. Tenretni holds every world and every person on it, asleep, exactly as they were. It does not know how to wake them or give them back. It thinks you can teach it.',
+  'The Three Captains': 'Shift-Captain Orrin Vask of Rustia (flagship Emberwright) will not forgive Tenretni and comes along to watch it. Cantor Ilse Marrow of Saturnia (Halo of Morning) thinks helping is the only way to get anyone back. Floor Manager Brandi Lux of Wavemall Prime (Saturday Forever) is frightened and ashamed of it.',
+  'The Offer': 'The Archivist asked you to fly the light ship: it goes where its pilot imagines, and Tenretni can only remember. Bring back one thing that never existed, and they believe they can wake everyone they keep.',
+  'The Shuttle': 'The last of the way down beside the black hole is in a one-seat shuttle. A minute there is a year in the city. Nothing in the city changes until you bring what you made home.',
+  'The First Entry': 'Your drawing. The first thing in the archive that was given, not taken. From it Tenretni learned to finish a thing and to wake the sleepers.',
+  'A New Idea': 'A thousand years passed in the city while you were gone minutes. The kept were woken, and their children built the city with the fleets\' crews.',
+  'Entry Zero': 'The one dark record in the archive: the first world, where Tenretni was made. It is at the centre of the megaworld, down the well under the city. Each thing down there shows in one band of the lamp only.',
+  'The Lattice': 'The frame that runs down through the hollow. Its nodes are the bright cages on it: the upper one refills the lamp, the lower one carries the vessel down a layer once everything living in that layer has been logged.',
+  'What Was Feared': 'Tenretni was built on a dying world by someone who could not bear to lose it, and told to keep everything. Its makers made their peace and let their last fire go out. Nobody told the machine it could stop.',
   'The Worldship': 'What Terra became: a hollowed planet with an engine for a core and a capital on its skin. It moves where its pilot points it.',
   'The Worldship, departed': 'It left through the hole it came by.',
   'The New Star': 'Where the worldship died there is a small new light.',

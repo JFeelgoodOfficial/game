@@ -69,6 +69,7 @@ export function createChapter(ctx) {
   function advance(to) {
     if (at(to) <= at(stage)) return false;
     stage = to;
+    if (to === 'ez_descent') addCodex('The Lattice'); // what the nodes are, written down the first time one is ridden
     ctx.onSave();
     return true;
   }

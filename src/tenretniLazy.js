@@ -131,6 +131,9 @@ export const farBeyond = () => (mod ? mod.farBeyond() : false);
 export const farWantsLanding = (dt) => (mod ? mod.farWantsLanding(dt) : false);
 export const farMarkLanded = () => mod && mod.farMarkLanded();
 
+// where the story is past the wormhole, for the CODEX (null until the chunk is in)
+export const farStory = () => (mod ? mod.storyState() : null);
+
 // dev/verification handle (__debug.tenretni)
 export const tenretniDebug = () => ({
   loaded: !!mod,

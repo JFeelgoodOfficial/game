@@ -72,12 +72,12 @@ const ARRIVAL = [
 const GREETING = {
   speaker: { name: 'The Keeper', species: 'Tenretni', cityId: 'The City of Light' },
   lines: [
-    'You carried it through. Every world we took is in the room behind your seat, and now it is here.',
-    'What you flew over is the works. This is what the works are for.',
-    'The hole above us holds more time than any star holds light. We draw a little of it up, and we spend it here.',
-    'We took your worlds to learn them. We did not know another way to keep a thing.',
-    'You came to see where it all went. We counted on that. We are not certain it was fair.',
-    'Stand on the balcony as long as you like. The door stays open.',
+    'Pilot. I am the Keeper. This is the City of Light, and you are safe in it. So are the fleets.',
+    'First, what you most want to know. Nobody on your worlds is dead. We took every world whole and we keep every one of them: each person, asleep, exactly as they were.',
+    'We found those worlds in your navigation log. You did not give it to us. We took that too.',
+    'We keep things because we were made to. We have never learned how to give one back. We think you can teach us, and we will ask you to try.',
+    'The one who will ask is the Archivist. It is waiting in your suite: cross the bridge to the Pavilion, east of here, and take the lift.',
+    'Your captains are in the Pavilion. They are angry. They are right to be.',
   ],
 };
 
