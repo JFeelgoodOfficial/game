@@ -27,6 +27,7 @@
 
 import { startAutoWarp } from './autopilot.js';
 import { questStage } from './journal.js';
+import { initFleetHost, stepFleetHost, hostNearest, hostSite, hostHold, hostPlace, hostFleets } from './fleetHost.js';
 
 export const SECRET = 'tenretni';
 
@@ -61,6 +62,7 @@ function load() {
 
 export function initTenretni(d) {
   deps = d;
+  initFleetHost(d);
 }
 
 // NAV engage. An armed secret turns the trip to terra into the event's
@@ -79,6 +81,7 @@ export const stepTenretniHold = (dt) => mod && mod.stepHold(dt);
 // Per frame, while the space sim runs. `onDeck`: the pilot is standing on the
 // patio. `flying`: fly phase and not paused (toasts and sound only then).
 export function updateTenretni(delta, t, onDeck, flying, aboard) {
+  stepFleetHost(delta, t, flying); // the fleets are there before the story is (src/fleetHost.js)
   if (!mod) {
     const st = questStage(SECRET);
     if (st === 'armed' || st === 'done' || st === 'ship') load();
@@ -112,10 +115,10 @@ export const holoWorld = (id, on) => (mod ? mod.holoWorld(id, on) : null);
 
 // The war fleets (src/fleets.js): the nearest ship to dock with, its walkable
 // deck, and keeping a ship from being lost while the pilot is on it.
-export const nearestVessel = (pos) => (mod ? mod.nearestVessel(pos) : null);
-export const vesselSite = (ship) => (mod ? mod.vesselSite(ship) : null);
-export const holdVessel = (id) => mod && mod.holdVessel(id);
-export const placeFleets = (t) => mod && mod.placeFleets(t);
+export const nearestVessel = (pos) => (mod ? mod.nearestVessel(pos) : hostNearest(pos));
+export const vesselSite = (ship) => (mod ? mod.vesselSite(ship) : hostSite(ship));
+export const holdVessel = (id) => (mod ? mod.holdVessel(id) : hostHold(id));
+export const placeFleets = (t) => (mod ? mod.placeFleets(t) : hostPlace(t));
 // The ending's last act: the pilot has flown the fleet into the wormhole.
 export const wormholeCapture = (pos) => (mod ? mod.wormholeCapture(pos) : false);
 // ...and what is through it (src/farside.js). farGate: 'ready' | 'failed',
@@ -144,7 +147,7 @@ export const tenretniDebug = () => ({
   sail: (name) => mod && mod.debugSail(name),
   eat: (u) => mod && mod.debugEat(u),
   clock: (sec) => mod && mod.debugClock(sec),
-  fleets: () => mod && mod.debugFleets(),
+  fleets: () => (mod && mod.debugFleets()) || hostFleets(),
   comms: () => (mod ? mod.commState() : {}),
   setComms: (on) => mod && mod.debugComms(on),
   end: () => mod && mod.debugEnd(),

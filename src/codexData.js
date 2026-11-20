@@ -33,14 +33,14 @@ export function objectives() {
     if (fl >= 3) {
       next.push({
         text: 'Stand before the worldship and call the fleets',
-        detail: 'All three fleets are on your word. Fly close to the worldship, then call them (H, or the CALL button).',
+        detail: 'All three captains are waiting on your word. Fly close to the worldship, then call them (H, or the CALL button).',
         target: body('terra'),
       });
     } else {
       const ship = getBodies().find((b) => b.objective && isLogged(b.id)) || null;
       next.push({
-        text: 'Open a channel with each of the three fleets',
-        detail: 'Rustia, Saturnia and Wavemall Prime have each launched warships. Fly to one (NAV, under FLEETS, marked ◆), step aboard and ask its captain for a channel.',
+        text: 'Board the three flagships and ask each captain for a channel',
+        detail: 'Shift-Captain Vask on Emberwright (Rustia), Cantor Marrow on Halo of Morning (Saturnia) and Floor Manager Lux on Saturday Forever (Wavemall Prime). Each is in NAV under FLEETS, marked ◆. Fly close and the ship lands itself; walk to the bridge and talk to the captain.',
         progress: `${fl} / 3`,
         target: ship,
       });
