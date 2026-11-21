@@ -54,7 +54,7 @@ export function createChapter(ctx) {
   let epilogue = false; // the captains have seen what was built, and the ship leave again
   let home = false; // the light ship is back in its hangar, a long time later
   const clock = { ship: 0, world: 0 }; // what the two clocks read when the ship was down
-  const ez = { log: 0, frags: 0, stay: null, lost: [], node: 0, clock: 0 };
+  const ez = { log: 0, frags: 0, stay: null, lost: [], node: 0, clock: 0, made: false };
 
   const at = (s) => STAGES.indexOf(s);
   function advance(to) {
@@ -240,6 +240,14 @@ export function createChapter(ctx) {
         ez.node = Math.floor(n);
         ctx.onSave();
       },
+      // What the light ship made has been shown, from the gallery. True the first time.
+      madeSeen: () => ez.made,
+      seeMade() {
+        if (ez.made) return false;
+        ez.made = true;
+        ctx.onSave();
+        return true;
+      },
       // the crew's own clock: counted by the places, saved when a stage turns
       clock: () => ez.clock,
       addClock(dt) {
@@ -250,8 +258,8 @@ export function createChapter(ctx) {
     // --- the save: one small object inside src/tenretni.js's ---
     serialize() {
       if (stage === 'suite' && !seen.length) return undefined;
-      const z = ez.log || ez.frags || ez.stay || ez.lost.length || ez.node || ez.clock >= 1
-        ? { log: ez.log || undefined, frags: ez.frags || undefined, stay: ez.stay || undefined, lost: ez.lost.length ? ez.lost.slice() : undefined, node: ez.node || undefined, clock: Math.round(ez.clock) || undefined }
+      const z = ez.log || ez.frags || ez.stay || ez.lost.length || ez.node || ez.clock >= 1 || ez.made
+        ? { log: ez.log || undefined, frags: ez.frags || undefined, stay: ez.stay || undefined, lost: ez.lost.length ? ez.lost.slice() : undefined, node: ez.node || undefined, clock: Math.round(ez.clock) || undefined, made: ez.made || undefined }
         : undefined;
       return { stage, picks: { ...picks }, seen: seen.slice(), assigned: assigned || undefined, home: home || undefined, epilogue: epilogue || undefined, clock: clock.world ? [Math.round(clock.ship), Math.round(clock.world)] : undefined, ez: z };
     },
@@ -274,6 +282,7 @@ export function createChapter(ctx) {
         if (Array.isArray(z.lost)) for (const c of CAPTAINS) if (z.lost.includes(c.id) && c.id !== ez.stay && !ez.lost.includes(c.id)) ez.lost.push(c.id);
         if (Number.isFinite(z.node) && z.node > 0) ez.node = Math.floor(z.node);
         if (Number.isFinite(z.clock) && z.clock > 0) ez.clock = z.clock;
+        if (z.made) ez.made = true;
       }
     },
 

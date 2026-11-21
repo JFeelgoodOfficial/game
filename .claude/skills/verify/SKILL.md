@@ -725,7 +725,14 @@ inlay out); `place(-112, 0, -77)` yaw -π/2 pitch 0.12 for the light ship,
 back in its yard with round cells at its upper aft corner and fallen beams on
 the yard floor; `place(-5.3, 0, -4.9)` yaw -π/2 for the Archivist, whose
 first line is `You found it`, and the wall behind it with entry zero's cell
-(column 19, row 5) lit white. With a stage before `ez_era` the city is as
+(column 19, row 5) lit white. What the ship made (`world/eramade.js`): `far().state().made` → `{shown,
+cubes, at, corner, due, show}`. Needs `ch.home: true` seeded as well as the
+stage, or the city skips its era set-up. While `due`, the compass
+(`#compass`) reads `GALLERY`; `capital.place(-118, 0, -77)` starts the showing
+by itself (`show` counts 0 → 15.5, `body.ch-cine` set, three lines), after
+which `due` is false, `ez.made` is saved and the compass reads `DOOR` again.
+From the gallery, yaw -1.15 has the new vessel on the left, the strands
+across the middle and the ship on the right. With a stage before `ez_era` the city is as
 5.7.4 left it: `districts` and `race` build, and the ship is gone.
 
 The launch (`world/launch.js`, stage `ez_launch` on boarding, `ez_beyond` at
