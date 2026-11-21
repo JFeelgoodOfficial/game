@@ -749,8 +749,13 @@ the archive wall; at 21 the ring of young worlds shows (`worlds` 9; with
 and the camera has come round to it; at 57.5 `inside` has begun to rise; the
 last line comes at 61; `megaShown` goes false by 60. `launchSeek(72.5)`, then
 `u` reads -1: stage `ez_beyond` saved, codex `Into the Hole`, bars out,
-`inside` 1. On the bridge afterwards `place(2.2, 0, -5.4)` and `interact()`
-talk to a captain. Come back to the game with `ez_beyond` seeded and no
+`inside` 1. The bridge is the dome of `world/eramade.js` at walking
+size: `launch.bridge` → `{helm, pilot, stands}` (x, z), `launch.r` the floor's
+radius, `launch.flight` the cells' under-way value (0 at rest, about 0.6 at
+the end). Shots worth taking: `launchSeek(4)` (the megaworld past the
+captains), 27 (the light ship, the strands and the archive), 40 (ahead, the
+hole). Afterwards `place` the walker within 5 of one of `launch.bridge.stands`
+and `interact()` to talk to that captain. Come back to the game with `ez_beyond` seeded and no
 docking is needed: after `launch()` the game parks on the landing, steps out
 and hops to the bridge by itself (`onLaunch` true, `launch.u` -1,
 `farLanding.state().far` 4000). With any earlier stage the ship stays in

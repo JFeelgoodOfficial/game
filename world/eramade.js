@@ -21,6 +21,19 @@ import { tint, box, cyl, mergedMesh } from './capital.js';
 const AT = new THREE.Vector3(232, -50, 128);
 const YAW = 1.48;
 const STRAND_N = 132, STRAND_R = 13, STRAND_TURNS = 8.5;
+// The command bridge under the dome, in the vessel's own frame (+z its bow):
+// the floor's height and middle, and from that middle [x, z] for the helm, the
+// pilot's seat, the captains' three (and their desks), and where each captain
+// stands at theirs. Vask, Marrow, Lux: CAPTAINS order.
+const ARC = [0.95, 0, -0.95];
+export const BRIDGE = {
+  y: 8.9, z: 12, floor: 17.6, dome: 19,
+  helm: [0, 6.2],
+  pilot: [0, 2.2],
+  seats: ARC.map((a) => [Math.sin(a) * 8.5, -Math.cos(a) * 8.5 + 1.0]),
+  desks: ARC.map((a) => [Math.sin(a) * 8.5, -Math.cos(a) * 8.5 + 4.4]),
+  stands: ARC.map((a) => [Math.sin(a) * 8.5, -Math.cos(a) * 8.5 + 2.9]),
+};
 
 const WORLD_VERT = /* glsl */ `
   varying vec3 vL;
@@ -69,10 +82,12 @@ const DOME_FRAG = /* glsl */ `
     float rim = pow(1.0 - facing, 2.2);
     vec3 d = normalize(vL);
     float lon = atan(d.z, d.x) / 6.2832 * 14.0, lat = asin(clamp(d.y, -1.0, 1.0)) / 1.5708 * 5.0;
-    float rule = max(smoothstep(0.42, 0.49, abs(fract(lon) - 0.5)), smoothstep(0.44, 0.49, abs(fract(lat) - 0.5)));
+    float rule = max(smoothstep(0.465, 0.493, abs(fract(lon) - 0.5)), smoothstep(0.47, 0.494, abs(fract(lat) - 0.5)));
     vec3 irid = 0.5 + 0.5 * cos(6.2832 * (facing * 1.3 + uTime * 0.02 + vec3(0.0, 0.33, 0.67)));
     vec3 col = mix(vec3(0.65, 0.9, 1.0), irid, 0.5) * (0.35 + 1.1 * rim) + vec3(0.7, 1.0, 1.0) * rule * 0.9;
-    gl_FragColor = vec4(col, 0.16 + 0.55 * rim + 0.5 * rule);
+    // from inside (the far side of the glass is its back), nearly clear: the ribs and a breath of the film
+    float a = gl_FrontFacing ? 0.16 + 0.55 * rim + 0.5 * rule : 0.03 + 0.12 * rim + 0.4 * rule;
+    gl_FragColor = vec4(col * (gl_FrontFacing ? 1.0 : 0.7), a);
   }
 `;
 // a small cell: the round one over the helm, and the cubes of the strands
@@ -141,13 +156,14 @@ const BEAM_VERT = /* glsl */ `
   }
 `;
 const BEAM_FRAG = /* glsl */ `
+  uniform float uGain;
   varying float vAlong;
   varying vec3 vW;
   varying vec3 vN;
   void main() {
     float side = abs(dot(normalize(vN), normalize(cameraPosition - vW)));
     float a = (1.0 - vAlong) * (1.0 - vAlong) * (0.2 + 0.8 * side * side);
-    gl_FragColor = vec4(vec3(0.78, 0.93, 1.0) * a, 1.0);
+    gl_FragColor = vec4(vec3(0.78, 0.93, 1.0) * a * uGain, 1.0);
   }
 `;
 
@@ -210,35 +226,41 @@ export function createMade(hangar) {
   // captains' in an arc behind. Larger than life, to be read from the gallery.
   const lit = [], glow = [];
   const STEEL = 0x39424e, DARK = 0x151a21;
-  const BY = 8.9, BZ = 12; // the bridge's floor, and its middle
+  const BY = BRIDGE.y, BZ = BRIDGE.z; // the bridge's floor, and its middle
   {
     const m = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.5, 3), cellMat(roundU), 1);
-    dummy.position.set(0, BY + 9.2, BZ);
+    dummy.position.set(BRIDGE.helm[0], BY + 13.5, BZ + BRIDGE.helm[1]); // high over the helm, under the crown of the dome
     dummy.rotation.set(0, 0, 0);
-    dummy.scale.setScalar(5.4);
+    dummy.scale.setScalar(3.6);
     dummy.updateMatrix();
     m.setMatrixAt(0, dummy.matrix);
     craft.add(seeded(m, new Float32Array([0.31]), new Float32Array(1)));
   }
   lit.push(tint(cyl(17.6, 17.6, 0.5, 0, BY - 0.25, BZ, 40), DARK));
   glow.push(tint(new THREE.TorusGeometry(17.2, 0.22, 6, 56).rotateX(Math.PI / 2).translate(0, BY + 0.1, BZ), 0x9fe8ff, 1.6));
-  // the helm: a pedestal, a ring of light round its head, a wheel of it on top
-  lit.push(tint(cyl(1.5, 2.6, 4.2, 0, BY + 2.1, BZ, 14), STEEL));
-  lit.push(tint(cyl(3.4, 1.6, 0.7, 0, BY + 4.5, BZ, 20), DARK));
-  glow.push(tint(new THREE.TorusGeometry(3.3, 0.2, 6, 32).rotateX(Math.PI / 2).translate(0, BY + 4.95, BZ), 0xffe2a0, 2.0));
-  glow.push(tint(cyl(2.6, 2.6, 0.12, 0, BY + 4.95, BZ, 24), 0x7fd8ff, 1.3));
-  // four seats: the pilot's forward of the helm, the captains' behind it
+  // the helm, forward: a console at waist height for whoever is in the
+  // pilot's seat behind it; the captains' three in an arc behind that, each
+  // with a desk of light. (The same layout is walked at its own size on the
+  // way out, in world/launch.js: BRIDGE.)
+  const [hx, hz] = BRIDGE.helm;
+  lit.push(tint(cyl(0.8, 1.3, 1.5, hx, BY + 0.75, BZ + hz, 14), STEEL));
+  lit.push(tint(cyl(2.0, 0.9, 0.4, hx, BY + 1.7, BZ + hz, 20), DARK));
+  glow.push(tint(new THREE.TorusGeometry(1.95, 0.12, 6, 32).rotateX(Math.PI / 2).translate(hx, BY + 1.95, BZ + hz), 0xffe2a0, 2.0));
+  glow.push(tint(cyl(1.6, 1.6, 0.08, hx, BY + 1.95, BZ + hz, 24), 0x7fd8ff, 1.3));
+  // (sized for the people who sit in them: a person here is about 3.4 tall)
   const seat = (x, z, gold) => {
-    lit.push(tint(box(3.0, 1.5, 3.0, x, BY + 0.75, z), STEEL));
-    lit.push(tint(box(3.0, 4.4, 0.6, x, BY + 3.0, z - 1.5), DARK));
-    lit.push(tint(box(0.5, 1.1, 2.6, x - 1.6, BY + 2.0, z), DARK), tint(box(0.5, 1.1, 2.6, x + 1.6, BY + 2.0, z), DARK));
-    glow.push(tint(box(2.6, 0.24, 0.24, x, BY + 5.3, z - 1.5), gold ? 0xffe2a0 : 0x9fe8ff, 1.9));
-    glow.push(tint(box(2.4, 0.1, 2.4, x, BY + 1.56, z), gold ? 0xffd890 : 0x7fd8ff, 0.9));
+    lit.push(tint(box(1.9, 0.95, 1.9, x, BY + 0.48, z), STEEL));
+    lit.push(tint(box(1.9, 2.6, 0.36, x, BY + 1.95, z - 0.95), DARK));
+    lit.push(tint(box(0.3, 0.7, 1.6, x - 1.0, BY + 1.2, z), DARK), tint(box(0.3, 0.7, 1.6, x + 1.0, BY + 1.2, z), DARK));
+    glow.push(tint(box(1.6, 0.16, 0.16, x, BY + 3.28, z - 0.95), gold ? 0xffe2a0 : 0x9fe8ff, 1.9));
+    glow.push(tint(box(1.5, 0.06, 1.5, x, BY + 0.98, z), gold ? 0xffd890 : 0x7fd8ff, 0.9));
   };
-  seat(0, BZ + 8.2, true);
-  for (const a of [-0.95, 0, 0.95]) seat(Math.sin(a) * 9.5, BZ - Math.cos(a) * 9.5 + 1.5, false);
-  // ...and a desk of light in front of each captain's
-  for (const a of [-0.95, 0, 0.95]) glow.push(tint(box(3.2, 0.14, 1.0, Math.sin(a) * 9.5, BY + 2.9, BZ - Math.cos(a) * 9.5 + 4.6), 0x8affc8, 1.2));
+  seat(BRIDGE.pilot[0], BZ + BRIDGE.pilot[1], true);
+  for (const [x, z] of BRIDGE.seats) seat(x, BZ + z, false);
+  for (const [x, z] of BRIDGE.desks) {
+    lit.push(tint(box(0.4, 1.6, 0.4, x, BY + 0.8, BZ + z), DARK));
+    glow.push(tint(box(2.2, 0.1, 0.8, x, BY + 1.7, BZ + z), 0x8affc8, 1.2));
+  }
 
   // the lamp, aft: a tower with a gallery round its head
   const TY = 4.5, TZ = -34; // its foot on the after deck
@@ -267,10 +289,12 @@ export function createMade(hangar) {
   lamp.position.set(0, TY + 39.2, TZ);
   craft.add(lamp);
   const beamGeo = new THREE.CylinderGeometry(1, 0.05, 1, 28, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5); // apex at the lamp, opening down +z
-  const beamMat = new THREE.ShaderMaterial({ vertexShader: BEAM_VERT, fragmentShader: BEAM_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
+  const beamU = { uGain: { value: 1 } };
+  const beamMat = new THREE.ShaderMaterial({ uniforms: beamU, vertexShader: BEAM_VERT, fragmentShader: BEAM_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
   for (const s of [1, -1]) {
     const b = new THREE.Mesh(beamGeo, beamMat);
-    b.scale.set(46, 46, 620 * s);
+    b.scale.set(20, 20, 620 * s);
+    b.rotation.x = -0.09 * s; // (tilted a little up, so it sweeps over the dome and not through it)
     b.frustumCulled = false;
     b.renderOrder = 6;
     lamp.add(b);
@@ -332,13 +356,18 @@ export function createMade(hangar) {
     show(on) {
       root.visible = on;
     },
-    tick(t) {
+    // how bright the lamp's beams are (from the bridge, under way, they are less)
+    beam(k) {
+      beamU.uGain.value = k;
+    },
+    // `still`: under way, with people standing on its bridge, it does not ride
+    tick(t, still = false) {
       if (!root.visible) return;
       lamp.rotation.y = t * 0.22;
-      craft.position.y = AT.y + Math.sin(t * 0.35) * 1.6; // it rides, a little
+      craft.position.y = AT.y + (still ? 0 : Math.sin(t * 0.35) * 1.6); // it rides, a little
     },
-    // for whoever shows it (world/lightcity.js), in the hangar's root frame
-    at: AT, corner: c, curve,
+    // for whoever shows it (world/lightcity.js, world/launch.js), in the hangar's root frame
+    at: AT, corner: c, curve, root, craft, dome,
     state: () => ({ shown: root.visible, cubes: STRAND_N * 2, at: AT.toArray(), corner: c.toArray().map(Math.round) }),
   };
 }

@@ -939,6 +939,14 @@ A million years on (`ez_era`):
   seconds: the vessel, up the strands, the corner (`ERA.made` has the lines).
   Until then the compass reads GALLERY and points there, not at the door.
   Saved as `ez.made`.
+- The launch (`world/launch.js`) is flown from inside that dome, at walking
+  size: the helm forward, the pilot's seat behind it, each captain standing
+  at their own seat behind that (`BRIDGE` in `world/eramade.js`). The light
+  ship flies alongside, high and astern to port, on the strands; under way its
+  cells fall into one spectrum down the hull. A galaxy hangs over the bridge,
+  astern. The camera looks at the megaworld, then up at the ship and its
+  archive as Vask names it, then forward at the hole. `ez_beyond` is the same
+  bridge, inside.
 
 - Near the dense core the crew's clocks ran slow. The emergence gives the
   surface's clock beside their own; the city gives all three in a line, with
