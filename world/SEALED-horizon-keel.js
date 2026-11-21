@@ -36,9 +36,9 @@ import { S9, S10, DX3, KEEL, AFTER_DEATH } from './SEALED-horizon-words.js';
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const REST = -0.35; // where the ship keeps itself, left alone
-const RATE = C.HZ_CHART_RATE * C.HZ_KEEL_RATE;
+const RATE = C.HZ_C5 * C.HZ_E3;
 const RING_AHEAD = new THREE.Vector3(-0.55, 0.3, -0.78).normalize();
-const RING_ASTERN = new THREE.Vector3(0.12, 0.35, 1).normalize();
+const RING_ASTERN = new THREE.Vector3(0.8, 0.45, 0.35).normalize(); // (off the starboard quarter: clear of the archive's arc)
 
 export function createKeel(ctx) {
   const { chapter, memo } = ctx;
@@ -56,7 +56,7 @@ export function createKeel(ctx) {
   chart.group.position.set(0, 5.6, -R - 0.4);
   chart.group.rotation.x = -0.32;
   group.add(chart.group);
-  const motes = createMotes(CH_TIER[Q.tier].hzMotes);
+  const motes = createMotes(CH_TIER[Q.tier].hzA);
   motes.points.scale.setScalar(0.8);
   motes.points.position.set(0, 2.0, -R + 5.5);
   group.add(motes.points);
@@ -65,16 +65,16 @@ export function createKeel(ctx) {
   let x = REST, t = 0, lean = 0, forced = null, auto = false, reserve = 0.6, local = 0, afterDeath = 0;
   let wasNear = false, calledGap = -1, leansSaid = false, through = false, endTau = 0;
   const fallCol = new THREE.Color(1, 1, 1);
-  const isOpen = (tt) => (((tt / C.HZ_GAP_EVERY) % 1) + 1) % 1 < C.HZ_GAP / C.HZ_GAP_EVERY;
-  const freeSlope = (xx) => clamp((REST - xx) * 2, -C.HZ_KEEL_PULL, C.HZ_KEEL_PULL);
-  const slopeOf = (xx, l) => clamp(freeSlope(xx) + l * C.HZ_LEAN, -C.HZ_SLOPE, C.HZ_SLOPE);
+  const isOpen = (tt) => (((tt / C.HZ_E2) % 1) + 1) % 1 < C.HZ_E1 / C.HZ_E2;
+  const freeSlope = (xx) => clamp((REST - xx) * 2, -C.HZ_E4, C.HZ_E4);
+  const slopeOf = (xx, l) => clamp(freeSlope(xx) + l * C.HZ_C3, -C.HZ_C2, C.HZ_C2);
   // where the ship's line would meet the ring's if it leaned this hard from now (the time, or -1)
   function meets(l) {
     let px = x, pt = t;
     for (let i = 0; i < 400; i++) {
       px += slopeOf(px, l) * 0.004;
       pt += 0.004;
-      if (px <= C.HZ_RING_X) return pt;
+      if (px <= C.HZ_E7) return pt;
     }
     return -1;
   }
@@ -104,7 +104,7 @@ export function createKeel(ctx) {
   function die() {
     phase = 'dead';
     memo.died = 'ring';
-    site.st.play(DX3, C.HZ_DEATH, {
+    site.st.play(DX3, C.HZ_SX, {
       pose(u) {
         motes.U.uStretch.value = ease(0, 5, u) ** 2;
         chapterHud.white(ease(5, 7.5, u));
@@ -155,11 +155,11 @@ export function createKeel(ctx) {
       },
       cam(pos, target, u) {
         const k = ease(10, 20, u) * (1 - ease(34, 46, u));
-        pos.set(3.0 - 6 * ease(30, 60, u), 2.7, 5.8);
-        target.set(AHEAD.x * 60 + 40 * k, 6 + 10 * k, -60 + 110 * k);
+        pos.set(-3.0 + 3 * ease(40, 60, u), 2.7, 5.8);
+        target.set(AHEAD.x * 60 * (1 - k) + RING_ASTERN.x * 60 * k, 6 * (1 - k) + RING_ASTERN.y * 60 * k, -60 * (1 - k) + RING_ASTERN.z * 60 * k);
       },
       onEnd() {
-        chapter.hz.set('t', Math.round(endTau || tau()));
+        chapter.hz.set('t', Math.round((endTau || HZ_TAU[9]) + C.HZ_S10));
         site.portal = ctx.openSpace();
       },
     });
@@ -182,6 +182,7 @@ export function createKeel(ctx) {
       chapter.advance('hz_bell9');
       crew.muster();
       reset();
+      chapterHud.racing(true); // (a seat: the on-foot key list is not for this)
       resetLamp(true);
       lamp.canAll = false;
       afterDeath = 0;
@@ -198,6 +199,7 @@ export function createKeel(ctx) {
     },
     leave() {
       lampHud.show(false);
+      chapterHud.racing(false);
     },
     tick(d, tm) {
       time.value = tm;
@@ -214,11 +216,11 @@ export function createKeel(ctx) {
       if (phase === 'fly') {
         let want = forced != null ? forced : moveAxes().strafe;
         const tFull = meets(-1);
-        const gapNow = Math.floor(tFull / C.HZ_GAP_EVERY);
-        const frac = (((tFull / C.HZ_GAP_EVERY) % 1) + 1) % 1, width = C.HZ_GAP / C.HZ_GAP_EVERY;
+        const gapNow = Math.floor(tFull / C.HZ_E2);
+        const frac = (((tFull / C.HZ_E2) % 1) + 1) % 1, width = C.HZ_E1 / C.HZ_E2;
         const good = tFull > 0 && frac > width * 0.15 && frac < width * 0.85;
         // (auto, for a test: wait off the line, and go when a gap will be there)
-        if (auto) want = good || x < C.HZ_RING_X + 0.05 ? -1 : x < -0.6 ? 0.45 : -0.3;
+        if (auto) want = good || x < C.HZ_E7 + 0.05 ? -1 : x < -0.6 ? 0.45 : -0.3;
         if (chapter.hz.get('c2') === 'a') {
           // the first pilot calls each gap as it comes into reach
           if (good && gapNow !== calledGap && x < -0.45) {
@@ -227,28 +229,28 @@ export function createKeel(ctx) {
           }
         } else if (want < -0.1 && !good && x < -0.5) {
           // the ship itself holds back from a line it would touch
-          want *= 1 - C.HZ_NUDGE;
+          want *= 1 - C.HZ_E6;
           if (!leansSaid) {
             leansSaid = true;
             site.st.say(KEEL.leans, null, 4);
           }
         }
         if (reserve <= 0) want = 0;
-        lean += (want - lean) * Math.min(1, d * C.HZ_LEAN_EASE);
+        lean += (want - lean) * Math.min(1, d * C.HZ_C4);
         const slope = slopeOf(x, lean);
         const dc = d * RATE;
         x += slope * dc;
         t += dc;
-        reserve = clamp(reserve - Math.abs(lean) * C.HZ_BURN * 2 * d + C.HZ_TRICKLE * d, 0, 1);
+        reserve = clamp(reserve - Math.abs(lean) * C.HZ_C9 * 2 * d + C.HZ_E5 * d, 0, 1);
         if (x < -0.66) wasNear = true;
         else if (wasNear && x > -0.5) {
           wasNear = false;
           site.st.say(KEEL.miss, { n: Math.round(reserve * 100) });
         }
-        sky.U.uRingR.value = 0.22 + 0.5 * clamp((REST - x) / (REST - C.HZ_RING_X), 0, 1);
+        sky.U.uRingR.value = 0.22 + 0.5 * clamp((REST - x) / (REST - C.HZ_E7), 0, 1);
         // the tide, as the ring's line is neared: nothing, and then everything
-        motes.U.uStretch.value = 0.25 * clamp((x - C.HZ_RING_X) < 0.04 ? 1 - (x - C.HZ_RING_X) / 0.04 : 0, 0, 1);
-        if (x <= C.HZ_RING_X) {
+        motes.U.uStretch.value = 0.25 * clamp((x - C.HZ_E7) < 0.04 ? 1 - (x - C.HZ_E7) / 0.04 : 0, 0, 1);
+        if (x <= C.HZ_E7) {
           endTau = tau();
           if (isOpen(t)) out();
           else die();
@@ -259,7 +261,7 @@ export function createKeel(ctx) {
         lampHud.update();
       }
       setHum(0.25 + 0.5 * Math.abs(lean));
-      showClocks(through ? endTau + local * 0 + site.st.u() : tau(), null, false, ROOF_TAU);
+      showClocks(through ? (endTau || HZ_TAU[9]) + Math.max(0, site.st.u()) : tau(), null, false, ROOF_TAU);
     },
     info: () => ({ place: 'keel', stage: chapter.stage(), phase, x: +x.toFixed(3), t: +t.toFixed(3), lean: +lean.toFixed(2), reserve: +reserve.toFixed(2), open: isOpen(t), through, c2: chapter.hz.get('c2'), pending: chapter.hz.pending(), crew: crew.aboard() }),
     dbg: {
@@ -269,7 +271,7 @@ export function createKeel(ctx) {
       // put the ship's line on the ring's where it is solid (a test of the death)
       touch() {
         while (isOpen(t)) t += 0.01;
-        x = C.HZ_RING_X + 0.002;
+        x = C.HZ_E7 + 0.002;
         forced = -1;
         return true;
       },

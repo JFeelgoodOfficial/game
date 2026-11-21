@@ -4,6 +4,27 @@
 // bridge as world/launch.js left it, the crew at its rail for any crew there
 // is, the way a scene is played and a decision asked, the chart, the ring of
 // loose lights, and a figure made of hull cells.
+//
+// THE CONSTANTS (src/constants.js names them blankly on purpose; this is what they are):
+//   HZ_MASS the hole, in suns        HZ_M  G M / c^3, s
+//   HZ_T1   (4/3) M: horizon to the end, falling     HZ_T2  pi M: the most there is
+//   HZ_T3   0.5607 M: all of home ever seen           HZ_T4  the count to the roof once the spin is known (illustrative)
+//   HZ_TAU  the ship's clock at the start of each stage
+//   HZ_S*   scene lengths (S1..S10 as in the words file; SX a death, SX1 the death by keeping everything)
+//   HZ_A1   how near the middle of the view a sighting must be   HZ_A2  seconds held to log it
+//   HZ_B1   seconds of burn that give the most      HZ_B2  how long the burn is waited for
+//   the chart:  C1 the river's slope  C2 light's (the cone)  C3 slope per unit of lean  C4 how fast lean follows the stick
+//               C5 chart time per second  C6 where the ship came in  C7 where its old course meets the roof
+//               C8 dose per width of a line crossed  C9 drive per second of lean  C10 time lost to leaning
+//               C11 how near the starboard roof burns  C12 its dose per second
+//               C13 the warning before the port roof  C14 hands off for this long  C15 dose per second if not
+//               C16 dose at the roof in its band  C17 in the X-ray length  C18 out of its band
+//   the hull:   D1 the lamp's range  D2 seconds to look someone back  D3 less per captain already back
+//               D4 how fast a look sinks away  D5 the cone  D6 seconds until the cells let go  D7 before they start to drain
+//               D8 how close the lights come to a pilot alone  D9 seconds to look the corner back
+//   the ring:   E1 a gap's length  E2 one every this much  E3 the chart's rate there (times C5)  E4 the pull back to rest
+//               E5 drive coming back per second  E6 how much the ship holds back by itself  E7 where the ring's line is
+//   CH_TIER:    hzA loose lights in the ring  hzB lights from the ring  hzC hull cells  hzD cells in a figure
 
 import * as THREE from 'three';
 import { C } from '../src/constants.js';
@@ -119,7 +140,7 @@ export function shownLines(chapter, list) {
 // third clock. Home, as seen, is worked out from the ship's clock (see the sky's
 // notes) and stops for good at the roof (`roofTau`).
 export function showClocks(tau, left, roof = false, stopAt = null) {
-  const seen = homeSeen(C.HZ_FALL - Math.min(tau, stopAt ?? tau));
+  const seen = homeSeen(C.HZ_T1 - Math.min(tau, stopAt ?? tau));
   if (left == null) chapterHud.clocks(tau, seen, CLOCKS.ship, CLOCKS.home);
   else chapterHud.clocks(tau, seen, CLOCKS.ship, CLOCKS.home, Math.max(0, left), roof ? CLOCKS.roof : CLOCKS.left);
 }
@@ -503,8 +524,8 @@ const LINE_N = 640;
 export function createChart(time) {
   const group = new THREE.Group();
   const U = {
-    uTime: time, uKind: { value: 1 }, uMorph: { value: 1 }, uScroll: { value: 0 }, uRiver: { value: C.HZ_RIVER }, uRingX: { value: C.HZ_RING_X },
-    uGap: { value: C.HZ_GAP }, uEvery: { value: C.HZ_GAP_EVERY }, uGlare: { value: 0 }, uOldX: { value: C.HZ_OLD_X }, uEntry: { value: C.HZ_ENTRY_X }, uLit: { value: 1 },
+    uTime: time, uKind: { value: 1 }, uMorph: { value: 1 }, uScroll: { value: 0 }, uRiver: { value: C.HZ_C1 }, uRingX: { value: C.HZ_E7 },
+    uGap: { value: C.HZ_E1 }, uEvery: { value: C.HZ_E2 }, uGlare: { value: 0 }, uOldX: { value: C.HZ_C7 }, uEntry: { value: C.HZ_C6 }, uLit: { value: 1 },
     uS: { value: CHART.streams.map((s) => new THREE.Vector4(s.x0, s.t0, s.slope, s.len)) },
     uSC: { value: CHART.streams.map((s) => { const c = new THREE.Color(BANDS[bandIndex(s.band)].tint); return new THREE.Vector4(c.r, c.g, c.b, s.width); }) },
     uRoof: { value: CHART.roof.map((id) => new THREE.Color(BANDS[bandIndex(id)].tint)) },
@@ -556,9 +577,9 @@ export function createChart(time) {
         own.geometry.setDrawRange(0, n);
         own.geometry.attributes.position.needsUpdate = true;
       }
-      put(cone, 0, x - C.HZ_SLOPE * 0.45, t + 0.45);
+      put(cone, 0, x - C.HZ_C2 * 0.45, t + 0.45);
       put(cone, 1, x, t);
-      put(cone, 2, x + C.HZ_SLOPE * 0.45, t + 0.45);
+      put(cone, 2, x + C.HZ_C2 * 0.45, t + 0.45);
       cone.geometry.setDrawRange(0, 3);
       cone.geometry.attributes.position.needsUpdate = true;
       put(lead, 0, x, t);
@@ -594,13 +615,13 @@ export function createMotes(n) {
         p.x *= 1.0 - 0.9 * uStretch;
         p.y += 0.03 * sin(uTime * 0.7 + position.x * 9.0);
         vec4 mv = modelViewMatrix * vec4(p, 1.0);
-        gl_PointSize = 60.0 / -mv.z;
+        gl_PointSize = clamp(22.0 / -mv.z, 1.5, 7.0);
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: /* glsl */ `
       void main() {
         float d = length(gl_PointCoord - 0.5);
-        gl_FragColor = vec4(vec3(0.7, 1.0, 1.1) * smoothstep(0.5, 0.0, d), 1.0);
+        gl_FragColor = vec4(vec3(0.7, 1.0, 1.1) * smoothstep(0.5, 0.0, d) * 0.8, 1.0);
       }`,
   }));
   pts.frustumCulled = false;
@@ -668,4 +689,27 @@ export function effectsOf(chapter) {
     marks: chapter.hz.state().lost.map((id) => ({ id, color: COLOURS[id] })),
     talk,
   };
+}
+
+// (for a test) every scene's lines as this crew would be shown them: { scene: [text, ...] }
+import * as WORDS from './SEALED-horizon-words.js';
+export function auditLines(chapter) {
+  const out = {};
+  const take = (name, list) => {
+    out[name] = shownLines(chapter, list);
+  };
+  for (const k of ['S1', 'S2', 'S3A', 'S3B', 'S4', 'S4B', 'DX1', 'S5', 'S6', 'DX2', 'S7A', 'S7', 'S8', 'S8A', 'S8B', 'S9', 'DX3', 'S10']) take(k, WORDS[k].lines);
+  take('TONE', WORDS.TONE);
+  take('LAMP', WORDS.LAMP.sights.flatMap((s) => s.say));
+  take('COUNT', [WORDS.COUNT.nudge, WORDS.COUNT.best, WORDS.COUNT.long, WORDS.COUNT.none, WORDS.COUNT.fight]);
+  take('BARKS', Object.values(WORDS.CHART.barks));
+  take('HULL', [WORDS.HULL.freighter, WORDS.HULL.timer, WORDS.HULL.stolen, ...Object.values(WORDS.HULL.back), ...Object.values(WORDS.HULL.help), ...WORDS.HULL.lost, ...Object.values(WORDS.HULL.near)]);
+  take('KEEL', [WORDS.KEEL.now, WORDS.KEEL.leans, WORDS.KEEL.miss]);
+  take('DEATH', Object.values(WORDS.AFTER_DEATH));
+  WORDS.HALL.look.forEach((alts, i) => {
+    const f = facts(chapter);
+    const l = alts.find((x) => fits(chapter, x, f) && (chapter.crew().length || x.solo));
+    out[`LOOK${i}`] = l ? shownLines(chapter, [l]) : [];
+  });
+  return out;
 }

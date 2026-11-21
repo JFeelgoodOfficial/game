@@ -996,7 +996,68 @@ One thread, given by Patron Axilo in Meridian Crown, that explains every gate be
 - **Old saves.** Charge already accepted or blown with no errand: Axilo's first talk goes straight to `sent`. Tenretni already past: Ossva keeps her old terms (survey, then charge) and the codex files the Seal as having no one left to take it.
 - **Alliances** are story flags only in this pass; nothing in the fleet war reads them yet.
 
-<!-- 5.7.7 -->
+### 5.7.7 The chapter past the horizon (sealed)
+
+The owner has not played this chapter. This section is its structure only: no plot, no names of what is in it, no account of how it ends. The story, every line of dialogue and the full design are in files whose names start with `SEALED-`, each headed `SEALED: the owner has not played this yet. Do not open.`
+
+**Where it sits.** It carries on from `ez_beyond` (5.7.5) and ends at `hz_open`, where the light ship and its crew are in open space and 5.7.8 takes over. A save at `ez_beyond` goes straight on: the launch bridge (`world/launch.js`) has one console, `E — THE HELM`, shown from `ez_beyond` until `hz_open`. Saves from before it load unchanged: the record below is written only once it holds something.
+
+**Stages.** Appended to `STAGES` in `src/chapter.js`, forward only:
+
+`hz_bell1`, `hz_bell2`, `hz_bell3`, `hz_bell4`, `hz_bell5`, `hz_bell6`, `hz_bell7`, `hz_bell8`, `hz_bell9`, `hz_bell10`, `hz_open`
+
+**Places.** Five, each a `capitalWalk` site entered under the white, built the first time it is wanted by the chapter's host, `src/horizon.js` (which holds no story: a table of doors and nothing else).
+
+| Door | File | Kind | Stages | Look |
+|---|---|---|---|---|
+| `hz:deck` | `world/SEALED-horizon-deck.js` | walked, with held stations | 1 to 3 | `dive` |
+| `hz:hall` | `world/SEALED-horizon-hall.js` | walked | 4 | `lightship` |
+| `hz:helm` | `world/SEALED-horizon-helm.js` | held, its own camera and input | 5 to 6 | `dive` |
+| `hz:hull` | `world/SEALED-horizon-hull.js` | walked | 7 to 8 | `dive` |
+| `hz:keel` | `world/SEALED-horizon-keel.js` | held, its own camera and input | 9 to 10 | `dive` |
+| `hz:back` | (none) | a death: see below | | |
+
+Shared by them: `world/SEALED-horizon-words.js` (every word and data table), `world/SEALED-horizon-sky.js`, `world/SEALED-horizon-ship.js`, and `world/SEALED-horizon-place.js` (what the chart calls the place the ship is let go in, read by `src/systems.js`). The design is `plans/SEALED-horizon.md`.
+
+**The record.** `ch.hz` inside `fgsf.tenretni`, beside `ch.ez`:
+
+```js
+{ d: { c1, c2, n1, n2, n3, n4, t },   // scalars by key
+  lost: ['<captain id>', ...],          // captains lost in this chapter, for good
+  cp: { key, to, stage, d, lost } }     // the one pending checkpoint, only while pending
+```
+
+| Key | Type |
+|---|---|
+| `c1` | integer 0..6 (a decision) |
+| `c2` | `'a'` or `'b'` (a decision) |
+| `n1` | integer, a 4-bit mask |
+| `n2` | integer 0..100 |
+| `n3` | string, up to 3 letters |
+| `n4`, `t` | integer, seconds |
+
+Later chapters read them with `chapter.hz.get(key)`. Captains can be lost in this chapter; `chapter.crew()` is `CAPTAINS` less `ez.lost` and `hz.lost`, and every scene is written for every crew from all three to none.
+
+**Decisions, death and restore.** A decision is a dialogue choice the place holds on until one option is picked, asked again if the panel is closed without a pick; SKIP runs a scene to its end or its next hold and never passes a decision. The rule the owner asked for (die, and be put back just before the decision that led to it; a choice survived stays made) is one mechanism in `src/chapter.js`:
+
+- `hz.offer(key, to)` when a decision is shown: the stage and the record as they stand are kept as the checkpoint, with the door (`to`) back to the asking.
+- `hz.decide(key, option)` when it is answered.
+- `hz.survive(key)` at the next safe beat: the checkpoint is dropped and the choice is permanent.
+- `hz.die()` on a death: the stage and record are put back to the checkpoint (the only place a stage goes backwards) and the door is returned.
+
+A place that kills the pilot raises `portal = 'hz:back'`; `farHop` in `src/tenretni.js` calls `die()` and walks the pilot back in through the door it returns. A game left in the middle of what a choice led to loads at the asking, because a scene is not resumed half-way. The two checkpoints are `c1` (door `hz:hall`) and `c2` (door `hz:hull`).
+
+**Scenes.** Every timed scene is `createSceneClock` (`world/sceneClock.js`): one clock, `pose(u)`, lines said as the clock passes them, `stops` it holds at for a decision, `skip()` to the next stop or the end, `seek(u)`. Lines are `{ by, text, solo }` said through `crewSay`: by their captain if aboard, by another who is if not, and with nobody aboard `solo` (or nothing). Bars and subtitles are `chapterHud`; talks are `cineTalk`.
+
+**Physics.** The chapter stands on real black-hole physics. Where a mechanic goes past what is established, the comment at that mechanic says so, in the SEALED file it is in.
+
+**The ending.** The last place calls `ctx.openSpace()` (`src/tenretni.js`): the stage becomes `hz_open`, the megaworld is stowed for good (`far.stow()`), the first system is mounted, and the door it returns leads onto the home base's bridge. Every branch ends there. What the chapter leaves aboard is `horizon.effects()` (5.7.8).
+
+**Tunables.** The `HZ_*` block in `src/constants.js` (numbers, inside `C`), the `HZ_TAU` export after it, and four `CH_TIER` counts: `hzA`, `hzB`, `hzC`, `hzD`. The names are neutral on purpose and the comments give units only; the legend that says what each one does is in `world/SEALED-horizon-ship.js`.
+
+**Debug.** `__debug.tenretni.hz()` is the host: `go(stage)`, `hopTo(key)`, `site()`, `seek(u)`, `skip()`, `crew(ids)`, `audit()` (every scene's lines as the crew aboard would be shown them), `dbg(name, ...args)` (the current place's own handles), `state()`. `__debug.tenretni.chapter().hz` has `state()`, `pending()`, `die()`; `chapter().setCrewDebug(ids)` sets who is aboard. `__debug.base.door('hz:*')` walks through a door.
+
+**How to verify.** The recipes are in `.claude/skills/verify/SKILL.md` under "The chapter past the horizon". What must hold: every stage is reached by play from an `ez_beyond` save and by `go(stage)` and a reload; every ending leaves `voyage().state().open` true with the pilot on the home base's bridge; each decision plays with all eight crews; a death after each decision restores the stage and record to the checkpoint and a survived choice persists across a reload; SKIP works on every scene and stops at a decision; an older save loads unchanged.
 
 ### 5.7.8 The light ship as a home base, and chapters as systems
 
