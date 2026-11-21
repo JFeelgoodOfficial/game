@@ -1,27 +1,25 @@
 // What the light ship made while it was away (GDD 5.7.5).
 //
-// A million years on the ship is back in its yard, and it is not alone there.
-// Off its forward quarter, close under the gallery's rail, floats a second
-// vessel that nobody built: a rounded hull of the same glass film as the
-// hangar's blades, and on its foredeck a dome, which is the command bridge:
-// a helm, the pilot's seat and one for each of the three captains. From the
-// corner the ship finished
-// itself with, a double strand of small cells runs out to it, turning on
-// itself the whole way: the ship has not let go of what it made.
+// A million years on the ship is back in its yard, finished. The corner of
+// its block it was never given is there now, in round cells, and on the top
+// of its bow, where a small glass blister was, there is a dome: the command
+// bridge, with a helm, the pilot's seat and one for each of the three
+// captains. From the finished corner a double strand of small cells runs the
+// length of the ship, over the block and along the spine, turning on itself
+// the whole way, down into the crown of the dome: what it made at one end,
+// joined to where it is steered from at the other.
 //
-// Seen from the gallery, never walked. Three instanced meshes and a handful
-// of merged ones, one uniform (the hangar's clock). Built the first time it
-// is wanted, in the hangar's root frame (world/lightvessel.js): +z is the
-// light ship's bow, the gallery is off to +x.
+// Seen from the gallery, never walked here (world/launch.js walks the same
+// bridge at its own size). A few instanced meshes and a few merged ones, one
+// uniform (the hangar's clock). Built the first time it is wanted, in the
+// hangar's root frame (world/lightvessel.js): +z is the light ship's bow, the
+// gallery is off to +x.
 
 import * as THREE from 'three';
 import { tint, box, cyl, mergedMesh } from './capital.js';
 
-// where it floats, and how it is turned: broadside on to the gallery, bow to the left of it
-const AT = new THREE.Vector3(232, -50, 128);
-const YAW = 1.48;
 const STRAND_N = 132, STRAND_R = 13, STRAND_TURNS = 8.5;
-// The command bridge under the dome, in the vessel's own frame (+z its bow):
+// The command bridge under the dome, in its own frame (+z the ship's bow):
 // the floor's height and middle, and from that middle [x, z] for the helm, the
 // pilot's seat, the captains' three (and their desks), and where each captain
 // stands at theirs. Vask, Marrow, Lux: CAPTAINS order.
@@ -45,29 +43,6 @@ const WORLD_VERT = /* glsl */ `
     vW = w.xyz;
     vN = normalize(mat3(modelMatrix) * normal);
     gl_Position = projectionMatrix * viewMatrix * w;
-  }
-`;
-// the hull: a film of every colour over polished metal, with seams of light
-const HULL_FRAG = /* glsl */ `
-  uniform float uTime;
-  varying vec3 vL;
-  varying vec3 vW;
-  varying vec3 vN;
-  void main() {
-    vec3 n = normalize(vN);
-    vec3 v = normalize(cameraPosition - vW);
-    float facing = max(dot(n, v), 0.0);
-    float film = facing * 1.5 + vL.y * 0.035 + vL.z * 0.012 + uTime * 0.03;
-    vec3 irid = 0.5 + 0.5 * cos(6.2832 * (film + vec3(0.0, 0.33, 0.67)));
-    // what a mirror would show: pale above, dark under
-    vec3 r = reflect(-v, n);
-    vec3 env = mix(vec3(0.10, 0.13, 0.22), vec3(0.80, 0.90, 1.0), smoothstep(-0.35, 0.6, r.y));
-    vec3 col = mix(env * 0.7, irid, 0.6) * (0.36 + 0.8 * pow(1.0 - facing, 1.6));
-    // seams: long lines of light down the hull, and the strakes swept round its bow
-    float seam = smoothstep(0.86, 0.97, abs(fract(vL.y * 0.115 + 0.08 * sin(vL.z * 0.05)) - 0.5) * 2.0);
-    col += vec3(0.75, 0.95, 1.0) * seam * 0.9;
-    col += vec3(1.0) * pow(max(dot(r, normalize(vec3(0.4, 0.8, 0.3))), 0.0), 24.0) * 0.9;
-    gl_FragColor = vec4(col, 1.0);
   }
 `;
 // the dome: nearly clear, ruled like a globe, bright at the rim
@@ -150,37 +125,12 @@ export function createMade(hangar) {
   const time = hangar.uniforms.uTime;
   const dummy = new THREE.Object3D();
 
-  // --- the vessel ---
+  // --- the bridge, on the top of the bow where the blister was ---
   const craft = new THREE.Group();
-  craft.position.copy(AT);
-  craft.rotation.y = YAW;
+  craft.position.set(hangar.helm.x, hangar.bowTop - BRIDGE.y, hangar.helm.z - BRIDGE.z);
   root.add(craft);
-  const hullMat = new THREE.ShaderMaterial({ uniforms: { uTime: time }, vertexShader: WORLD_VERT, fragmentShader: HULL_FRAG, fog: false });
-  // the hull: full at the bow, drawn out aft, flat under the deck
-  const hullGeo = new THREE.SphereGeometry(1, 48, 28);
-  {
-    const p = hullGeo.attributes.position;
-    for (let i = 0; i < p.count; i++) {
-      let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-      const taper = z < 0 ? 1.0 - 0.38 * z * z : 1.0; // narrower toward the stern (-z)
-      x *= 25 * taper;
-      y = (y > 0.34 ? 0.34 + (y - 0.34) * 0.12 : y) * 21 * (z < 0 ? 1.0 - 0.25 * z * z : 1.0);
-      z *= z < 0 ? 62 : 46;
-      // (the strakes below are rings of the bow's own shape: aft of amidships they lie inside the hull)
-      p.setXYZ(i, x, y, z);
-    }
-    hullGeo.computeVertexNormals();
-  }
-  craft.add(new THREE.Mesh(hullGeo, hullMat));
-  // two strakes swept round the bow, and a collar where the dome sits
-  const strakes = [];
-  for (const [y, k] of [[-3, 1.05], [-11, 0.9]]) {
-    strakes.push(new THREE.TorusGeometry(25 * k, 1.7, 10, 64).rotateX(Math.PI / 2).scale(1, 1, 46 / 25).translate(0, y, 0));
-  }
-  strakes.push(new THREE.TorusGeometry(19.5, 1.5, 8, 48).rotateX(Math.PI / 2).translate(0, 8.6, 12));
-  craft.add(mergedMesh(strakes, hullMat));
-
-  // the dome on the foredeck, and what is under it
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(19.5, 1.5, 8, 48).rotateX(Math.PI / 2).translate(0, 8.6, 12), new THREE.MeshLambertMaterial({ color: 0x39424e, emissive: 0x1c222b }));
+  craft.add(collar);
   const dome = new THREE.Mesh(
     new THREE.SphereGeometry(19, 40, 18, 0, Math.PI * 2, 0, Math.PI / 2),
     new THREE.ShaderMaterial({ uniforms: { uTime: time }, vertexShader: WORLD_VERT, fragmentShader: DOME_FRAG, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false }),
@@ -196,9 +146,9 @@ export function createMade(hangar) {
     mesh.frustumCulled = false;
     return mesh;
   };
-  // under the glass: the command bridge. A helm in the middle with the one
-  // round cell turning over it, the pilot's seat ahead of it and the three
-  // captains' in an arc behind. Larger than life, to be read from the gallery.
+  // under the glass: the command bridge. The helm forward with the one round
+  // cell turning high over it, the pilot's seat behind it and the three
+  // captains' in an arc behind that.
   const lit = [], glow = [];
   const STEEL = 0x39424e, DARK = 0x151a21;
   const BY = BRIDGE.y, BZ = BRIDGE.z; // the bridge's floor, and its middle
@@ -237,11 +187,6 @@ export function createMade(hangar) {
     glow.push(tint(box(2.2, 0.1, 0.8, x, BY + 1.7, BZ + z), 0x8affc8, 1.2));
   }
 
-  // lights along the deck's edge
-  for (let i = 0; i < 18; i++) {
-    const a = (i / 18) * Math.PI * 2;
-    glow.push(tint(new THREE.SphereGeometry(0.55, 6, 5).translate(Math.cos(a) * 22.5, 5.6, Math.sin(a) * 40 - 4), i % 3 ? 0x9fe8ff : 0xffe2a0, 1.7));
-  }
   const flat = (list) => list.map((g) => (g.index ? g.toNonIndexed() : g));
   craft.add(mergedMesh(flat(lit), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x1c222b })));
   craft.add(mergedMesh(flat(glow), new THREE.MeshBasicMaterial({ vertexColors: true, fog: false })));
@@ -249,13 +194,16 @@ export function createMade(hangar) {
   craft.updateMatrix();
   const domeTop = new THREE.Vector3(0, 27, 12).applyMatrix4(craft.matrix);
   const c = hangar.cornerAt;
+  // up out of the corner, forward over the top of the block (clear of it), along
+  // the spine, and down into the dome's crown
   const curve = new THREE.CatmullRomCurve3([
     c.clone(),
-    new THREE.Vector3(c.x + 95, c.y + 34, c.z + 70),
-    new THREE.Vector3(176, 58, -215),
-    new THREE.Vector3(128, 4, -92),
-    new THREE.Vector3(214, 34, 6),
-    new THREE.Vector3(domeTop.x - 6, domeTop.y + 40, domeTop.z - 52),
+    new THREE.Vector3(c.x + 60, c.y + 95, c.z + 70),
+    new THREE.Vector3(-35, 215, -200),
+    new THREE.Vector3(45, 200, -50),
+    new THREE.Vector3(-25, 175, 100),
+    new THREE.Vector3(25, 165, 230),
+    new THREE.Vector3(domeTop.x, domeTop.y + 55, domeTop.z - 30),
     domeTop,
   ], false, 'centripetal');
   const frames = curve.computeFrenetFrames(STRAND_N - 1, false);
@@ -297,17 +245,16 @@ export function createMade(hangar) {
   rungs.frustumCulled = false;
   root.add(cubes, rungs);
 
+  // the middle of the bridge, in the root's frame
+  const at = new THREE.Vector3(0, BRIDGE.y, BRIDGE.z).applyMatrix4(craft.matrix);
   return {
     show(on) {
       root.visible = on;
+      hangar.blister.visible = !on; // (the dome stands where the blister was)
     },
-    // `still`: under way, with people standing on its bridge, it does not ride
-    tick(t, still = false) {
-      if (!root.visible) return;
-      craft.position.y = AT.y + (still ? 0 : Math.sin(t * 0.35) * 1.6); // it rides, a little
-    },
+    tick() {},
     // for whoever shows it (world/lightcity.js, world/launch.js), in the hangar's root frame
-    at: AT, corner: c, curve, root, craft, dome,
-    state: () => ({ shown: root.visible, cubes: STRAND_N * 2, at: AT.toArray(), corner: c.toArray().map(Math.round) }),
+    at, corner: c, curve, root, craft, dome,
+    state: () => ({ shown: root.visible, cubes: STRAND_N * 2, at: at.toArray().map(Math.round), corner: c.toArray().map(Math.round) }),
   };
 }

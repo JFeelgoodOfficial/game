@@ -240,9 +240,10 @@ export function createLaunch(ctx) {
   }
   group.add(world);
 
-  // --- the bridge: the dome of what the light ship made (world/eramade.js),
-  // walked at its own size, with the ship it made it from flying alongside
-  // and the strands between them. The hangar's own builder, without the yard.
+  // --- the bridge: the dome on the light ship's bow (world/eramade.js), walked
+  // at its own size, with the ship behind it and the strands running back
+  // from the dome's crown to the corner it finished. The hangar's own
+  // builder, without the yard.
   const hangar = buildHangar(group);
   hangar.era(true);
   const made = createMade(hangar);
@@ -283,7 +284,7 @@ export function createLaunch(ctx) {
   let u = -1, said = -1, lastSaid = false; // its clock: -1 over (or never begun)
   let inside = false, prev = null, walker = null;
   // (it falls away off the starboard quarter: clear of the archive, which is dead astern)
-  const megaFrom = new THREE.Vector3(0.86, -0.42, 0.3).normalize(), megaTo = new THREE.Vector3(0.9, -0.1, 0.42).normalize();
+  const megaFrom = new THREE.Vector3(0.86, -0.16, 0.3).normalize(), megaTo = new THREE.Vector3(0.9, 0.04, 0.42).normalize(); // (high enough to be seen over the bow's cells)
   const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3();
   const speak = (id, text, sec = 7) => {
     // (a line written for a captain who was lost is said by one who was not)
@@ -436,7 +437,6 @@ export function createLaunch(ctx) {
       }
       setHum(Math.max(0.12, drive));
       hangar.tick(t);
-      made.tick(t, true);
       for (const m of crew) {
         if (!m.on) continue;
         poseRig(m.rig, d, t, 'idle', 0);

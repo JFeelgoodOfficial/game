@@ -912,10 +912,10 @@ export function createLightCity(ctx) {
   function showCamera(pos, target) {
     if (showU < 0 || !made) return false;
     const u = showU, o = hangar.root.position;
-    // the vessel, from out over the yard, closing on it a little
-    const d = u / SHOW.end;
-    pos.set(made.at.x + 62 - 22 * d * 3, made.at.y + 24, made.at.z - 58 - 22 * d * 3);
-    target.set(made.at.x, made.at.y + 14, made.at.z);
+    // the dome on the bow, from off the gallery's side and ahead of it, closing on it a little
+    const d = Math.min(1, u / SHOW.vessel);
+    pos.set(made.at.x + 95 - 30 * d, made.at.y + 34 - 8 * d, made.at.z + 80 - 26 * d);
+    target.set(made.at.x, made.at.y + 7, made.at.z);
     // up the strands, from the vessel's end to the ship's
     const k2 = sm(SHOW.vessel - 0.8, SHOW.vessel + 0.8, u);
     if (k2 > 0) {
