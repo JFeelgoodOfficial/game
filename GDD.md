@@ -932,8 +932,8 @@ A million years on (`ez_era`):
 - What the light ship made (`world/eramade.js`). Back in its yard, the ship
   has finished the corner it was never given, and from that corner a double
   strand of small cells runs out across the hangar to a second vessel floating
-  close under the gallery's rail: a rounded hull of glass film, a lamp on a
-  tower aft, and on its foredeck a dome that is the command bridge, with a
+  close under the gallery's rail: a rounded hull of glass film, and on its
+  foredeck a dome that is the command bridge, with a
   helm, the pilot's seat and one for each of the three captains. The first time
   the pilot walks onto the gallery the camera is taken for about fifteen
   seconds: the vessel, up the strands, the corner (`ERA.made` has the lines).

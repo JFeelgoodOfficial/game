@@ -247,7 +247,6 @@ export function createLaunch(ctx) {
   hangar.era(true);
   const made = createMade(hangar);
   made.show(true);
-  made.beam(0.4);
   for (const ch of hangar.root.children) if (ch !== hangar.vessel && ch !== made.root) ch.visible = false;
   const S = 10 / BRIDGE.dome; // so the dome is ten units across the floor, and people stand in it
   hangar.root.scale.setScalar(S);

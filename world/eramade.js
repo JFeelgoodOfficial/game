@@ -4,8 +4,8 @@
 // Off its forward quarter, close under the gallery's rail, floats a second
 // vessel that nobody built: a rounded hull of the same glass film as the
 // hangar's blades, and on its foredeck a dome, which is the command bridge:
-// a helm, the pilot's seat and one for each of the three captains. Aft, a
-// lamp on a tower sweeps the yard. From the corner the ship finished
+// a helm, the pilot's seat and one for each of the three captains. From the
+// corner the ship finished
 // itself with, a double strand of small cells runs out to it, turning on
 // itself the whole way: the ship has not let go of what it made.
 //
@@ -142,31 +142,6 @@ const CELL_FRAG = /* glsl */ `
     gl_FragColor = vec4(col * 1.2, 1.0);
   }
 `;
-// the lamp's beam: a cone of light, thin at the lamp and gone by its far end
-const BEAM_VERT = /* glsl */ `
-  varying float vAlong;
-  varying vec3 vW;
-  varying vec3 vN;
-  void main() {
-    vAlong = position.z;
-    vec4 w = modelMatrix * vec4(position, 1.0);
-    vW = w.xyz;
-    vN = normalize(mat3(modelMatrix) * normal);
-    gl_Position = projectionMatrix * viewMatrix * w;
-  }
-`;
-const BEAM_FRAG = /* glsl */ `
-  uniform float uGain;
-  varying float vAlong;
-  varying vec3 vW;
-  varying vec3 vN;
-  void main() {
-    float side = abs(dot(normalize(vN), normalize(cameraPosition - vW)));
-    float a = (1.0 - vAlong) * (1.0 - vAlong) * (0.2 + 0.8 * side * side);
-    gl_FragColor = vec4(vec3(0.78, 0.93, 1.0) * a * uGain, 1.0);
-  }
-`;
-
 // hangar: world/lightvessel.js's (root, uniforms, cornerAt)
 export function createMade(hangar) {
   const root = new THREE.Group();
@@ -262,20 +237,6 @@ export function createMade(hangar) {
     glow.push(tint(box(2.2, 0.1, 0.8, x, BY + 1.7, BZ + z), 0x8affc8, 1.2));
   }
 
-  // the lamp, aft: a tower with a gallery round its head
-  const TY = 4.5, TZ = -34; // its foot on the after deck
-  lit.push(tint(cyl(6.2, 7.4, 4, 0, TY + 2, TZ, 20), DARK));
-  lit.push(tint(cyl(3.6, 5.4, 30, 0, TY + 19, TZ, 20), STEEL));
-  lit.push(tint(cyl(6.4, 4.2, 2, 0, TY + 35, TZ, 20), DARK));
-  lit.push(tint(new THREE.TorusGeometry(6.6, 0.28, 6, 28).rotateX(Math.PI / 2).translate(0, TY + 38.2, TZ), STEEL));
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2;
-    lit.push(tint(cyl(0.16, 0.16, 2.4, Math.cos(a) * 6.6, TY + 37.1, TZ + Math.sin(a) * 6.6, 5), STEEL));
-  }
-  for (let i = 0; i < 4; i++) glow.push(tint(cyl(4.9 - i * 0.42, 4.95 - i * 0.42, 0.5, 0, TY + 9 + i * 7, TZ, 20), 0x9fe8ff, 1.5));
-  glow.push(tint(cyl(3.3, 3.3, 5.6, 0, TY + 39.2, TZ, 16), 0xf4fbff, 2.6)); // the lamp room
-  lit.push(tint(new THREE.ConeGeometry(4.6, 4.2, 16).translate(0, TY + 44.2, TZ), DARK));
-  glow.push(tint(new THREE.SphereGeometry(0.7, 8, 6).translate(0, TY + 46.8, TZ), 0xffe2a0, 2.0));
   // lights along the deck's edge
   for (let i = 0; i < 18; i++) {
     const a = (i / 18) * Math.PI * 2;
@@ -284,22 +245,6 @@ export function createMade(hangar) {
   const flat = (list) => list.map((g) => (g.index ? g.toNonIndexed() : g));
   craft.add(mergedMesh(flat(lit), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x1c222b })));
   craft.add(mergedMesh(flat(glow), new THREE.MeshBasicMaterial({ vertexColors: true, fog: false })));
-  // ...and its beam: one each way, turning
-  const lamp = new THREE.Group();
-  lamp.position.set(0, TY + 39.2, TZ);
-  craft.add(lamp);
-  const beamGeo = new THREE.CylinderGeometry(1, 0.05, 1, 28, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5); // apex at the lamp, opening down +z
-  const beamU = { uGain: { value: 1 } };
-  const beamMat = new THREE.ShaderMaterial({ uniforms: beamU, vertexShader: BEAM_VERT, fragmentShader: BEAM_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
-  for (const s of [1, -1]) {
-    const b = new THREE.Mesh(beamGeo, beamMat);
-    b.scale.set(20, 20, 620 * s);
-    b.rotation.x = -0.09 * s; // (tilted a little up, so it sweeps over the dome and not through it)
-    b.frustumCulled = false;
-    b.renderOrder = 6;
-    lamp.add(b);
-  }
-
   // --- the strands: from the finished corner to the dome ---
   craft.updateMatrix();
   const domeTop = new THREE.Vector3(0, 27, 12).applyMatrix4(craft.matrix);
@@ -356,14 +301,9 @@ export function createMade(hangar) {
     show(on) {
       root.visible = on;
     },
-    // how bright the lamp's beams are (from the bridge, under way, they are less)
-    beam(k) {
-      beamU.uGain.value = k;
-    },
     // `still`: under way, with people standing on its bridge, it does not ride
     tick(t, still = false) {
       if (!root.visible) return;
-      lamp.rotation.y = t * 0.22;
       craft.position.y = AT.y + (still ? 0 : Math.sin(t * 0.35) * 1.6); // it rides, a little
     },
     // for whoever shows it (world/lightcity.js, world/launch.js), in the hangar's root frame
