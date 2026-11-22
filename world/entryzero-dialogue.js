@@ -39,24 +39,24 @@ export const LAMP = {
 
 // --- the first world's relics ----------------------------------------------------
 // One per band that shows it. `band` is a BANDS id. Order matters (one saved
-// bit each). PLACEHOLDER: every `fragment` — what the one who was afraid lost
-// is not written yet.
+// bit each). Every `fragment` is a first draft, the owner's to rewrite: what
+// the one who was afraid could not bear to lose.
 export const RELICS = [
-  { id: 'writing', band: 'uv', name: "THE MAKERS' WRITING", fragment: 'PLACEHOLDER — WHAT THE WRITING SAYS.' },
-  { id: 'hearth', band: 'ir', name: 'THE LAST WARM PLACE', fragment: 'PLACEHOLDER — WHO STAYED WARM HERE, AND FOR HOW LONG.' },
-  { id: 'buried', band: 'xray', name: 'WHAT IS BURIED', fragment: 'PLACEHOLDER — WHAT WAS PUT UNDER THE GROUND, AND WHY.' },
+  { id: 'writing', band: 'uv', name: "THE MAKERS' WRITING", fragment: 'ONE ORDER, CUT DEEP: KEEP EVERYTHING. ROUND IT, IN OTHER HANDS, AN ARGUMENT THAT RUNS THE LENGTH OF THE WALL.' },
+  { id: 'hearth', band: 'ir', name: 'THE LAST WARM PLACE', fragment: 'THE LAST OF THE MAKERS LIVED ROUND THIS FIRE AFTER THEIR SUN FAILED. THEY KEPT IT NINE HUNDRED YEARS. THEN THEY LET IT GO OUT THEMSELVES.' },
+  { id: 'buried', band: 'xray', name: 'WHAT IS BURIED', fragment: 'A BOX UNDER THE FLOOR. IN IT, A DRAWING BY SOMEONE SMALL. THE FIRST THING THE MACHINE WAS EVER ASKED TO KEEP.' },
 ];
 
 // --- who stays aboard -------------------------------------------------------------
 // The pilot picks one captain to hold the full spectrum on the ground from
-// the submersible. PLACEHOLDER, all three: the owner has not decided how each
+// the submersible. First drafts, all three: the owner has not decided how each
 // choice plays out. `pool` scales how fast the lit ground shrinks, `warn` how
 // early the light eaters are called out (seconds), `line` is what they say
 // as the hatch closes.
 export const STAY = {
-  vask: { pool: 0.8, warn: 4, line: 'PLACEHOLDER — I WILL COUNT IT DOWN FOR YOU.' },
-  marrow: { pool: 1.0, warn: 9, line: 'PLACEHOLDER — I WILL HEAR THEM BEFORE YOU SEE THEM.' },
-  lux: { pool: 1.15, warn: 6, line: 'PLACEHOLDER — I WOULD RATHER HOLD A LIGHT THAN STAND IN THE DARK.' },
+  vask: { pool: 0.8, warn: 4, line: 'I WILL COUNT THE LIGHT DOWN FOR YOU. WHEN I SAY COME UP, YOU COME UP.' },
+  marrow: { pool: 1.0, warn: 9, line: 'I WILL HEAR THEM BEFORE YOU SEE THEM. LISTEN FOR MY VOICE.' },
+  lux: { pool: 1.15, warn: 6, line: 'I WOULD RATHER HOLD A LIGHT THAN STAND IN THE DARK. GO ON. I HAVE IT.' },
 };
 
 // --- 1. the offer ---------------------------------------------------------------
@@ -66,13 +66,13 @@ export const OFFER = {
   ask: {
     speaker: TENRETNI('The Archivist'),
     lines: [
-      'We searched the archive for ourselves.',
-      'Every record is lit. One is not. Entry zero.',
-      'We made this to look for ourselves. We see everything at once. That may be why we have never seen it.',
+      'You have lived here now. You have raced, and seen what was built, and slept. So I will ask you one more thing.',
+      'We keep a record of everything we have ever taken. Every entry is lit. One is dark: entry zero, the first world, the one we were made on.',
+      'We do not know who made us or why we keep things. The answer is at the centre of this machine, all the way down, and we cannot see it. We see everything at once, and it only shows to one kind of light at a time.',
     ],
     offer: {
       kind: 'choice',
-      prompt: 'It is below us. All the way down.',
+      prompt: 'Go down and look at it for us.',
       options: [
         { label: 'I WILL GO AND LOOK', outcomeTag: 'ez:accept' },
         { label: 'NOT YET', outcomeTag: 'ez:wait' },
@@ -81,10 +81,10 @@ export const OFFER = {
   },
   accept: {
     speaker: TENRETNI('The Archivist'),
-    lines: ['A lamp. It shows one thing at a time. We cannot use it.', 'A vessel, for the dark between the oceans.', 'Your three will not let you go alone. We asked.'],
+    lines: ['Take this lamp. It shows one kind of light at a time: Q and E change the kind, L turns it on. We cannot use it.', 'The vessel is at the east end of this balcony. It goes down the well under the city.', 'Your three captains are going with you. Vask says it is to watch us. We did not argue.'],
   },
-  wait: { speaker: TENRETNI('The Archivist'), lines: ['It has been dark a long time. It will keep.'] },
-  remind: { speaker: TENRETNI('The Archivist'), lines: ['The vessel is at the well. The cell is still dark.'] },
+  wait: { speaker: TENRETNI('The Archivist'), lines: ['It has been dark a very long time. It can wait until you are ready.'] },
+  remind: { speaker: TENRETNI('The Archivist'), lines: ['The vessel is at the east end of the balcony. Entry zero is still dark.'] },
   codex: 'Entry Zero',
 };
 
@@ -93,7 +93,7 @@ export const OFFER = {
 // shown when one is found; it is the reason the thing shows in that band.
 export const WELL = {
   enter: [
-    [1.5, 'vask', 'Six targets in the shaft. One for each band. Find them before we go any deeper.'],
+    [1.5, 'vask', 'Six targets in the shaft, one for each band of the lamp. Light each one in its own band. The floor will not open until we have all six.'],
     [9, 'lux', 'So we can only ever see a sixth of what is out there. Lovely.'],
   ],
   targets: [
@@ -143,11 +143,12 @@ export const DESCENT = {
     1: [
       [2, 'lux', 'Those are oceans. Whole oceans, each in a shell of its own ice.'],
       [9, 'marrow', 'One body of water this size would fall in on itself and light. So they kept them apart.'],
-      [16, 'vask', 'The lattice goes down past them. Follow it. Log what lives in the water.'],
+      [16, 'vask', 'The lattice goes down past them, and those bright cages on it are its nodes. The lower one will carry us down.'],
+      [24, 'vask', 'It will not take us until we have logged what lives here. Hold the lamp on each kind of creature, in the band it shows in.'],
     ],
     2: [
       [2, 'marrow', 'It is quieter here. That is not the same as empty.'],
-      [9, 'vask', 'Four bands still blank in the log. Infrared. The red line. X-ray. Radio.'],
+      [9, 'vask', 'Same again here. Four bands still blank in the log: infrared, H-alpha, X-ray, radio. One kind of creature for each. Then the lower node.'],
     ],
     4: [
       [2, 'marrow', 'These are the first things it took. Before the oceans.'],
@@ -161,7 +162,7 @@ export const DESCENT = {
   },
   water: ['vask', 'We are through the ice. Blue-green carries here. Infrared will not.'],
   // the exit node will not take the vessel until this zone's bands are logged
-  need: ['vask', 'The node will not take us. Still blank in the log: {bands}.'],
+  need: ['vask', 'The node will not take us yet. Find and log a creature in each of these bands first: {bands}.'],
   dark: ['vask', 'The lattice is dark below this node. Something further down is holding it shut.'],
   // light eaters
   eaters: ['lux', 'Something is in the beam. It is drinking it.'],
@@ -277,25 +278,27 @@ export const GROUND = {
   warn: ['keeper', 'They are on the beam again. The edge is coming in.'],
   edge: ['keeper', '{who}. The edge. Move.'],
   lost: ['keeper', '{who} is not there. {who} was past the light.'],
-  // PLACEHOLDER: what is said for a captain who is lost, by the one who chose to bring them
-  lostAfter: ['keeper', 'PLACEHOLDER — WHAT IS SAID WHEN ONE OF THEM IS GONE.'],
+  // (a first draft) what is said for a captain who is lost, by the one who chose to bring them
+  lostAfter: ['keeper', 'We do not leave it there. We finish this, and then we find out where the dark puts people.'],
   haul: ['keeper', 'Lamp is done. I am pulling you up. Now.'],
   tether: 'THE TETHER GOES BACK UP TO THE VESSEL',
 };
 
 // --- 7. the reveal ----------------------------------------------------------------
-// PLACEHOLDER, all of it but the theme: curiosity is what stands up to fear.
+// A first draft, all of it but the theme: curiosity is what stands up to fear.
+// Tenretni was built by someone afraid of losing a dying world, told to keep
+// everything, and never told it could stop: that is why it took the worlds.
 export const REVEAL = {
   // back aboard with every fragment: what the lamp is for, one more time
   ready: ['marrow', 'We have all of it now. Six bands. Three pieces. Show it everything at once.'],
   hold: 'HOLD Z — EVERY BAND',
-  after: ['vask', 'That is entry zero. It is in the log. Now we go up.'],
+  after: ['vask', 'So that is why it takes. Not hunger. Fear. I came down here to watch an enemy. Log it. Now we go up and tell them.'],
   codex: 'What Was Feared',
   lines: [
-    [0, null, 'PLACEHOLDER — ONE OF THEM WAS AFRAID OF LOSING SOMETHING.'],
-    [7, null, 'PLACEHOLDER — WHAT IT WAS.'],
-    [14, null, 'PLACEHOLDER — THE MAKERS MADE THEIR PEACE WITH IT. THE MACHINE WAS NEVER TOLD.'],
-    [22, null, 'PLACEHOLDER — THEY WERE NOT BRAVE. THEY WERE CURIOUS. IT CAME TO THE SAME THING.'],
+    [0, null, 'THIS WORLD WAS DYING, AND ONE OF ITS MAKERS COULD NOT BEAR TO LOSE ANY OF IT.'],
+    [7, null, 'SO THEY BUILT A MACHINE AND GAVE IT ONE ORDER: KEEP EVERYTHING. IT BEGAN WITH A CHILD\'S DRAWING.'],
+    [14, null, 'THE OTHERS MADE THEIR PEACE WITH THE END, AND LET THEIR LAST FIRE GO OUT. NOBODY TOLD THE MACHINE IT COULD STOP.'],
+    [22, null, 'IT TOOK YOUR WORLDS BECAUSE IT WAS AFRAID FOR THEM. YOU CAME DOWN HERE ONLY TO LOOK. CURIOSITY IS WHAT STANDS UP TO FEAR.'],
   ],
 };
 
@@ -331,9 +334,9 @@ export const ERA = {
   archivist: {
     speaker: { name: 'The Archivist', species: 'Tenretni', cityId: 'The City of Light' },
     lines: [
-      'You found it. We have had a long time with what you sent up.',
-      'We let the stars go. We are not afraid of the dark they left.',
-      'The ship came back. It made something while it was away. Go and see.',
+      'You found entry zero. We have had a million years with what you sent up.',
+      'We know now why we kept things. We were afraid of losing them. So we stopped keeping. We let the caged stars go, and we are not afraid of the dark they left.',
+      'The light ship came home by itself, and it made something while it was away. It is at the gallery, west of the terrace. Go and see.',
     ],
   },
   // what the ship made, shown from the gallery the first time the pilot walks

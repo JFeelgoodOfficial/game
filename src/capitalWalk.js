@@ -13,7 +13,8 @@
 //   platform.npcs[]      { x, y, z, talk() -> dialogue payload }
 //   platform.consoles[]  { x, y, z, r, prompt, use() -> dialogue payload }
 //   platform.onChoice(tag) -> follow-up payload | null   (a picked option)
-//   platform.setWalker(localPos | null)   so the figures can watch the player
+//   platform.setWalker(localPos | null, walker)   so the figures can watch the player
+//                        (walker: the live { pos, yaw, pitch }, for a carried light)
 //   platform.gun         { pivot, targets(), onHit(id) } on a warship: a console
 //                        with `gun: true` seats the walker at it (src/turretGun.js)
 //
@@ -31,6 +32,8 @@
 //                        they stand still and nothing can be used
 //   platform.camera(pos, target) -> true if the place has taken the camera
 //                        (writes both, platform-local; src/chapter.js scenes)
+//   platform.resolveWalls(pos, r)   push the walker out of the platform's own
+//                        box walls (the circle colliders are not enough for a hull)
 //   console.off()        true while a console is not there to be used
 //   platform.act()       E, while the place is holding the walker (leave a race)
 //   platform.heldPrompt()  what the prompt line says then
@@ -221,6 +224,8 @@ export function stepCapitalWalk(dt) {
   cWalk.pos.x += cWalk.vel.x * dt;
   cWalk.pos.z += cWalk.vel.z * dt;
   pushOut();
+  // a platform with box walls of its own (the wreck's bulkheads)
+  if (site.resolveWalls) site.resolveWalls(cWalk.pos, PLAYER_RADIUS);
   // the edge: no floor there, so no step. Try each axis alone before giving
   // up, which lets the walker slide along a rim instead of sticking to it.
   let gy = site.floorYAt(cWalk.pos.x, cWalk.pos.z, cWalk.pos.y);
@@ -310,7 +315,7 @@ export function updateCapitalVisuals(dt, t) {
   astronaut.update(dt, cWalk.mode, cWalk.speed01);
   astronaut.group.visible = cWalk.view === 'tp' && !gun.active && !site.hidePilot; // (hidePilot: seated out of sight, at a vehicle's controls)
   updateGunVisuals(dt, toWorld);
-  site.setWalker(cWalk.pos);
+  site.setWalker(cWalk.pos, cWalk);
   if (site.tick) site.tick(dt, t);
   if (parked) {
     _up.set(0, 1, 0).applyQuaternion(site.group.quaternion);

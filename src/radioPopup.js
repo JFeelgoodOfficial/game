@@ -11,6 +11,7 @@ import {
   nextTrack,
   prevTrack,
   currentTitle,
+  musicArea,
   onTrackChange,
   trackTitles,
   getCurrentIndex,
@@ -99,7 +100,7 @@ let trackRows = [];
 let popupOpen = false;
 
 function refresh() {
-  nowLine.textContent = currentTitle();
+  nowLine.textContent = musicArea().to ? currentTitle() : 'NO SIGNAL DOWN HERE';
   playBtn.textContent = isMusicPlaying() ? '⏸' : '⏵';
   const cur = getCurrentIndex();
   trackRows.forEach((row, i) => row.classList.toggle('sel', i === cur));

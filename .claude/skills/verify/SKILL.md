@@ -89,9 +89,14 @@ CAMERA, STAND, LAND, NAV in that order), `press(name, on)`, `litOf(name)`,
 `{value, held, shown}`, `setLever(v)` holds the throttle at v (-1..1) as a
 finger would and `setLever(null)` lets go (it must read 0 on the next frame).
 The throttle is `input.throttle`; W and S are the same lever at full throw.
-There is no roll and no flight brake: Q, E and Space must leave
-`ship.angularVelocity.z` and the speed alone in flight, and Space must still
-jump on foot. Lift-off from a pad is throttle up (`setLever(1)` or W). Touch:
+There is no flight brake: Space must leave the speed alone in flight, and must
+still jump on foot. Roll is `[` and `]` (`input.rollLeft/rollRight`) and two
+paddles either side of the CODEX disc, which are not row buttons:
+`cockpit.rollNames()` → `['ROLL L', 'ROLL R']`, `cockpit.screenPos('ROLL R')`;
+holding one drives `ship.angularVelocity.z` (left positive) and it must read
+false again on release. Q and E must still leave it alone. Over the megaworld
+`ship.levelUp` is (0, 1, 0) and a banked ship left alone comes level in about
+ten seconds; everywhere else it is null. Lift-off from a pad is throttle up (`setLever(1)` or W). Touch:
 a context with `hasTouch: true`, then CDP `Input.dispatchTouchEvent` at
 `screenPos('LEVER')` and a touchMove 80 px up or down; check the wheel is
 still on screen while the lever is held. Look at 16:9, 4:3 and a phone shape.
@@ -362,6 +367,35 @@ swell inside it (`reachShip.pose` → `{heave, pitch, roll}`).
 - After touching src/shaders/{surface,water,cloud}.frag re-run the Sky City
   steps and walk a Terra town: all planets share those shaders.
 
+## The Crown errand (GDD 5.7.6)
+
+Stage is `journal().quests['terra-errand']`; `__debug.errand(stage)` sets it,
+`errand()` reads it (saved: seed `fgsf.journal` / `fgsf.inventory` before load
+rather than leaving a stage behind). Cargo ids `crownFurniture`, `raceCar`,
+`crownSeal`; the chosen suite piece is `inventory().decor`.
+
+- **Terra.** `walkSite().city.homeTower` is the pilot's tower (`topY` 66,
+  `bedSpot`, `propIds()` for what stands in the suite; `city.elevator.propIds()`
+  for Axilo's penthouse). Stand at `bedSpot` on the suite floor: prompt
+  `E — SLEEP`. `walkSite().sleep()` then `walkStep(200)`; `sleepState().sunDot`
+  rises to about 0.25. Axilo is `city.homes.find(h => h.penthouse).anchor`;
+  stand 2 in front of him along `face`.
+- **WaveMall.** Maribel is `interiorCrowds[0].citizens[0]` (floor-0 frame);
+  `walkSite().mallPicks.spots` lists the six pieces `{id, level, x, y, z}` in
+  their floor's frame. Prompts `E — TAKE THE …` only at stage `pick` with no
+  piece owned.
+- **Sky City.** `walkSite().sky.cantor.spot` is the High Cantor. At stage
+  `race` the booth prompt reads `E — RACE VEX HALCYON`; to force a win set
+  `race.cars[0].done = true; finishT = 1` with the others not done, `walkStep(5)`.
+- **The wreck** (needs `reachBlow()` or a `blown` save): `wreckApproach()` →
+  `skyState().landState` `'auto'` then `'landed'`; `wreckDock()` skips the
+  flight; `wreckStepOut()`; `wreckState()` → `{inside, lampOn, lampI, sunI,
+  ambI, relic, held, q}`. `q` must not change while `held`. `walkSite().capital
+  .places` has `pad`, `stairs`, `bridge`. The walked route is flight deck →
+  side ramp (x 17) → main deck → outboard stair (x 20, z -54 to -27) → tier-2
+  walkway aft to z -54 → stair up (x 16) → round the rail's end at z -32 →
+  aft door (x 0, z -34). Press `l` for the lamp.
+
 ## Tenretni (the governor's secret)
 `__debug.tenretni` → `{loaded, load(), arrive(), start(), seek(u), state()}`.
 The chunk only loads when `journal().quests.tenretni` is `armed` or `done`:
@@ -413,7 +447,18 @@ worlds: allow 10 s+ and long screenshot timeouts. `tenretni.clock(sec)` sets
 the idle clock: a large value makes the next meal start at once, a large
 negative one holds it off. `state()` adds `clock, next, exiting, ended`.
 
-Fleets: exist once `eaten` has any entry. `tenretni.state().fleets` →
+Fleets: exist from the first seconds of free flight on any save
+(src/fleetHost.js), before the Tenretni chunk is loaded: `tenretni.fleets()` is
+the live object either way. `fleets().warState()` → `{on, k, center}`: on a
+fresh game `k` rises to 1 and all nine warships fly passes round `center` with
+fighter swarms in each other's colours; with `quests.tenretni` `done` or `ship`
+it is 0 and they are on guard orbits. Only the three flagships (`state()[i].lead`:
+`rustia:w0`, `saturnia:w0`, `wavemall prime:w0`) are on the chart
+(`navMenu.rows('fleets')` is exactly three rows), can be docked on, give a
+channel, and cannot be destroyed (`destroy(id)` returns false; an old save's
+`lost` entry for one is ignored). Before Tenretni a flagship's captain says
+that people's `VOICE.war` lines (world/fleet-dialogue.js) and offers nothing.
+The story adopts the fleets once `eaten` has any entry. `tenretni.state().fleets` →
 `[{id, alive, kind, pos}]` (ids like `rustia:w0`, `saturnia:f1`,
 `wavemall prime:w2`); `tenretni.fleets()` is the live object (`ships[].group`,
 `destroy(id)`, `alive(faction)`). `navMenu.rows('fleets')` lists them and
@@ -463,7 +508,18 @@ and count `framenavigated`). Then `tenretni.state().ended === 'far'`, the saved
 `navMenu.rows('planets')` is only CAGED STAR.
 
 `tenretni.far().state()` → `{active, fade, altitude, groundY, cell, cages:
-[{cell, abs, dist}], points, towers, wormhole, bodyRadius}`. `tenretni` is a
+[{cell, abs, dist}], points, lite, blocks, towers, wormhole, bodyRadius,
+leash, beam}`. `lite` is how many distant cages are drawn as instanced cages
+(not points); `blocks` the distant city's instance count (tier-dependent).
+The leash (first visit, until the Landing has had the helm): `leash` →
+`{r, h, bound, out, zoneR: 7800, zoneTop: 22500, best, outT, exploreT}`,
+`r`/`h` the ship's horizontal distance from the landing's star (cell 21,21)
+and height over the plane. Put the ship 5 km from that star 9 km up: `out`
+false and no landing. Move it to r 9.5 km (or h 23.5 km): the toast reads
+`THE BEAM IS TIGHTENING…`, and 4 s later `skyState().landState` is `'auto'`
+with `dock: 'landing'` and `beam` true, then `'landed'` with `beam` false.
+From the arrival point, backing ~3 km further from the star than it has been
+pulls the same way; 1.4 km does not. `FAR_EXPLORE_TIME` (240 s) pulls anyway. `tenretni` is a
 snapshot object: read `tenretni.state().loaded`, not `tenretni.loaded`. Checks
 that must hold: `launch()` and `page.reload()` both come back to the far side
 at the arrival point with the fleet in formation and no ending button; a cage's
@@ -501,6 +557,49 @@ frame: gallery (-112, 0, -77), Pavilion centre (92, 0, -77), its lift pad
 (`walkSite().capital.prompt()` reads the pad's prompt; `.floor` reads 300 in
 the suite). Walking pace in the city is 10 u/s (twice the usual 5).
 
+The world race is one plain circuit (`world/racecourse.js` `circuit()`): two
+laps, about 21 gates of radius 20, no more than ~35° of turn in any 100 units.
+Start it at the Starter's stand: `capital.place(9.5, 0, -61)`, `e` until
+`#dlgPanel` shows WHICH WORLD?, then a digit. Hands off, the help alone clears
+the gates (`race.missed` stays 0). `raceSet({ s: 0.985, lap: 1 })` jumps to the
+finish.
+
+The light ship's rooms (`world/holoprops.js`): each fragment is a moving
+hologram of the thing, built twice: out in the world the room projects (the
+sky's is the room's whole sky, the light hangs in it, ground, structures and
+life stand 13 to 27 beyond the room's middle past their own plinths: `SHOW` in
+world/lightship.js) and small on its plinth, each with a name sprite. From
+`place(cx - side * 8.5, 0, cz)` facing the far side with `cWalk.pitch = 0.22` a
+screenshot must show the five named things; standing within 2.6 of a plinth
+lights its pair and draws a line between them.
+
+Out in a room's world the things are solid and lit (Lambert, no outlines), with
+two or three more of each further off; only the plinth copies are holograms.
+
+Story branches (src/chapter.js): `chapter().side()` is whose part the pilot
+took in the Pavilion (`vask` | `marrow` | `lux`, saved as `ch.side`). At stage
+`suite`, E on any Pavilion captain (Vask stands at about (83, 0, -85)) runs
+their lines and then asks WHO IS RIGHT?; a digit settles it, and after that
+each captain says `ARGUMENT.after[side][id]`. `chapter().diveLines(base)`,
+`keeperTalk()`, the Entry Zero accept and `revealAfter()` each carry a line
+for the side. The picks: `chapter().carried()`, `carriedLine('marrow' | 'lux')`,
+`racer()` (the world they make: the Starter's first option, YOURS), and once
+`home` is set `far().state().taken` is the number of them standing round the
+City of Light (seed `picks` and `home`, then look west from `place(-8, 0, -77)`).
+
+The Last Seam: on a new game, about 55 game seconds after the war is at full
+strength, `rustia:w1` is destroyed and a comm scene from Vask opens
+(`fgsf.warloss` = '1', codex `The Last Seam`). `tenretni.warLoss(2)` brings it
+on in two seconds; `warLoss()` reads `{in, done}`. On any save where the war is
+over that ship is already gone, so the fleets number eight warships.
+
+The radio is silent inside the megaworld: `__debug.radio.area()` → `{area, to}`
+reads `to: 0` while `far().state().inSub` or `onGround`, 1 otherwise, and the
+radio popup says NO SIGNAL DOWN HERE.
+
+The CODEX has an objective at every stage past the wormhole
+(`codex.data().next[0]`): seed a stage and check it is not empty.
+
 City life (`world/lightlife.js`): `far().state().life` → `{people, figures,
 walking, at, lanes, craft, craftAt}`. Saturday's way in is its west end: from
 `place(46, 0, -152)` facing +x (`cWalk.yaw` ≈ π/2) with `input.forward`, the
@@ -533,7 +632,12 @@ on a timeout.
 Entry Zero (GDD 5.7.5): the stages after `done` are `ez_offer`, `ez_descent`,
 `ez_firewall`, `ez_deep`, `ez_centre`, `ez_relics`, `ez_reveal`, `ez_ascent`,
 `ez_era`, `ez_launch`, `ez_beyond`; `chapter().go(stage)` takes them, and
-`chapter().ezOpen()` reads true once `done` and `epilogue` both hold. Seed
+`chapter().ezOpen()` reads true once `done` and `epilogue` hold and the pilot
+has settled in: `chapter().settling()` → `{raced, slept, sites, need: 4, due}`
+(`markRaced()`, `markSlept()`, `markSite('seam' | 'bell' | 'saturday' |
+'monument')` set them; a finished world race sets `raced` and `monument`, the
+three district finds set theirs, the suite bed's `E — SLEEP` sets `slept`).
+A save at `ez_offer` or later is open regardless. Seed
 `ch.ez = {log, frags, stay, lost, node, clock}` (`log`: one bit per lamp band,
 63 is all six; `frags`: one bit per relic, 7 is all three; `stay`: a captain
 id; `lost`: captain ids). `chapter().state().ez` reads it back. The story
@@ -761,3 +865,168 @@ docking is needed: after `launch()` the game parks on the landing, steps out
 and hops to the bridge by itself (`onLaunch` true, `launch.u` -1,
 `farLanding.state().far` 4000). With any earlier stage the ship stays in
 flight (`farLanding.state().dock` `'sky'`).
+
+## The light ship as a home base (GDD 5.7.8)
+
+Seed a far-side save in open space: `fgsf.journal` `{quests: {tenretni: 'ship'}}`
+and `fgsf.tenretni` `{city: [0.956, 0.174, -0.236], at: 'terra', eaten:
+['neptunia', 'wyattmattoe'], size: 1.2, end: 'far', star: [0, 0, -9000], met:
+true, landed: true, ch: {stage: 'hz_open', picks: {}, seen: [], epilogue: true,
+home: true, ez: {stay: 'vask', lost: ['lux']}}}`. Optionally `fgsf.voyage`
+`{v: 1, at: 'proving', visited: ['horizon', 'proving'], crew: ['marrow']}` to
+boot in the example system with a captain on the trip. Seed with an init script
+guarded by a `sessionStorage` flag so a reload keeps what the game then saved.
+
+Boot: `__debug.launch()`, wait for `tenretni.chapter()`, then poll until
+`base.state().beyondStep === 2 && base.state().doorT < 0 &&
+tenretni.base().state().inside === 'bridge'`. That is the whole resume path:
+parked in the bay, stepped out, through the door to the bridge. `tenretni.far()`
+stays null on such a save (the megaworld is never built).
+
+Serve the game for a headless run with hot reload off, or a file saved mid-run
+reloads the page under the test: a second config that spreads `vite.config.js`
+and sets `server: { hmr: false, port: 5174, strictPort: true }`, `root` the repo.
+
+`__debug.base`: `state()` → `{phase, dock, platform, landState, skyLanding,
+lift, beyondStep, doorT, doorTo, armed: {bay, system}, ship, speed, bay,
+isolated, far}`; `door(key)` walks through any hop key from a walked place
+(`base:bay`, `base:bridge`, `base:bridge-aft`, `base:helm`, `base:archive`,
+`base:archive-up`, `base:holo`, `hz:*`); `board()` from the bay puts the pilot
+in the seat, parked; `launch()` starts the run out of the forward mouth (free
+flight when `landState === null`, about `BASE_BAY_LIFT` seconds, leaving at
+~240 u/s); `approach([x, y, z], dist = 1400)` puts the freighter that way off
+the hull flying in, and it must reach `landState === 'landed'` with `dock ===
+'bay'` from astern, ahead, either side, above and below; `dock()` parks;
+`stepOut()` walks the bay. `systemApproach()` / `systemDock()` /
+`systemStepOut()` do the same for the current system's nearest dock.
+`guests()` → the captains standing in the freighter's hall.
+
+`tenretni.base().state()` → `{built, inside: 'bay' | 'bridge' | 'archive' |
+null, bay: info, bridge: {u, end, warp, going, crew, figures, star, bodies},
+archive: info, places, crew: [{id, lost, along}], bridgeSeek(sec)}`.
+`tenretni.voyage()` → `state()` `{open, applied, at, visited, crew, systems,
+docks, planets, star, record}`, `travel(id)` (the swap itself, no passage),
+`setCrew(ids)`, `instance(id)` (a built system: the example's has `go(stage)`).
+`tenretni.openSpace()` is what the chapter of 5.7.7 calls at its end.
+
+The chart by hand: `walkSite().capital.place(0, 0, -5.2)` on the bridge, `e`,
+`e`, then a digit. `#dlgPanel` lists every charted system but the current one
+and STAY HERE; picking one sets `bridge.going`, `bridge.u` runs 0..9 with the
+bars up (`e` skips), `voyage().state().at` changes at the middle, and
+`fgsf.voyage` is written. With the freighter out of the bay the chart refuses.
+
+The holodeck: from the archive (`base.door('base:archive')`),
+`holodeck.catalog()` → rows `{id, label, note, unlocked, show}`: terra, rustia,
+wavemall prime, actuality, shadowreach, wyattmattoe, saturnia, neptunia,
+stevenlacey, lightcity, then seven locked rows. `holodeck.startFrom(id)` starts
+one; `holodeck.active()` is its id; key `g` ends it and
+`tenretni.base().state().inside` is `'archive'` again. Compare `isolation()`,
+`phase` and the count of `planets` with `removed` before and after: they must
+match for every program. The console is at `place(2.2, 0, 25)`; `e` opens
+`#holopanel` (`holodeck.panel()` → `{open, rows, pick(i)}`), and picking a
+locked row does nothing. The City of Light program first frames from the
+balcony; `saturnia` is the only program that is not isolated.
+
+The example system (`proving`): `voyage().state()` lists dock `relay` and
+planet `cinder`. At the relay, `place(0, 0.14, -31.8)` and `e` reads the log:
+record `{stage: 'logged'}` under `fgsf.voyage.chapters.proving`. Cinder: put
+the ship at `planet.group.position + sunDir * radius * 1.5` falling in at 120
+u/s; the world takes the helm (`landState` `'auto'` then `'landed'`), `g`
+steps out (`walk.planet.cfg.name === 'cinder'`), `g` boards. Then
+`base.approach()` home. A `launch()` mid-flight (the reset) must come back to
+the bridge with `voyage().state().at` unchanged.
+
+The roster: bay console at `place(20, 0, 7.6)`, `e`, a digit toggles a captain,
+`x` closes. `voyage().state().crew`, `base().state().bay.crew` (waiting by the
+pad), `base.guests()` after `board()`, and at the relay
+`voyage().state().record.crew` moving with the walker.
+
+Load checks that must hold after any change here: a fresh profile writes
+neither `fgsf.tenretni` nor `fgsf.voyage`; a `ch.stage: 'done'` save
+round-trips its `ch` unchanged with no `hz` key and no `fgsf.voyage`; a
+`ch.stage: 'ez_beyond'` save still ends on the launch bridge
+(`far().state().launch`) with `base.state().dock === 'landing'`.
+
+## The chapter past the horizon (GDD 5.7.7)
+
+Structure only: what happens in it is in files named `SEALED-*`, which are not
+to be opened or quoted. Host `src/horizon.js`; five places in
+`world/SEALED-horizon-{deck,hall,helm,hull,keel}.js`, shared code in
+`-ship.js` and `-sky.js`, every word in `-words.js`, tunables `HZ_*` in
+`src/constants.js` (blank names on purpose; the legend is in the sealed ship
+file).
+
+Handles: `h = __debug.tenretni.hz()`.
+- `h.state()` → `{built, inside, stage, hz: {d, lost, cp}, resume}`;
+  `h.site()` → the info of the place being walked (`place`, `stage`, `scene`
+  seconds or -1, `held`, `asking`, `pending`, `phase`, and the place's own
+  fields).
+- `h.go(stage)`, `h.hopTo(key)` (through one of the chapter's doors from a
+  place of the chapter), `h.seek(u)`, `h.skip()` (false while a decision is
+  up), `h.crew(ids)` (who is aboard; set it BEFORE entering a place),
+  `h.audit()` (every scene's lines as the crew aboard would be shown them),
+  `h.effects()`, and `h.dbg(name, ...args)` for a place's own steps:
+  - deck: `seat`, `aim(i)` (0..3; each sets a bit of `n1` after about a
+    second), `table`, `hold(seconds)`, `door`
+  - hall: `talk(i)` (a payload), `take(i)` (0..6), `mid`, `door`
+  - helm: `set(x, t)`, `lean(v)`, `band(i)`, `dose(v)`, `auto()`
+  - hull: `back(id)` (`'freighter'` first, then each captain's id),
+    `clock(seconds)`, `end`, `tune`, `fill(v)`, `door`
+  - keel: `set(x, t)`, `lean(v)`, `auto()`, `touch()`
+- Decisions are cinematic talks: `__debug.cine.text()`, `.advance()`,
+  `.pick(i)`. A decision closed without a pick (key `x`) is asked again within
+  a second.
+
+Doors: `hz:deck`, `hz:hall`, `hz:helm`, `hz:hull`, `hz:keel`; `hz:back` puts
+the story back to its last checkpoint (the engine calls `chapter.hz.die()`).
+From a far-side seed with `ch.stage: 'ez_beyond'` the pilot is on the launch
+bridge at its helm console: `input.interact = true` goes in (or
+`__debug.base.door('hz:deck')`).
+
+Stages and where a reload at each puts the pilot (`h.state().resume`):
+`hz_bell1`..`hz_bell3` deck, `hz_bell4` hall, `hz_bell5`, `hz_bell6` helm,
+`hz_bell7`, `hz_bell8` hull, `hz_bell9`, `hz_bell10` keel, then `hz_open` (the
+home base bridge: `tenretni.voyage().state().open` and
+`tenretni.base().state().inside === 'bridge'`).
+
+Record (`ch.hz.d` in `fgsf.tenretni`): `n1` integer bitmask (15 when full),
+`n4` integer, `c1` integer 0..6, `n2` integer 0..100, `n3` string, `c2`
+`'a'` | `'b'`, `t` integer. Checkpoints: `c1` (offered in the hall, door
+`hz:hall`, committed on arriving at the hull) and `c2` (offered on the hull,
+door `hz:hull`, committed in the keel). `ch.hz.lost` is a list of captain ids.
+Useful seeds: `ch.stage: 'hz_bell3', hz: {d: {n1: 15, n4: 61896}}` (deck, last
+door open); `'hz_bell4'` with the same `d` (hall); `'hz_bell7'` with `d` plus
+`c1: 4, n2: 10` (hull); `'hz_bell9'` with `d` plus `n3: '-lvm', c2: 'a'`
+(keel).
+
+A pass by handles, waiting on state each time (about four and a half minutes
+headless; the helm alone is three unless jumped):
+1. deck: `h.skip()` until `site().scene < 0`; `dbg('seat')`; `dbg('aim', i)`
+   for 0..3 and wait for bit i of `site().n1`; `aim(3)` with
+   `input.allBands = true` until a scene starts; skip; `dbg('table')`; skip;
+   wait `site().phase === 'hold'`; `dbg('hold', 3.2)` (or hold `input.brake`
+   for three seconds); wait for the next scene, skip; `site().ready`;
+   `dbg('door')`.
+2. hall: skip; wait `site().pending === 'c1'`; `dbg('take', i)`;
+   `dbg('mid')`; `cine.pick(0)`; skip; `dbg('door')`.
+3. helm: skip; `dbg('set', -0.2, 1.62)` to jump (optional); `dbg('auto')`;
+   wait `site().phase === 'cross'`; skip; the hull is entered.
+4. hull: skip; `dbg('back', 'freighter')`, then each captain aboard; a scene
+   starts by itself; skip; `stage === 'hz_bell8'`; `dbg('end')`; skip;
+   `dbg('tune')`; wait `site().asking`; `cine.pick(0 | 1)`; with 0,
+   `dbg('fill', 1)`; skip; `dbg('door')`.
+5. keel: skip; `dbg('auto')`; wait `site().through`; skip; the bridge.
+
+The three ways back to a checkpoint (each must leave `chapter().stage()` and
+`hz.state()` as they were at the asking, with `cp.key` still set): in the
+hall, `dbg('door')` with nothing taken and `cine.pick(0)`; at the helm,
+`dbg('set', 0.6, 1.2)` then `dbg('lean', 1)`; in the keel, `dbg('touch')`.
+`dbg('clock', 0.1)` on the hull, once `'freighter'` is back and before the
+rest, adds ids to `ch.hz.lost`; those must still be there after a later
+`touch()`.
+
+Checks that must hold: `h.audit()` for all eight crews (three captains to
+none) has no empty scene among the ones every crew sees and no `{...}` left in
+a line other than `{n}`; on the deck `site().k1` is 42.1 and `site().k2`
+11048; no `PLACEHOLDER` in any `SEALED-horizon-*` file; a
+`ch.stage: 'ez_beyond'` save writes no `hz` key until the deck's second stage.

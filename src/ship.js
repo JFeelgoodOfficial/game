@@ -20,6 +20,10 @@ export const ship = {
   // tick. Camera drift reads this: free fall is weightless and shouldn't
   // shove the camera; engine burns should.
   properAccel: new THREE.Vector3(),
+  // Where there is a flat horizon to be crooked against (the megaworld,
+  // src/farside.js sets it): the up the wings are eased level with while
+  // nobody is rolling. null everywhere else: space has no level.
+  levelUp: null,
 };
 
 const _grav = new THREE.Vector3();
@@ -46,6 +50,23 @@ export function stepShip(dt, piloted = true) {
     av.x -= input.mouseY * C.TORQUE_SCALE;
     input.mouseX = 0;
     input.mouseY = 0;
+    // Roll. It was taken out with the old dash and came back as two paddles
+    // by the CODEX disc: yaw with the nose up turns into bank against a
+    // horizon, and with no roll there was no way to take it off again.
+    const roll = (input.rollLeft ? 1 : 0) - (input.rollRight ? 1 : 0);
+    if (roll) av.z += roll * C.ROLL_TORQUE;
+    else if (ship.levelUp) {
+      // wings level: the right wing's height against the horizon is the
+      // error. It fades out as the nose nears straight up or down, where
+      // "level" stops meaning anything.
+      _fwd.set(1, 0, 0).applyQuaternion(ship.quaternion);
+      const tilt = Math.max(-1, Math.min(1, _fwd.dot(ship.levelUp)));
+      _thrust.set(0, 0, -1).applyQuaternion(ship.quaternion);
+      const nose = Math.abs(_thrust.dot(ship.levelUp));
+      _grav.set(0, 1, 0).applyQuaternion(ship.quaternion);
+      const err = _grav.dot(ship.levelUp) < 0 ? (tilt < 0 ? -1.2 : 1.2) : Math.asin(tilt);
+      av.z -= err * C.AUTO_LEVEL * Math.max(0, 1 - nose * nose * 1.4);
+    }
   } else {
     av.multiplyScalar(C.INTERIOR_SPIN_CALM); // attitude hold
     // station-keeping: the autopilot bleeds speed off so the ship does not

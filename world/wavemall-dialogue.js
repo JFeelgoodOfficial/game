@@ -34,6 +34,31 @@
 // and callers ({ employee, caller, farewell }); DEPT_CODEX[level] — ambient
 // codex subjects the wanderers occasionally offer.
 
+// The Crown errand (src/crownErrand.js): Maribel is the mall's host for the
+// pilot Patron Axilo sent. These lines outrank her transfer-chain greeting
+// while that story has business with her.
+export const CROWN_ERRAND = {
+  welcome: [
+    'Caller... no. You are no caller. You are the pilot from Terra, on Patron Axilo’s account. Welcome to the WaveMall Flagship!',
+    'I am Maribel. I run Home Decor, and today I run you. Let me show you round.',
+    'Eight floors. Home Decor down here, Glastelle above us, then Electronics, Xavier’s Gifts, Casualwear, RAMDA, Sporting Goods, and Feluzia’s stage at the very top. The escalators zig-zag; keep climbing.',
+    'The Patron’s chair is crated and on its way to your hold. And he says you are to choose something for yourself.',
+    'Six pieces are set out for you, each on a lit ring: a sofa and a rug here in Home Decor, a wall plant at Glastelle, a floor lamp in Electronics, a framed aurora at Xavier’s Gifts, a telescope in Sporting Goods.',
+    'Any ONE of them. Then come back to me.',
+  ],
+  remind: [
+    'Any one piece, pilot. Look for the lit rings: sofa and rug on this floor, wall plant one up, floor lamp on three, framed aurora on four, telescope on seven.',
+    'Then come back to me.',
+  ],
+  car: [
+    'The {{item}}. Good eye. It is on a courier to Meridian Crown already.',
+    'Now, a favour for the Flagship. There is a race car on your pad. We built it for the Sky City over Saturnia and we cannot deliver it; they do not take our calls.',
+    'They might take yours. Carry it to their governor, and the WaveMall counts itself an ally of Terra. Starting now, in fact. I have filed the paperwork.',
+  ],
+  after: 'The race car, pilot: the Sky City over Saturnia. And thank you for holding with Wave Mall.',
+  ally: 'An ally of Terra shops at cost. There is no cost. Welcome back, pilot.',
+};
+
 export const HEADS = [
   // ------------------------------------------------------------------ L0
   {

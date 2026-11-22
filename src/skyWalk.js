@@ -20,7 +20,9 @@ import { C } from './constants.js';
 import { input, moveAxes } from './input.js';
 import { ship } from './ship.js';
 import { createShip as createParkedShip } from '../world/ship.js';
-import { createCrowd } from '../world/aliens.js';
+import { createCrowd, buildRig, poseRig } from '../world/aliens.js';
+import { CANTOR } from '../world/skycantor.js';
+import * as errand from './crownErrand.js';
 import { openDialogue, advanceDialogue, isDialogueOpen, closeDialogue } from './dialogue.js';
 import {
   race, startRace, endRace, stepRace, raceHud, raceFinishedFor, raceTowedFor,
@@ -174,6 +176,16 @@ export function enterSkyWalk(cityRef) {
     { population: 44, maxRigs: 18, questChance: 0, seed: 7341, species: 'saturnia' }
   );
   city.group.add(crowd.group);
+  // The High Cantor (world/skycantor.js) waits on the pier. One rig for the
+  // life of the page: built on the first visit, re-hung on every later one.
+  if (!cantor) {
+    cantor = buildRig(CANTOR.seed, 'skycity', { species: 'saturnia', over: { height: 1.74 } });
+    cantor.group.position.set(CANTOR.spot.x, CANTOR.spot.y + (cantor.params.groundOffset ?? 0), CANTOR.spot.z);
+    cantor.group.rotation.y = CANTOR.yaw;
+  }
+  cantor.group.visible = true;
+  city.group.add(cantor.group);
+  city.refreshPoster(); // the Crown errand may have put Halcyon on it
 
   ship.velocity.set(0, 0, 0);
   ship.angularVelocity.set(0, 0, 0);
@@ -226,6 +238,7 @@ function teardown() {
     parked = null;
   }
   if (astronaut) astronaut.group.visible = false;
+  if (cantor) cantor.group.removeFromParent();
   hideViewUI();
   sWalk.active = false;
   city = null;
@@ -374,6 +387,7 @@ function leaveRace() {
   const field = race.cars.length;
   const rival = race.rival;
   const engine = race.engineWon;
+  const story = race.story;
   endRace();
   sWalk.pos.copy(city.booth);
   sWalk.vel.set(0, 0, 0);
@@ -384,7 +398,9 @@ function leaveRace() {
   sWalk.pitch = 0;
   camSnap = true;
   if (done) {
-    showViewToast(place === 1
+    showViewToast(story
+      ? `YOU BEAT ${rival} — SATURNIA STANDS WITH TERRA. THE HIGH CANTOR IS ON THE PIER`
+      : place === 1
       ? `YOU BEAT ${rival} — THE MECHANICS FIT A ${engine} ENGINE. CHECK THE POSTER`
       : `${['', '1ST', '2ND', '3RD', '4TH', '5TH'][place]} OF ${field} — ${rival} IS STILL ON THE POSTER`, 8);
   } else if (towed) {
@@ -603,6 +619,11 @@ export function updateSkyVisuals(dt, t) {
   astronaut.update(dt, sWalk.mode, sWalk.speed01);
   astronaut.group.visible = sWalk.view === 'tp' && !race.active;
   if (crowd) crowd.update(dt, sWalk.pos, 0.8);
+  if (cantor) {
+    // she turns to whoever is speaking to her
+    if (cantorTalking) cantor.group.rotation.y = Math.atan2(sWalk.pos.x - CANTOR.spot.x, sWalk.pos.z - CANTOR.spot.z);
+    poseRig(cantor, dt, t, cantorTalking ? 'talk' : 'idle', 0);
+  }
   astronaut.group.visible = astronaut.group.visible && !sWalk.gunning;
   // the Lance: barrel on its slewed heading, coil swelling as it charges
   city.lance.turret.rotation.y = sWalk.gunYaw;
@@ -650,8 +671,26 @@ function focus() {
   }
   if (near(city.lance.bottom, 3)) return 'up';
   if (near(city.booth, 3.4)) return 'race';
+  if (near(CANTOR.spot, 3.2)) return 'cantor';
   if (crowd && sWalk.pos.y < 2 && crowd.nearestInteractable(sWalk.pos, TALK_DIST)) return 'talk';
   return null;
+}
+
+// The High Cantor's lines for where the Crown errand stands. Taking the car
+// is the one beat that moves the story from here.
+let cantor = null;
+let cantorTalking = false;
+function cantorSays() {
+  const speaker = { name: CANTOR.name, species: CANTOR.title, cityId: 'skycity' };
+  const st = errand.errandStage();
+  let lines = CANTOR.stranger;
+  if (st === 'car' && errand.deliverCar()) {
+    lines = CANTOR.car;
+    city.refreshPoster(); // Halcyon goes up
+  } else if (st === 'race') lines = CANTOR.race;
+  else if (st === 'won') lines = CANTOR.won;
+  else if (errand.isAlly(errand.ALLY_SATURNIA)) lines = CANTOR.ally;
+  return { speaker, lines };
 }
 
 export function skyInteract() {
@@ -679,6 +718,11 @@ export function skyInteract() {
     showViewToast(`RIM CIRCUIT VS ${race.rival} — 3 LAPS · TWO JUMPS: KEEP YOUR SPEED UP · NO BARRIERS`, 8);
     return undefined;
   }
+  if (f === 'cantor') {
+    cantorTalking = true;
+    openDialogue(cantorSays(), { onClose: () => { cantorTalking = false; } });
+    return undefined;
+  }
   if (f === 'talk') {
     const who = crowd.nearestInteractable(sWalk.pos, TALK_DIST);
     const payload = crowd.interact(who);
@@ -702,7 +746,8 @@ export function skyPromptText() {
     case 'man': return 'E — MAN THE LANCE';
     case 'down': return 'E — RIDE THE LIFT DOWN';
     case 'up': return 'E — RIDE THE LIFT TO THE LANCE';
-    case 'race': return 'E — CHECK IN TO THE RACE';
+    case 'race': return errand.storyRacePending() ? 'E — RACE VEX HALCYON' : 'E — CHECK IN TO THE RACE';
+    case 'cantor': return CANTOR.prompt;
     case 'talk': return 'E — TALK';
     default: return nearPad() ? 'G — BOARD' : null;
   }
@@ -848,6 +893,7 @@ export function skySite() {
     parked,
     crowd,
     race,
+    cantor: CANTOR,
     focus: focus(),
     fireLance,
     pullTrigger,

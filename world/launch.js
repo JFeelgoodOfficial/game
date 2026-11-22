@@ -20,10 +20,12 @@
 // because nothing ahead has happened.
 //
 // One clock and a pose from it. At its end the stage is `ez_beyond`, which is
-// where the saga stops: the bridge under the dome of what the light ship made
+// where the saga stops: the bridge under the dome on the light ship's bow
 // (world/eramade.js), the people at their seats, the ship and its archive
-// alongside on the strands, and the dark. Nothing is built past it. A pilot who comes back to the
-// game at that stage is put straight here (src/game.js).
+// behind them on the strands, and the dark. A pilot who comes back to the
+// game at that stage is put straight here (src/game.js). What comes after is
+// another chapter (GDD 5.7.7, src/horizon.js), begun from the console at this
+// bridge's helm.
 
 import * as THREE from 'three';
 import { C, EZ_NEW_WORLDS } from '../src/constants.js';
@@ -349,9 +351,11 @@ export function createLaunch(ctx) {
     spawn: onBridge([BRIDGE.pilot[0], (BRIDGE.pilot[1] + BRIDGE.helm[1]) / 2]).setY(0), // between the pilot's seat and the helm
     spawnYaw: Math.PI,
     npcs,
-    consoles: [],
+    // (the one way on: the chapter past the horizon, GDD 5.7.7)
+    consoles: [{ x: helmAt.x, y: 0, z: helmAt.z, r: 2.6, prompt: 'E — THE HELM', // (at the helm itself)
+       off: () => u >= 0 || !chapter.reached('ez_beyond') || chapter.open(), use: () => ((site.portal = 'hz:deck'), null) }],
     onChoice: () => null,
-    portal: null, // (there is no way off)
+    portal: null,
     held: () => u >= 0,
     // Watched, while it happens: from the port side of the dome at what is
     // being left; up and astern at the ship, the strands and the archive in

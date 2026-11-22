@@ -27,6 +27,7 @@ import { chapterHud } from '../src/chapterHud.js';
 import { tint, box, cyl, mergedMesh, floorOf, buildRobot, trackRobot, tenretniMat } from './capital.js';
 import { createLayerPlanet, LAYERS } from './layerplanet.js';
 import { createPlace } from './holoplace.js';
+import { buildHoloProp, holoName } from './holoprops.js';
 import { WORLDS, HOLO, ASSIGNMENT } from './chapter-dialogue.js';
 
 const SNAP = 1.2;
@@ -34,6 +35,20 @@ const HALL_HW = 5, HALL_Z0 = 34, HALL_Z1 = -62; // the walk: aft end, forward en
 const ROOM_R = 11, ROOM_X = 24; // a room's floor, and how far off the walk its centre is
 const ROOM_Z = [14, -14, -42];
 const PLINTH_R = 7.4; // the ring the fragments stand on
+// Where each kind of thing stands in the world the room projects, out past its
+// own pedestal: `d` from the room's middle, `y` up, `s` its size, `tag` how
+// high over it its name hangs. The sky is the room's whole sky; the light
+// hangs in it; the ground lies furthest out, the life nearest.
+// `more`: the same thing again, further off, so the place has a few of them
+// and not one: [angle off its own, distance, size].
+const SHOW = {
+  sky: { d: 0, y: 0, s: 38, tag: [19, 17] },
+  ground: { d: 30, y: -2.2, s: 15, tag: [22, 15], more: [[0.7, 44, 20], [-0.75, 40, 14]] },
+  structures: { d: 19, y: -0.6, s: 7.5, tag: [19, 12.6], more: [[0.42, 30, 9], [-0.5, 36, 11]] },
+  life: { d: 14, y: 0, s: 4.6, tag: [14, 8], more: [[0.55, 20, 4.2], [-0.6, 24, 5]] },
+  light: { d: 34, y: 12, s: 9, tag: [27, 25] },
+};
+const MINI_S = 0.46; // the one on the pedestal
 const DOME_R = 56; // (inside the hull on every side: it is drawn over it, not through it)
 const ZERO = new THREE.Vector3();
 
@@ -98,8 +113,13 @@ export const HULL_FRAG = /* glsl */ `
 `;
 
 // ctx: { scene, hideFleet(), chapter — src/chapter.js }
+// `ctx.base` (the same archive as a room of the home base, src/homebase.js;
+// GDD 5.7.8): { fore, aft: the doors' portals, forePrompt, aftPrompt, leaveHint,
+// holoPrompt, holodeck(): open the holodeck's panel }. The doors are open, the
+// Archivist stayed with the megaworld, and by the aft door there is a holodeck.
 export function createLightShip(ctx) {
   const { chapter } = ctx;
+  const base = ctx.base || null;
   const group = new THREE.Group();
   group.visible = false;
   ctx.scene.add(group);
@@ -181,7 +201,9 @@ export function createLightShip(ctx) {
     whole.holo(0.55);
     rg.add(whole.group);
 
-    // its five fragments, each on a plinth, each a planet with one layer in it
+    // its five fragments: each out in the room's world at the size of the
+    // place, moving, as the thing it is, and again small on the plinth it is
+    // taken from (world/holoprops.js)
     const frags = LAYERS.map((layer, k) => {
       const a = (side > 0 ? 0 : Math.PI) + (k - 2) * 0.62; // fanned round the far side
       const x = cx + Math.cos(a) * PLINTH_R, z = cz + Math.sin(a) * PLINTH_R;
@@ -195,7 +217,8 @@ export function createLightShip(ctx) {
       );
       ring.position.set(x, 1.14, z);
       rg.add(ring);
-      const f = { layer, x, z, mini: null, ring, lift: 0 }; // (the planet on it is made when the room is first come near)
+      const sh = SHOW[layer];
+      const f = { layer, x, z, a, sh, sx: cx + Math.cos(a) * sh.d, sz: cz + Math.sin(a) * sh.d, tx: cx + Math.cos(a) * sh.tag[0], tz: cz + Math.sin(a) * sh.tag[0], mini: null, ring, lift: 0, glow: 0 }; // (what stands on it is made when the room is first come near)
       consoles.push({
         x, y: 0, z, r: 2.3,
         get prompt() {
@@ -211,14 +234,38 @@ export function createLightShip(ctx) {
     rooms.push(room);
   });
 
+  // One fragment's two holograms and their names. `show`: the one out in the
+  // room's world; `small`: the one on the plinth; `beam`: a line of light between
+  // them, lit while the pilot stands at that plinth.
   function makeMini(room, f) {
-    const mini = createLayerPlanet(0.8, { life: 110, seg: 32, seed: 2.1 + room.i * 3.3 });
-    mini.group.position.set(f.x, 2.5, f.z);
-    mini.set(f.layer, room.w.layers[f.layer]);
-    mini.reveal(f.layer, 1);
-    mini.holo(1);
-    room.rg.add(mini.group);
-    return mini;
+    const frag = room.w.layers[f.layer];
+    const col = '#' + new THREE.Color(frag.col ?? frag.a ?? frag.land).lerp(new THREE.Color(0xffffff), 0.45).getHexString();
+    const show = buildHoloProp(room.w.id, f.layer, frag, room.w.layers, { world: true, scale: f.sh.s });
+    show.group.position.set(f.sx, f.sh.y, f.sz);
+    show.group.scale.setScalar(f.sh.s);
+    show.group.rotation.y = Math.atan2(-Math.cos(f.a), -Math.sin(f.a)); // its far side is the room's far side
+    const small = buildHoloProp(room.w.id, f.layer, frag, room.w.layers);
+    small.group.position.set(f.x, 1.3, f.z);
+    small.group.scale.setScalar(MINI_S);
+    const nameBig = holoName(frag.label, col, 1.5);
+    nameBig.position.set(f.tx, f.sh.tag[1], f.tz);
+    const nameSmall = holoName(frag.label, col, 0.36);
+    nameSmall.position.set(f.x, 2.75, f.z);
+    const beamGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(f.x, 1.5, f.z), new THREE.Vector3(f.tx, f.sh.tag[1] - 1, f.tz)]);
+    const beam = new THREE.Line(beamGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    room.rg.add(show.group, small.group, nameBig, nameSmall, beam);
+    // ...and a few more of it, further out and to either side
+    const more = (f.sh.more || []).map(([da, d, sc], i) => {
+      const m = buildHoloProp(room.w.id, f.layer, frag, room.w.layers, { world: true, scale: sc });
+      const a = f.a + da;
+      m.group.position.set(room.cx + Math.cos(a) * d, f.sh.y * (sc / f.sh.s), room.cz + Math.sin(a) * d);
+      m.group.scale.setScalar(sc);
+      m.group.rotation.y = Math.atan2(-Math.cos(a), -Math.sin(a)) + (i ? 0.6 : -0.4);
+      m.off = 1.7 + i * 2.3; // (so they do not all move as one)
+      room.rg.add(m.group);
+      return m;
+    });
+    return { show, small, nameBig, nameSmall, beam, more };
   }
 
   // --- forward: the way to the bridge, shut until the archive has been walked ---
@@ -231,14 +278,23 @@ export function createLightShip(ctx) {
   for (const s of [-1, 1]) glow.push(tint(box(0.2, 7.2, 0.3, s * 2.7, 3.6, HALL_Z1 + 0.1), GLOW.gold, 1.4));
 
   consoles.push({
-    x: 0, y: 0, z: HALL_Z1 + 2.2, r: 2.6, prompt: 'E — GO FORWARD TO THE BRIDGE',
-    off: () => !chapter.reached('dive'),
-    use: () => ((site.portal = 'bridge'), null),
+    x: 0, y: 0, z: HALL_Z1 + 2.2, r: 2.6, prompt: base ? base.forePrompt : 'E — GO FORWARD TO THE BRIDGE',
+    off: () => !base && !chapter.reached('dive'),
+    use: () => ((site.portal = base ? base.fore : 'bridge'), null),
   });
 
   // --- aft: the way off ---
   glow.push(tint(new THREE.TorusGeometry(2.2, 0.1, 6, 40).rotateX(Math.PI / 2).translate(0, 0.06, HALL_Z0 - 2.6), GLOW.gold, 1.6));
-  consoles.push({ x: 0, y: 0, z: HALL_Z0 - 2.6, r: 2.4, prompt: 'E — LEAVE THE SHIP', use: () => ((site.portal = 'gallery'), null) });
+  consoles.push({ x: 0, y: 0, z: HALL_Z0 - 2.6, r: 2.4, prompt: base ? base.aftPrompt : 'E — LEAVE THE SHIP', use: () => ((site.portal = base ? base.aft : 'gallery'), null) });
+  // --- the holodeck (home base only): a plinth by the aft door, and every world the archive keeps ---
+  const HOLO_AT = { x: HALL_HW - 1.3, z: HALL_Z0 - 9 };
+  if (base) {
+    lit.push(tint(box(1.3, 1.05, 0.8, HOLO_AT.x, 0.52, HOLO_AT.z), COL.edge));
+    glow.push(tint(box(1.1, 0.06, 0.6, HOLO_AT.x, 1.08, HOLO_AT.z), GLOW.cyan, 1.6));
+    glow.push(tint(new THREE.TorusGeometry(1.5, 0.06, 6, 36).rotateX(Math.PI / 2).translate(HOLO_AT.x - 1.4, 0.04, HOLO_AT.z), GLOW.cyan, 1.4));
+    colliders.push({ x: HOLO_AT.x, z: HOLO_AT.z, r: 0.8, top: Infinity });
+    consoles.push({ x: HOLO_AT.x - 1.4, y: 0, z: HOLO_AT.z, r: 2.0, prompt: base.holoPrompt, use: () => (base.holodeck(), null) });
+  }
 
   const litMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x0c0f14 });
   const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });
@@ -331,7 +387,9 @@ export function createLightShip(ctx) {
     noShip: true,
     speed: 1.6,
     exit: { x: 0, z: HALL_Z0 - 2.6 },
-    leaveHint: 'THE WAY OFF THE SHIP IS AFT, BEHIND YOU',
+    leaveHint: base ? base.leaveHint : 'THE WAY OFF THE SHIP IS AFT, BEHIND YOU',
+    atHolo: new THREE.Vector3(HOLO_AT.x - 1.6, 0, HOLO_AT.z), // back from a holodeck program
+    atHoloYaw: -Math.PI / 2,
     surfaces,
     colliders,
     floorYAt: floorOf(surfaces, SNAP),
@@ -369,8 +427,8 @@ export function createLightShip(ctx) {
       restack();
       for (const l of LAYERS) drawn[l] = shown[l] ? 1 : 0; // what was taken before is already there
       readySaid = chapter.reached('dive');
-      if (chapter.assigned() || chapter.assignDue()) standArchivist(3.2, HALL_Z1 + 9, -0.5);
-      if (!greeted && !chapter.seenCount()) {
+      if (!base && (chapter.assigned() || chapter.assignDue())) standArchivist(3.2, HALL_Z1 + 9, -0.5);
+      if (!base && !greeted && !chapter.seenCount()) {
         greeted = true;
         chapterHud.say(HOLO.enter, 7);
       }
@@ -414,7 +472,7 @@ export function createLightShip(ctx) {
       place.uniforms.uAlpha.value = a;
       place.uniforms.uTime.value = t;
       place.mesh.visible = a > 0.003;
-      if (at && at.d < ROOM_R - 0.5 && chapter.see(at.w.id) && chapter.assignDue()) {
+      if (at && at.d < ROOM_R - 0.5 && chapter.see(at.w.id) && !base && chapter.assignDue()) {
         // the third room: by the time the pilot is back on the walk, someone is there
         standArchivist(-at.side * 2.6, at.cz, at.side > 0 ? Math.PI / 2 : -Math.PI / 2);
       }
@@ -433,12 +491,26 @@ export function createLightShip(ctx) {
           f.lift += ((mineHere ? 1 : 0) - f.lift) * Math.min(1, dt * 4);
           if (close && !f.mini) f.mini = makeMini(r, f);
           if (f.mini) {
-            f.mini.group.visible = close;
+            const m = f.mini;
+            m.show.group.visible = m.small.group.visible = m.nameBig.visible = m.nameSmall.visible = m.beam.visible = close;
+            for (const x of m.more) {
+              x.group.visible = close;
+              if (close) x.tick(t + x.off);
+            }
             if (close) {
-              f.mini.group.position.y = 2.5 + 0.12 * Math.sin(t * 1.3 + f.x) + f.lift * 0.5;
-              f.mini.group.rotation.y = t * 0.35 + f.z;
-              f.mini.group.scale.setScalar(1 + f.lift * 0.3);
-              f.mini.tick(t, px);
+              // the one the pilot is standing at (or has taken) is lit up, and
+              // a line of light joins the plinth to the thing it stands for
+              const here = Math.hypot(walker.x - f.x, walker.z - f.z) < 2.6;
+              f.glow += ((here || mineHere ? 1 : 0) - f.glow) * Math.min(1, dt * 5);
+              m.show.tick(t);
+              m.small.tick(t);
+              m.show.glow(f.glow);
+              m.small.glow(f.glow);
+              m.small.group.position.y = 1.3 + 0.05 * Math.sin(t * 1.3 + f.x) + f.lift * 0.35;
+              m.small.group.rotation.y = t * 0.35 + f.z;
+              m.small.group.scale.setScalar(MINI_S * (1 + f.lift * 0.3));
+              m.nameSmall.position.y = 2.75 + f.lift * 0.4;
+              m.beam.material.opacity = (here ? 0.75 : mineHere ? 0.3 : 0) * (0.8 + 0.2 * Math.sin(t * 6));
             }
           }
           const pulse = 0.75 + 0.25 * Math.sin(t * 2.2 + f.x * 3);
@@ -478,14 +550,14 @@ export function createLightShip(ctx) {
 
       // the Archivist: says it once, unasked, when the pilot comes back onto the walk
       if (rig.group.visible) trackRobot(archivist, walker, dt, t);
-      if (chapter.assignDue() && Math.abs(walker.x) < HALL_HW - 0.6 && !isDialogueOpen()) {
+      if (!base && chapter.assignDue() && Math.abs(walker.x) < HALL_HW - 0.6 && !isDialogueOpen()) {
         chapter.setAssigned();
         uiSound('select');
         openDialogue(ASSIGNMENT, { onClose: checkReady });
       }
 
       // the door forward
-      const open = chapter.reached('dive');
+      const open = !!base || chapter.reached('dive');
       const dp = open ? 0.8 + 0.2 * Math.sin(t * 1.6) : 0.1;
       doorMat.color.setRGB(open ? 1.9 * dp : 0.08, open ? 1.7 * dp : 0.14, open ? 1.3 * dp : 0.22);
     },

@@ -41,7 +41,22 @@ let recordDirty = false;
 // (so it is removable); an upgrade is permanent.
 export const CARGO = {
   emberOre: { name: 'Ember Ore', hint: 'Warm to the touch. Somebody on Rustia will want this.' },
+  // The Crown errand (src/crownErrand.js): Patron Axilo's long way round.
+  crownFurniture: { name: 'The Patron’s Chair', hint: 'Crated at the WaveMall. Patron Axilo is waiting on it in Meridian Crown.' },
+  raceCar: { name: 'WaveMall Race Car', hint: 'A gift from the Flagship. The Sky City over Saturnia is expecting it.' },
+  crownSeal: { name: 'The Crown Seal', hint: 'Meridian Crown’s founding seal. It belongs to Patron Axilo.' },
 };
+// What the pilot chose at the WaveMall for the suite in Meridian Crown
+// (world/city.js home tower shows whichever is owned). One, ever.
+export const DECOR = {
+  sofa: { name: 'Nebula Sofa' },
+  floorLamp: { name: 'Halo Floor Lamp' },
+  rug: { name: 'Tidewoven Rug' },
+  wallArt: { name: 'Framed Aurora' },
+  plant: { name: 'Venusian Wall Plant' },
+  telescope: { name: 'Brass Telescope' },
+};
+let decor = new Set(); // owned suite pieces (persisted)
 export const UPGRADES = {
   patio: { name: 'Aft Patio', hint: 'An open deck off the stern lounge. Stand up (C) and walk aft.' },
   holodeck: { name: 'Holodeck', hint: 'A door on the starboard side of the gallery. The panel inside runs worlds that are gone.' },
@@ -71,6 +86,7 @@ function load() {
     // Absent in saves from before the Emberdeep existed — both stay empty.
     if (Array.isArray(data.cargo)) cargo = new Set(data.cargo.filter((i) => CARGO[i]));
     if (Array.isArray(data.upgrades)) upgrades = new Set(data.upgrades.filter((i) => UPGRADES[i]));
+    if (Array.isArray(data.decor)) decor = new Set(data.decor.filter((i) => DECOR[i]));
     // Absent in saves from before stevenlacey existed — stays empty.
     if (Array.isArray(data.specimens)) specimens = new Set(data.specimens.filter((i) => SPECIMENS[i]));
     if (data.record && typeof data.record === 'object') {
@@ -87,6 +103,7 @@ function save() {
     localStorage.setItem(STORE_KEY, JSON.stringify({
       items: [...items], selected, weapons: [...weapons], trophies, record,
       cargo: [...cargo], upgrades: [...upgrades], specimens: [...specimens],
+      decor: [...decor],
     }));
   } catch {
     /* session-only */
@@ -136,6 +153,17 @@ export function takeCargo(id) {
   save();
   return true;
 }
+
+// The one free piece from the WaveMall. False if it is unknown or already home.
+export function grantDecor(id) {
+  if (!DECOR[id] || decor.has(id)) return false;
+  decor.add(id);
+  save();
+  showViewToast('YOURS — ' + DECOR[id].name.toUpperCase() + ' · SENT AHEAD TO YOUR SUITE', 6);
+  return true;
+}
+
+export const ownedDecor = () => [...decor];
 
 export function grantUpgrade(id) {
   if (!UPGRADES[id] || upgrades.has(id)) return false;
@@ -230,5 +258,6 @@ export function inventoryState() {
     items: [...items], selected,
     weapons: ownedWeapons(), trophies: { ...trophies }, record: { ...record },
     cargo: [...cargo], upgrades: [...upgrades], specimens: [...specimens],
+    decor: [...decor],
   };
 }

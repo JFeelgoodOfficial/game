@@ -372,3 +372,25 @@ Not done, and why:
 - **About 150 calls remain in the city with no figures in view.** Not yet
   broken down between the city's own meshes, sprites and the post passes.
 - **Shared shader chunks** would tidy the source but not change the frame.
+
+## The chapter past the horizon and the home base (GDD 5.7.7, 5.7.8): bundle
+
+Measured with `npm run build` against the commit the work started from. Both
+live in the story's one lazy chunk, on purpose (GDD 5.7.3: a fetch that fails
+at the door is one the browser will not make again without a reload, and a
+save in open space needs the home base at boot).
+
+| Chunk | Before | After | Change (gzip) |
+|---|---|---|---|
+| `tenretni` (lazy, loaded once the story is armed) | 503.3 kB | 614.2 kB | +110.9 kB (+43.3 kB) |
+| `game` (boot) | 536.2 kB | 544.7 kB | +8.5 kB (+3.5 kB) |
+| `walk`, `vendor-three`, the rest | unchanged | unchanged | 0 |
+
+The boot chunk's share is the dock entries, the door and holodeck branches,
+the freighter's guests, and `src/dialogue.js` reaching `game.js` directly (the
+freighter's hall is the first place a talk is opened from the flight phase).
+
+Not measured: frame time on real hardware. Every run of this work was headless
+on SwiftShader, which says nothing about a GPU; the new places follow the
+existing budgets (merged geometry per material, instanced repeats, counts from
+`CH_TIER`) but none has been profiled on the Iris Xe target.

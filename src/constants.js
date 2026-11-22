@@ -8,6 +8,8 @@ export const C = {
   // --- flight model (GDD 3.4) ---
   ANGULAR_DAMPING: 0.94, // per physics tick, at 60hz
   LINEAR_DAMPING: 1.0, // exactly 1.0. no drag in vacuum.
+  ROLL_TORQUE: 0.03, // rad/s of roll per physics tick while a roll paddle is held
+  AUTO_LEVEL: 0.02, // per tick: how hard the wings are brought level where there is a horizon (ship.levelUp)
   TORQUE_SCALE: 0.0008, // rad/s of angular velocity per pixel of mouse travel
   THRUST: 12.0, // units/s^2 along local forward
   BOOST_MULTIPLIER: 7.0, // thrust multiplier while W is held. W IS the boost —
@@ -218,6 +220,8 @@ export const C = {
   SKY_FALL_FLASH: 0.6, // seconds of ramp to white
   SKY_FALL_FADE: 1.4, // seconds of white fading off the start
   SKY_HOVER: 190.0, // auto-land arrives this far above the pad, then descends
+  WRECK_CAPTURE: 520, // the wreck of the Reach takes the helm inside 1.25x this (src/game.js DOCKS)
+  WRECK_HOVER: 150, // how far above her flight deck the approach levels out
   CHARGE_FLASH: 0.45, // seconds from the arm button to full white (world/reachtube.js)
   REACH_HOVER: 120.0, // the same, over the Indigo Reach's flight deck (world/reachship.js)
   SKY_DESCEND_TIME: 3.2, // seconds for that last vertical leg
@@ -531,13 +535,21 @@ export const C = {
   FAR_HOLE_HDR: 1.0, // emissive scale of the disc
   FAR_HOLE_DIST: 500000.0, // where it is drawn (its quad's corners must stay inside the far plane)
   // The megastructures: kilometre-scale spires on a wide tile, for a skyline.
-  FAR_SPIRE_TILE: 65536.0,
+  FAR_SPIRE_TILE: 131072.0, // (they stand out to ~60 km: the skyline)
+  FAR_BLOCK_TILE: 98304.0, // the distant city's blocks, out to ~45 km (world/megaworld.js)
   FAR_SPIRE_MAX: 2600.0,
   // The landing (world/farlanding.js): the one place the pilot can put down.
   FAR_LAND_OUT: 6400.0, // from the first caged star, toward the arrival point
   FAR_LAND_ALT: 1200.0, // pad above the plane: clear of the canopy floor and its drag
   FAR_LAND_CAPTURE: 640.0, // the dock's stand-in radius (captures at 1.25 of this)
-  FAR_AUTOLAND_DELAY: 7.0, // seconds after coming through before the Landing takes the helm (the first time only)
+  // The leash (src/farside.js leash()): the first time through, the pilot may
+  // fly round the landing's caged star, up to FAR_LEASH x the cage's height and
+  // out to FAR_LEASH x its plate's radius, before the Landing's beam brings
+  // the ship down.
+  FAR_LEASH: 1.5,
+  FAR_LEASH_SLACK: 2000.0, // on the way in from the wormhole: how far back from the nearest yet the pilot may turn
+  FAR_LEASH_GRACE: 4.0, // seconds past the bound (warned) before the beam pulls
+  FAR_EXPLORE_TIME: 240.0, // ...and however it goes, it pulls this long after arriving
   FAR_AUTOLAND_TIME: 24.0, // ...and the longest that approach may take: it is a long way off
   FAR_LAND_HOLD: 1400.0, // inside this the fleet goes to its station overhead
   FAR_LAND_RING_R: 3200.0, // the station ring...
@@ -654,6 +666,53 @@ export const C = {
   // The launch (world/launch.js): the light ship, out from the megaworld and into the hole.
   EZ_LAUNCH_TIME: 74.0, // how long it lasts
   EZ_LAUNCH_CROSS: 56.0, // seconds in, the horizon is crossed
+
+  // --- The chapter past the horizon (GDD 5.7.7). Read only by world/SEALED-horizon-*.js; the legend is at the
+  // top of world/SEALED-horizon-ship.js. Plain numbers only (the dev panel binds every key of C). ---
+  HZ_MASS: 4.0e9, // solar masses
+  HZ_M: 19702, HZ_T1: 26269, HZ_T2: 61896, HZ_T3: 11047, HZ_T4: 6720, // seconds
+  HZ_S1: 55, HZ_S2: 40, HZ_S3A: 25, HZ_S3B: 42, HZ_S4: 30, HZ_S4B: 14, HZ_S5: 22, HZ_S6: 30, // scene lengths, seconds
+  HZ_S7A: 12, HZ_S7: 52, HZ_S8: 22, HZ_S8A: 36, HZ_S8B: 25, HZ_S9: 20, HZ_S10: 72, HZ_SX: 8, HZ_SX1: 12, // scene lengths, seconds
+  HZ_A1: 0.17, // radians
+  HZ_A2: 1.2, // seconds
+  HZ_B1: 3.2, HZ_B2: 20, // seconds
+  HZ_C1: 0.30, HZ_C2: 0.80, HZ_C3: 0.62, // slopes, 0..1
+  HZ_C4: 4.0, // 1/s
+  HZ_C5: 0.0075, // chart units per second
+  HZ_C6: 0.42, HZ_C7: -0.3, // chart units
+  HZ_C8: 0.9, HZ_C9: 0.008, HZ_C10: 3.0, // multipliers
+  HZ_C11: 0.12, // chart units
+  HZ_C12: 0.5, // per second
+  HZ_C13: 10, HZ_C14: 4, // seconds
+  HZ_C15: 0.12, // per second
+  HZ_C16: 0.10, HZ_C17: 0.35, HZ_C18: 0.60, // 0..1
+  HZ_D1: 14, // units
+  HZ_D2: 9, HZ_D3: 2, // seconds
+  HZ_D4: 0.08, // per second
+  HZ_D5: 0.3, // radians
+  HZ_D6: 120, HZ_D7: 20, // seconds
+  HZ_D8: 0.5, // multiplier
+  HZ_D9: 8, // seconds
+  HZ_E1: 0.09, HZ_E2: 0.22, // chart units
+  HZ_E3: 3.0, // multiplier
+  HZ_E4: 0.2, // slope
+  HZ_E5: 0.02, // per second
+  HZ_E6: 0.35, // 0..1
+  HZ_E7: -0.75, // chart units
+  // --- the light ship as a home base (src/homebase.js, src/voyage.js, GDD 5.7.8) ---
+  BASE_CAPTURE: 560.0, // the bay's beam takes the helm inside this (times ATMO_SHELL), measured from the middle of the hull
+  BASE_BAY_STANDOFF: 430.0, // how far astern of the pad the run-in begins, and how far ahead of it a launch lets go
+  BASE_BAY_RUN: 5.0, // seconds from the standoff in to the pad
+  BASE_BAY_LIFT: 3.6, // seconds from the pad out through the forward mouth
+  BASE_BAY_HW: 30.0, // the bay deck: half its width
+  BASE_BAY_HL: 84.0, // ...and half its length
+  BASE_BAY_ROOF: 34.0, // the underside of the hull over it
+  BASE_STAR_DIST: 240000.0, // how far off a system's star is drawn
+  BASE_TRAVEL_TIME: 9.0, // seconds a passage between systems is watched for, from the bridge
+  BASE_DOCK_HOVER: 150.0, // a system's outpost: how high over its pad the descent begins
+  BASE_FOLLOW_SPEED: 6.0, // a captain keeping up, on foot (u/s)
+  BASE_FOLLOW_GAP: 2.6, // ...and how far off the pilot's shoulder they walk
+  BASE_GUEST_TALK: 1.9, // how near a captain riding in the freighter is talked to (m)
 };
 
 // How far each band of the lamp reaches, in units, by what it is shining
@@ -678,6 +737,13 @@ export const EZ_LIGHT = 'sun';
 // Whether the Tenretni made a ring of young planets from the shell's strata
 // (world/launch.js). Not decided: off, they rest.
 export const EZ_NEW_WORLDS = true;
+// The chapter past the horizon (GDD 5.7.7): one number per stage, seconds (world/SEALED-horizon-*.js).
+export const HZ_TAU = [600, 1500, 2700, 3600, 4500, 9000, 9900, 10300, 10800, 11400];
+
+// The example system (world/example-system.js): whether its planet is built.
+// It is the one piece of the home base that makes a world after boot
+// (src/planet.js buildPlanet); off, the system is its outpost alone.
+export const BASE_EXAMPLE_PLANET = true;
 
 // --- quality tiers (src/quality.js) ---
 // Kept out of C on purpose: tuning.js binds C to the dev panel, and these are
@@ -697,10 +763,10 @@ export const EZ_NEW_WORLDS = true;
 // shards: ice adrift between the ocean globes; school: bodies in each group of
 // creatures; eaters / leeches / feeders: how many of each are after the vessel in a zone.
 export const CH_TIER = {
-  low: { people: 8, rigNear: 0, flood: 3, dream: 3, lanterns: 80, birds: 40, rivals: 3, wake: 50, crowd: 60, motes: 500, shards: 150, school: 12, eaters: 6, leeches: 3, feeders: 3 },
-  medium: { people: 14, rigNear: 38, flood: 6, dream: 6, lanterns: 220, birds: 110, rivals: 5, wake: 100, crowd: 150, motes: 1400, shards: 400, school: 24, eaters: 10, leeches: 4, feeders: 5 },
-  high: { people: 19, rigNear: 60, flood: 6, dream: 6, lanterns: 360, birds: 180, rivals: 5, wake: 130, crowd: 240, motes: 2200, shards: 700, school: 36, eaters: 14, leeches: 5, feeders: 6 },
-  ultra: { people: 19, rigNear: 90, flood: 6, dream: 6, lanterns: 480, birds: 240, rivals: 6, wake: 160, crowd: 320, motes: 3000, shards: 1000, school: 48, eaters: 18, leeches: 6, feeders: 8 },
+  low: { people: 8, rigNear: 0, flood: 3, dream: 3, lanterns: 80, birds: 40, rivals: 3, wake: 50, crowd: 60, motes: 500, shards: 150, school: 12, eaters: 6, leeches: 3, feeders: 3, hzA: 60, hzB: 120, hzC: 600, hzD: 400 },
+  medium: { people: 14, rigNear: 38, flood: 6, dream: 6, lanterns: 220, birds: 110, rivals: 5, wake: 100, crowd: 150, motes: 1400, shards: 400, school: 24, eaters: 10, leeches: 4, feeders: 5, hzA: 120, hzB: 300, hzC: 1200, hzD: 900 },
+  high: { people: 19, rigNear: 60, flood: 6, dream: 6, lanterns: 360, birds: 180, rivals: 5, wake: 130, crowd: 240, motes: 2200, shards: 700, school: 36, eaters: 14, leeches: 5, feeders: 6, hzA: 200, hzB: 500, hzC: 1800, hzD: 1400 },
+  ultra: { people: 19, rigNear: 90, flood: 6, dream: 6, lanterns: 480, birds: 240, rivals: 6, wake: 160, crowd: 320, motes: 3000, shards: 1000, school: 48, eaters: 18, leeches: 6, feeders: 8, hzA: 260, hzB: 700, hzC: 2400, hzD: 1800 },
 };
 
 export const TIERS = {

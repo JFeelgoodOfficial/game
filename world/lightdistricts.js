@@ -249,6 +249,7 @@ export function createDistricts(k) {
           found[d.id] = true;
           addCodex(f.codex);
         }
+        if (k.chapter) k.chapter.markSite(d.id); // one of the four sights (src/chapter.js)
         return { speaker: { name: f.speaker, species: f.species, cityId: DISTRICTS[d.id].name }, lines: f.lines };
       },
     });

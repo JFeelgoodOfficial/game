@@ -7,15 +7,21 @@
 // someone quicker. The standing lives in localStorage on its own key so it
 // survives reloads without touching the main inventory.
 
+import { storyRacePending } from '../src/crownErrand.js';
+
 const KEY = 'nova7.skyrace';
 
+// Vex Halcyon is the Sky City's champion: the last name on the card, and the
+// driver the High Cantor sets against Terra's pilot (the Crown errand,
+// src/crownErrand.js). While that race is owed, Halcyon heads the poster
+// whatever the standing says.
+export const HALCYON = { name: 'VEX HALCYON', color: 0x3aa0ff, quote: "I've seen cargo haulers corner better than you. Stay out of my mirrors, Terran." };
 export const RIVALS = [
-  { name: 'VEX HALCYON', color: 0x3aa0ff, quote: "I've seen cargo haulers corner better than you. Stay out of my mirrors." },
   { name: 'DUCHESS NOVA-KANE', color: 0xc86aff, quote: 'Bring a parachute, darling. The drones are tired of fetching you.' },
   { name: 'BRAKK THE UNBURNT', color: 0xffc83a, quote: 'I put three drivers over the rail last week. You will be number four.' },
   { name: 'ZERO-G ZELDA', color: 0x5ae08a, quote: 'You brake for the jump? Adorable. I will wave on my way past.' },
   { name: 'OLD MAN TORQUE', color: 0xff8a3a, quote: 'Forty years on this ribbon, kid. The city itself moves over for me.' },
-  { name: 'THE CHAMPION', color: 0xf2f2f2, quote: 'Nobody has taken my line and stayed on the track. Come and try.' },
+  HALCYON,
 ];
 
 export const ENGINES = ['STOCK', 'MK II', 'MK III', 'MK IV', 'MK V', 'MK VI', 'PROTOTYPE'];
@@ -41,7 +47,7 @@ function save() {
 export const engineLevel = () => Math.min(standing().wins, ENGINES.length - 1);
 export const engineName = () => ENGINES[engineLevel()];
 // The headline rival of the next race.
-export const nextRival = () => RIVALS[standing().wins % RIVALS.length];
+export const nextRival = () => (storyRacePending() ? HALCYON : RIVALS[standing().wins % RIVALS.length]);
 
 export function recordRace(won) {
   const s = standing();

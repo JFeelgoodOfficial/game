@@ -602,13 +602,14 @@ export function createDiveBridge(ctx) {
       if (mode === 'dive') {
         // what is said, counted from the moment the ship is down
         const since = u - T_SETTLE;
-        for (let i = 0; i < DIVE.lines.length; i++) {
-          if (i > said && since >= DIVE.lines[i][0]) {
+        const diveLines = chapter.diveLines ? chapter.diveLines(DIVE.lines) : DIVE.lines; // (with the line the argument added)
+        for (let i = 0; i < diveLines.length; i++) {
+          if (i > said && since >= diveLines[i][0]) {
             said = i;
-            const who = CAPTAINS.find((c) => c.id === DIVE.lines[i][1]);
-            chapterHud.say(who ? `${who.short} — ${DIVE.lines[i][2]}` : DIVE.lines[i][2], 5.5);
+            const who = CAPTAINS.find((c) => c.id === diveLines[i][1]);
+            chapterHud.say(who ? `${who.short} — ${diveLines[i][2]}` : diveLines[i][2], 5.5);
             talker = who ? who.id : null;
-            talkT = 2.2 + DIVE.lines[i][2].length * 0.045;
+            talkT = 2.2 + diveLines[i][2].length * 0.045;
             if (i === 0) uiSound('impact');
           }
         }

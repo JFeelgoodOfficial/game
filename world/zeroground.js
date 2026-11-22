@@ -25,6 +25,7 @@
 // A site for the platform walker (src/capitalWalk.js), reached from the
 // submersible through its hatch and left up the tether (FAR_HOPS).
 
+import { setMusicArea } from '../src/music.js';
 import * as THREE from 'three';
 import { C } from '../src/constants.js';
 import { sun } from '../src/sun.js';
@@ -317,6 +318,8 @@ export function createZeroGround(ctx) {
       }
     },
     onLeave() {
+      setMusicArea(1); // the radio comes back with the daylight
+
       if (!inside) return;
       inside = false;
       group.visible = false;
@@ -333,6 +336,8 @@ export function createZeroGround(ctx) {
       prev = null;
     },
     tick(dt, t) {
+      if (inside) setMusicArea(0); // no radio inside the megaworld: only what is down here
+
       chapterHud.tick(dt);
       time.value = t;
       const d = Math.min(dt, 0.1);
