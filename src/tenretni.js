@@ -1063,6 +1063,8 @@ export function tripCrew() {
   return trip;
 }
 export const voyageDebug = () => voyage;
+// the season record and its fixed events (src/season.js, src/fixedEvents.js; GDD 5.7.9)
+export const seasonDebug = () => (voyage ? { state: () => voyage.season.state(), get: voyage.season.get, set: voyage.season.set, events: () => voyage.fixed.list(), forecast: (id) => voyage.fixed.forecast(id), resolve: (id, how, detail) => voyage.fixed.resolve(id, how, detail), remember: (id) => voyage.fixed.remember(id), pending: () => voyage.season.pending(), clear: () => voyage.season.clear() } : null);
 export const homebaseDebug = () => homebase;
 export const horizonDebug = () => horizon;
 function initVoyage() {

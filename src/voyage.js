@@ -14,7 +14,8 @@
 // keep:
 //
 //   { v: 1, at, visited: [ids], crew: [captain ids out on the trip],
-//     chapters: { <id>: that chapter's own record } }
+//     chapters: { <id>: that chapter's own record },
+//     season: what Season 1's chapters share (src/season.js; GDD 5.7.9) }
 //
 // "Landed somewhere" is not saved: a game come back to is aboard the light
 // ship with the freighter in its bay, as every reset already returns to a start.
@@ -29,6 +30,8 @@ import { setFarFieldExtra, isolated } from './isolate.js';
 import { addNavBody, setNavHidden } from './nav.js';
 import { SYSTEMS, systemById, FIRST_SYSTEM } from './systems.js';
 import { CAPTAINS } from '../world/chapter-dialogue.js';
+import { createSeason } from './season.js';
+import { createFixedEvents, FIXED_IDS } from './fixedEvents.js';
 
 const KEY = 'fgsf.voyage';
 const _v = new THREE.Vector3();
@@ -47,6 +50,9 @@ export function createVoyage(ctx) {
   let mounted = null;
   let applied = false;
   const sunDir = new THREE.Vector3(0, 1, 0); // live: toward the current system's star
+  // what the season's chapters share, and its fixed events (GDD 5.7.9)
+  const season = createSeason({ save: () => save() });
+  const fixed = createFixedEvents(season);
 
   // --- the save ---
   function save() {
@@ -55,12 +61,14 @@ export function createVoyage(ctx) {
       const rec = built[s.id]?.inst?.serialize ? built[s.id].inst.serialize() : records[s.id];
       if (rec !== undefined && rec !== null) chapters[s.id] = rec;
     }
-    const empty = at === FIRST_SYSTEM && visited.length <= 1 && !crew.length && !Object.keys(chapters).length;
+    const seasonRec = season.serialize();
+    const empty = at === FIRST_SYSTEM && visited.length <= 1 && !crew.length && !Object.keys(chapters).length && !seasonRec;
     try {
       if (empty && !localStorage.getItem(KEY)) return;
       localStorage.setItem(KEY, JSON.stringify({
         v: 1, at, visited: visited.slice(), crew: crew.length ? crew.slice() : undefined,
         chapters: Object.keys(chapters).length ? chapters : undefined,
+        season: seasonRec,
       }));
     } catch { /* storage full or blocked: the voyage still goes on for this session */ }
   }
@@ -72,6 +80,7 @@ export function createVoyage(ctx) {
       if (Array.isArray(raw.visited)) for (const s of SYSTEMS) if (raw.visited.includes(s.id)) visited.push(s.id);
       if (Array.isArray(raw.crew)) crew = CAPTAINS.filter((c) => raw.crew.includes(c.id)).map((c) => c.id);
       if (raw.chapters && typeof raw.chapters === 'object') for (const s of SYSTEMS) if (raw.chapters[s.id] !== undefined) records[s.id] = raw.chapters[s.id];
+      season.restore(raw.season, FIXED_IDS);
     } catch { /* unreadable: a voyage that has not left yet */ }
   })();
 
@@ -108,7 +117,7 @@ export function createVoyage(ctx) {
     built[sys.id] = b;
     if (sys.create) {
       try {
-        b.inst = sys.create({ scene: ctx.scene, camera: ctx.camera, chapter, voyage: api, sunDir, save, crewTalk: ctx.crewTalk });
+        b.inst = sys.create({ scene: ctx.scene, camera: ctx.camera, chapter, voyage: api, sunDir, save, crewTalk: ctx.crewTalk, season, fixed });
       } catch (err) {
         console.warn(`[voyage] ${sys.id} could not be built`, err);
       }
@@ -205,6 +214,8 @@ export function createVoyage(ctx) {
     visited: () => visited.slice(),
     sunDir,
     save,
+    season,
+    fixed,
     // The ship in open space as it stands: a load, a world reset, the moment
     // the chapter lets it go. Idempotent.
     apply() {
@@ -291,7 +302,12 @@ export function createVoyage(ctx) {
     // --- the current system's own doors, and what its people say ---
     hop: (key) => (mounted && mounted.inst && mounted.inst.hop ? mounted.inst.hop(key) : null),
     door: () => (mounted && mounted.inst && mounted.inst.door ? mounted.inst.door() : null),
-    talk: (captainId) => (mounted && mounted.inst && mounted.inst.talk ? mounted.inst.talk(captainId) : null),
+    // (with nothing to say about where the ship is, a captain remembers how the last fixed event went)
+    talk(captainId) {
+      const here = (mounted && mounted.inst && mounted.inst.talk ? mounted.inst.talk(captainId) : null) || [];
+      const lines = [...here, ...(fixed.remember(captainId) || [])];
+      return lines.length ? lines : null;
+    },
     instance: (id = at) => built[id]?.inst || null,
     state: () => ({
       open: chapter.open(), applied, at, visited: visited.slice(), crew: api.crew(),
@@ -299,6 +315,7 @@ export function createVoyage(ctx) {
       docks: mounted ? mounted.docks.map((d) => ({ id: d.id, pos: d.site.group.position.toArray().map(Math.round) })) : [],
       planets: mounted ? mounted.planets.map(({ p }) => ({ name: p.cfg.name, pos: p.group.position.toArray().map(Math.round), removed: !!p.removed })) : [],
       star: !starRoot.userData.away, record: mounted && mounted.inst && mounted.inst.state ? mounted.inst.state() : null,
+      season: season.state(),
     }),
   };
   return api;

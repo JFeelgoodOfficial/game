@@ -965,6 +965,34 @@ round-trips its `ch` unchanged with no `hz` key and no `fgsf.voyage`; a
 `ch.stage: 'ez_beyond'` save still ends on the launch bridge
 (`far().state().launch`) with `base.state().dock === 'landing'`.
 
+## Season 1: fixed events, the season record, and The Long Dusk (GDD 5.7.9)
+
+Seed and boot as for the home base (`ch.stage: 'hz_open'`). `tenretni.voyage().courses()` lists `dusk`. To have nobody aboard, `tenretni.chapter().setCrewDebug([])` BEFORE entering the camp (`ez.lost` cannot hold the captain in `ez.stay`).
+
+`s = __debug.tenretni.season()`: `state()` → `{facts, events, cp}`, `set(k, v)`, `events()`, `resolve(id, how, detail)`, `remember(captainId)`, `pending()`, `clear()`. Saved as `fgsf.voyage.season`.
+
+`I = __debug.tenretni.voyage().instance('dusk')` (null until the ship has been there: `voyage().travel('dusk')`). `I.state()` → `{stage, decision, pending, flare, clock, pinned, ground, places}`; `ground` → `{term, camp, elder, shelter, heat, cold, onVent, scene: {kind, u} | null, lamp, seen, sky, act: {t, left, done, broke} | null, groups: [{i, state, at, counted, turn}], fires, flash, aurora, outcome, dead, panel, ground(x, z)}`. Site frame: +x the star, -x the night, pad about (34, 118), picket line x -215, band x -470; the camp's x is `ground.camp` and moves unless `I.sway(x)` pins the twilight line.
+
+Getting there: `voyage().travel('dusk')`, `base.door('base:bay')`, `base.board()`, `base.launch()`, wait `landState === null`, then `base.systemApproach(1500)` and wait for `landState === 'landed'` with `dock: 'system'` (about a minute), key `g`. `systemDock()` + `systemStepOut()` skip the flight. On foot it is `walkSite().capital`; place with `cap.place(x, I.state().ground.ground(x, z), z)`.
+
+A pass, waiting on state each time:
+1. On the first step out `__debug.cine.active()` with `kind() === 'comm'` and `from` ending `FORECAST`; `cine.skip()`; stage `forecast`, `season().state().events.flare.seen`.
+2. Stand 3 from `ground.elder`, key `e` (prompt `E — TALK`), `cine.skip()`: stage `asked`, groups `mill`.
+3. `place(-190, 0)`: `ground.scene.kind === 'edge'`, prompt `E — SKIP`, key `e`: stage `edge`, `ground.lamp` set.
+4. From `place(-205, 0)`, `q` twice (infrared), face each group's `at` (`cWalk.yaw = atan2(dx, dz)`): its `counted` goes true after 1.2 s, and only while aimed within about 18°. Then `q` once more (H-alpha), `cWalk.yaw = -π/2`, `pitch` 0.3: scene `seen`; `I.skip()`: stage `seen`. `I.dbg.sky()` does all of step 4.
+5. `e` at Renn, `cine.skip()` (must stop at the choice: `cine.text().options` has two), key `x` leaves it unasked with `pending.key === 'ch2.decision'` and stage `seen`; `e` again, `cine.pick(0)` ARM or `pick(1)` WARN: stage `decided`, `ground.act.left` counting down, `fgsf.voyage.chapters.dusk.stage` still `'seen'`.
+6. WARN: for each group, `place` 26 nightward of its `at` (smaller x), step the band to `bluegreen`, face it: `state` goes `led` after 2.2 s, then `safe`. From the sunward side `turn` stays 0 and the group backs away. ARM: `place(-196, 0)` on blue-green and face whichever group reads `charge` (they start 10, 45 and 80 s in): `driven`, then `penned`. `I.dbg.turn(i)` does either.
+7. Stand at `ground.shelter`, prompt `E — GET UNDER THE SLEDGES`, key `e`: stage `acted`, scene `flare` (`ground.flash` peaks near u 5, `ground.aurora` from u 16). `I.skip()`: stage `flare`, `pending` null, `state().flare.how` one of `armed | rerouted | partial | unheeded`.
+8. `e` at Renn: stage `done`. `voyage().talk('marrow')` ends with that outcome's line.
+
+Checks that must hold:
+- A death after the choice (`I.kill('trampled')`, or `I.dbg.time(3)` away from the sledges) ends at stage `seen` with `decision` null, `pending.key` still set, and the walker within 5 of `ground.elder`. A death before it (`I.go('asked')`, `I.kill('cold')`) ends at `places.pad` with the stage kept.
+- `base.door('base:bridge')` at stage `decided` leaves stage `seen`, `decision` null, `renderState().fog` null, and neither `ch-cine` nor `ez-lamp` on `body`.
+- A `fgsf.voyage` with `chapters.dusk.stage: 'decided'` and the fact set loads as `seen` with `decision` null.
+- After the flare a reload keeps `decision`, `flare` and `ground.outcome`.
+- With no crew, each scene's lines on `#chHud .line` are the `solo` ones and none carries a captain's name.
+- A fresh profile writes no `fgsf.voyage`; a 5.7.8 save (`{v, at, visited, crew, chapters}`) is written back byte for byte, with no `season` key.
+
 ## The chapter past the horizon (GDD 5.7.7)
 
 Structure only: what happens in it is in files named `SEALED-*`, which are not
