@@ -44,7 +44,7 @@ export const SYSTEMS = [
   },
   // The example: not story. A relay to dock at and a bare world to land on.
   {
-    id: EXAMPLE.id, sealed: false,
+    id: EXAMPLE.id, sealed: false, example: true,
     label: EXAMPLE.label, star: { dir: [-0.55, 0.32, -0.77], color: 0xffd9a0 }, nebula: 0.35, fleet: false,
     base: [0, 0, 0],
     create: createExampleSystem,

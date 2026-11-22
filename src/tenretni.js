@@ -1127,6 +1127,7 @@ export function farHop(key) {
 // The bay (world/basevessel.js), for src/game.js to dock in. Null until open space.
 export const baseDock = () => (ended === 'far' && chapter.open() && voyage && voyage.applied() && homebase ? homebase.getBay() : null);
 // The current system's dock nearest `pos`, likewise.
+export const debriefWaiting = () => !!(ended === 'far' && voyage && voyage.debrief());
 export const voyageDock = (pos) => (ended === 'far' && voyage ? voyage.nearestDock(pos) : null);
 // What the CODEX needs to say where the story is on the far side (src/codexData.js).
 export const storyState = () => ({

@@ -124,6 +124,15 @@ export function createDuskSystem(ctx) {
     // what the captains say on the bridge while the ship is here, until the
     // flare; after it, src/fixedEvents.js remembers how it went, wherever the ship is
     talk: (captainId) => (fixed.resolved('flare') ? null : DUSK.talk[captainId] || null),
+    // back aboard after Renn's goodbye: what the captains say on the bridge
+    // (world/basebridge.js plays it once; src/voyage.js keeps that it has been)
+    debrief() {
+      if (stage !== 'done') return null;
+      const how = fixed.outcome('flare')?.how;
+      const D = DUSK.debrief;
+      const body = D[how] || D.rerouted;
+      return { title: D.title, complete: D.complete, lines: [D.open, ...body, D.close], nextCourse: D.nextCourse, nextNone: D.nextNone };
+    },
     // the record: only once something has happened here
     serialize() {
       if (stage === 'arrived') return undefined;

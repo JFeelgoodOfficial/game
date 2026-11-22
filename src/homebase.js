@@ -133,6 +133,8 @@ export function createHomebase(ctx) {
         figures: () => fx()?.figures || [],
         talk, chart, choose,
         arrive: (id) => voyage().travel(id),
+        debrief: () => voyage().debrief(),
+        debriefed: (key) => voyage().debriefed(key),
       });
     }
     return bridge;
