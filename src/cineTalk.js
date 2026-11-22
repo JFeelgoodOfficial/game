@@ -47,6 +47,7 @@ const CSS = `
 #cineTalk .ct-line {
   max-width: 62ch; font-size: clamp(18px, 2.3vw, 24px); line-height: 1.45; letter-spacing: 0.03em;
   color: #f2feff; text-shadow: 0 0 2px #000, 0 2px 10px rgba(0,0,0,0.9);
+  background: rgba(3, 8, 14, 0.78); padding: 0.4em 0.9em; border-radius: 6px; /* something to read it against */
 }
 #cineTalk .ct-options { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
 #cineTalk .ct-opt {

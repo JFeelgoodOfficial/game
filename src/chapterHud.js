@@ -21,10 +21,14 @@ const CSS = `
 #chHud.on .bar { transform: none; }
 #chHud .line {
   position: absolute; left: 6vw; right: 6vw; bottom: 14.5vh; text-align: center;
-  color: #eaffff; font-size: clamp(13px, 2.1vw, 22px); letter-spacing: 0.34em; text-transform: uppercase;
-  text-shadow: 0 0 14px rgba(130, 247, 255, 0.9), 0 0 2px #000, 0 2px 10px rgba(0, 0, 0, 0.8);
+  width: fit-content; max-width: 88vw; margin: 0 auto; box-sizing: border-box; /* (hugs the words, centred) */
+  padding: 0.55em 1.1em; border-radius: 6px; line-height: 1.55;
+  background: rgba(3, 8, 14, 0.82); border: 1px solid rgba(130, 247, 255, 0.28); /* something to read it against */
+  color: #f2feff; font-size: clamp(13px, 2.1vw, 22px); letter-spacing: 0.22em; text-transform: uppercase;
+  text-shadow: 0 0 2px #000;
   opacity: 0; transition: opacity 0.7s;
 }
+#chHud .line .who { color: #ffd27a; margin-right: 0.6em; } /* who is speaking, in its own colour */
 #chHud .line.show { opacity: 1; }
 /* outside a scene the bottom of the screen is the game's: the line goes up top */
 #chHud:not(.on) .line { bottom: auto; top: 17vh; }
@@ -100,7 +104,15 @@ export const chapterHud = {
       lineT = 0;
       return;
     }
-    line.textContent = text;
+    // "VASK — the words": the speaker in their own colour, on a line of their own when it would wrap
+    const m = /^([A-Z][A-Z'. -]{1,30}?) — ([\s\S]*)$/.exec(text);
+    line.textContent = '';
+    if (m) {
+      const who = document.createElement('span');
+      who.className = 'who';
+      who.textContent = m[1];
+      line.append(who, m[2]);
+    } else line.textContent = text;
     line.classList.add('show');
     lineT = seconds;
   },
