@@ -909,6 +909,16 @@ docks, planets, star, record}`, `travel(id)` (the swap itself, no passage),
 `setCrew(ids)`, `instance(id)` (a built system: the example's has `go(stage)`).
 `tenretni.openSpace()` is what the chapter of 5.7.7 calls at its end.
 
+The crew deck (`world/basedeck.js`): on the bridge `place(4.6, 0, 4.6)` reads
+`E — CREW DECK`; `e` and `tenretni.base().state().inside` is `'deck'`
+(`deck` info → `{doing, u, lost, star, rooms}`; `places.deck` has
+`bridgeDoor`, `quarters.{pilot, marrow, lux, vask}`, `lounge`, `med`). The
+corridor runs x -22..22 at z 0, quarters at -z (glass at z -10.4), lounge and
+medical bay at +z. `place(-20.5, 0, -5.8)` REST, `(-10, 0, 5.8)` SIT DOWN TO
+EAT, `(18.4, 0, 4.8)` CHECK-UP: each sets `doing` for a few seconds and ends on
+a `#chHud .line`. A lost captain's room (`ez.lost`) has `own` lights hidden and
+the candle shown. `place(-20.4, 0, 0.8)` and `e` is back on the bridge.
+
 The chart by hand: `walkSite().capital.place(0, 0, -5.2)` on the bridge, `e`,
 `e`, then a digit. `#dlgPanel` lists every charted system but the current one
 and STAY HERE; picking one sets `bridge.going`, `bridge.u` runs 0..9 with the

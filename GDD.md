@@ -1091,6 +1091,7 @@ From the moment the chapter of 5.7.7 lets the ship go (stage `hz_open`), the meg
 | Hangar bay | `world/basevessel.js` | Yes (the universe is not paused; the system is in view) | The freighter on its pad, two lifts (bridge, archive), the trip roster, the captains who are coming along |
 | Bridge | `world/basebridge.js` | No (paused, look `dive`) | The helm chart, the captains who are staying, the sky of the current system, a lift to the bay, a door aft to the archive |
 | Archive | `world/lightship.js` with `ctx.base` | No (paused, look `lightship`) | The six world rooms of 5.7.4 as they were, the holodeck console by the aft door, a door forward to the bridge, a lift to the bay |
+| Crew deck | `world/basedeck.js` | No (paused, look `dive`) | A corridor off the bridge's starboard aft door. Quarters for the pilot and each captain, each with a floor-to-ceiling window onto the current system and something of its owner's; a lost captain's are kept, lights down, one left on. The dining lounge (long table, galley, window) and the medical bay (two beds, a scanner, cabinets). E: rest in the pilot's bed, eat (with whoever is aboard), a check-up, look round a captain's room |
 
 Doors are hop keys. `src/game.js` whites out, asks `farHop(key)` (`src/tenretni.js`), and stands the walker where the answer says: `{ site, spawn, yaw, look, out }`. `out` leaves the pause for the world. The `FAR_HOPS` table of 5.7.4 and 5.7.5 is untouched; `farHop` is asked only for keys it does not hold.
 
@@ -1099,6 +1100,7 @@ Doors are hop keys. `src/game.js` whites out, asks `farHop(key)` (`src/tenretni.
 | `base:bay` | the bay, off the lift |
 | `base:bridge`, `base:bridge-aft`, `base:helm` | the bridge: off the lift, from the archive, at the helm |
 | `base:archive`, `base:archive-up`, `base:holo` | the archive: from the bridge, off the lift, at the holodeck |
+| `base:deck`, `base:bridge-deck` | the crew deck from the bridge, and back |
 | `hz:*` | the chapter of 5.7.7 (`src/horizon.js`) |
 | anything else | the current system's own `hop(key)` |
 

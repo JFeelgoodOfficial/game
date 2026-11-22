@@ -28,13 +28,13 @@ import { BASE } from './base-dialogue.js';
 const ZERO = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 const R = 9;
-const MAX_BODIES = 8;
+export const MAX_BODIES = 8; // (the sky shader below is shared with the crew deck's windows, world/basedeck.js)
 const ease = (a, b, x) => {
   const k = Math.min(Math.max((x - a) / (b - a), 0), 1);
   return k * k * (3 - 2 * k);
 };
 
-const VERT = /* glsl */ `
+export const VERT = /* glsl */ `
   varying vec3 vW;
   void main() {
     vec4 w = modelMatrix * vec4(position, 1.0);
@@ -45,7 +45,7 @@ const VERT = /* glsl */ `
 // Stars one to a cell of the sky; the system's star as a disc and a glow; its
 // bodies as small steady lights. Under way (uWarp) the stars are drawn out
 // along the ship's heading and everything else is let go of.
-const SKY_FRAG = /* glsl */ `
+export const SKY_FRAG = /* glsl */ `
   uniform float uTime;
   uniform float uWarp;
   uniform vec3 uStar;
@@ -134,9 +134,10 @@ export function createBaseBridge(ctx) {
   // the chart's face, on the helm
   glow.push(tint(box(1.3, 0.05, 0.6, 0, 1.13, -R + 2.2), 0x7fe6ff, 1.5));
   // aft: the way to the archive, under the wall; to port of it, the lift to the bay
-  const AFT = { x: 0, z: R - 1.6 }, LIFT = { x: -4.6, z: R - 3.4 };
+  const AFT = { x: 0, z: R - 1.6 }, LIFT = { x: -4.6, z: R - 3.4 }, DECK_DOOR = { x: 4.6, z: R - 3.4 }; // (starboard of the archive: the crew deck, world/basedeck.js)
   glow.push(tint(new THREE.TorusGeometry(1.5, 0.07, 6, 36).rotateX(Math.PI / 2).translate(AFT.x, 0.05, AFT.z), 0xffe2a0, 1.6));
   glow.push(tint(new THREE.TorusGeometry(1.5, 0.07, 6, 36).rotateX(Math.PI / 2).translate(LIFT.x, 0.05, LIFT.z), 0x7fe6ff, 1.6));
+  glow.push(tint(new THREE.TorusGeometry(1.5, 0.07, 6, 36).rotateX(Math.PI / 2).translate(DECK_DOOR.x, 0.05, DECK_DOOR.z), 0xffc27a, 1.6));
   group.add(mergedMesh(lit, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x05080a })));
   group.add(mergedMesh(glow, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false })));
   const railMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 1.4, 1.6), fog: false });
@@ -242,12 +243,15 @@ export function createBaseBridge(ctx) {
     fromAft: new THREE.Vector3(AFT.x, 0, AFT.z - 2.4), // from the archive
     fromAftYaw: Math.PI,
     atHelm: new THREE.Vector3(0, 0, -R + 4.4), // where a chapter leaves the pilot
+    fromDeck: new THREE.Vector3(DECK_DOOR.x - 1.4, 0, DECK_DOOR.z - 1.6), // back from the crew deck
+    fromDeckYaw: Math.PI,
     atHelmYaw: Math.PI,
     npcs,
     consoles: [
       { x: 0, y: 0, z: -R + 3.6, r: 2.0, prompt: BASE.chart, off: () => u >= 0, use: () => ctx.chart() },
       { x: AFT.x, y: 0, z: AFT.z, r: 1.7, prompt: BASE.bridgeAft, off: () => u >= 0, use: () => ((site.portal = 'base:archive'), null) },
       { x: LIFT.x, y: 0, z: LIFT.z, r: 1.7, prompt: BASE.toBay, off: () => u >= 0, use: () => ((site.portal = 'base:bay'), null) },
+      { x: DECK_DOOR.x, y: 0, z: DECK_DOOR.z, r: 1.7, prompt: BASE.toDeck, off: () => u >= 0, use: () => ((site.portal = 'base:deck'), null) },
     ],
     onChoice(tag) {
       const r = ctx.choose(tag);
@@ -348,7 +352,7 @@ export function createBaseBridge(ctx) {
     },
     inside: () => inside,
     muster,
-    places: { helm: [0, 0, -R + 4.4], aft: [AFT.x, 0, AFT.z - 1], lift: [LIFT.x, 0, LIFT.z] },
+    places: { helm: [0, 0, -R + 4.4], aft: [AFT.x, 0, AFT.z - 1], lift: [LIFT.x, 0, LIFT.z], deck: [DECK_DOOR.x, 0, DECK_DOOR.z] },
     info: () => ({
       u: +u.toFixed(1), end: T, warp: +skyU.uWarp.value.toFixed(2), going: going ? going.travel : null,
       crew: crew.filter((m) => m.on).map((m) => m.c.id), figures: extras.filter((e) => e.g).map((e) => e.id), star: skyU.uStarOn.value > 0,

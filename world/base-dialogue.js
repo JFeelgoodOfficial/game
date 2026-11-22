@@ -43,7 +43,35 @@ export const BASE = {
   // a place of the megaworld's, as a holodeck program: whoever is spoken to there
   programGreet: { speaker: { name: 'A record', species: 'the archive', cityId: 'The City of Light' }, lines: ['THIS IS THE CITY AS THE ARCHIVE KEPT IT.', 'NOBODY IN IT CAN SEE YOU. G ENDS THE PROGRAM.'] },
   guestPrompt: 'E — TALK',
+  toDeck: 'E — CREW DECK',
   arriveSay: '{to}',
+};
+
+// The crew deck (world/basedeck.js): quarters, the dining lounge, the medical
+// bay. Plain on purpose: nothing here is part of a story.
+export const DECK = {
+  where: 'The crew deck',
+  toBridge: 'E — BACK TO THE BRIDGE',
+  platePilot: 'PILOT',
+  plateBridge: 'BRIDGE',
+  plateLounge: 'DINING',
+  plateMed: 'MEDICAL',
+  rest: 'E — REST',
+  restSay: 'YOU SLEEP FOR A WHILE. THE SHIP KEEPS GOING.',
+  eat: 'E — SIT DOWN TO EAT',
+  eatWith: 'YOU EAT WITH {who}.',
+  eatAlone: 'YOU EAT ALONE, BY THE WINDOW.',
+  scan: 'E — CHECK-UP',
+  scanSay: 'CHECK-UP DONE. NO INJURIES. YOU ARE FIT TO FLY.',
+  look: 'E — LOOK AROUND',
+  // a captain's quarters, looked round with them out of it
+  room: {
+    marrow: ["Marrow's quarters. A stand of tuning bells by the window.", 'They ring by themselves when the ship turns. Marrow says that is the point.'],
+    lux: ["Lux's quarters. Plants on every surface, and more lamps than anyone needs.", 'Lux does not like the dark. This room never has any.'],
+    vask: ["Vask's quarters. A piece of ore from Rustia on a stand, still warm.", 'Scratched into the desk: a tally mark for every trip the ship has made.'],
+  },
+  // ...and kept for one who is not coming back
+  lostRoom: ['{NAME} is not coming back. The room is kept as they left it.', 'Someone leaves a small light on in here.'],
 };
 
 // What each captain has to say on the bridge, by where the ship is. `any` is
