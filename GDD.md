@@ -1254,6 +1254,16 @@ A chapter's stages between deciding and surviving are never saved: its `serializ
 
 **Science.** Real: tidal locking, a habitable terminator, libration, red-dwarf flares, bodies glowing at 10 µm against a cold night, particles steered by a planet's field onto its night side in a band, and a proton aurora's H-alpha glow. Stretched, and marked in `world/dusk-ground.js`: the band being deadly at ground level, and the particles following the light by seconds.
 
+**Ending a chapter.** A system instance may offer `debrief()`: once the
+chapter has ended, `{ title, complete, lines: [[captain id, text]], nextCourse,
+nextNone }`. The first time the pilot is on the bridge after that, the captains
+talk it over in plain words (bars, the camera behind the helm, each line by its
+captain or by whoever is aboard), then a card: the chapter's title, COMPLETE,
+and where the story goes next (a new course on the chart, or that nothing new is
+charted yet). It plays once (`season` fact `debrief.<system>`); the bay's
+welcome says the captains are waiting while it has not. The Long Dusk's ends
+with Renn's goodbye, and its lines follow how the flare went.
+
 ### 5.8 The Sky City (Saturnia)
 
 Saturnia has no surface, so it gets a place instead: a floating city 320 units

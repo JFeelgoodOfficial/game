@@ -832,6 +832,8 @@ export function createDuskGround(ctx, story) {
     else if (story.reached('forecast') && !story.reached('acted')) rows.push(DUSK.hud.flareSoon);
     if (st === 'edge') rows.push(`${DUSK.hud.seen}${seenN()} / ${groups.length}`);
     if (st === 'decided') rows.push(decision() === 'arm' ? `${DUSK.hud.held}${count('penned') + count('driven')} / ${groups.length}` : `${DUSK.hud.turned}${count('safe') + count('led')} / ${groups.length}`);
+    if (st === 'flare') rows.push(DUSK.hud.talk);
+    if (st === 'done') rows.push(DUSK.hud.done);
     if (heat > 0.03) rows.push(DUSK.hud.heat + bar(heat));
     if (cold > 0.03) rows.push(DUSK.hud.cold + bar(cold));
     const text = rows.length && !scene ? rows.join('\n') : null;

@@ -31,6 +31,9 @@ export const DUSK = {
     seen: 'WARM    ',
     turned: 'TURNED  ',
     held: 'HELD    ',
+    // after the flare: what is left to do, so it cannot be missed
+    talk: 'TALK TO RENN',
+    done: 'DONE — BACK TO THE LIGHT SHIP',
   },
   keys: 'Q — CHANGE BAND · L — LAMP',
   skip: 'E — SKIP',
@@ -194,6 +197,45 @@ export const DUSK = {
       after: ['They count their days by the lean of the star. It is a good clock. It has one hand.'],
     },
   },
+  // --- back aboard: the debrief on the bridge, the first time after Renn's goodbye ---
+  // Plain on purpose: what happened, what the choice did, and how they feel
+  // about it. One set per way the flare went. [captain id, line]; a line whose
+  // captain is gone is said by whoever is left, and with nobody left it is
+  // shown as the pilot's own thought.
+  debrief: {
+    title: 'CHAPTER 2 — THE LONG DUSK',
+    open: ['vask', 'Before we go anywhere. What happened down there, in plain words.'],
+    rerouted: [
+      ['marrow', 'The tall ones were never attacking the camp. They were parents, walking their young out from under the flare.'],
+      ['vask', 'Their only way out ran past Renn\'s fires. You got the fires put out and turned all three groups through. All nine young got out.'],
+      ['lux', 'And the camp lost nobody. Nobody on either side. I did not think that was possible.'],
+      ['marrow', 'Renn knows what they are now. Her people will leave the edge open whenever the star leans.'],
+    ],
+    partial: [
+      ['marrow', 'The tall ones were never attacking the camp. They were parents, walking their young out from under the flare.'],
+      ['vask', 'You opened the edge and turned some of the groups through. Not all of them. Some young were still under it when it came down.'],
+      ['lux', 'We got some out. I keep telling myself that. It is true, and it is not enough.'],
+      ['marrow', 'Renn\'s people will leave the edge open from now on. That much we changed for good.'],
+    ],
+    unheeded: [
+      ['marrow', 'The tall ones were never attacking the camp. They were parents, walking their young out from under the flare.'],
+      ['vask', 'You opened the edge, but none of the groups were turned in time. They were all still under it when it came down.'],
+      ['lux', 'We did the right thing and it did not work. I hate that both of those are true.'],
+      ['marrow', 'Renn says she would pull her pickets again. So would I.'],
+    ],
+    armed: [
+      ['vask', 'You gave Renn the cutting torches. The line held, and nobody in the camp was hurt.'],
+      ['marrow', 'But the tall ones were not attacking. They were walking their young out from under the flare, and we turned them back into it.'],
+      ['lux', 'Everyone in the camp is safe. I keep saying that because it is the part I can say.'],
+      ['vask', 'It was a real choice and it is made. The log has both halves of it.'],
+    ],
+    close: ['lux', 'Can we go somewhere now? Somewhere new?'],
+    complete: 'COMPLETE',
+    // what the card says underneath: where the story goes from here
+    nextCourse: 'SET A NEW COURSE FROM THE CHART AT THE HELM.',
+    nextNone: 'NOTHING NEW IS CHARTED YET. THE NEXT CHAPTER IS STILL BEING WRITTEN.',
+  },
+
   // ...and on the light ship's bridge, while it is here and before the flare
   talk: {
     marrow: ['One face always burning, one always frozen, and a people in between. I want to see who lives in the dark.'],

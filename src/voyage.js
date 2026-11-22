@@ -309,6 +309,20 @@ export function createVoyage(ctx) {
       return lines.length ? lines : null;
     },
     instance: (id = at) => built[id]?.inst || null,
+    // A chapter that has ended here, and has not yet been talked over on the
+    // bridge: { key, title, complete, lines: [[captain id, text]], next } | null.
+    // `next` is where the story goes from here: a new course, or nothing yet.
+    debrief() {
+      const inst = mounted && mounted.inst;
+      if (!inst || !inst.debrief || season.get(`debrief.${at}`)) return null;
+      const d = inst.debrief();
+      if (!d) return null;
+      const fresh = api.courses().some((c) => !visited.includes(c.id) && !systemById(c.id)?.example);
+      return { ...d, key: at, next: fresh ? d.nextCourse : d.nextNone };
+    },
+    debriefed(key) {
+      season.set(`debrief.${key}`, true);
+    },
     state: () => ({
       open: chapter.open(), applied, at, visited: visited.slice(), crew: api.crew(),
       systems: SYSTEMS.map((s) => ({ id: s.id, label: s.sealed ? null : s.label, sealed: !!s.sealed, built: !!built[s.id] })),

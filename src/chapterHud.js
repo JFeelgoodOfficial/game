@@ -52,6 +52,12 @@ body.ch-race #walkHint, body.ch-race #compass { opacity: 0 !important; }
 /* ...and the line sits under the race's own panel */
 body.ch-race #chHud:not(.on) .line { top: 27vh; }
 #chHud .white { position: absolute; inset: 0; background: #fff; opacity: 0; }
+/* a chapter's card: its title, big, in the middle; a word under it; a line under that */
+#chHud .card { position: absolute; left: 6vw; right: 6vw; top: 34vh; text-align: center; opacity: 0; transition: opacity 1.1s; }
+#chHud .card.show { opacity: 1; }
+#chHud .card .t { color: #f2feff; font-size: clamp(18px, 3.4vw, 40px); letter-spacing: 0.32em; text-shadow: 0 0 18px rgba(130, 247, 255, 0.8), 0 0 2px #000; }
+#chHud .card .c { margin-top: 0.9em; color: #ffd27a; font-size: clamp(13px, 1.9vw, 22px); letter-spacing: 0.6em; text-shadow: 0 0 12px rgba(255, 190, 90, 0.8), 0 0 2px #000; }
+#chHud .card .n { margin-top: 2.2em; color: #bfefff; font-size: clamp(11px, 1.4vw, 15px); letter-spacing: 0.2em; }
 body.ch-cine > *:not(canvas):not(#chHud):not(#flash):not(#cineTalk) { opacity: 0 !important; pointer-events: none !important; }
 @media (prefers-reduced-motion: reduce) { #chHud .bar { transition: none; } }
 `;
@@ -68,7 +74,7 @@ function build() {
   document.head.appendChild(style);
   root = document.createElement('div');
   root.id = 'chHud';
-  root.innerHTML = '<div class="white"></div><div class="bar top"></div><div class="bar bot"></div><div class="line"></div><div class="panel"></div><div class="clocks"><span class="c"></span><span class="a"></span>\n<b class="b"></b></div>';
+  root.innerHTML = '<div class="white"></div><div class="bar top"></div><div class="bar bot"></div><div class="line"></div><div class="card"><div class="t"></div><div class="c"></div><div class="n"></div></div><div class="panel"></div><div class="clocks"><span class="c"></span><span class="a"></span>\n<b class="b"></b></div>';
   document.body.appendChild(root);
   line = root.querySelector('.line');
   white = root.querySelector('.white');
@@ -116,6 +122,16 @@ export const chapterHud = {
     line.classList.add('show');
     lineT = seconds;
   },
+  // a chapter's card (null hides it): title, the word under it, a line under that
+  card(title, word = '', note = '') {
+    build();
+    const c = root.querySelector('.card');
+    if (!title) return c.classList.remove('show');
+    c.querySelector('.t').textContent = title;
+    c.querySelector('.c').textContent = word;
+    c.querySelector('.n').textContent = note;
+    c.classList.add('show');
+  },
   white(v) {
     if (!root && v <= 0) return;
     build();
@@ -161,6 +177,7 @@ export const chapterHud = {
     this.cine(false);
     this.say(null);
     this.white(0);
+    this.card(null);
   },
   state: () => ({ cine: cineOn, line: line && lineT > 0 ? line.textContent : null }),
 };

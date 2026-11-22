@@ -55,7 +55,7 @@ import {
   initTenretni, updateTenretni, tenretniHolding, stepTenretniHold, resetTenretni,
   tenretniFx, tenretniDebug, capitalDock, tenretniSailVelocity, holoPrograms, holoWorld,
   nearestVessel, vesselSite, holdVessel, placeFleets, wormholeCapture, farGate, enterFar, farSite, farDoor, farBeyond, farWantsLanding, farMarkLanded,
-  engageWarp, farHop, baseDock, voyageDock, holoCatalog, holoKind, holoSite, holoFailed, tripCrew,
+  engageWarp, farHop, baseDock, voyageDock, holoCatalog, holoKind, holoSite, holoFailed, tripCrew, debriefWaiting,
 } from './tenretniLazy.js';
 import { BASE } from '../world/base-dialogue.js';
 import {
@@ -1602,7 +1602,8 @@ const DOCKS = [
     id: 'bay', armed: true, freeze: false,
     planet: { body: { position: new THREE.Vector3() }, radius: C.BASE_CAPTURE, cfg: { name: 'bay' } },
     approach: BASE.bayApproach,
-    welcome: BASE.bayWelcome,
+    // (a chapter has just ended: the captains are waiting on the bridge to talk it over)
+    get welcome() { return debriefWaiting() ? BASE.bayDebrief : BASE.bayWelcome; },
     label: BASE.bayLabel,
     descend: C.BASE_BAY_RUN,
     exit: true, liftTime: C.BASE_BAY_LIFT,

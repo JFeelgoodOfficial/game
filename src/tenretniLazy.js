@@ -142,6 +142,7 @@ export const farMarkLanded = () => mod && mod.farMarkLanded();
 export const farHop = (key) => (mod ? mod.farHop(key) : null);
 export const baseDock = () => (mod ? mod.baseDock() : null);
 export const voyageDock = (pos) => (mod ? mod.voyageDock(pos) : null);
+export const debriefWaiting = () => !!(mod && mod.debriefWaiting && mod.debriefWaiting());
 export const holoCatalog = () => (mod ? mod.catalog() : []);
 export const holoKind = (id) => (mod ? mod.holoKind(id) : null);
 export const holoSite = (id) => (mod ? mod.holoSite(id) : null);

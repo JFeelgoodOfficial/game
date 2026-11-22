@@ -954,6 +954,21 @@ went nowhere for 4 s handed the controls back, with a `COURSE BLOCKED` toast);
 then W in closes on the relay and its dock takes the helm (`landState`
 `'auto'`, then `'landed'` with `dock: 'system'`).
 
+A chapter's debrief: a system instance's `debrief()` returns `{title,
+complete, lines: [[captain id, text]], nextCourse, nextNone}` once it has
+ended (The Long Dusk: stage `done`; its lines follow `fixed.outcome('flare').how`).
+`voyage().debrief()` adds `key` and `next`, and is null once
+`season.get('debrief.<system>')` is true. Seed `fgsf.voyage` `{v: 1, at:
+'dusk', visited: ['horizon', 'proving', 'dusk'], chapters: {dusk: {stage:
+'done'}}, season: {v: 1, facts: {'ch2.decision': 'warn'}, events: {flare:
+{seen: true, how: 'rerouted', detail: {groups: 3}}}}}`: the boot ends on the
+bridge and `base().state().bridge.debrief` counts through the lines
+(`#chHud .line`), then `#chHud .card.show` reads the title, COMPLETE and where
+next; E skips to the card and then past it. Afterwards the fact
+`debrief.dusk` is saved and a reload plays nothing. The bay's welcome toast
+reads `BASE.bayDebrief` while one is waiting. On the ground, the panel reads
+`TALK TO RENN` at stage `flare` and `DONE — BACK TO THE LIGHT SHIP` at `done`.
+
 The roster: bay console at `place(20, 0, 7.6)`, `e`, a digit toggles a captain,
 `x` closes. `voyage().state().crew`, `base().state().bay.crew` (waiting by the
 pad), `base.guests()` after `board()`, and at the relay

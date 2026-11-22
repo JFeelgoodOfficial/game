@@ -102,7 +102,8 @@ const WALL_FRAG = /* glsl */ `
 //        aboard(id): the captain is on the bridge (alive, and not out on a trip)
 //        figures(): [{ id, build() -> THREE.Group, talk(), at?: [x, z] }] others a chapter has left aboard
 //        talk(captain) -> dialogue payload, chart() -> dialogue payload,
-//        choose(tag) -> payload | null | { travel: id, label },  arrive(id) }
+//        choose(tag) -> payload | null | { travel: id, label },  arrive(id),
+//        debrief() -> a chapter's debrief waiting (src/voyage.js) | null, debriefed(key) }
 export function createBaseBridge(ctx) {
   const { chapter } = ctx;
   const group = new THREE.Group();
@@ -192,6 +193,33 @@ export function createBaseBridge(ctx) {
     }
   }
 
+  // --- a chapter's debrief: the captains talk it over, then its card ---
+  // One clock `du` (-1 when none), lines every DLINE seconds, then the card.
+  let du = -1, deb = null, debSaid = -1;
+  const DLINE = 6.2, DCARD = 7;
+  const debEnd = () => (deb ? deb.lines.length * DLINE + 0.8 + DCARD : 0);
+  function debSay(i) {
+    const [id, text] = deb.lines[i];
+    const here = crew.filter((m) => m.on);
+    const by = here.find((m) => m.c.id === id) || here[i % Math.max(1, here.length)];
+    chapterHud.say(by ? `${by.c.short} — ${text}` : text.toUpperCase(), DLINE - 0.3);
+  }
+  function debStart(d) {
+    deb = d;
+    du = 0;
+    debSaid = -1;
+    chapterHud.cine(true);
+  }
+  function debFinish() {
+    if (!deb) return;
+    if (ctx.debriefed) ctx.debriefed(deb.key);
+    chapterHud.card(null);
+    chapterHud.say(null);
+    chapterHud.cine(false);
+    deb = null;
+    du = -1;
+  }
+
   // --- the passage ---
   let u = -1, going = null, arrived = false; // its clock: -1 when the ship is at rest
   let inside = false, prev = null, walker = null;
@@ -266,9 +294,15 @@ export function createBaseBridge(ctx) {
       return r || null;
     },
     portal: null,
-    held: () => u >= 0,
-    // a passage is watched from behind the helm, over the heads at the rail
+    held: () => u >= 0 || du >= 0,
+    // a passage is watched from behind the helm, over the heads at the rail;
+    // a debrief from just behind the helm, at the captains along the rail
     camera(pos, target) {
+      if (du >= 0) {
+        pos.set(0, 2.6, 3.4);
+        target.set(0, 1.4, -R + 2.6);
+        return true;
+      }
       if (u < 0) return false;
       pos.set(0, 2.5, 4.6 - 1.2 * ease(0, T, u));
       target.set(0, 1.6 + 0.6 * skyU.uWarp.value, -40);
@@ -276,9 +310,19 @@ export function createBaseBridge(ctx) {
     },
     // E skips a passage to its end (the SKIP of a scene with no talk in it)
     act() {
+      if (du >= 0) {
+        // the talk to its card; the card to its end
+        const toCard = deb.lines.length * DLINE + 0.8;
+        if (du < toCard) {
+          du = toCard;
+          debSaid = deb.lines.length - 1;
+          chapterHud.say(null);
+        } else debFinish();
+        return;
+      }
       if (u >= 0) site.seek(T);
     },
-    heldPrompt: () => (u >= 0 ? 'E — SKIP' : ''),
+    heldPrompt: () => (u >= 0 || du >= 0 ? 'E — SKIP' : ''),
     setWalker(p) {
       walker = p || null;
     },
@@ -304,6 +348,9 @@ export function createBaseBridge(ctx) {
       pose(T + 1);
       readSky();
       muster();
+      // back from a chapter that has ended: the captains want a word
+      const d = ctx.debrief ? ctx.debrief() : null;
+      if (d) debStart(d);
     },
     onLeave() {
       if (!inside) return;
@@ -316,6 +363,8 @@ export function createBaseBridge(ctx) {
       }
       u = -1;
       going = null;
+      // (left in the middle of a debrief: it has been given)
+      if (du >= 0) debFinish();
       chapterHud.clear();
       ctx.scene.fog = prev.fog;
       sun.light.position.copy(prev.lightPos);
@@ -330,6 +379,13 @@ export function createBaseBridge(ctx) {
       time.value = t;
       const d = Math.min(dt, 0.1);
       if (walker) sky.position.copy(walker);
+      if (du >= 0) {
+        du += d;
+        const toCard = deb.lines.length * DLINE + 0.8;
+        while (debSaid + 1 < deb.lines.length && du >= 0.8 + (debSaid + 1) * DLINE) debSay(++debSaid);
+        if (du >= toCard && du - d < toCard + 1e-6) chapterHud.card(deb.title, deb.complete, deb.next);
+        if (du >= debEnd()) debFinish();
+      }
       if (u >= 0) {
         u += d;
         pose(u);
@@ -344,6 +400,9 @@ export function createBaseBridge(ctx) {
       }
       for (const m of crew) {
         if (!m.on) continue;
+        // (talking it over, they turn in toward the middle of the deck; otherwise they look out)
+        const face = du >= 0 ? Math.atan2(-m.x, -m.z + 3) : Math.PI;
+        m.rig.group.rotation.y += (face - m.rig.group.rotation.y) * Math.min(1, d * 3);
         poseRig(m.rig, d, t, 'idle', 0);
         standRig(m.rig, 0);
         const near = u < 0 && walker && Math.hypot(walker.x - m.x, walker.z - m.z) < 5;
@@ -357,6 +416,7 @@ export function createBaseBridge(ctx) {
       u: +u.toFixed(1), end: T, warp: +skyU.uWarp.value.toFixed(2), going: going ? going.travel : null,
       crew: crew.filter((m) => m.on).map((m) => m.c.id), figures: extras.filter((e) => e.g).map((e) => e.id), star: skyU.uStarOn.value > 0,
       bodies: skyU.uBody.value.filter((b) => b.w > 0).length,
+      debrief: deb ? { key: deb.key, u: +du.toFixed(1), lines: deb.lines.length, said: debSaid } : null,
     }),
     seek(x) {
       if (u >= 0) u = Math.max(u, x);
