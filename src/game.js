@@ -48,7 +48,7 @@ import {
 } from './cockpit3d.js';
 import { initHolonav, updateHolonav, isHoloOpen, holonavDebug } from './holonav.js';
 import { navMenuDebug } from './navmenu.js';
-import { startAutoWarp, stepAutopilot, autopilotActive, cancelAutopilot } from './autopilot.js';
+import { startAutoWarp, stepAutopilot, autopilotActive, cancelAutopilot, autopilotEnd } from './autopilot.js';
 import { showViewToast } from './walkview.js';
 import { initHoloPanel, openHoloPanel, closeHoloPanel, isHoloPanelOpen, holoPanelDebug } from './holoPanel.js';
 import {
@@ -902,6 +902,7 @@ if (import.meta.env.DEV) {
     navMenu: navMenuDebug(),
     autopilot: {
       active: autopilotActive,
+      ended: autopilotEnd,
       start: (id) => startAutoWarp(getBodies().find((b) => b.id === id)),
       cancel: cancelAutopilot,
     },
