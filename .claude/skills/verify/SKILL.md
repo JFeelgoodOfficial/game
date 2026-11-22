@@ -946,6 +946,14 @@ steps out (`walk.planet.cfg.name === 'cinder'`), `g` boards. Then
 `base.approach()` home. A `launch()` mid-flight (the reset) must come back to
 the bridge with `voyage().state().at` unchanged.
 
+Cinder's surface gravity is the home worlds' (about 30): from its surface,
+throttle up must climb. NAV to `proving:relay` from Cinder's surface (the
+world between) climbs clear first: `__debug.autopilot.ended()` reads
+`'arrived'` at the end (or `'heat'`, or `'stall:<phase>'` when a trip that
+went nowhere for 4 s handed the controls back, with a `COURSE BLOCKED` toast);
+then W in closes on the relay and its dock takes the helm (`landState`
+`'auto'`, then `'landed'` with `dock: 'system'`).
+
 The roster: bay console at `place(20, 0, 7.6)`, `e`, a digit toggles a captain,
 `x` closes. `voyage().state().crew`, `base().state().bay.crew` (waiting by the
 pad), `base.guests()` after `board()`, and at the relay

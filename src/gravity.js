@@ -27,6 +27,33 @@ export function addBody(body) {
   return body;
 }
 
+// The body (with a radius, and no ceiling) that the straight line from `from`
+// to `to` passes through, padded by `pad` above its surface, or null. The
+// body `to` lies inside (a world being flown to) is not in its own way. For
+// the nav auto-warp (src/autopilot.js): a course straight through a planet
+// is held at its floor and goes nowhere.
+const _seg = new THREE.Vector3(), _rel = new THREE.Vector3();
+export function bodyInTheWay(from, to, pad = 0) {
+  _seg.subVectors(to, from);
+  const len2 = _seg.lengthSq();
+  if (len2 < 1e-6) return null;
+  let best = null, bestT = Infinity;
+  for (let i = 0; i < bodies.length; i++) {
+    const b = bodies[i];
+    if (!b.radius || b.ceiling) continue;
+    const R = b.radius + pad;
+    if (b.position.distanceToSquared(to) < b.radius * b.radius * 1.02) continue; // (the destination itself)
+    _rel.subVectors(b.position, from);
+    const t = Math.min(Math.max(_rel.dot(_seg) / len2, 0), 1);
+    const dx = from.x + _seg.x * t - b.position.x, dy = from.y + _seg.y * t - b.position.y, dz = from.z + _seg.z * t - b.position.z;
+    if (dx * dx + dy * dy + dz * dz < R * R && t < bestT) {
+      best = b;
+      bestT = t;
+    }
+  }
+  return best;
+}
+
 export function accelAt(point, out) {
   out.set(0, 0, 0);
   for (let i = 0; i < bodies.length; i++) {

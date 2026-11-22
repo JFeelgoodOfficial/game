@@ -39,7 +39,7 @@ const CINDER = {
   dir: new THREE.Vector3(0, 0, -1), // (placed by src/voyage.js from `pos`, not from this)
   distance: () => 1,
   radius: () => 620,
-  mass: () => 2.6e9,
+  mass: () => 3.3e5, // surface g ~= 30, as every home world (C.G * mass / radius^2): it was 2.6e9, which no thrust could lift off
   skyColor: () => new THREE.Color(0x6a5a52),
   spin: () => 0.004,
   atmoColor: new THREE.Color(0xc09a80),
