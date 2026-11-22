@@ -2,7 +2,8 @@
 //
 // A list of programs: one per world the worldship has assimilated that has an
 // experience worth keeping (src/tenretni.js decides which, and when). A row is
-// started with its number key or a tap; locked rows say so. Opening and closing
+// started with its number key or a tap; locked rows say so. X, the CLOSE
+// button or a tap outside the list closes it. Opening and closing
 // on E is owned by game.js, as for the terrarium (src/terrariumView.js); X
 // closes from here. Never Escape — that would drop pointer lock.
 
@@ -31,6 +32,12 @@ const CSS = `
 #holopanel .hp-row.locked { border-color: rgba(120,140,130,0.3); color: #5f7068; cursor: default; }
 #holopanel .hp-row.locked .hp-key { color: #5f7068; }
 #holopanel .hp-foot { margin-top: 18px; font-size: 10px; letter-spacing: 0.3em; color: #4f6a5c; }
+/* a way out for a finger: there is no X key on a touch screen */
+#holopanel .hp-close {
+  margin-top: 16px; padding: 12px 28px; border: 1px solid rgba(53,255,138,0.55); background: rgba(6,24,16,0.85);
+  color: #d6ffe8; font: inherit; font-size: 13px; letter-spacing: 0.3em; cursor: pointer; touch-action: manipulation;
+}
+body.touch-ui #holopanel .hp-foot { display: none; }
 `;
 
 const TITLE = 'HOLODECK', SUB = 'WORLDS HELD BY TENRETNI', LOCKED = 'NOT YET ASSIMILATED';
@@ -73,7 +80,18 @@ export function initHoloPanel() {
   foot = document.createElement('div');
   foot.className = 'hp-foot';
   foot.textContent = FOOT;
-  panel.append(title, sub, list, foot);
+  const close = document.createElement('button');
+  close.className = 'hp-close';
+  close.textContent = 'CLOSE';
+  close.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeHoloPanel();
+  });
+  // (a tap on the dark round the list closes it too)
+  panel.addEventListener('click', (e) => {
+    if (e.target === panel) closeHoloPanel();
+  });
+  panel.append(title, sub, list, foot, close);
   document.body.appendChild(panel);
 }
 
