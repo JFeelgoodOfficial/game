@@ -169,6 +169,7 @@ export const tenretniDebug = () => ({
   story: () => mod && mod.debugStory(),
   chapter: () => (mod ? mod.chapterDebug() : null),
   voyage: () => (mod ? mod.voyageDebug() : null),
+  season: () => (mod ? mod.seasonDebug() : null),
   base: () => (mod ? mod.homebaseDebug() : null),
   hz: () => (mod ? mod.horizonDebug() : null),
   openSpace: () => (mod ? mod.openSpace() : null),

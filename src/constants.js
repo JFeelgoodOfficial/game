@@ -713,7 +713,42 @@ export const C = {
   BASE_FOLLOW_SPEED: 6.0, // a captain keeping up, on foot (u/s)
   BASE_FOLLOW_GAP: 2.6, // ...and how far off the pilot's shoulder they walk
   BASE_GUEST_TALK: 1.9, // how near a captain riding in the freighter is talked to (m)
+  // --- Season 1, chapter 2: The Long Dusk (world/dusk-system.js, world/dusk-ground.js, GDD 5.7.9) ---
+  DUSK_GLOBE_R: 5200.0, // the world, as it is drawn under the camp
+  DUSK_SWAY_AMP: 60.0, // how far the twilight line moves each way across the ground (the star leans by this over the radius)
+  DUSK_SWAY_PERIOD: 420.0, // seconds for it to go out and come back
+  DUSK_HOT_AT: 170.0, // sunward of the twilight line by this, the suit starts to heat
+  DUSK_COLD_AT: 190.0, // nightward of it by this, the suit starts to cool
+  DUSK_EXPOSE_SPAN: 200.0, // ...and this much further again it is heating or cooling as fast as it can
+  DUSK_HEAT_TIME: 40.0, // seconds of the worst of the day before it kills
+  DUSK_COLD_TIME: 120.0, // seconds of the worst of the night
+  DUSK_RECOVER_TIME: 14.0, // seconds for a full gauge to empty, back in the dusk or on warm ground
+  DUSK_VENT_R: 10.0, // how near a warm vent has to be stood to
+  DUSK_EDGE_X: -215.0, // the picket line: the night edge of the camp's ground
+  DUSK_BAND_X: -470.0, // the middle of the band the flare comes down in
+  DUSK_BAND_HW: 115.0, // ...and half its width
+  DUSK_LAMP_POWER: 0.22, // the lamp carried by hand here, against what it reaches in open space
+  DUSK_SEE_TIME: 1.2, // seconds a group must be held in the infrared to be counted
+  DUSK_SKY_TIME: 1.4, // seconds the night sky must be held in H-alpha
+  DUSK_TURN_TIME: 2.2, // seconds of beam on a group before it turns
+  DUSK_TURN_RANGE: 85.0, // ...from no further off than this
+  DUSK_HERD_SPEED: 2.2, // a group walking (u/s)
+  DUSK_HERD_RUN: 8.5, // ...and one that has been turned
+  DUSK_CHARGE_SPEED: 5.5, // a group coming at the fires
+  DUSK_TRAMPLE_R: 4.5, // how near a group coming through is fatal
+  DUSK_WARN_TIME: 270.0, // seconds from the decision to the flare, the edge opened
+  DUSK_ARM_TIME: 180.0, // ...and the edge held
+  DUSK_SHELTER_R: 16.0, // how near the sledges counts as under them
+  DUSK_EDGE_T: 23.0, // seconds the scene at the edge runs
+  DUSK_SEEN_T: 25.0, // ...what the lamp shows
+  DUSK_FLARE_T: 44.0, // ...and the flare
+  DUSK_WALKERS: 9.0, // figures walking with the camp
 };
+
+// The Long Dusk: when each group comes at the fires if the edge is held
+// (seconds after the decision), and where the three groups are (z along the edge).
+export const DUSK_WAVES = [10, 45, 80];
+export const DUSK_GROUPS_Z = [-105, 5, 110];
 
 // How far each band of the lamp reaches, in units, by what it is shining
 // through (BANDS order: blue-green, ultraviolet, infrared, H-alpha, X-ray,

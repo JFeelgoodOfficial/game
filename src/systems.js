@@ -21,7 +21,8 @@
 //       door()   -> a door of its own that has just been walked through
 //       update(dt, t, cam), talk(captainId) -> lines | null
 //       serialize() -> its record (undefined while empty), restore(raw), state() }
-//     ctx: { scene, camera, chapter, voyage, sunDir }
+//     ctx: { scene, camera, chapter, voyage, sunDir, save(), crewTalk(captain),
+//            season (src/season.js), fixed (src/fixedEvents.js) }
 //
 // To add a chapter: see GDD 5.7.8, "Adding a chapter". world/example-system.js
 // is the smallest one there can be.
@@ -29,6 +30,8 @@
 import { createExampleSystem } from '../world/example-system.js';
 import { EXAMPLE } from '../world/example-dialogue.js';
 import { HORIZON_PLACE } from '../world/SEALED-horizon-place.js';
+import { createDuskSystem } from '../world/dusk-system.js';
+import { DUSK } from '../world/dusk-dialogue.js';
 
 export const SYSTEMS = [
   // Chapter one (GDD 5.7.7): where the light ship is when that chapter lets it
@@ -45,6 +48,17 @@ export const SYSTEMS = [
     label: EXAMPLE.label, star: { dir: [-0.55, 0.32, -0.77], color: 0xffd9a0 }, nebula: 0.35, fleet: false,
     base: [0, 0, 0],
     create: createExampleSystem,
+  },
+  // Season 1, chapter 2 (GDD 5.7.9): a red dwarf on the horizon of a world
+  // that never turns its face. The star is along +X, and the camp's own up is
+  // +Y, so it sits on the camp's horizon (world/dusk-system.js leans it).
+  // No `needs`: chapter 1 of the season is not built yet, so it is charted
+  // from the moment the ship is in open space.
+  {
+    id: DUSK.id, sealed: false,
+    label: DUSK.label, star: { dir: [1, 0, 0], color: 0xff5a36 }, nebula: 0.25, fleet: false,
+    base: [0, 0, 0],
+    create: createDuskSystem,
   },
 ];
 

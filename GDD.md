@@ -1167,6 +1167,93 @@ Travel is the helm chart on the bridge: a choice of every charted system but the
 - The freighter's holodeck path is not changed by the light ship's: `startHolo(id)` with no `back` is the code it was.
 - A sealed chapter's label, places and words never appear in an unsealed file.
 
+### 5.7.9 Season 1: The Voyage
+
+The season's story is `plans/season-1-arc.md`: fourteen chapters in three parts, each a system the light ship goes to (5.7.8). This section is what every one of them stands on, and the chapters built so far.
+
+**How history works.** The big events of the season happen whatever the pilot does. The pilot's decisions change how they happen, who is there and what is left afterwards.
+
+| Fixed: it happens anyway | Yours: your choices bend it |
+|---|---|
+| The flare hits the dusk world (Ch 2) | Whether the night side's young are in its path |
+| The ice ocean's people learn they aren't alone (Ch 3) | Whether they learn it from you, or later from someone who wants something |
+| The Concourse floods with cheap ticks (Ch 6) | Whether the light ship is bound by a forecast going into the war |
+| Ione defects (Ch 9) | Why she does it, and whether she trusts you |
+| The siege comes, and the outer ring falls (Ch 10) | Who fights beside you, and who is still in the ring |
+| Refugees need a home (Ch 11) | Which world they get, and what the archive loses |
+| The black holes merge (Ch 13) | Whether the Foregone come out of it blind or curious |
+
+Every fixed event is forecast on screen before it happens, and remembered afterwards by how it went in this save.
+
+**Fixed events (`src/fixedEvents.js`, words in `world/season-dialogue.js` `FIXED`).** One row per event: `{ id, chapter, label, forecast, remember }`. Ids: `flare`, `contact`, `flood`, `defection`, `siege`, `refugees`, `merger`. A row without a `forecast` belongs to a chapter not yet built.
+
+| Call | What it does |
+|---|---|
+| `fixed.forecast(id)` | A dialogue payload with `cine: { kind: 'comm', from }`: the forecast as a transmission (`src/cineTalk.js`: bars, SKIP). Its last two lines say what is certain and what is still the pilot's. Marks the event `seen`. |
+| `fixed.resolve(id, how, detail)` | It has happened: how it went here. `detail` is scalars. |
+| `fixed.outcome(id)`, `resolved(id)`, `shown(id)` | For a later chapter to read. |
+| `fixed.remember(captainId)` | That captain's line about the latest resolved event, keyed `event → how → captain`. `voyage.talk()` appends it to whatever the current system has the captain say, so the bridge remembers in every later system. |
+
+**The season record (`src/season.js`).** One record for the season, inside `fgsf.voyage` as `season`, written only once it holds something (a fresh profile and an older `fgsf.voyage` are untouched):
+
+```js
+{ v: 1,
+  facts:  { '<chapter>.<key>': scalar },            // 'ch2.decision': 'arm' | 'warn', 'ch2.young': 0..9
+  events: { '<id>': { seen, how, detail } },        // fixed events
+  cp:     { key, to, snap } }                       // a decision not yet lived through
+```
+
+`season.get(k)` / `set(k, v)` for facts. Every chapter's `create(ctx)` is handed `ctx.season` and `ctx.fixed`.
+
+**Dying, and decisions.** The rule for every chapter: a decision is shown plainly and waits; a death after it puts the pilot back just before it; a choice survived stays made. The season keeps the contract `chapter.hz` has in 5.7.7:
+
+| Call | When |
+|---|---|
+| `season.offer(key, to, snap)` | As the decision is shown. `to` is the door back to the asking. Idempotent. |
+| `season.decide(key, option)` | Picked. The fact `key` is set. |
+| `season.survive(key)` | The next safe beat. The checkpoint is dropped. |
+| `season.die()` | Died, or walked away, first. The fact is unset; the checkpoint stays until it is survived. |
+
+A chapter's stages between deciding and surviving are never saved: its `serialize()` writes the stage of the asking, and its `restore()` calls `season.die()` if a checkpoint is pending.
+
+**Placeholder names.** Concourse, tick, Foregone and Ione Vey are spelled in `world/season-names.js` (`SEASON_NAMES.hub`, `.currency`, `.rival`, `.envoy`) and nowhere else in code or dialogue. A chapter's own names (its world, its people) are in its dialogue file.
+
+**Rules for every chapter.** The pilot is the one shared `Astronaut` the walker already drives: a chapter never builds or restyles one. The captains are the people of `world/chapter-dialogue.js`; every timed line is a `crewSay` line (`by`, `other`, `solo`) so all eight crews work, including nobody. Every story beat is a cinematic that can be skipped (a `cine` talk, or a `createSceneClock` scene with `E — SKIP`). Each chapter is a place first. Where the science goes past known physics, the file's header says so.
+
+#### Chapter 2: The Long Dusk (`dusk`)
+
+`world/dusk-system.js` (system, stages, record, doors), `world/dusk-ground.js` (the place), `world/dusk-dialogue.js` (every word and name). Charted from the moment the ship is in open space: it has no `needs`, because chapter 1 is not built.
+
+**The place.** A red dwarf along +X and one world turned always the same way to it. The camp is a `capitalWalk` dock on the twilight line, walked in the world (not paused): a strip 1,020 by 350, +X the day, -X the night. The world under it is a globe of the site's own (`DUSK_GLOBE_R`), not a `src/planet.js` planet, because a planet's own landing would take the helm from the dock's; `dusk-system.js` keeps the freighter from flying through it. A chapter has no hook into the generic surface walk (`src/walk.js`), so a chapter's ground is a dock site.
+
+**The lean.** The orbit is not quite a circle, so the star leans about a degree each way (libration) and the twilight line moves across the ground (`DUSK_SWAY_AMP`, `DUSK_SWAY_PERIOD`). The camp (sledges, `DUSK_WALKERS` figures, Renn) walks with it, and the system's `sunDir` is rocked by the same angle, so the star on the horizon is the one doing it. Sunward of the dusk a heat gauge fills, nightward a cold one (`DUSK_HOT_AT`, `DUSK_COLD_AT`, `DUSK_HEAT_TIME`, `DUSK_COLD_TIME`); either full is a death. Warm vents on the night side, seen only in the infrared, and lit picket fires give the cold back.
+
+**Stages** (append-only):
+
+| Stage | Reached when | Shown as |
+|---|---|---|
+| `arrived` | the ship is here | the passage (5.7.8) |
+| `forecast` | first step out | `fixed.forecast('flare')` |
+| `asked` | Renn (E) has asked for weapons | cinematic talk |
+| `edge` | the night edge has been walked to | scene, `DUSK_EDGE_T`. The lamp is in hand from here. |
+| `seen` | three warm groups held in the infrared (`DUSK_SEE_TIME`), then the night sky in H-alpha (`DUSK_SKY_TIME`) | scene, `DUSK_SEEN_T`, every band at once |
+| `decided` | ARM or WARN picked. A clock to the flare runs (`DUSK_ARM_TIME`, `DUSK_WARN_TIME`). | cinematic talk with a choice |
+| `acted` | under the sledges (E, or within reach when the clock ends) | the flare, `DUSK_FLARE_T` |
+| `flare` | the scene has ended: `fixed.resolve('flare', how, { young, of, groups, safe })` and `season.survive` | |
+| `done` | Renn has said goodbye | cinematic talk |
+
+**The choice.** The tall turn from light, both ways. ARM: the fires become torches and each group comes at the line in turn (`DUSK_WAVES`); the blue-green beam held on one for `DUSK_TURN_TIME` turns it back into the band. One that reaches the line goes through; within `DUSK_TRAMPLE_R` of the pilot it kills. WARN: the fires go out, and the pilot goes out behind each group and holds the beam on its back to send it through the open edge to the lee. From the front the beam only drives a group deeper. The outcome: `armed`; or `rerouted` (all three groups out), `partial` (some), `unheeded` (none). The flare comes when the clock says, whichever it was, and in the open it kills.
+
+**Deaths.** Heat, cold, a group through the line, the flare in the open. The site sets `portal = 'dusk:back'`; `hop('dusk:back')` stands the pilot beside Renn with the decision unmade if one had been made, and at the pad if not. Leaving the camp between deciding and the flare unmakes the choice the same way.
+
+**Doors.** `dusk:back`, `dusk:ask`, `dusk:pad`.
+
+**Tunables.** The `DUSK_*` block in `src/constants.js`, and the tables `DUSK_WAVES`, `DUSK_GROUPS_Z`.
+
+**Debug.** `__debug.tenretni.season()` (`state()`, `get`, `set`, `events()`, `forecast(id)`, `resolve(id, how, detail)`, `remember(captainId)`, `pending()`, `clear()`). `__debug.tenretni.voyage().instance('dusk')`: `state()`, `go(stage, opt)`, `seek(u)`, `skip()`, `decide('arm' | 'warn')`, `kill(cause)`, `sway(x | null)`, and `dbg` (`see(i)`, `sky()`, `turn(i)`, `time(left)`, `shelter()`, `gauges(h, c)`).
+
+**Science.** Real: tidal locking, a habitable terminator, libration, red-dwarf flares, bodies glowing at 10 µm against a cold night, particles steered by a planet's field onto its night side in a band, and a proton aurora's H-alpha glow. Stretched, and marked in `world/dusk-ground.js`: the band being deadly at ground level, and the particles following the light by seconds.
+
 ### 5.8 The Sky City (Saturnia)
 
 Saturnia has no surface, so it gets a place instead: a floating city 320 units
