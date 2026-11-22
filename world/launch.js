@@ -20,10 +20,12 @@
 // because nothing ahead has happened.
 //
 // One clock and a pose from it. At its end the stage is `ez_beyond`, which is
-// where the saga stops: a bridge, the people on it, the archive lit behind
-// them, and the dark. A pilot who comes back to the game at that stage is put
-// straight here (src/game.js). What comes after is another chapter (GDD
-// 5.7.7, src/horizon.js), begun from the console at this bridge's helm.
+// where the saga stops: the bridge under the dome on the light ship's bow
+// (world/eramade.js), the people at their seats, the ship and its archive
+// behind them on the strands, and the dark. A pilot who comes back to the
+// game at that stage is put straight here (src/game.js). What comes after is
+// another chapter (GDD 5.7.7, src/horizon.js), begun from the console at this
+// bridge's helm.
 
 import * as THREE from 'three';
 import { C, EZ_NEW_WORLDS } from '../src/constants.js';
@@ -37,6 +39,8 @@ import { buildCaptain, liveCaptain } from './captainDress.js';
 import { setHum, hush } from './entryzero-audio.js';
 import { CAPTAINS } from './chapter-dialogue.js';
 import { LAUNCH } from './entryzero-dialogue.js';
+import { buildHangar } from './lightvessel.js';
+import { createMade, BRIDGE } from './eramade.js';
 
 const ZERO = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
@@ -80,6 +84,20 @@ const SKY_FRAG = /* glsl */ `
     float star = step(0.985, h31(c)) * (0.4 + 0.6 * h31(c + 5.0));
     vec3 col = vec3(1.0, 0.96, 0.9) * star * (1.0 - smoothstep(0.0, 0.5, length(fract(d * 90.0) - 0.5)));
     col += vec3(0.05, 0.03, 0.07) * vnoise(d * 3.0) * vnoise(d * 7.0 + 2.0);
+    // a galaxy, high over the bridge and astern of it: tilted, two arms wound round a core
+    vec3 G = normalize(vec3(0.3, 0.82, 0.48));
+    float gc = dot(d, G);
+    if (gc > 0.6) {
+      vec3 gx = normalize(cross(G, vec3(0.0, 0.0, 1.0))), gy = cross(G, gx);
+      vec2 q = vec2(dot(d, gx), dot(d, gy)) / gc;
+      q = vec2(q.x * 0.8 - q.y * 0.6, (q.x * 0.6 + q.y * 0.8) / 0.5) / 0.36; // (seen at a slant)
+      float r = length(q), th = atan(q.y, q.x);
+      float arms = pow(0.5 + 0.5 * cos(2.0 * (th - log(max(r, 0.02)) * 2.4) + uTime * 0.01), 3.0);
+      float dust = 0.55 + 0.45 * vnoise(vec3(q * 9.0, 4.0));
+      float body = exp(-r * 2.2) * (0.35 + 0.9 * arms * dust) * smoothstep(1.6, 0.6, r);
+      vec3 gcol = mix(vec3(0.55, 0.6, 1.0), vec3(1.0, 0.78, 0.6), exp(-r * 3.0));
+      col += gcol * body * 0.9 + vec3(1.0, 0.92, 0.8) * exp(-r * r * 60.0) * 1.2;
+    }
     // the hole: a shadow, the ring of light bent round it, and the disc
     float ang = acos(clamp(dot(d, uHole), -1.0, 1.0));
     float disc = exp(-pow((ang - uHoleR * 1.75) / (uHoleR * 0.42), 2.0));
@@ -224,35 +242,36 @@ export function createLaunch(ctx) {
   }
   group.add(world);
 
-  // --- the bridge: a floor, a rail, the helm, and the archive behind ---
-  const R = 9;
-  const lit = [
-    tint(cyl(R + 0.4, R + 0.4, 0.6, 0, -0.3, 0, 40), 0x10161b),
-    tint(box(1.6, 1.1, 0.9, 0, 0.55, -R + 2.2), 0x1c262d), // the helm
-  ];
-  for (let i = 0; i < 24; i++) {
-    const a = (i / 24) * Math.PI * 2;
-    lit.push(tint(box(0.1, 1.05, 0.1, Math.cos(a) * R, 0.52, Math.sin(a) * R), 0x24313a));
-  }
-  group.add(mergedMesh(lit, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x05080a })));
-  const railMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 1.4, 1.6), fog: false });
-  const rail = new THREE.Mesh(new THREE.TorusGeometry(R, 0.05, 6, 64).rotateX(Math.PI / 2), railMat);
-  rail.position.y = 1.08;
-  group.add(rail);
-  // the archive: an arc of it, astern, as tall as the bridge is wide
-  const wall = new THREE.Mesh(
-    new THREE.CylinderGeometry(R + 2.5, R + 2.5, 9, 48, 1, true, -0.62, 1.24).translate(0, 4.2, 0),
-    new THREE.ShaderMaterial({ uniforms: { uTime: time }, vertexShader: VERT, fragmentShader: WALL_FRAG, side: THREE.DoubleSide, fog: false }),
-  );
-  wall.frustumCulled = false;
-  group.add(wall);
+  // --- the bridge: the dome on the light ship's bow (world/eramade.js), walked
+  // at its own size, with the ship behind it and the strands running back
+  // from the dome's crown to the corner it finished. The hangar's own
+  // builder, without the yard.
+  const hangar = buildHangar(group);
+  hangar.era(true);
+  const made = createMade(hangar);
+  made.show(true);
+  for (const ch of hangar.root.children) if (ch !== hangar.vessel && ch !== made.root) ch.visible = false;
+  const S = 10 / BRIDGE.dome; // so the dome is ten units across the floor, and people stand in it
+  hangar.root.scale.setScalar(S);
+  hangar.root.rotation.y = Math.PI - made.craft.rotation.y; // its bow the way the bridge faces: -z, at the hole
+  hangar.root.position.set(0, 0, 0);
+  hangar.root.updateMatrixWorld(true);
+  // a point on the bridge, [x, z] from its middle, in this place's frame
+  const onBridge = (xz, y = 0) => made.craft.localToWorld(new THREE.Vector3(xz[0], BRIDGE.y + y, BRIDGE.z + xz[1]));
+  hangar.root.position.sub(onBridge([0, 0]));
+  hangar.root.updateMatrixWorld(true);
+  const R = BRIDGE.floor * S - 0.6; // the floor that can be stood on
+  const helmAt = onBridge(BRIDGE.helm), pilotAt = onBridge(BRIDGE.pilot);
+  const seatsAt = BRIDGE.seats.map((xz) => onBridge(xz)), standsAt = BRIDGE.stands.map((xz) => onBridge(xz));
+  // what the camera turns to: the middle of the ship's block of cells, and the corner it finished
+  const shipAt = hangar.vessel.localToWorld(new THREE.Vector3(0, 0, -250));
+  const cornerAt = hangar.root.localToWorld(made.corner.clone());
 
-  // --- the captains who are left, at the rail ---
+  // --- the captains who are left, at their stations ---
   const npcs = [];
   const crew = CAPTAINS.map((c, i) => {
     const rig = buildCaptain(c.id);
-    const a = -Math.PI / 2 + (i - 1) * 0.5; // across the forward rail
-    const x = Math.cos(a) * (R - 2.2), z = Math.sin(a) * (R - 2.2);
+    const x = standsAt[i].x, z = standsAt[i].z; // at their own seats, behind the pilot's
     rig.group.position.set(x, 0, z);
     rig.group.rotation.y = Math.PI; // looking ahead
     standRig(rig, 0);
@@ -267,8 +286,8 @@ export function createLaunch(ctx) {
   let u = -1, said = -1, lastSaid = false; // its clock: -1 over (or never begun)
   let inside = false, prev = null, walker = null;
   // (it falls away off the starboard quarter: clear of the archive, which is dead astern)
-  const megaFrom = new THREE.Vector3(0.86, -0.42, 0.3).normalize(), megaTo = new THREE.Vector3(0.9, -0.1, 0.42).normalize();
-  const _a = new THREE.Vector3(), _b = new THREE.Vector3();
+  const megaFrom = new THREE.Vector3(0.86, -0.16, 0.3).normalize(), megaTo = new THREE.Vector3(0.9, 0.04, 0.42).normalize(); // (high enough to be seen over the bow's cells)
+  const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3();
   const speak = (id, text, sec = 7) => {
     // (a line written for a captain who was lost is said by one who was not)
     const who = CAPTAINS.find((c) => c.id === id && !chapter.ez.isLost(c.id)) || CAPTAINS.find((c) => !chapter.ez.isLost(c.id));
@@ -289,8 +308,10 @@ export function createLaunch(ctx) {
     skyU.uIn.value = inn;
     megaU.uFade.value = 1 - ease(CROSS - 1, CROSS + 4, x);
     world.visible = megaU.uFade.value > 0.002;
-    // the bridge's own light: all there is, in the end
-    railMat.color.setRGB(0.5, 1.4, 1.6).multiplyScalar(0.6 + 0.4 * (1 - inn));
+    // under way the cells stop keeping their own time, and the spectrum runs down the hull as one
+    const way = ease(4, CROSS, x) * (1 - 0.4 * inn);
+    hangar.uniforms.uFlight.value = way;
+    hangar.uniforms.uPhase.value = x * 0.03 * way;
     return inn;
   }
   function begin() {
@@ -319,27 +340,34 @@ export function createLaunch(ctx) {
     exit: { x: 0, z: 0 },
     leaveHint: '',
     surfaces,
-    colliders: [{ x: 0, z: -R + 2.2, r: 1.1, top: Infinity }],
+    colliders: [
+      { x: helmAt.x, z: helmAt.z, r: 2.0 * S + 0.15, top: Infinity },
+      { x: pilotAt.x, z: pilotAt.z, r: 1.1 * S + 0.1, top: Infinity },
+      ...seatsAt.map((p) => ({ x: p.x, z: p.z, r: 1.1 * S + 0.1, top: Infinity })),
+    ],
     floorYAt: floorOf(surfaces, 1.2),
     snap: 1.2,
     pad: new THREE.Vector3(),
-    spawn: new THREE.Vector3(0, 0, -R + 4.4), // at the helm
+    spawn: onBridge([BRIDGE.pilot[0], (BRIDGE.pilot[1] + BRIDGE.helm[1]) / 2]).setY(0), // between the pilot's seat and the helm
     spawnYaw: Math.PI,
     npcs,
     // (the one way on: the chapter past the horizon, GDD 5.7.7)
-    consoles: [{ x: 0, y: 0, z: -R + 3.6, r: 2.0, prompt: 'E — THE HELM', off: () => u >= 0 || !chapter.reached('ez_beyond') || chapter.open(), use: () => ((site.portal = 'hz:deck'), null) }],
+    consoles: [{ x: helmAt.x, y: 0, z: helmAt.z, r: 2.6, prompt: 'E — THE HELM', // (at the helm itself)
+       off: () => u >= 0 || !chapter.reached('ez_beyond') || chapter.open(), use: () => ((site.portal = 'hz:deck'), null) }],
     onChoice: () => null,
     portal: null,
     held: () => u >= 0,
-    // Watched, while it happens: from the port side across the bridge at what is
-    // being left, and then round over the heads at the rail to what is ahead.
+    // Watched, while it happens: from the port side of the dome at what is
+    // being left; up and astern at the ship, the strands and the archive in
+    // it; and then forward over the helm to what is ahead.
     camera(pos, target) {
       if (u < 0) return false;
-      const turn = ease(24, 33, u);
-      pos.set(-4.4 + 3.4 * turn, 2.6, 0.6 + 4.6 * turn);
-      _a.copy(world.position);
-      _b.copy(AHEAD).multiplyScalar(2000);
-      target.lerpVectors(_a, _b, turn);
+      const look = ease(21, 27, u), turn = ease(31, 39, u);
+      pos.set(-5.6, 3.1, -1.4);
+      pos.lerp(_c.set(-1.6, 2.0, -2.2), look);
+      pos.lerp(_d.set(0.2, 2.5, 4.6), turn);
+      _a.copy(world.position).lerp(_b.lerpVectors(shipAt, cornerAt, 0.35), look);
+      target.lerpVectors(_a, _b.copy(AHEAD).multiplyScalar(2000), turn);
       return true;
     },
     setWalker(p) {
@@ -412,6 +440,7 @@ export function createLaunch(ctx) {
         if (u >= T) finish();
       }
       setHum(Math.max(0.12, drive));
+      hangar.tick(t);
       for (const m of crew) {
         if (!m.on) continue;
         poseRig(m.rig, d, t, 'idle', 0);
@@ -422,11 +451,13 @@ export function createLaunch(ctx) {
       }
     },
     inside: () => inside,
-    places: { helm: [0, 0, -R + 4.4] },
+    places: { helm: [helmAt.x, 0, helmAt.z], pilot: [pilotAt.x, 0, pilotAt.z] },
     info: () => ({
       u: +u.toFixed(1), end: T, cross: CROSS, hole: +skyU.uHoleR.value.toFixed(2), inside: +skyU.uIn.value.toFixed(2),
       mega: Math.round(world.position.length()), megaShown: world.visible, worlds: ring ? ring.count : 0,
       crew: crew.filter((m) => m.on).map((m) => m.c.id), day: DAY.kind,
+      flight: +hangar.uniforms.uFlight.value.toFixed(2), r: +R.toFixed(1),
+      bridge: { helm: [helmAt.x, helmAt.z].map((v) => +v.toFixed(2)), pilot: [pilotAt.x, pilotAt.z].map((v) => +v.toFixed(2)), stands: standsAt.map((p) => [+p.x.toFixed(2), +p.z.toFixed(2)]) },
     }),
     seek(x) {
       if (u >= 0) u = x;

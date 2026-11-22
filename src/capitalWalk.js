@@ -23,6 +23,7 @@
 //   platform.noShip      nothing is parked here and nothing is boarded: a place
 //                        reached on foot, left by platform.exit { x, z }
 //   platform.leaveHint   what G says there instead of "return to the pad"
+//   platform.mark()      { x, z, label } for the compass to point at instead of the way out, or null
 //   platform.onEnter() / onLeave()   the walker has arrived / is gone, however
 //                        it left (a door, the menu, a world reset)
 //   platform.tick(dt, t) every rendered frame while walked, isolated or not
@@ -417,12 +418,14 @@ export function toggleCapitalView() {
 export function padBearing() {
   if (!cWalk.active || !site) return null;
   // (where there is no ship, the compass points at the way out)
-  const to = site.noShip ? site.exit : site.pad;
+  // (...unless the place has somewhere it wants found: { x, z, label })
+  const mark = site.mark ? site.mark() : null;
+  const to = mark || (site.noShip ? site.exit : site.pad);
   const dx = to.x - cWalk.pos.x;
   const dz = to.z - cWalk.pos.z;
   const len = Math.hypot(dx, dz);
   _bearingOut.dist = len;
-  _bearingOut.label = site.noShip ? 'DOOR' : 'SHIP';
+  _bearingOut.label = mark ? mark.label : site.noShip ? 'DOOR' : 'SHIP';
   if (len < 1e-6) {
     _bearingOut.angle = 0;
     return _bearingOut;

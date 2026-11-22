@@ -829,7 +829,15 @@ inlay out); `place(-112, 0, -77)` yaw -π/2 pitch 0.12 for the light ship,
 back in its yard with round cells at its upper aft corner and fallen beams on
 the yard floor; `place(-5.3, 0, -4.9)` yaw -π/2 for the Archivist, whose
 first line is `You found it`, and the wall behind it with entry zero's cell
-(column 19, row 5) lit white. With a stage before `ez_era` the city is as
+(column 19, row 5) lit white. What the ship made (`world/eramade.js`): `far().state().made` → `{shown,
+cubes, at, corner, due, show}`. Needs `ch.home: true` seeded as well as the
+stage, or the city skips its era set-up. While `due`, the compass
+(`#compass`) reads `GALLERY`; `capital.place(-118, 0, -77)` starts the showing
+by itself (`show` counts 0 → 15.5, `body.ch-cine` set, three lines), after
+which `due` is false, `ez.made` is saved and the compass reads `DOOR` again.
+From the gallery, yaw -1.15 has the bow and its dome on the left, the strands
+running back over the ship, and the block of cells on the right. `made.at` is
+the middle of the dome's floor in the hangar root's frame (0, 94, 340). With a stage before `ez_era` the city is as
 5.7.4 left it: `districts` and `race` build, and the ship is gone.
 
 The launch (`world/launch.js`, stage `ez_launch` on boarding, `ez_beyond` at
@@ -846,8 +854,13 @@ the archive wall; at 21 the ring of young worlds shows (`worlds` 9; with
 and the camera has come round to it; at 57.5 `inside` has begun to rise; the
 last line comes at 61; `megaShown` goes false by 60. `launchSeek(72.5)`, then
 `u` reads -1: stage `ez_beyond` saved, codex `Into the Hole`, bars out,
-`inside` 1. On the bridge afterwards `place(2.2, 0, -5.4)` and `interact()`
-talk to a captain. Come back to the game with `ez_beyond` seeded and no
+`inside` 1. The bridge is the dome of `world/eramade.js` at walking
+size: `launch.bridge` → `{helm, pilot, stands}` (x, z), `launch.r` the floor's
+radius, `launch.flight` the cells' under-way value (0 at rest, about 0.6 at
+the end). Shots worth taking: `launchSeek(4)` (the megaworld past the
+captains), 27 (the light ship, the strands and the archive), 40 (ahead, the
+hole). Afterwards `place` the walker within 5 of one of `launch.bridge.stands`
+and `interact()` to talk to that captain. Come back to the game with `ez_beyond` seeded and no
 docking is needed: after `launch()` the game parks on the landing, steps out
 and hops to the bridge by itself (`onLaunch` true, `launch.u` -1,
 `farLanding.state().far` 4000). With any earlier stage the ship stays in

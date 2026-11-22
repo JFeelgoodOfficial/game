@@ -33,14 +33,15 @@ import { createDemo } from './lightdemo.js';
 import { createEpilogue } from './lightepilogue.js';
 import { createDistricts } from './lightdistricts.js';
 import { createWorldRace } from '../src/worldRace.js';
-import { DEMO } from './chapter-dialogue.js';
+import { DEMO, CAPTAINS } from './chapter-dialogue.js';
 import { chapterHud } from '../src/chapterHud.js';
 import { loadFirstEntry, worldFrom } from './firstcreature.js';
 import { createEntryOffer } from './entryoffer.js';
 import { buildHoloProp } from './holoprops.js';
-import { OFFER, LAUNCH } from './entryzero-dialogue.js';
+import { OFFER, LAUNCH, ERA as ERA_WORDS } from './entryzero-dialogue.js';
 import { ERA } from '../src/era.js';
 import { createEraCity } from './eracity.js';
+import { createMade } from './eramade.js';
 import { createLightLife } from './lightlife.js';
 
 const SNAP = 1.2;
@@ -919,6 +920,73 @@ export function createLightCity(ctx) {
     ch.markSite('monument');
   };
   const eraNow = () => !!ctx.chapter && ctx.chapter.reached('ez_era');
+  // --- what the light ship made (world/eramade.js), and the showing of it: the
+  // first time the pilot walks out onto the gallery a million years on, the
+  // camera goes out over the yard to the new vessel, up the strands that hold
+  // it, and stops on the corner they come from. Until then the compass points
+  // at the gallery and not at the door. ---
+  let made = null, showU = -1, showSaid = -1;
+  const SHOW = { vessel: 5, strands: 10.5, end: 15.5 };
+  const MARK = { x: GALL_X, z: TERR_Z, label: ERA_WORDS.made.mark };
+  const madeDue = () => !!made && eraNow() && ctx.chapter.stage() === 'ez_era' && !ctx.chapter.ez.madeSeen();
+  const sm = (a, b, x) => {
+    const k = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    return k * k * (3 - 2 * k);
+  };
+  const _sp = new THREE.Vector3(), _st = new THREE.Vector3(), _sq = new THREE.Vector3();
+  function showCamera(pos, target) {
+    if (showU < 0 || !made) return false;
+    const u = showU, o = hangar.root.position;
+    // the dome on the bow, from off the gallery's side and ahead of it, closing on it a little
+    const d = Math.min(1, u / SHOW.vessel);
+    pos.set(made.at.x + 95 - 30 * d, made.at.y + 34 - 8 * d, made.at.z + 80 - 26 * d);
+    target.set(made.at.x, made.at.y + 7, made.at.z);
+    // up the strands, from the vessel's end to the ship's
+    const k2 = sm(SHOW.vessel - 0.8, SHOW.vessel + 0.8, u);
+    if (k2 > 0) {
+      const s = 0.97 - 0.91 * sm(SHOW.vessel, SHOW.strands, u);
+      made.curve.getPointAt(s, _sp);
+      made.curve.getPointAt(Math.max(0, s - 0.1), _st);
+      pos.lerp(_sq.set(_sp.x + 58, _sp.y + 22, _sp.z + 30), k2);
+      target.lerp(_st, k2);
+    }
+    // ...and the corner they come from
+    const k3 = sm(SHOW.strands - 1, SHOW.strands + 1, u);
+    if (k3 > 0) {
+      const drift = (u - SHOW.strands) * 3;
+      pos.lerp(_sq.set(made.corner.x + 150 - drift, made.corner.y + 74, made.corner.z - 64 + drift), k3);
+      target.lerp(made.corner, k3);
+    }
+    pos.add(o);
+    target.add(o);
+    return true;
+  }
+  function showStop(seen) {
+    if (showU < 0) return;
+    showU = -1;
+    chapterHud.cine(false);
+    if (seen) ctx.chapter.ez.seeMade();
+  }
+  function showTick(dt) {
+    if (showU < 0) {
+      if (walker && madeDue() && Math.hypot(walker.x - GALL_X, walker.z - TERR_Z) < GALL_R - 2 && !site.held()) {
+        showU = 0;
+        showSaid = -1;
+        chapterHud.cine(true);
+      }
+      return;
+    }
+    showU += dt;
+    const lines = ERA_WORDS.made.lines;
+    while (showSaid + 1 < lines.length && showU >= lines[showSaid + 1][0]) {
+      showSaid++;
+      // (a captain who was lost says nothing: one of the others has the line)
+      const lost = (id) => ctx.chapter.ez.isLost(id);
+      const by = CAPTAINS.find((c) => c.id === lines[showSaid][1] && !lost(c.id)) || CAPTAINS.find((c) => !lost(c.id));
+      chapterHud.say(`${by ? by.short + ' — ' : ''}${lines[showSaid][2]}`, 4.6);
+    }
+    if (showU >= SHOW.end) showStop(true);
+  }
   const retire = (from) => {
     for (let i = from; i < consoles.length; i++) {
       const c = consoles[i], was = c.off;
@@ -964,10 +1032,11 @@ export function createLightCity(ctx) {
     npcs: [{ x: GREET.x, y: 0, z: GREET.z, role: 'greeter', talk: () => ctx.greet() }, ...npcs],
     consoles,
     rooms: pavilion.rooms,
-    held: () => (!!demo && demo.held()) || (!!epi && epi.held()) || (!!race && race.held()),
+    held: () => showU >= 0 || (!!demo && demo.held()) || (!!epi && epi.held()) || (!!race && race.held()),
+    mark: () => (madeDue() ? MARK : null),
     act: () => race && race.running() && race.stop(),
     heldPrompt: () => (race ? race.quitPrompt() : null),
-    camera: (pos, target) => (!!demo && demo.camera(pos, target)) || (!!epi && epi.camera(pos, target)) || (!!race && race.camera(pos, target)),
+    camera: (pos, target) => showCamera(pos, target) || (!!demo && demo.camera(pos, target)) || (!!epi && epi.camera(pos, target)) || (!!race && race.camera(pos, target)),
     onChoice: (tag) => {
       if (tag === 'ez:launch') {
         site.portal = 'launch'; // aboard, and away: there is no way back from this
@@ -1057,6 +1126,14 @@ export function createLightCity(ctx) {
         const era = eraNow();
         ERA.value = era ? 1 : 0;
         hangar.era(era);
+        if (era && !made) {
+          try {
+            made = createMade(hangar);
+          } catch (err) {
+            console.warn('[lightcity] what the ship made could not be built', err);
+          }
+        }
+        if (made) made.show(era);
         if (era) {
           if (epi) epi.era();
           if (!grown) {
@@ -1086,6 +1163,7 @@ export function createLightCity(ctx) {
     onLeave() {
       if (!inside) return;
       inside = false;
+      showStop(false);
       if (demo) demo.stop();
       if (epi) epi.stop();
       if (race) race.stop();
@@ -1108,6 +1186,8 @@ export function createLightCity(ctx) {
       city.craftU.uScale.value = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((C.FOV * Math.PI) / 360);
       floorU.uTime.value = t;
       hangar.tick(t);
+      if (made) made.tick(t);
+      showTick(dt);
       chapterHud.tick(dt);
       if (epi) epi.tick(dt, t, walker);
       if (districts) districts.tick(dt, t);
@@ -1152,7 +1232,7 @@ export function createLightCity(ctx) {
       terrace: [0, 0, TERR_Z + 8], greeter: [0, 0, GREET.z + 2.6], gallery: [GALL_X, 0, TERR_Z],
       ...pavilion.places,
     },
-    info: () => ({ taken: taken ? taken.length : 0, life: life ? life.state() : null, towers: city.towers, cells: hangar.cells, demo: demo ? demo.state() : null, districts: districts ? districts.state() : null, race: race ? race.state() : null, raceSet: race ? race.debugSet : null, raceProbe: race ? race.debugProbe : null, epi: epi ? epi.state() : null, offer: offer ? offer.state() : null, era: ERA.value, grown: grown ? grown.state() : null, corner: hangar.corner(), ship: hangar.vessel.visible }),
+    info: () => ({ taken: taken ? taken.length : 0, life: life ? life.state() : null, towers: city.towers, cells: hangar.cells, demo: demo ? demo.state() : null, districts: districts ? districts.state() : null, race: race ? race.state() : null, raceSet: race ? race.debugSet : null, raceProbe: race ? race.debugProbe : null, epi: epi ? epi.state() : null, offer: offer ? offer.state() : null, era: ERA.value, grown: grown ? grown.state() : null, corner: hangar.corner(), ship: hangar.vessel.visible, made: made ? { ...made.state(), due: madeDue(), show: +showU.toFixed(2) } : null }),
   };
   return site;
 }

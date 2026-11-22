@@ -929,6 +929,25 @@ The centre, the relics and the reveal:
 
 A million years on (`ez_era`):
 
+- What the light ship made (`world/eramade.js`). Back in its yard, the ship
+  has finished the corner it was never given, in round cells, and on the top
+  of its bow, where the glass blister was, stands a dome: the command bridge,
+  with a helm, the pilot's seat and one for each of the three captains. From
+  the finished corner a double strand of small cells runs the length of the
+  ship, over the block and along the spine, down into the dome's crown. The
+  first time the pilot walks onto the gallery the camera is taken for about
+  fifteen seconds: the dome, back along the strands, the corner (`ERA.made`
+  has the lines). Until then the compass reads GALLERY and points there, not
+  at the door. Saved as `ez.made`.
+- The launch (`world/launch.js`) is flown from inside that dome, at walking
+  size: the helm forward, the pilot's seat behind it, each captain standing
+  at their own seat behind that (`BRIDGE` in `world/eramade.js`). The rest of
+  the light ship is behind and below, with the strands running back over it;
+  under way its cells fall into one spectrum down the hull. A galaxy hangs over the bridge,
+  astern. The camera looks at the megaworld, then up at the ship and its
+  archive as Vask names it, then forward at the hole. `ez_beyond` is the same
+  bridge, inside.
+
 - Near the dense core the crew's clocks ran slow. The emergence gives the
   surface's clock beside their own; the city gives all three in a line, with
   the light ship's 1,024 years.

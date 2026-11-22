@@ -339,6 +339,17 @@ export const ERA = {
       'The light ship came home by itself, and it made something while it was away. It is at the gallery, west of the terrace. Go and see.',
     ],
   },
+  // what the ship made, shown from the gallery the first time the pilot walks
+  // out onto it: [seconds, who, line]. A captain who was lost says nothing; one
+  // of the others says it. `mark` is what the compass reads until then.
+  made: {
+    mark: 'GALLERY',
+    lines: [
+      [1.5, 'lux', 'It made a bridge. A helm, and four seats.'],
+      [6.5, 'marrow', 'Nobody built that. Look where it starts. The corner it never finished.'],
+      [11, 'vask', 'One for the pilot. One for each of us. It was expecting us back.'],
+    ],
+  },
   // the captains who are left, in the city a million years on
   talk: {
     vask: ['A million years. I have stopped trying to count what that cost.', 'They are still here. That is the part I did not expect.'],

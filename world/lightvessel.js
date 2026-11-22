@@ -505,11 +505,14 @@ export function buildHangar(group) {
       yard.position.y = on ? -9 : 0;
     },
     corner: () => (corner && corner.mesh.visible ? corner.count : 0),
+    // the middle of that corner, in the root's frame (world/eramade.js starts from it)
+    cornerAt: unbuilt.reduce((v, [x, y, z]) => v.add(new THREE.Vector3((x + 0.5 - NX / 2) * CELL, (y + 0.5 - NY / 2) * CELL, BZ0 - (z + 0.5) * CELL)), new THREE.Vector3()).divideScalar(Math.max(1, unbuilt.length)),
     cells: list.length + hexN,
     // for the flight (world/lightdemo.js): the hull, the yard round it, the
     // cells' uniforms, and where the helm is, in the vessel's own frame
-    root, vessel, yard, uniforms, glowMat,
+    root, vessel, yard, uniforms, glowMat, blister,
     helm: new THREE.Vector3(0, 96, BOW_Z + 10),
+    bowTop: 94, // the top of the blister's plinth, which a bridge can stand on (world/eramade.js)
     tick(t) {
       uniforms.uTime.value = t;
       // the drive turns over slowly at rest, and hard under way
