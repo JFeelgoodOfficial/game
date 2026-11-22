@@ -21,9 +21,13 @@
 //   base:archive   the archive, from the bridge base:archive-up  ...off the lift from the bay
 //   base:holo      the archive, at the holodeck (a program has ended)
 //   base:helm      the bridge, at the helm (a chapter has let the ship go)
+//   base:deck      the crew deck, from the bridge   base:bridge-deck ...and back
+//                  (quarters for the pilot and each captain, the dining lounge,
+//                  the medical bay: world/basedeck.js)
 
 import { createBaseVessel } from '../world/basevessel.js';
 import { createBaseBridge } from '../world/basebridge.js';
+import { createBaseDeck } from '../world/basedeck.js';
 import { createLightShip } from '../world/lightship.js';
 import { createLightCity } from '../world/lightcity.js';
 import { CAPTAINS } from '../world/chapter-dialogue.js';
@@ -40,7 +44,7 @@ const PROGRAM_AT = new THREE.Vector3(0, 0, -14);
 export function createHomebase(ctx) {
   const { chapter } = ctx;
   const voyage = () => ctx.voyage();
-  let bay = null, bridge = null, archive = null;
+  let bay = null, bridge = null, archive = null, deck = null;
   let city = null, cityBroken = false; // the City of Light, as a holodeck program
   const fx = () => (ctx.effects && ctx.effects()) || null;
   const talkTurn = {}; // which of a captain's lines is next
@@ -133,6 +137,10 @@ export function createHomebase(ctx) {
     }
     return bridge;
   }
+  function getDeck() {
+    if (!deck) deck = createBaseDeck({ scene: ctx.scene, chapter, hideFleet: ctx.hideFleet, sky, aboard: (id) => !chapter.lost(id) && !voyage().along(id) });
+    return deck;
+  }
   function getArchive() {
     if (!archive) {
       archive = createLightShip({
@@ -173,6 +181,8 @@ export function createHomebase(ctx) {
         case 'base:bridge': { const s = getBridge(); return { site: s, spawn: s.spawn, yaw: s.spawnYaw, look: 'dive' }; }
         case 'base:bridge-aft': { const s = getBridge(); return { site: s, spawn: s.fromAft, yaw: s.fromAftYaw, look: 'dive' }; }
         case 'base:helm': { const s = getBridge(); return { site: s, spawn: s.atHelm, yaw: s.atHelmYaw, look: 'dive' }; }
+        case 'base:bridge-deck': { const s = getBridge(); return { site: s, spawn: s.fromDeck, yaw: s.fromDeckYaw, look: 'dive' }; }
+        case 'base:deck': { const s = getDeck(); return { site: s, spawn: s.spawn, yaw: s.spawnYaw, look: 'dive' }; }
         case 'base:archive': { const s = getArchive(); return { site: s, spawn: s.fromBridge, yaw: s.fromBridgeYaw, look: 'lightship' }; }
         case 'base:archive-up': { const s = getArchive(); return { site: s, spawn: s.spawn, yaw: s.spawnYaw, look: 'lightship' }; }
         case 'base:holo': { const s = getArchive(); return { site: s, spawn: s.atHolo, yaw: s.atHoloYaw, look: 'lightship' }; }
@@ -183,7 +193,7 @@ export function createHomebase(ctx) {
     door() {
       // (a door walked through inside a program leads nowhere: only G ends it)
       if (city && city.inside() && city.portal) city.portal = null;
-      for (const s of [bridge, archive, bay]) {
+      for (const s of [bridge, archive, bay, deck]) {
         if (!s || !s.inside() || !s.portal) continue;
         let to = s.portal;
         s.portal = null;
@@ -196,11 +206,11 @@ export function createHomebase(ctx) {
     holodeck,
     crewTalk,
     state: () => ({
-      built: { bay: !!bay, bridge: !!bridge, archive: !!archive },
-      inside: bridge && bridge.inside() ? 'bridge' : archive && archive.inside() ? 'archive' : bay && bay.inside() ? 'bay' : null,
-      bay: bay ? bay.info() : null, bridge: bridge ? bridge.info() : null, archive: archive ? archive.info() : null,
+      built: { bay: !!bay, bridge: !!bridge, archive: !!archive, deck: !!deck },
+      inside: bridge && bridge.inside() ? 'bridge' : archive && archive.inside() ? 'archive' : bay && bay.inside() ? 'bay' : deck && deck.inside() ? 'deck' : null,
+      bay: bay ? bay.info() : null, bridge: bridge ? bridge.info() : null, archive: archive ? archive.info() : null, deck: deck ? deck.info() : null,
       bridgeSeek: (x) => bridge && bridge.seek(x),
-      places: { bay: bay ? bay.places : null, bridge: bridge ? bridge.places : null, archive: archive ? archive.places : null },
+      places: { bay: bay ? bay.places : null, bridge: bridge ? bridge.places : null, archive: archive ? archive.places : null, deck: deck ? deck.places : null },
       crew: CAPTAINS.map((c) => ({ id: c.id, lost: chapter.lost(c.id), along: voyage().along(c.id) })),
     }),
   };
