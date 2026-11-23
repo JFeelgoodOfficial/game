@@ -743,12 +743,44 @@ export const C = {
   DUSK_SEEN_T: 25.0, // ...what the lamp shows
   DUSK_FLARE_T: 44.0, // ...and the flare
   DUSK_WALKERS: 9.0, // figures walking with the camp
+  // --- Season 1, chapter 3: Under the Ice (world/ice-system.js, world/ice-surface.js, world/ice-ocean.js, GDD 5.7.9) ---
+  ICE_GLOBE_R: 4200.0, // the world, as it is drawn under the bore
+  ICE_DEPTH: 520.0, // from the underside of the ice to the sea floor
+  ICE_SUB_THRUST: 62.0, // u/s^2 on any axis (the vessel of Entry Zero, in water)
+  ICE_SUB_DRAG: 1.6, // 1/s: top speed is thrust over drag
+  ICE_LAMP_POWER: 0.5, // the lamp down here, against what it reaches in the megaworld's water
+  ICE_HEAR_R: 170.0, // how near the first caller has to be before it knows the vessel is there
+  ICE_HEAR_TIME: 1.5, // seconds the radio band has to be held on it
+  ICE_NOTE_TIME: 0.7, // seconds each note of a call lasts
+  ICE_LEAD_GAP: 220.0, // how far ahead of the vessel they will go before they wait
+  ICE_LEAD_SPEED: 46.0, // how fast they lead (u/s)
+  ICE_ARRIVE_R: 260.0, // how near the vents, or the roof, counts as there
+  ICE_ROOF_R: 110.0, // how near under the thin ice the vessel has to be to open it
+  ICE_MELT_TIME: 12.0, // seconds, nose up, to melt through
+  ICE_PULL: 46.0, // u/s^2 toward the hole at its mouth, once it is open
+  ICE_PULL_TIME: 16.0, // seconds the water goes on rushing up it
+  ICE_HOLE_R: 26.0, // the hole: inside this the vessel is taken up
+  ICE_LEAVE_TIME: 110.0, // seconds the bore stays open once the ice is left shut
+  ICE_BORE_R: 30.0, // how near the bore's mouth is the way up
+  ICE_DESCENT_T: 20.0, // seconds the way down runs
+  ICE_ANSWERED_T: 25.0, // ...the others arriving
+  ICE_CITY_T: 32.0, // ...the vents
+  ICE_SKY_T: 36.0, // ...the sky
+  ICE_AWAY_T: 29.0, // ...and the way up, the ice left shut
+  ICE_CALLERS: 16.0, // how many of them come
 };
 
 // The Long Dusk: when each group comes at the fires if the edge is held
 // (seconds after the decision), and where the three groups are (z along the edge).
 export const DUSK_WAVES = [10, 45, 80];
 export const DUSK_GROUPS_Z = [-105, 5, 110];
+
+// Under the Ice: the three calls that are answered (0 low, 1 mid, 2 high), the
+// notes themselves (Hz), and where things are from the bore's mouth (x, z; the
+// first caller also has a depth).
+export const ICE_PHRASES = [[0, 2], [1, 0, 2], [2, 2, 0, 1]];
+export const ICE_NOTES = [196, 262, 349];
+export const ICE_PLACES = { first: [760, -150, -620], city: [-420, -1780], roof: [-1500, -640] };
 
 // How far each band of the lamp reaches, in units, by what it is shining
 // through (BANDS order: blue-green, ultraviolet, infrared, H-alpha, X-ray,
