@@ -76,8 +76,9 @@ export function createAftermath(ctx) {
         if (room === 'deck') {
           const q = site.places.quarters, id = lostId() || 'pilot';
           const at = q[id] || q.pilot, t = site.places.lounge;
-          consoles.push({ x: at[0], y: 0, z: at[2] + 1.4, r: 2.2, prompt: AFTER1.prompts[0], off: () => stage() === 'a3', use: () => look(0) });
-          consoles.push({ x: t[0], y: 0, z: t[2] + 0.4, r: 2.4, prompt: AFTER1.prompts[1], off: () => stage() === 'a3' || !!(seen & 2), use: () => look(1) });
+          // (in the corridor at the cabin's door, and at the table's end: clear of the deck's own consoles)
+          consoles.push({ x: at[0], y: 0, z: -1.2, r: 1.5, prompt: AFTER1.prompts[0], off: () => stage() === 'a3', use: () => look(0) });
+          consoles.push({ x: t[0] + 4.2, y: 0, z: t[2] - 1.6, r: 1.5, prompt: AFTER1.prompts[1], off: () => stage() === 'a3' || !!(seen & 2), use: () => look(1) });
         } else {
           const aft = site.places.aft;
           consoles.push({ x: -2.2, y: 0, z: aft[2] - 2, r: 2.0, prompt: AFTER1.prompts[2], off: () => stage() === 'a3', use: () => look(2) });
