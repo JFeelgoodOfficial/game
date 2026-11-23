@@ -63,7 +63,10 @@ export function createHomebase(ctx) {
     }, { title: BASE.rosterTitle, sub: BASE.rosterSub, foot: BASE.rosterFoot });
   }
   function holodeck() {
-    openHoloPanel(ctx.catalog(), (id) => ctx.startHolo(id, 'base:holo'), { title: BASE.holoTitle, sub: BASE.holoSub, locked: BASE.holoLocked });
+    openHoloPanel(ctx.catalog(), (id) => {
+      voyage().holo(id); // (a chapter may be waiting for one to be walked: src/voyage.js)
+      ctx.startHolo(id, 'base:holo');
+    }, { title: BASE.holoTitle, sub: BASE.holoSub, locked: BASE.holoLocked });
   }
 
   // --- what a captain on the bridge says ---
@@ -79,7 +82,12 @@ export function createHomebase(ctx) {
   function chart() {
     const v = voyage();
     const here = v.system();
-    const lines = [BASE.chartHere.replace('{here}', here.label)];
+    // (a chapter may have the helm: `voyage().aboard('helm')` -> { refuse() -> lines | null: nothing is charted yet;
+    //  before() -> lines said ahead of the chart's own }. With none, the chart is as it was.)
+    const g = v.aboard('helm');
+    const no = g && g.refuse ? g.refuse() : null;
+    if (no) return { speaker: BASE.chartSpeaker, lines: no };
+    const lines = [...(g && g.before ? g.before() : []), BASE.chartHere.replace('{here}', here.label)];
     if (!ctx.shuttleHome()) return { speaker: BASE.chartSpeaker, lines: [...lines, BASE.chartNeedShuttle] };
     const courses = v.courses();
     if (!courses.length) return { speaker: BASE.chartSpeaker, lines: [...lines, BASE.chartNowhere] };
@@ -140,7 +148,7 @@ export function createHomebase(ctx) {
     return bridge;
   }
   function getDeck() {
-    if (!deck) deck = createBaseDeck({ scene: ctx.scene, chapter, hideFleet: ctx.hideFleet, sky, aboard: (id) => !chapter.lost(id) && !voyage().along(id) });
+    if (!deck) deck = createBaseDeck({ scene: ctx.scene, chapter, hideFleet: ctx.hideFleet, sky, aboard: (id) => !chapter.lost(id) && !voyage().along(id), guest: () => voyage().aboard('deck') });
     return deck;
   }
   function getArchive() {

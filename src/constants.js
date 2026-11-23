@@ -776,6 +776,57 @@ export const C = {
   CONC_BAR_T: 18.0, // seconds the scene in the bar runs
   CONC_HOLD_T: 20.0, // ...and the one in berth forty
   CONC_ALARM_DELAY: 9.0, // seconds from the valuation to the light ship's alarm
+  CONC_FLOOD: 2.0, // what every price at the port is multiplied by once the cheap ticks have flooded it (chapter 6)
+  // --- Season 1, chapter 6: Futures (world/futures-system.js, world/futures-city.js, GDD 5.7.9) ---
+  FUT_WATCH_R: 10.0, // how near the forecast place the pilot has to stand to have seen an arrival
+  FUT_HOUR_WAIT: 26.0, // seconds from the third arrival to the hour the fourth is forecast for
+  FUT_CLOCK_T: 20.0, // seconds the hour striking runs
+  FUT_FIX_T: 27.0, // ...and the correction
+  // --- Season 1, chapter 10: The Siege (world/siege-helm.js, world/concourse-system.js, GDD 5.7.9) ---
+  SIEGE_COLUMN: 60.0, // grey ships in each column
+  SIEGE_SEG_HP: 3.0, // what each section of the outer ring can take
+  SIEGE_HITS: 8.0, // grey ships reaching a section for each point it loses
+  SIEGE_ALLY_THIN: 0.4, // how much of a column an ally in that quarter of the sky has already broken
+  SIEGE_ZONE: 0.17, // the flagship's reach (chart units: the chart is 2 across)
+  SIEGE_CUT: 0.07, // how near the light ship's wake breaks a grey ship
+  SIEGE_WAKE: 9.0, // seconds the wake lasts behind the ship (the whole pass: what is drawn stays drawn)
+  SIEGE_FLY: 9.0, // seconds a drawn pass takes to fly
+  SIEGE_INTRO_T: 19.0, // seconds the fleet's arrival runs
+  SIEGE_FALL_T: 34.0, // ...and the outer ring's fall
+  // --- Season 1, chapter 8: The Weight of Hands (world/swarm-system.js, world/swarm-yard.js, GDD 5.7.9) ---
+  SWARM_LAMP_POWER: 0.25, // the lamp carried by hand on the yard, against what it reaches in open space
+  SWARM_READ_TIME: 1.6, // seconds the X-ray band must be held on a builder to read it
+  SWARM_READ_RANGE: 34.0, // ...from no further off than this
+  SWARM_PACE: 3.2, // a builder walking its beat (u/s)
+  SWARM_BUILDERS: 6.0, // builders on the yard beside the four that are read
+  SWARM_MIRRORS: 1500.0, // mirrors of the swarm that are drawn
+  SWARM_SHELL_R: 60000.0, // the swarm's radius, as it is drawn in the sky
+  SWARM_SHELL_DIST: 200000.0, // ...and how far off its middle is (the star is drawn at BASE_STAR_DIST)
+  SWARM_ARRIVE_T: 27.0, // seconds the scene on the pad runs
+  SWARM_READ_T: 27.0, // ...what the four add up to
+  SWARM_END_T: 30.0, // ...and what follows the work order
+  SWARM_OFFER_DELAY: 6.0, // seconds from the four being read to the two offers
+  // --- Season 1, chapter 7: The Pulsar Choir (world/choir-system.js, world/choir-hall.js, GDD 5.7.9) ---
+  CHOIR_LAMP_POWER: 0.3, // the lamp carried by hand in the hall, against what it reaches in open space
+  CHOIR_LISTEN_R: 14.0, // how near the middle of the floor under the rose counts as under it
+  CHOIR_HEAR_TIME: 2.0, // seconds the star has to be held on the radio band there
+  CHOIR_STAND_R: 8.0, // how far from the cantor's stand the hymn still goes on
+  CHOIR_NOTE_TIME: 0.65, // seconds each note of the hymn lasts
+  CHOIR_SINGERS: 16.0, // figures in the ranks down the nave
+  CHOIR_ARRIVE_T: 22.0, // seconds the arrival runs
+  CHOIR_CHORUS_T: 31.0, // ...the hall taking the hymn up
+  CHOIR_ANSWER_T: 14.0, // ...and the hall's answer to what was chosen
+  // --- Season 1, chapter 9: The Forecast of Love (world/love.js, world/love-places.js, GDD 5.7.9) ---
+  LOVE_RUN_LEN: 520.0, // the ski run, top to bottom
+  LOVE_RUN_SPEED: 24.0, // how fast it is skied (u/s)
+  LOVE_STEER: 15.0, // how fast the pilot crosses the slope (u/s)
+  LOVE_DINNER_T: 31.0, // seconds the meal with her runs
+  LOVE_STAY_T: 27.0, // ...and first bell, on the patio
+  // --- Season 1, chapter 11: The Vault (world/vault.js, GDD 5.7.9) ---
+  VAULT_PEOPLE: 12.0, // figures of the outer ring's people on the deck
+  VAULT_END_T: 24.0, // seconds the scene of them going to where they are to live runs
+  VAULT_WORLD_DIST: 90000.0, // how far off a recompiled world stands in the port's sky
+  VAULT_WORLD_R: 9000.0, // ...and how big it is drawn
 };
 
 // The Long Dusk: when each group comes at the fires if the edge is held
@@ -798,6 +849,22 @@ export const CONC_GOODS = [
 ];
 // Appraisal: the three plinths that were handled, as [room, plinth] (world/lightship.js order).
 export const APPR_TOUCHED = [[0, 1], [2, 3], [4, 2]];
+
+// The Pulsar Choir: the three verses of the old hymn (0 low bell, 1 mid, 2
+// high; 3 is the star's note, which the choir leaves as a gap and the pilot
+// fills), and the notes themselves (Hz): the bells as they were cast, a G major
+// chord, and the star as it now is, a semitone sharp of where the hymn expects it.
+export const CHOIR_PHRASES = [[0, 2, 3], [1, 0, 3, 2], [2, 3, 0, 1, 3]];
+export const CHOIR_NOTES = [196, 247, 294, 311];
+// The Siege: each pass's columns (how many, the bearing the first comes from,
+// how far round the ring it is aimed) and, from the second, the bearing the
+// flagship stands at.
+export const SIEGE_WAVES = [
+  { columns: 3, from: 0.4, bend: 0.25 },
+  { columns: 4, from: 1.3, bend: -0.3, flag: 2.6 },
+  { columns: 5, from: 0.1, bend: 0.35, flag: 4.4 },
+  { columns: 6, from: 0.9, bend: -0.2, flag: 0.7 },
+];
 export const ICE_PLACES = { first: [760, -150, -620], city: [-420, -1780], roof: [-1500, -640] };
 
 // How far each band of the lamp reaches, in units, by what it is shining

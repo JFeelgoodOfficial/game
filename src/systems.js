@@ -30,12 +30,19 @@
 import { createExampleSystem } from '../world/example-system.js';
 import { EXAMPLE } from '../world/example-dialogue.js';
 import { HORIZON_PLACE } from '../world/SEALED-horizon-place.js';
+import { createAftermath } from '../world/SEALED-aftermath.js';
 import { createDuskSystem } from '../world/dusk-system.js';
 import { DUSK } from '../world/dusk-dialogue.js';
 import { createIceSystem } from '../world/ice-system.js';
 import { ICE } from '../world/ice-dialogue.js';
 import { createConcourseSystem } from '../world/concourse-system.js';
 import { CONC } from '../world/concourse-dialogue.js';
+import { createFuturesSystem } from '../world/futures-system.js';
+import { FUT } from '../world/futures-dialogue.js';
+import { createSwarmSystem } from '../world/swarm-system.js';
+import { SWARM } from '../world/swarm-dialogue.js';
+import { createChoirSystem } from '../world/choir-system.js';
+import { CHOIR } from '../world/choir-dialogue.js';
 
 export const SYSTEMS = [
   // Chapter one (GDD 5.7.7): where the light ship is when that chapter lets it
@@ -44,7 +51,8 @@ export const SYSTEMS = [
     id: 'horizon', sealed: true,
     label: HORIZON_PLACE.label, star: HORIZON_PLACE.star, nebula: HORIZON_PLACE.nebula, fleet: HORIZON_PLACE.fleet,
     base: [0, 0, 0],
-    create: HORIZON_PLACE.create || null,
+    // (chapter one of the voyage is played here, aboard: world/SEALED-aftermath.js)
+    create: HORIZON_PLACE.create || createAftermath,
   },
   // The example: not story. A relay to dock at and a bare world to land on.
   {
@@ -81,6 +89,32 @@ export const SYSTEMS = [
     label: CONC.label, star: { dir: [0.6, 0.3, 0.74], color: 0xffe2b8 }, nebula: 0.3, fleet: false,
     base: [0, 0, 0],
     create: createConcourseSystem,
+  },
+  // Season 1, chapter 6 (GDD 5.7.9): a world that sold its future. One warm
+  // star, always the same afternoon.
+  {
+    id: FUT.id, sealed: false,
+    label: FUT.label, star: { dir: [0.35, 0.72, 0.6], color: 0xfff0d0 }, nebula: 0.28, fleet: false,
+    base: [0, 0, 0],
+    create: createFuturesSystem,
+  },
+  // Season 1, chapter 8 (GDD 5.7.9): a dim star, half a swarm of mirrors round
+  // it, and the yard where the other half is still being built. No `needs`:
+  // the season's standalone chapters can be flown in any order.
+  {
+    id: SWARM.id, sealed: false,
+    label: SWARM.label, star: { dir: [0.35, 0.45, -0.82], color: 0xff9a4a }, nebula: 0.2, fleet: false,
+    base: [0, 0, 0],
+    create: createSwarmSystem,
+  },
+  // Season 1, chapter 7 (GDD 5.7.9): a millisecond pulsar and the white dwarf
+  // beside it. The chart's star is the dwarf; the pulsar is drawn by the hall,
+  // through its rose. No `needs`: a standalone chapter.
+  {
+    id: CHOIR.id, sealed: false,
+    label: CHOIR.label, star: { dir: [0.5, 0.4, 0.77], color: 0xdfe8ff }, nebula: 0.22, fleet: false,
+    base: [0, 0, 0],
+    create: createChoirSystem,
   },
 ];
 

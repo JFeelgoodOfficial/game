@@ -1062,6 +1062,106 @@ Checks that must hold:
 - After chapter 5 the archive's first console is its own again (no `LOOK AT THIS ONE`).
 - `I.go4(stage)` and `I.go5(stage)` jump either chapter; `go5` sets `debrief.concourse`.
 
+### Chapter 6: Futures
+
+`I = __debug.tenretni.voyage().instance('futures')` after `voyage().travel('futures')`; `systemDock()` + `systemStepOut()`. `I.state()` → `{stage, signed, flood, city: {inside, ct, seen, hour, scene, pending, next: {who, at, in}, late, citizens, panel}, places: {pad, keeper, stations}}`.
+
+A pass, waiting on `stage`:
+1. First step out: a `comm` forecast; `cine.skip()`: `forecast`.
+2. `cap.place` at `places.keeper`, `e`, `cine.skip()`: the scene `hour` starts by itself once the talk has closed; at its end `welcomed`.
+3. The board: `city.next` is who arrives where and in how many seconds. Away from it when it happens, the line is `YOU WERE NOT THERE…` and `seen` stays. Stand within 10 of `next.at`, then `I.dbg.nearly(1.5)`: `seen` goes up on the second. Three times: `predicted`, and `city.hour` counts down from 26.
+4. `I.dbg.hour(1.5)`: `missed`. `city.late` is where she is (it moves: re-read it); stand just inside it, `e`, skip: `found`.
+5. `e` at the Keeper, `cine.skip()` stops at SIGN / TALK HER DOWN. `x` leaves it (`found`, `signed` null). `cine.pick(0)` → `signed: true`, `flood.how: 'bound'`; `pick(1)` → `false`, `'free'`. The scene `fix` follows by itself; at its end `done`.
+6. `voyage().debrief()` title `CHAPTER 6 — FUTURES`. `voyage().instance('concourse').state().prices` are doubled from then on.
+### Chapter 8: The Weight of Hands
+
+`I = __debug.tenretni.voyage().instance('swarm')` after `voyage().travel('swarm')`. One dock, `yard`: reach it as for the dusk camp (`systemApproach(1500)` and `g`, or `systemDock()` + `systemStepOut()`). `I.state()` → `{stage, seen, decision, pending, yard, places: {pad, post, frame, old, cradle}}`; `yard` → `{inside, scene: {kind, u} | null, lamp, read, seen, offer, panel, builders: [{id, at, y, read, hold}], crowd, stopped, sending, made, mirrors}`. `builders` is the four that are read, in the order hauler, welder, maker, old; the Hauler and the Welder move.
+
+A pass, waiting on state each time (the scenes are 27 to 30 game seconds: wait on `yard.scene`, and do not `cap.place` while one is up):
+1. First step out: `yard.scene.kind === 'arrive'`, prompt `E — SKIP`, key `e`: stage `docked`, `yard.lamp` set, panel `READ 0 / 4`.
+2. `q` four times: `yard.lamp.band === 'xray'` (reach 175). For each builder, `cap.place` about 15 from its `at` and set `cWalk.yaw = atan2(dx, dz)`, `pitch` 0.07, re-aiming at the two that move: its `read` goes true after 1.6 game seconds, and `#chHud .line` names it. On any other band, or from further than 34, nothing is read; aimed from too far the line says to come closer. `I.dbg.read(i)` reads one without the lamp.
+3. With all four read and their lines said, scene `read` starts by itself; `I.skip()`: stage `read`. About 6 game seconds later a `comm` scene (`cine.text().from` ends `TWO OFFERS`); `cine.skip()`: stage `offered`.
+4. `cap.place` at `places.post`, prompt `E — THE WORK ORDER`, `e`, `cine.skip()` (stops at the choice; two options). `x` leaves it (`pending.key === 'ch8.builders'`, stage `offered`); `e` again and `cine.pick(0)` END or `pick(1)` ASSIGN: `decision` is `freed` or `contracted`, `pending` null, and after the reply the scene `end` starts. `I.skip()` or wait: stage `done`.
+5. Freed: `yard.stopped` 1, `yard.made` 1. Contracted: `yard.sending` 1. `voyage().debrief()` has title `CHAPTER 8 — THE WEIGHT OF HANDS`.
+
+Checks that must hold:
+- With nobody aboard (`chapter().setCrewDebug([])` first) every line is the `solo` one and the work order's first line is the order itself, with no captain's word before it.
+- A reload at `offered` keeps `seen` 15 and the offers do not come again; `base.door('swarm:post')` stands the pilot at the post with the lamp in hand.
+- `base.door('base:bridge')` while the scene `end` plays leaves stage `done`, with neither `ch-cine` nor `ez-lamp` on `body`.
+- `I.go(stage, opt)` jumps either way; `go('decided', opt)` lands on `done`.
+- A fresh profile writes no `fgsf.voyage`.
+### Chapter 7: The Pulsar Choir
+
+`I = __debug.tenretni.voyage().instance('choir')` after `voyage().travel('choir')`; one dock (`systemDock()` + `systemStepOut()`, or `systemApproach(1500)` and `g`). `I.state()` → `{stage, choir, pending, hall, places: {pad, eldest, actuary, rose, stand}}`; `hall` → `{inside, scene: {kind, u} | null, lamp, signal, hear, atStand, tone: {round, phase, got, want} | null, table, actuary, bells, panel, pads, starDir}`. Hall frame: the forecourt and pad at (0, 150), the nave down -z, the stand at (0, -20) on a dais 0.5 high, the listening ring at (0, -98), the First Voice at (0, -122), the rose at z -190.
+
+A pass, waiting on `stage` and `hall.scene` each time (scenes are 14 to 31 game seconds and run slowly under SwiftShader; never `place` during one):
+1. On the first step out `hall.scene.kind === 'arrive'`, prompt `E — SKIP`; `e`: `docked`, `hall.lamp` set.
+2. `cap.place` at `places.eldest`, prompt `E — TALK`, `e`, `cine.skip()`: `met`.
+3. `cap.place` at `places.rose`; `I.dbg.aim()` points the look at the star. Off the radio band `hall.signal` is 0; step the lamp to radio (`q`, or `I.dbg.band('radio')`) and it reads 1; look away (`cWalk.yaw = 0`) and it falls to 0. Held above 0.6 on the ring for 2 game seconds: `heard`.
+4. `cap.place(0, 0.5, -18.5)`, prompt `E — TAKE THE CANTOR'S STAND`, `e`: `hall.atStand`, and after the teaching line `hall.tone`. Wait for `tone.phase === 'input'`, then press `tone.want` (`Digit1`..`Digit4`, or `I.dbg.press(i)`). `Digit4` off the radio band says so and leaves `tone` as it was; a wrong bell sets `phase: 'gap'` and the verse comes again. After verse 2 the scene `chorus` starts; `I.skip()`: `sung`.
+5. `e` at the First Voice, `cine.skip()` (stops at the two options). `x` leaves it (`sung`, `pending.key === 'ch7.choir'`); `e` again and `cine.pick(0)` → `choir: 'free'`, `pick(1)` → `'forecast'`: `decided`, `pending` null. Once the reply and the crew's line have gone, the scene `answer` plays by itself and ends at `done`.
+6. `voyage().debrief()` has title `CHAPTER 7 — THE PULSAR CHOIR`.
+
+Checks that must hold:
+- `'forecast'`: `hall.table` true and `hall.actuary` true after `done`; his talk is the forecast line. `'free'`: both false after `done`, and there is no `E — TALK` where he stood.
+- With nobody aboard (`chapter().setCrewDebug([])` first) every scene's lines are the `solo` ones, with no captain named.
+- A reload keeps `stage` and `choir`. `I.go('decided', 'free')` then `base.door('choir:nave')` starts the `answer` scene at once.
+- `I.restore({ stage: 'done' })` with no `ch7.choir` on record gives stage `sung`.
+- On leaving: neither `ez-lamp` nor `#choirPads.on`, and `sun.ambient.intensity` is what it was before the hall (0.95 inside it).
+
+### Chapter 10: The Siege
+
+At the port: `I.go10('idle')` opens it (and marks chapters 4 and 5 done). Set the season facts that decide who comes first: `season().set('ch7.choir', 'free')`, `('ch8.builders', 'freed')`, `('ch4.fee', 'split')`, `('ch5.thieves', 'held')`. `e` at the dockmaster: `s10: 'called'`. `cap.place(-7, 0, 72)`, prompt `E — TO THE LIGHT SHIP'S HELM`, `e`: `state().siege.inside`. A `comm` forecast (skip), then the scene `intro` (`e` skips), then the pad opens (`siege.pad`).
+
+Drawing: `const m = await import('/src/drawPad.js'); m.drawPadDebug.stroke(points); m.drawPadDebug.done()`. Points are pad units, -1..1, y up; the chart's z is `-y`. `siege.columns` are the lines (`from`, `to`, chart units) and `siege.flag` the flagship's. A circle of radius 0.46 crosses every column; from the second pass draw the arc that leaves out about 1.2 rad either side of the flagship's bearing. `siege.phase` goes `plan → fly → after`, `broken` and `reached` count, and `ring` is the eight sections' points.
+
+Checks: a stroke through `flag` gives the line `…DRAW THE PASS AGAIN` and the same pass again. After the third pass a `comm` scene with two options; `x` leaves it and it is asked again within 5 game seconds; `cine.pick(0)` → `decision: 'evac'`, `pick(1)` → `'hold'`. Lost on the fourth pass: `decision` null and the question again. After the fourth: scene `fall`; skip: `s10: 'done'`, back on the deck, `siegeEvent.how` `evacuated` or `held`, `voyage().debrief()` key `siege`. Afterwards neither `ch-pad` nor `ch-cine` is on `body`.
+### Chapter 9: The Forecast of Love
+
+In the `concourse` system: `I = __debug.tenretni.voyage().instance('concourse')`. To start at it: `I.go5('done')` and `tenretni.season().set('debrief.appraisal', true)`; `I.state().open9` is then true. `I.state().love` → `{how, ione, hill: {inside, talked, run: {s, x}, gates, her, panel}, patio: {inside, scene, pending, panel}, archive, places: {hill: {top, her, ski, bottom, out, yB}, patio: {door, her}}}` (a place's entries are null until it has been entered once).
+
+A pass, waiting on `I.state().s9`:
+1. `base.door('concourse:deck')`: a `comm` forecast; `cine.skip()`: `forecast`. The compass reads `BAR`.
+2. Stand 2.5 from `places.hub.envoy`, `e`, skip: `asked`; `hub.envoy` goes false (she has gone aboard) and `voyage().talk('lux')` is a line about her.
+3. `base.door('base:holo')` (the archive): `love.archive` is where she stands. 1.6 to her -x side the prompt is `E — WYATTMATTOE, THE SKI HILL. WITH HER.`; `e`: `love.hill.inside`.
+4. At `places.hill.ski` there is no prompt until she has been talked to (`e` at `places.hill.her`, skip). Then `e` there: `hill.run.s` runs 0 to 1 in about 22 game seconds; holding `d` moves `run.x`; `e` skips to the bottom. At the end `hill`, and the walker is on the flat at `y = places.hill.yB`.
+5. `e` at `places.hill.bottom` (place the walker at `yB`), skip: `told`. `e` at `places.hill.out`: back in the archive, `isolated` still active, panel `DINNER…`.
+6. `base.door('base:deck')`: stand on the console whose prompt has `EAT`, `e`: `base().state().deck.doing === 'eat'` for 31 game seconds (`e` skips), her lines and one captain's between them on `#chHud .line`; at its end `dinner` and the door opens onto the patio by itself (`love.patio.inside`).
+7. `e` at `places.patio.her`, `cine.skip()` stops at two options. `x` leaves it (`dinner`, `season().pending().key === 'ch9.why'`). `cine.pick(0)` → `how: 'trusts'`; `pick(1)` → `'wary'`: `patio`, then the scene `stay` by itself; at its end `done`.
+8. `voyage().debrief()` has key `love`. `e` at `places.patio.door`: the crew deck.
+
+Checks that must hold:
+- With nobody aboard (`chapter().setCrewDebug([])` first) the meal still runs, with only her lines.
+- A reload keeps `s9`, `how` and `ione`; `fgsf.voyage.chapters.concourse.s9` is the stage.
+- After the chapter the crew deck's first console is its own again, and with no guest the dinner is the one it was (15 seconds, two captains' lines).
+- `I.go9(stage, how)` jumps it either way.
+### Chapter 11: The Vault
+
+Played in `concourse`. `I = __debug.tenretni.voyage().instance('concourse')`; `V = I.state().vault` → `{stage, open, world, label, friend, how, event, camp, newWorld, scene, pendingEnd, worlds, places: {camp, record}}`. `I.go11('idle')` sets chapters 4 and 5 done and debriefed, so it is open. The case is decided by who is lost: seed `ez.lost: ['lux']` for one captain lost, or `chapter().setCrewDebug([])` for all three (both give the person case); with nobody lost it is the world case.
+
+A pass, waiting on `V.stage`:
+1. `base.door('concourse:deck')`: a `comm` forecast; `cine.skip()`: `forecast`, `V.camp` true.
+2. `e` at `places.hub.varn`, `cine.skip()`. World case: it stops at WHICH WORLD?, one option per row of `V.worlds`; `x` leaves it; `cine.pick(i)`: `asked`, `V.world` set. Person case: no choice; `asked` at once, `V.friend` set.
+3. `base.door('base:archive')`. World case: the corner panel names the world; at the holodeck console (`cap.place(2.2, 0, 25)`, `e`) pick its row: `walked` as the program starts (`voyage().holo(id)` does the same; another world's id does nothing); `g` ends the program. Person case: `cap.place(-2.4, 0, 25)`, prompt `E — READ THEIR RECORD`, `e`: a `comm` scene; skip: `walked`.
+4. Deck again, `e` at the dockmaster, `cine.skip()`: each captain aboard has a line, then SELL / RECOMPILE (or RECOMPILE THEM / LET THEM REST). `x` leaves it with `season().pending().key === 'ch11.choice'`. `cine.pick(0 | 1)`: `decided`, `V.how` set, and once the talk has closed `V.scene` counts up; `e` skips: `done`, `V.camp` false.
+5. `voyage().debrief()` key `vault`, title `CHAPTER 11 — THE VAULT`.
+
+Checks that must hold:
+- After `sold` or `recompiled`, `holodeck.catalog()` has that world `unlocked: false` with `lockedNote: 'GIVEN UP'`, after a reload and in every other system; picking the row in the panel does nothing. After `friend` or `rest` every world row is as it was and `facts['ch11.world']` is absent.
+- After `recompiled`, `V.newWorld` is true whenever the deck is entered.
+- With nobody aboard no captain's line precedes the choice and the scene's lines are the `solo` ones.
+- A reload keeps `stage`, `world`, `friend` and `how`.
+
+### Chapter 1 (sealed) and the helm chart
+
+A fresh open-space save (`ch.stage: 'hz_open'`, never travelled) is now at stage `a1` of chapter 1, and **the helm chart refuses until it is `a3`**. For any test that needs the chart by hand, first `voyage().instance('horizon').go('a3')`. `voyage().travel(id)` is not affected.
+
+Handles only: `H = voyage().instance('horizon')`; `H.state()` → `{stage, seen, shown, skipped, lost, places: {deck, archive}}` (`places` fill once the room has been entered). A pass: `base.door('base:deck')`, `cap.place` at each of `places.deck` (two prompts), `e`, `cine.skip()`; `base.door('base:archive')`, the one in `places.archive`, `e`, skip: `stage: 'a2'`, `seen: 7`. `base.door('base:bridge')`: `base().state().bridge.debrief` is set; `e` until `stage: 'a3'`. Then the helm (`e` to sit, `e` again) lists the courses. Check with a captain in `ez.lost` and with `chapter().setCrewDebug([])`.
+
+### Chapter 14: Shore Leave
+
+At the port: `I.go14('idle', 'blind' | 'curious', 'aboard' | 'gone' | 'lost')`. Stand 1 short of `places.hub.bar`, prompt `E — GO IN`, `e`, skip: `s14: 'bar'`. `base.door('base:deck')`, the table's SIT DOWN TO EAT: the meal is this chapter's (34 s; with `aboard` she is at the table); at its end `s14: 'dinner'`. `base.door('base:archive')`, `cap.place(-2.2, 0, places.archive.aft z - 2)`, `e`: `counted`; `state().shore.holds` are the lines. On the bridge the debrief's title is `SEASON 1 — THE VOYAGE`; once played, `s14: 'done'`, and the helm says three lines ahead of the chart, once.
+
 ## The chapter past the horizon (GDD 5.7.7)
 
 Structure only: what happens in it is in files named `SEALED-*`, which are not

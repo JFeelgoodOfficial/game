@@ -43,14 +43,25 @@ import { createConcourseHold } from './concourse-hold.js';
 import { createArchiveGuest } from './appraisal-archive.js';
 import { CONC } from './concourse-dialogue.js';
 import { APPR } from './appraisal-dialogue.js';
+import { createSiegeHelm } from './siege-helm.js';
+import { SIEGE } from './siege-dialogue.js';
+import { createLove, LOVE_STAGES } from './love.js'; // chapter 9: a third chapter in this place
+import { LOVE } from './love-dialogue.js';
+import { createVault } from './vault.js';
+import { createShore, SHORE_STAGES } from './shore.js'; // chapter 14: the last chapter of the season, in this place
 
 export const CONC_STAGES = ['arrived', 'docked', 'met', 'hauled', 'paid', 'traded', 'done'];
 export const APPR_STAGES = ['idle', 'valued', 'robbed', 'tracked', 'found', 'done'];
+// Chapter 10, the siege (world/siege-helm.js): idle -> called (the dockmaster has called every berth) -> done (the outer ring has fallen)
+export const SIEGE_STAGES = ['idle', 'called', 'done'];
 
 // ctx: { scene, camera, chapter, voyage, sunDir, save(), crewTalk(captain), season, fixed }
 export function createConcourseSystem(ctx) {
   const { season } = ctx;
-  let s4 = 'arrived', s5 = 'idle';
+  let s4 = 'arrived', s5 = 'idle', s10 = 'idle';
+  let s9 = 'idle'; // chapter 9 (world/love.js)
+  let s14 = 'idle'; // chapter 14 (world/shore.js)
+  const i9 = (s) => LOVE_STAGES.indexOf(s);
   let clock = 0; // the market's: one turn for every trade
   let cargo = {}, paid = {}; // what is in the hold, and what each unit of it cost
   let found = 0; // chapter 5: which touched plinths have been looked at (one bit each)
@@ -61,7 +72,9 @@ export function createConcourseSystem(ctx) {
   // what a thing costs, at a place, as the market stands
   const price = (place, i) => {
     const g = CONC_GOODS[i];
-    return Math.max(1, Math.round(g[place] * (1 + C.CONC_SWING * Math.sin(clock * 0.83 + i * 1.9 + (place === 'hub' ? 0 : 2.1)))));
+    // (once the cheap ticks have flooded the port, chapter 6, everything costs twice the ticks)
+    const flood = ctx.fixed.resolved('flood') ? C.CONC_FLOOD : 1;
+    return Math.max(1, Math.round(g[place] * flood * (1 + C.CONC_SWING * Math.sin(clock * 0.83 + i * 1.9 + (place === 'hub' ? 0 : 2.1)))));
   };
 
   function market(place) {
@@ -128,8 +141,41 @@ export function createConcourseSystem(ctx) {
       ctx.save();
       return true;
     },
+    // --- chapter 14: shore leave. It opens once the season's finale has been played and talked over;
+    // it is done once its own talk on the bridge has been played (src/voyage.js keeps that) ---
+    st14: () => (s14 === 'counted' && season.get('debrief.shore') ? 'done' : s14),
+    adv14(to) {
+      if (SHORE_STAGES.indexOf(to) <= SHORE_STAGES.indexOf(s14)) return false;
+      s14 = to;
+      ctx.save();
+      return true;
+    },
+    open14: () => ctx.fixed.resolved('merger') && !!season.get('debrief.unforecast'),
+    // --- chapter 10: the siege ---
+    st10: () => s10,
+    adv10(to) {
+      if (SIEGE_STAGES.indexOf(to) <= SIEGE_STAGES.indexOf(s10)) return false;
+      s10 = to;
+      ctx.save();
+      return true;
+    },
+    // it opens once the chapters before it at the port have been played and talked over
+    open10: () => s9 === 'done' && !!season.get('debrief.love'),
+    // Chapter 11 (world/vault.js) opens once the siege has been fought and talked over on the bridge.
+    open11: () => ctx.fixed.resolved('siege') && !!season.get('debrief.siege'),
+    guest: null, // a later chapter played on this deck (world/concourse-hub.js reads it): chapter 11's
     // chapter 5 opens once chapter 4 has been talked over on the bridge
     open5: () => s4 === 'done' && !!season.get('debrief.concourse'),
+    // --- chapter 9: it opens once chapter 5 has been talked over on the bridge ---
+    st9: () => s9,
+    reached9: (s) => i9(s9) >= i9(s),
+    adv9(to) {
+      if (i9(to) <= i9(s9)) return false;
+      s9 = to;
+      ctx.save();
+      return true;
+    },
+    open9: () => s5 === 'done' && !!season.get('debrief.appraisal'),
     held,
     market,
     // --- chapter 4 ---
@@ -151,6 +197,12 @@ export function createConcourseSystem(ctx) {
     // what the corner of the screen says, on the deck or at the tender
     panel(place) {
       const rows = [];
+      // chapter 14 has the corner of the screen when it is open
+      const sp = S.shore ? S.shore.panel(place) : null;
+      if (sp) return sp;
+      // (a guest chapter's line, under the purse, in place of the port's own)
+      const gp = S.guest && S.guest.panel ? S.guest.panel(place) : undefined;
+      if (gp !== undefined) return [`${CONC.hud.purse}${ticks()}`, gp].filter(Boolean).join('\n');
       if (S.reached4('hauled')) rows.push(`${CONC.hud.purse}${ticks()}`);
       if (S.reached4('paid')) rows.push(`${CONC.hud.hold}${held()} / ${C.CONC_HOLD}`);
       if (s4 === 'docked') rows.push(CONC.hud.seeVarn);
@@ -159,13 +211,15 @@ export function createConcourseSystem(ctx) {
       else if (s4 === 'paid') rows.push(place === 'tender' && !held() ? CONC.hud.trade : CONC.hud.sell);
       else if (s4 === 'traded') rows.push(CONC.hud.bar);
       else if (s4 === 'done' && !S.open5()) rows.push(CONC.hud.done);
+      else if (place === 'hub' && S.open10() && s10 !== 'done') rows.push(s10 === 'idle' ? SIEGE.hud.varn : SIEGE.hud.toHelm);
+      else if (place === 'hub' && s10 === 'done' && !season.get('debrief.siege')) rows.push(SIEGE.hud.done);
       else if (place === 'hub') {
         if (s5 === 'idle') rows.push(APPR.hud.assessor);
         else if (s5 === 'robbed') rows.push(APPR.hud.home);
         else if (s5 === 'tracked') rows.push(APPR.hud.berth);
-        else if (s5 === 'done') rows.push(APPR.hud.done);
+        else if (s5 === 'done') rows.push((S.open9() && love.panel('hub')) || (s9 === 'done' ? LOVE.hud.done : S.open9() ? '' : APPR.hud.done));
       }
-      return rows.length ? rows.join('\n') : null;
+      return rows.filter(Boolean).length ? rows.filter(Boolean).join('\n') : null;
     },
     // --- chapter 5 ---
     touched: (i) => !!(found & (1 << i)),
@@ -193,7 +247,25 @@ export function createConcourseSystem(ctx) {
   const hub = createConcourseHub(ctx, S);
   const tender = createConcourseTender(ctx, S);
   const guest = createArchiveGuest(ctx, S);
+  const love = createLove(ctx, S); // chapter 9
+  S.love = love;
+  const vault = createVault(ctx, S, hub);
+  const shore = createShore(ctx, S); // chapter 14
+  S.shore = shore;
+  S.guest = vault;
   let hold = null, holdBroken = false;
+  let siege = null, siegeBroken = false; // the helm chart, in battle: built the first time it is fought
+  function getSiege() {
+    if (!siege && !siegeBroken) {
+      try {
+        siege = createSiegeHelm(ctx, S);
+      } catch (err) {
+        siegeBroken = true;
+        console.warn('[voyage] the siege could not be built', err);
+      }
+    }
+    return siege;
+  }
   function getHold() {
     if (!hold && !holdBroken) {
       try {
@@ -205,7 +277,7 @@ export function createConcourseSystem(ctx) {
     }
     return hold;
   }
-  const pristine = () => s4 === 'arrived' && s5 === 'idle' && !clock && !held() && !found && !sealed;
+  const pristine = () => s9 === 'idle' && s4 === 'arrived' && s5 === 'idle' && s10 === 'idle' && !clock && !held() && !found && !sealed && !vault.serialize() && s14 === 'idle' && !shore.serialize();
 
   return {
     docks: [
@@ -218,6 +290,12 @@ export function createConcourseSystem(ctx) {
         const s = getHold();
         return s ? { site: s, spawn: s.spawn, yaw: s.spawnYaw, look: 'dive' } : null;
       }
+      const lh = love.hop(key);
+      if (lh) return lh;
+      if (key === 'siege:helm' || key === 'siege:ask') {
+        const s = getSiege();
+        return s ? { site: s, spawn: s.spawn, yaw: s.spawnYaw, look: 'dive' } : null;
+      }
       if (key === 'concourse:deck') {
         ctx.voyage.place();
         return { site: hub, spawn: hub.fromHatch, yaw: 0, out: true };
@@ -225,17 +303,19 @@ export function createConcourseSystem(ctx) {
       return null;
     },
     door() {
-      for (const s of [hub, tender, hold]) {
+      for (const s of [hub, tender, hold, siege]) {
         if (!s || !s.inside() || !s.portal) continue;
         const to = s.portal;
         s.portal = null;
         return to;
       }
-      return null;
+      return love.door();
     },
     // who of this chapter's is aboard the light ship (world/lightship.js asks, for its archive)
-    aboard: (room) => (room === 'archive' && (s5 === 'robbed' || s5 === 'tracked') ? guest : null),
-    talk: (captainId) => (s4 === 'done' ? null : CONC.talk[captainId] || null),
+    aboard: (room) => (room === 'archive' && (s5 === 'robbed' || s5 === 'tracked') ? guest : room === 'archive' && vault.guest.active() ? vault.guest : love.aboard(room) || shore.aboard(room)),
+    // a holodeck program has been started aboard (src/voyage.js `holo`)
+    holo: (id) => vault.holo(id),
+    talk: (captainId) => (s4 !== 'done' ? CONC.talk[captainId] || null : love.talk(captainId) || (S.open10() && s10 !== 'done' ? SIEGE.talk[captainId] || null : null)),
     // one chapter's debrief at a time: chapter 4's, then (once it has been played) chapter 5's
     debrief() {
       if (s4 === 'done' && !season.get('debrief.concourse')) {
@@ -248,12 +328,22 @@ export function createConcourseSystem(ctx) {
         const end = season.get('ch5.thieves') === 'freed' ? D.freed : D.held;
         return { key: 'appraisal', title: D.title, complete: D.complete, lines: [D.open, ...D.body, end, D.close], nextCourse: D.nextCourse, nextNone: D.nextNone };
       }
-      return null;
+      if (s9 === 'done' && !season.get('debrief.love')) return love.debrief();
+      if (s10 === 'done' && !season.get('debrief.siege')) {
+        const D = SIEGE.debrief;
+        const how = ctx.fixed.outcome('siege')?.how === 'held' ? D.hold : D.evac;
+        return { key: 'siege', title: D.title, complete: D.complete, lines: [D.open, ...D.body, how, D.close], nextCourse: D.nextCourse, nextNone: D.nextNone };
+      }
+            return vault.debrief() || shore.debrief();
     },
     serialize() {
       if (pristine()) return undefined;
       const rec = { s4 };
       if (s5 !== 'idle') rec.s5 = s5;
+      if (s9 !== 'idle') rec.s9 = s9;
+      if (s10 !== 'idle') rec.s10 = s10;
+      if (s14 !== 'idle') rec.s14 = s14;
+      if (shore.serialize()) rec.shore = shore.serialize();
       if (clock) rec.clock = clock;
       if (held()) {
         rec.cargo = { ...cargo };
@@ -261,12 +351,17 @@ export function createConcourseSystem(ctx) {
       }
       if (found) rec.found = found;
       if (sealed) rec.sealed = true;
+      if (vault.serialize()) rec.vault = vault.serialize();
       return rec;
     },
     restore(raw) {
       if (!raw || typeof raw !== 'object') return;
       if (CONC_STAGES.includes(raw.s4)) s4 = raw.s4;
       if (APPR_STAGES.includes(raw.s5)) s5 = raw.s5;
+      if (LOVE_STAGES.includes(raw.s9)) s9 = raw.s9;
+      if (SIEGE_STAGES.includes(raw.s10)) s10 = raw.s10;
+      if (SHORE_STAGES.includes(raw.s14) && raw.s14 !== 'done') s14 = raw.s14;
+      shore.restore(raw.shore);
       if (Number.isFinite(raw.clock)) clock = Math.max(0, Math.floor(raw.clock));
       cargo = {};
       paid = {};
@@ -281,12 +376,14 @@ export function createConcourseSystem(ctx) {
       }
       if (Number.isFinite(raw.found)) found = raw.found & ((1 << APPR_TOUCHED.length) - 1);
       sealed = !!raw.sealed;
+      vault.restore(raw.vault);
     },
     state: () => ({
-      s4, s5, open5: S.open5(), ticks: ticks(), clock, cargo: { ...cargo }, held: held(), found, sealed,
+      s14: S.st14(), open14: S.open14(), shore: shore.state(),
+      s4, s5, s9, s10, open5: S.open5(), open9: S.open9(), open10: S.open10(), love: love.state(), siege: siege ? siege.info() : null, siegeEvent: ctx.fixed.outcome('siege'), ring: season.get('ch10.ring'), ticks: ticks(), clock, cargo: { ...cargo }, held: held(), found, sealed,
       fee: season.get('ch4.fee'), thieves: season.get('ch5.thieves'),
       prices: { hub: CONC_GOODS.map((g, i) => price('hub', i)), tender: CONC_GOODS.map((g, i) => price('tender', i)) },
-      hub: hub.info(), tender: tender.info(), hold: hold ? hold.info() : null, guest: guest.state(),
+      hub: hub.info(), tender: tender.info(), hold: hold ? hold.info() : null, guest: guest.state(), vault: vault.state(),
       places: { hub: hub.places, tender: tender.places, hold: hold ? hold.places : null },
     }),
     // --- dev (through __debug.tenretni.voyage().instance('concourse')) ---
@@ -317,6 +414,83 @@ export function createConcourseSystem(ctx) {
       ctx.save();
       return true;
     },
+    // chapter 9's stage, with the season's record made to agree. `how`: 'trusts' | 'wary'
+    go9(s, how) {
+      if (!LOVE_STAGES.includes(s)) return false;
+      s4 = 'done';
+      s5 = 'done';
+      season.set('debrief.concourse', true);
+      season.set('debrief.appraisal', true);
+      s9 = s;
+      if (i9(s) >= i9('patio')) {
+        const h = how === 'wary' ? 'wary' : how === 'trusts' ? 'trusts' : ctx.fixed.outcome('defection')?.how || 'trusts';
+        season.decide('ch9.why', h === 'trusts' ? 'nothing' : 'engine');
+        ctx.fixed.resolve('defection', h, { asked: h === 'trusts' ? 'nothing' : 'engine' });
+        season.set('ch9.ione', 'stayed');
+      } else {
+        season.set('ch9.why', null);
+        season.set('ch9.ione', null);
+        season.clearEvent('defection');
+        if (i9(s) >= i9('forecast')) ctx.fixed.forecast('defection');
+      }
+      if (s !== 'done') season.set('debrief.love', null);
+      ctx.save();
+      return true;
+    },
+    // chapter 10: `opt` 'evac' | 'hold' for done
+    go10(s, opt) {
+      if (!SIEGE_STAGES.includes(s)) return false;
+      s4 = 'done';
+      s5 = 'done';
+      season.set('debrief.concourse', true);
+      season.set('debrief.appraisal', true);
+      s9 = 'done'; // (the siege waits for chapter 9: the envoy has crossed)
+      season.set('debrief.love', true);
+      s10 = s;
+      if (s === 'done') {
+        season.decide('ch10.ring', opt === 'hold' ? 'hold' : 'evac');
+        if (season.pending()?.key === 'ch10.ring') season.survive('ch10.ring');
+        ctx.fixed.resolve('siege', opt === 'hold' ? 'held' : 'evacuated', { saved: opt === 'hold' ? 4 : 7, of: 8 });
+      } else {
+        if (season.pending()?.key === 'ch10.ring') season.survive('ch10.ring');
+        season.set('ch10.ring', null);
+        season.clearEvent('siege');
+        season.set('debrief.siege', null);
+      }
+      ctx.save();
+      return true;
+    },
+    siege: () => siege,
+    love,
+    // chapter 14: with everything before it taken as played. `how`: 'blind' | 'curious'; `ione`: 'aboard' | 'gone' | 'lost'
+    go14(s, how, ione) {
+      if (!SHORE_STAGES.includes(s)) return false;
+      s4 = s5 = s9 = s10 = 'done';
+      for (const k of ['concourse', 'appraisal', 'love', 'siege', 'vault', 'engine', 'unforecast']) season.set(`debrief.${k}`, true);
+      if (!ctx.fixed.resolved('siege')) ctx.fixed.resolve('siege', 'evacuated', { saved: 7, of: 8 });
+      if (!ctx.fixed.resolved('refugees')) ctx.fixed.resolve('refugees', 'sold', {});
+      if (!ctx.fixed.resolved('merger') || how) ctx.fixed.resolve('merger', how === 'curious' ? 'curious' : 'blind', {});
+      if (ione || !season.get('ch13.ione')) season.set('ch13.ione', ione || 'aboard');
+      s14 = s === 'done' ? 'counted' : s;
+      season.set('debrief.shore', s === 'done' ? true : null);
+      ctx.save();
+      return true;
+    },
+    // ...and chapter 11's (world/vault.js): `opt` 'sold' | 'recompiled' | 'friend' | 'rest', `id` the world on the table
+    go11(s, opt, id) {
+      s4 = 'done';
+      s5 = 'done';
+      season.set('debrief.concourse', true);
+      season.set('debrief.appraisal', true);
+      // (chapter 11 waits for the siege: it is taken as fought, and talked over)
+      s9 = 'done';
+      season.set('debrief.love', true);
+      s10 = 'done';
+      season.set('debrief.siege', true);
+      if (!ctx.fixed.resolved('siege')) ctx.fixed.resolve('siege', 'evacuated', { saved: 7, of: 8 });
+      return vault.go(s, opt, id);
+    },
+    vault,
     trade,
     price,
     S,

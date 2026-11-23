@@ -1301,6 +1301,216 @@ The sealed forecast names whoever is aboard, by the names in `world/chapter-dial
 
 **Science.** Real: Lagrange points, and the stability of L4; gravitational time dilation, which near a neutron star is tens of per cent. Past known physics, and marked in `world/concourse-tender.js`: that the time a machine did not live can be banked and spent.
 
+#### Chapter 6: Futures (`futures`)
+
+Lux's chapter. `world/futures-system.js` (system, stages, record), `world/futures-city.js` (the square), `world/futures-dialogue.js` (every word and name). No `needs`.
+
+**The place.** The Orrery: a world that sold its whole future to the season's rival three hundred years ago. The dock is a pad at the edge of a round square with a clock tower at its middle. Sixteen citizens each walk one beat between a door and a place in the square, on a period of their own, and where every one of them is, is a function of one clock (`ct`): that is what makes them predictable. Everyone on schedule wears a lit band at the ankle.
+
+**The board.** The corner panel says who reaches where, and in how long. Three are watched being on time: stand within `FUT_WATCH_R` of the place as each arrives. The fourth is forecast to sit down on the south bench on the hour (`FUT_HOUR_WAIT` later) and does not come. She is the one figure with no band, walking the square the other way round.
+
+**Stages** (append-only): `arrived → forecast → welcomed → predicted → missed → found → decided → done`.
+
+| Stage | Reached when | Shown as |
+|---|---|---|
+| `forecast` | first step out | `fixed.forecast('flood')` |
+| `welcomed` | the Keeper of Hours (E) has explained, and the hour has struck | cinematic talk, then a scene (`FUT_CLOCK_T`) |
+| `predicted` | three arrivals watched | the board; a chime each |
+| `missed` | the hour, and an empty bench | lines |
+| `found` | the late one (E) | cinematic talk |
+| `decided` | the Keeper offers the light ship a forecast of its own: SIGN, or refuse (`ch6.signed`: true \| false) | a choice; asked again if left |
+| `done` | she has been walked back to her bench | scene (`FUT_FIX_T`), the same either way |
+
+**The fixed event.** `flood` is forecast on the first step out and resolved by the decision: `how: 'bound'` if the ship is forecast, `'free'` if not. Once it is resolved, `world/concourse-system.js` multiplies every price at the free port by `CONC_FLOOD`: what was saved buys half.
+
+**Crew.** The offer is Lux's temptation. With Lux lost the choice reads SIGN IT / REFUSE IT and the line is said by whoever is aboard; with nobody aboard it is the pilot's alone. Nothing here can kill the pilot, so the decision is survived as it is made.
+
+**Tunables.** `FUT_*`, and `CONC_FLOOD` in the port's block.
+
+**Debug.** `__debug.tenretni.voyage().instance('futures')`: `state()` (`stage`, `signed`, `flood`, `city`, `places`), `go(stage, 'signed' | 'refused')`, `skip()`, `decide('signed' | 'refused')`, `dbg.nearly(sec)` (runs the city's clock on to just before the next watched arrival), `dbg.hour(left)`.
+
+**Science.** The premise is the stretch, and the file's header says so: a city is a chaotic system, and no measurement is fine enough to forecast one for an afternoon.
+#### Chapter 8: The Weight of Hands (`swarm`)
+
+Vask's chapter. `world/swarm-system.js` (system, stages, record, doors), `world/swarm-yard.js` (the place), `world/swarm-dialogue.js` (every word and name). No `needs`. No fixed event.
+
+**The place.** A dim star with half a Dyson swarm round it, and the High Yard: a `capitalWalk` dock in the world, a deck 144 by 164 with a pad, a six-sided mirror frame stood on edge between two gantries, stacked stock, a pattern post, a cradle, and a ring of lamps round a builder that stopped long ago. The swarm is drawn as sky: `SWARM_MIRRORS` instanced plates on a part-shell (`SWARM_SHELL_R`) whose middle is carried `SWARM_SHELL_DIST` along the star's direction from the camera, the way `src/voyage.js` carries the star, so the two never part. Near plates are seen from behind and are dark; far ones face the star and the eye and are bright.
+
+**The builders.** Four that are read (the Hauler, the Welder, the Maker, the Old Hand) and `SWARM_BUILDERS` more walking beats (`SWARM_PACE`). Each is a casing and, inside it, a second mesh that only the X-ray band draws (`lampLit(4.0, p)`, no depth test): the casing goes to a ghost of its edges in the beam and what is inside shows through it. Once read, the inside stays faintly lit in every band.
+
+**Reading.** The lamp is carried by hand from the first scene on (Q steps the band, L is the lamp; `SWARM_LAMP_POWER`). Holding the X-ray beam on one of the four for `SWARM_READ_TIME` from within `SWARM_READ_RANGE` reads it: what is inside is said, then what a miner makes of it. Aimed from too far, the screen says to come closer. Which have been read is saved (`seen`, one bit each).
+#### Chapter 7: The Pulsar Choir (`choir`)
+
+`world/choir-system.js` (system, stages, record, door), `world/choir-hall.js` (the place), `world/choir-dialogue.js` (every word and name). Marrow's chapter. No `needs`: a standalone chapter. No fixed event.
+
+**The place.** A millisecond pulsar and the white dwarf beside it (the chart's star is the dwarf; the pulsar is the hall's to draw). The dock is the choir hall: a forecourt and pad, then a nave of stone ribs open to the sky, 280 long, every rib the same, with three bells hung from the ridge and a great rose at the far end. The star stands low over that end, so that it is in the middle of the rose from the west door and still inside it from the listening ring before the altar. It is walked in the world (not paused).
+
+**The star as a note.** A pulse every few milliseconds is not heard as beats: through a speaker it is a pitch. On the lamp's radio band, pointed at the star, the star is a note in the ear (`setRadio`) and a bar on the corner panel, strongest along the way the lamp points and nearest the listening ring. Off the band the panel says to switch.
+
+**Stages** (append-only):
+
+| Stage | Reached when | Shown as |
+|---|---|---|
+| `arrived` | the ship is here | the passage (5.7.8) |
+| `docked` | first step out | scene, `SWARM_ARRIVE_T`: the swarm from the pad |
+| `read` | all four read | scene, `SWARM_READ_T`: one X-ray beam from overhead with all four in it |
+| `offered` | `SWARM_OFFER_DELAY` later: two buyers on one channel | a transmission |
+| `decided` | at the pattern post (E): END THE ORDER or ASSIGN THE OUTPUT (`ch8.builders`: `freed` \| `contracted`) | cinematic talk with a choice; each captain aboard says their word first |
+| `done` | what follows has been watched | scene, `SWARM_END_T` |
+
+**The choice.** Freed: every builder stops, the yard's working lamps go out, and the Welder goes to the Old Hand and starts something that is in no pattern; the port does not get the star's power. Contracted: the swarm brightens and a line of light leaves it for the port's relay; the builders work on and are not told. Nothing here can kill the pilot, so the decision is offered, made and survived in one step; `decided` is saved as `done`, and leaving while the last scene plays ends at `done`. Chapter 10 reads `ch8.builders` for who comes to the siege.
+
+**Doors.** `swarm:pad`, `swarm:post`.
+
+**Tunables.** The `SWARM_*` block in `src/constants.js`.
+
+**Debug.** `__debug.tenretni.voyage().instance('swarm')`: `state()` (`stage`, `seen`, `decision`, `pending`, `yard`, `places`), `go(stage, 'freed' | 'contracted')`, `seek(u)`, `skip()`, `decide(option)`, and `dbg` (`read(i)`, `understood()`, `offers()`).
+
+**Science.** Real: a Dyson swarm of independent collectors (a rigid shell is not stable); a star a tenth as bright as the Sun still giving about 4e25 W; self-replicating machines as von Neumann proposed them. Stretched, and marked in `world/swarm-yard.js`: such machines would finish a swarm in decades, not leave it half done after ten thousand years; an X-ray picture needs a detector behind its subject; and the builders' inner lives are the story's.
+| `docked` | first step out | scene, `CHOIR_ARRIVE_T`: the hall, and the bells stopping part way through the hour. The lamp is in hand from here. |
+| `met` | the First Voice (E) has said what the star was and what it has done | cinematic talk |
+| `heard` | on the listening ring (`CHOIR_LISTEN_R`), the star held on the radio band for `CHOIR_HEAR_TIME` | lines |
+| `sung` | at the cantor's stand, the old hymn sung back three times | scene, `CHOIR_CHORUS_T`: the hall takes it up |
+| `decided` | KEEP YOUR OWN TIME or TAKE THE TABLE | cinematic talk with a choice; asked again if left |
+| `done` | the hall has answered | scene, `CHOIR_ANSWER_T`, then the debrief on the bridge |
+
+**The hymn.** The choir sings a verse on the three bells and stops where the star's note used to go. The pilot sings it back: 1, 2, 3 for the bells and 4, the star as it now is, in the gap (keys, or four pads on screen, `#choirPads`). The star's pad needs the lamp on the radio band; off it the pad is refused, and that is not counted as a wrong note. Three verses, longer each time (`CHOIR_PHRASES`, `CHOIR_NOTES`). A wrong note and the verse is sung again; stepping more than `CHOIR_STAND_R` from the stand makes the hymn wait. The hymn is not mended: the step is sung.
+
+**The choice.** An actuary of the season's rival stands by the altar with a table of every glitch to come, for the hall and the Choir's word. The First Voice asks the pilot. Season fact `ch7.choir`: `'free'` (they keep their own time, and will come when rung for; chapter 10 reads this) or `'forecast'` (the table is on the altar, the bells are tied, the actuary stays). Nothing here can kill the pilot, so the decision is offered, made and survived in one step. A game left between the choice and the hall's answer plays the answer on coming back.
+
+**Crew.** Marrow's lines carry the teaching. Where she is lost another captain's `other` carries it; with nobody aboard the `solo` lines do, and the First Voice's own talk carries the rest.
+
+**Door.** `choir:nave` (the cantor's stand).
+
+**Tunables.** The `CHOIR_*` block in `src/constants.js`, and the tables `CHOIR_PHRASES` and `CHOIR_NOTES`.
+
+**Debug.** `__debug.tenretni.voyage().instance('choir')`: `state()` (`stage`, `choir`, `pending`, `hall`, `places`), `go(stage, 'free' | 'forecast')`, `seek(u)`, `skip()`, `decide(option)`, and `dbg` (`band(id)`, `aim()`, `stand()`, `press(i)`).
+
+**Science.** Real: millisecond pulsars and their use as clocks; glitches (the crust spun up, all at once, by the superfluid inside); a fast pulsar heard as a pitch. Stretched, and marked in `world/choir-hall.js`: a real glitch is a part in a million or less, far too small to hear, and here it is about a semitone so that it can be sung; and a beam sweeping hundreds of times a second is drawn as the steady smear it would be.
+
+#### Chapter 10: The Siege of the Concourse (`concourse`, `s10`)
+
+Fought at the free port, from the light ship's helm chart. `world/siege-helm.js` (the battle), `world/siege-dialogue.js` (its words), and a third stage machine in `world/concourse-system.js` (`idle → called → done`). It opens once the chapters before it at the port have been played and talked over (`S.open10()`).
+
+**How it is reached.** On the port's deck the dockmaster calls every berth (E): `called`. A console at the berth then takes the pilot straight to the helm (`siege:helm`), a site under the pause with one seat.
+
+**The helm chart, drawn.** `src/drawPad.js` gained two options for this, and is otherwise as it was: `back(g, w, h)` paints under the ink, and `minInk`. Each pass the pad opens over the chart: the port, the eight sections of its outer ring, the grey columns and the dashed lines they will keep to (`SIEGE_WAVES`), and from the second pass the red circles of the flagship's guns along its own line. The pilot draws; FLY IT; the light ship flies the stroke in `SIEGE_FLY` seconds. Where it has been, any grey ship that comes within `SIEGE_CUT` is broken. What is not broken reaches the section it was aimed at (`SIEGE_HITS` arrivals a point, `SIEGE_SEG_HP` points a section). A stroke through the red loses the ship, and the pass is drawn again.
+
+**Who fights beside the port** is what was done earlier in the season: the Choir if `ch7.choir` is `free`, the swarm's builders if `ch8.builders` is `freed`, the cable crew if `ch4.fee` is `split`. Each thins the columns in one quarter of the sky by `SIEGE_ALLY_THIN`, and is named before the first pass. With none of them, that is said too.
+
+**The choice,** before the fourth pass, as a transmission with each captain aboard saying their side: COVER THE LIFEBOATS (the defenders close on the ring, the ring takes no more hits because it is given up, and all but one section's people get out) or HOLD THE LINE (the pass is flown for the ring; whoever is in a section that has gone dark stays in it). `ch10.ring`: `evac` | `hold`. Lost on that last pass, the choice is unmade and asked again.
+
+**The fixed event.** `siege` is forecast at the helm before anything else, and resolved by the fall: a scene (`SIEGE_FALL_T`) in which every section goes dark and comes away, either way. `how: 'evacuated' | 'held'`, `detail: { saved, of: 8, allies, debtors }`; `ch10.saved` is the sections whose people got out. If the two thieves of chapter 5 were handed over they were on the debtors' deck of the outer ring, and the scene says whether they got out.
+
+**Tunables.** `SIEGE_*`, and the table `SIEGE_WAVES`.
+
+**Debug.** `instance('concourse')`: `go10(stage, 'evac' | 'hold')`, `state().siege` (`phase`, `wave`, `pad`, `alive`, `broken`, `reached`, `ring`, `standing`, `allies`, `flag`, `columns`, `decision`, `outcome`), `siege().dbg` (`skip()`, `wave(n)`, `ask()`, `decide(option)`). The pad is driven with `drawPadDebug.stroke(points)` and `.done()`.
+#### Chapter 9: The Forecast of Love (`concourse`, third chapter)
+
+The pilot's chapter. It is played at the free port and aboard the light ship, so it is a third stage machine of the `concourse` system (`s9` in its record, `go9` to jump it, a debrief with `key: 'love'`). `world/love.js` is the chapter, `world/love-places.js` its two places of its own, `world/love-dialogue.js` every word. It opens once chapter 5's debrief has been played (`open9`). The envoy is the figure from the port's bar (the same seed) and the same person.
+
+**Where it is played.**
+
+| Beat | Place | How it is reached |
+|---|---|---|
+| She asks to be shown a world | the port's bar | the deck of chapters 4 and 5; the fixed event's forecast is shown first, on stepping onto the deck |
+| A walk, and a ski run | the hill: a holodeck program of the ski hill on Wyattmattoe, a small site of its own | aboard, she waits in the archive by the holodeck; her console there is the door `love:hill` |
+| What the engine forecast for her | the bottom of the hill | the run ends there |
+| A meal | the crew deck's long table (`world/basedeck.js`), with whoever is aboard | the table's own SIT DOWN TO EAT |
+| The decision | the freighter's patio, at night: a small site of its own | the meal ends on the door `love:patio`; afterwards a console on the crew deck leads aft |
+
+The hill is not the whole Wyattmattoe program (the planet, its town, its lifts): the chapter wants one slope and one other person on it. The run is steered with A / D for `LOVE_RUN_LEN` at `LOVE_RUN_SPEED`; six gates are counted and nothing depends on them; E skips it.
+
+**Stages** (append-only): `idle → forecast → asked → hill → told → dinner → patio → done`.
+
+| Stage | Reached when | Shown as |
+|---|---|---|
+| `forecast` | on the port's deck, once the chapter is open | `fixed.forecast('defection')` |
+| `asked` | the envoy at the bar (E). She leaves the bar for good. | cinematic talk |
+| `hill` | the run has been skied (talk to her at the top, then E at the edge) | play, with her lines said on the way down |
+| `told` | her, at the bottom (E) | cinematic talk |
+| `dinner` | the meal has been eaten | the crew deck's dinner scene, `LOVE_DINNER_T`, E skips |
+| `patio` | ASK HER FOR NOTHING, or ASK WHAT SHE KNOWS ABOUT THE ENGINE | a choice; asked again if left |
+| `done` | first bell: a shuttle leaves without her | scene, `LOVE_STAY_T` |
+
+**The fixed event.** `defection` is resolved by the decision: `how: 'trusts'` (asked for nothing) or `'wary'` (asked what she knows). She stays either way: the fact `ch9.ione` is `'stayed'`, and chapter 13 decides the rest. Nothing here can kill the pilot, so the decision (`ch9.why`: `nothing` | `engine`) is survived as it is made.
+
+**Guests aboard.** Two rooms take a guest from `voyage.aboard(room)`, each doing nothing different when there is none:
+- `'archive'` (5.7.9, chapters 4 and 5): she stands by the holodeck and her console comes before the room's own.
+- `'deck'`: `ctx.guest` in `world/basedeck.js`. Its `consoles()` come first, as in the archive, and it may offer `dinner(hereIds) -> { rig, T, lines: [[seconds, who, text]], done() -> a door | null }`: the guest's figure is sat at the table, the talk and the length of the meal are the guest's, and when it ends the pilot goes through the door `done()` names.
+
+The port's deck has four small hooks for a later chapter (`S.love` in `world/concourse-hub.js`): what the envoy says, whether she is still at the bar, a mark, and a call each frame for the chapter's forecast.
+
+**Crew.** At the table each captain's line is said by whoever is sat there; with nobody aboard the meal is the two of them and she has one line more. Every other crew line has a `solo` or is hers.
+
+**Tunables.** `LOVE_*`.
+
+**Debug.** `__debug.tenretni.voyage().instance('concourse')`: `state()` adds `s9`, `open9` and `love` (`how`, `ione`, `hill`, `patio`, `archive`, `places`); `go9(stage, 'trusts' | 'wary')`; `love.L.decide(how)`; `love.patio().dbg.skip()`.
+#### Chapter 11: The Vault (played in `concourse`)
+
+`world/vault.js` (stages, the two cases, the decision, the scene, the archive guest), `world/vault-dialogue.js` (every word). It is a guest of the free port's system, as chapter 5 is of the archive: `world/concourse-system.js` builds it, saves it under `chapters.concourse.vault`, and hands it to the deck as `S.guest`.
+
+**When it opens.** `S.open11()` in `world/concourse-system.js`, in one place: for now, chapter 5 done and its debrief played. It becomes `fixed.resolved('siege')` when chapter 10 is built.
+
+**The place.** The port's deck, with the outer ring's people on it (`VAULT_PEOPLE` figures and what they carried, by the berth), and the light ship's archive.
+
+**Stages** (append-only): `idle → forecast → asked → walked → decided → done`.
+
+| Stage | Reached when | Shown as |
+|---|---|---|
+| `forecast` | first step onto the deck once it is open | `fixed.forecast('refugees')` |
+| `asked` | the dockmaster (E) has put the two offers, and what is on the table is settled | cinematic talk; in the world case, a choice of which world |
+| `walked` | the pilot has walked it once more | the holodeck program itself; or the record, a transmission |
+| `decided` | chosen (`ch11.choice`); `fixed.resolve('refugees', how, …)`; `season.survive` | each captain aboard says their side, then the choice |
+| `done` | the ring's people have gone to where they are to live | scene, `VAULT_END_T` |
+
+**The two cases.** Which one a save gets is settled as the dockmaster asks, and kept.
+
+| | Every captain alive: a WORLD | A captain lost: a PERSON |
+|---|---|---|
+| On the table | one of the archive's worlds that can still be walked (the holodeck's `world` rows); the pilot picks which | the first lost captain in the roster's order; the port wants recompiling proved on one complete record before it stakes four thousand lives on it |
+| Walk it once more | start that world's program at the light ship's holodeck (`voyage.holo(id)` tells the chapter) | E at the record, across the walk from the holodeck's plinth in the archive |
+| The choice | SELL (`sold`) or RECOMPILE (`recompiled`) | RECOMPILE THEM (`friend`) or LET THEM REST (`rest`) |
+| Where the refugees go | berths bought with the price; or the world itself | berths the port pays for on the strength of the proof; or the lower docks, on credit |
+| What the archive loses | that world, either way: `ch11.world` is its id | nothing: `ch11.world` is null; `ch11.friend` is the captain's id if recompiled |
+
+**The cost is permanent.** `voyage.archiveGone()` reads `ch11.world`; `catalog()` in `src/tenretni.js` shuts that row in the holodeck for good, in every system, with the note `GIVEN UP` (`ARCHIVE_GONE_NOTE` in `world/season-dialogue.js`). Catalogue rows now carry their `kind`.
+
+**What "made real" is, so far.** A recompiled world is a body in the port's sky (`VAULT_WORLD_DIST`, `VAULT_WORLD_R`), its row is shut, and the crew say so. It cannot be flown to or landed on. A recompiled captain is the fact `ch11.friend` only: `chapter.lost()` is unchanged, and nobody stands in their quarters yet.
+
+**Hooks this chapter added.** `voyage.archive()` (the holodeck's rows), `voyage.archiveGone()`, `voyage.holo(id)` and an instance's optional `holo(id)`; in `src/homebase.js` the holodeck tells the voyage which program is started. On the deck (`world/concourse-hub.js`), `S.guest` may supply `talk('varn')`, `choice(tag)`, `mark()`, `panel(place)`, `held()`, `act()`, `heldPrompt()`, `camera(pos, target)`, `enter()`, `leave()` and `tick(d, t)` (true while its scene has the frame).
+
+**Decision.** Nothing here can kill the pilot, so it is offered, made and survived in one step. Left with X, it is put again.
+
+**Tunables.** `VAULT_*`.
+
+**Debug.** `__debug.tenretni.voyage().instance('concourse')`: `state().vault` (`stage`, `open`, `world`, `label`, `friend`, `how`, `event`, `camp`, `newWorld`, `scene`, `worlds`, `places`), `go11(stage, 'sold' | 'recompiled' | 'friend' | 'rest', worldId)`, `vault.skip()`, `vault.decide(how)`, `vault.settle(worldId)`; `voyage().holo(id)`.
+
+**Science.** All of it is past known physics: recompiling a world, or a person, from a record is the Tenretni's art. The header of `world/vault.js` says so.
+
+#### Chapter 1 (sealed; structure only)
+
+Played aboard the light ship in the first system (`horizon`), so it is that system's instance: `world/SEALED-aftermath.js`, words in `world/SEALED-aftermath-words.js`, registered as `create` on the first entry of `SYSTEMS`. It answers the chapter of 5.7.7 and is sealed with it. It reads `chapter.hz` and that chapter's own `facts()`.
+
+- Stages: `a1 → a2 → a3`. `a3` is derived: the season fact `debrief.horizon`. A save that had already travelled when this chapter first exists is taken as `a3` and asked for nothing (it writes nothing either).
+- It is a guest aboard (`aboard(room)`): two consoles on the crew deck, one in the archive. With all three used: `a2`, and `debrief()` is offered on the bridge.
+- The helm. `voyage().aboard('helm')` may return `{ refuse() -> lines | null, before() -> lines }`, read by the chart in `src/homebase.js`: `refuse` keeps the chart shut, `before` is said once ahead of it. Until `a3` the chart is refused here.
+- Record: `{ seen, shown? }` under `chapters.horizon`.
+- Debug: `instance('horizon')`: `state()` (`stage`, `seen`, `shown`, `skipped`, `lost`, `places`), `go('a1' | 'a2' | 'a3')`, `look(i)`.
+
+#### Chapter 14: Shore Leave (`concourse`, `s14`)
+
+The season's last chapter: `world/shore.js`, `world/shore-dialogue.js`, a fifth stage machine at the free port. It opens once the finale has been played and talked over (`S.open14()`: the fixed event `merger` resolved, and `debrief.unforecast`). It reads how the season went (`merger.how`, `ch13.ione`, `ch13.core`, `ch11.choice`, `ch3.decision`) and offers no choice.
+
+| Stage | Reached when | Shown as |
+|---|---|---|
+| `bar` | the bar on the port's deck (E) | cinematic talk: what a second is worth now, by how the season ended |
+| `dinner` | the crew deck's own SIT DOWN TO EAT, as this chapter's meal (the deck's guest hook) | the long table: whoever made it, and the envoy if she is aboard; alone, the pilot's own lines |
+| `counted` | a console in the archive | cinematic talk: what the archive holds now, from what was done |
+| `done` | its debrief has played on the bridge (derived: `debrief.shore`) | the card SEASON 1 — THE VOYAGE, COMPLETE; then, once, at the helm: the next blank sky |
+
+Debug: `instance('concourse').go14(stage, 'blind' | 'curious', 'aboard' | 'gone' | 'lost')`, `state()` (`s14`, `open14`, `shore`).
+
 **Ending a chapter.** A system instance may offer `debrief()`: once the
 chapter has ended, `{ title, complete, lines: [[captain id, text]], nextCourse,
 nextNone }`. The first time the pilot is on the bridge after that, the captains
@@ -1349,6 +1559,29 @@ They lead and wait: the one that leads keeps `ICE_LEAD_GAP` ahead at `ICE_LEAD_S
 **Debug.** `__debug.tenretni.voyage().instance('ice')`: `state()` (`stage`, `decision`, `pending`, `contact`, `surface`, `ocean`, `places`), `go(stage, opt)`, `seek(u)`, `skip()`, `decide('show' | 'leave')`, `kill(cause)`, and `dbg` once the ocean is built (`put({ at, look, yaw, pitch })`, `band(id)`, `press(i)`, `ask()`, `melt(v)`, `time(left)`).
 
 **Science.** Real: rogue planets; an ocean kept liquid under ice by radiogenic heat with no star; vent life fed by chemistry; water boiling and freezing into a plume in vacuum; the 21 cm hydrogen line, and cold ice passing radio at that wavelength. Stretched, and marked in `world/ice-ocean.js`: liquid water swallows 1.4 GHz within centimetres, so nobody could talk across an ocean on it, and a hole held open by a warm plume would skin over.
+
+### 5.7.10 Season 2: The Glass Crown
+
+The season's story is `plans/season-2-arc.md`: ten chapters. No Season 2 chapter is built until Season 1 is, because nearly every one reads the Season 1 record (5.7.9: `fgsf.voyage.season`).
+
+**Fixed events.** Season 2 follows the rule of 5.7.9, "How history works": its big events happen whatever the pilot does (the Choir falls; the Concourse is lost and retaken; someone dies at the Chonga; the pilot goes), and the pilot's decisions change who, how and what is left. Each one is forecast on screen before it happens and remembered afterwards (`src/fixedEvents.js`). Its rows are added to `FIXED` in `world/season-dialogue.js` as its chapters are built.
+
+**What it reads from Season 1.**
+
+| Season 1 outcome | Where it is kept | What it changes in Season 2 |
+|---|---|---|
+| The Foregone came out of Ch 13 blind or curious | fixed event `merger`, `how` | Blind: the Remnant is most of what is left of them, and the forged forecast in Ch 7 is cruelly easy to sell. Curious: the Remnant is a small splinter, the rest are a possible ally, and Ch 7 is about winning them over. |
+| Ione stayed, or did not | fixed event `defection`, and Ch 13's record | If she stayed, she is the person the pilot loses at the Choir. If not, it is the Concourse dockmaster, and the chapter is written for that. |
+| A captain was lost | `chapter.crew()`, `chapter.lost(id)` | Every role moves along. Lux gone: Vask takes command in Ch 2. Marrow gone: the death at the Chonga falls on whoever is left who believed in it, and with nobody left, on the Pulsar Choir's eldest. No captains at all: the pilot carries Ch 2 alone from inside the glass. |
+| The swarm builders were freed or contracted (S1 Ch 8) | fact `ch8.builders` | Freed: they arrive at the Long Way Back unasked, and their ships turn the battle. Contracted: the Claudians encased them, and they are fought. |
+| Lux signed the forecast (S1 Ch 6) | fact `ch6.signed`; fixed event `flood`, `how: 'bound' \| 'free'` | Signed: the Claudians find the light ship through the contract, and part of Ch 1 is learning how they knew. |
+| A world was sold or recompiled (S1 Ch 11) | Ch 11's facts, fixed event `refugees` | A recompiled world is in the war as a place the Claudians can reach. A sold world turns up in Ch 10, in the hands of whoever bought it. |
+
+Also kept from Season 1, for chapters that want them: `ch2.decision`, `ch3.decision`, `ch4.fee`, `ch5.thieves`, `ch7.choir`, `ticks`.
+
+**Placeholder names.** Claudians, Chonga, Remnant and Marshal are placeholders, kept in one constants file as Season 1's four are (`world/season-names.js`), and spelled nowhere else in code or dialogue.
+
+**Rules for every Season 2 chapter.** Those of 5.7.9, and: nothing in the season changes the pilot's model (an encased figure is a figure inside glass, not the pilot's own); each chapter has a named set piece, built first; Star Trek gives the structure only, and nothing is copied from it.
 
 ### 5.8 The Sky City (Saturnia)
 

@@ -8,6 +8,8 @@
 // go.
 //
 //   openDrawPad(text, onDone)   text: { title, hint, undo, clear, done }
+//                               and, for a pad drawn over something (the helm chart of GDD 5.7.9,
+//                               chapter 10): back(g, w, h) paints under the strokes; minInk
 //   closeDrawPad()              (leaving the place by any other way)
 //   isDrawPadOpen()
 //
@@ -53,6 +55,7 @@ let live = null; // the stroke under the finger
 let pointer = null;
 let done = null;
 let open = false;
+let back = null, minInk = MIN_INK; // (set per opening; the first creature's pad has neither)
 
 function ink() {
   let total = 0;
@@ -63,6 +66,11 @@ function ink() {
 function paint() {
   const w = canvas.width, h = canvas.height;
   g.clearRect(0, 0, w, h);
+  if (back) {
+    g.save();
+    back(g, w, h);
+    g.restore();
+  }
   g.lineCap = g.lineJoin = 'round';
   // twice: a wide soft line, then a bright thin one
   for (const [width, alpha, blur] of [[w * 0.016, 0.35, w * 0.03], [w * 0.005, 1, w * 0.008]]) {
@@ -83,7 +91,7 @@ function paint() {
   }
   const has = strokes.length > 0;
   btnUndo.disabled = btnClear.disabled = !has;
-  btnDone.disabled = ink() < MIN_INK;
+  btnDone.disabled = ink() < minInk;
   root.classList.toggle('inked', has);
 }
 
@@ -143,7 +151,7 @@ function build() {
     paint();
   });
   btnDone.addEventListener('click', () => {
-    if (ink() < MIN_INK) return;
+    if (ink() < minInk) return;
     const cb = done, out = strokes;
     closeDrawPad();
     if (cb) cb(out);
@@ -167,6 +175,8 @@ export function openDrawPad(text, onDone) {
   if (open) return;
   open = true;
   done = onDone;
+  back = typeof text.back === 'function' ? text.back : null;
+  minInk = Number.isFinite(text.minInk) ? text.minInk : MIN_INK;
   strokes = [];
   live = null;
   pointer = null;
@@ -201,4 +211,5 @@ export const drawPadDebug = {
   },
   done: () => open && !btnDone.disabled && (btnDone.click(), true),
   state: () => ({ open, strokes: strokes.length, ink: ink(), canDone: !!btnDone && !btnDone.disabled }),
+  repaint: () => open && (paint(), true),
 };

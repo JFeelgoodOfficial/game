@@ -35,6 +35,8 @@ import { createSceneClock, crewSay } from './sceneClock.js';
 import { createCrewFollow } from './crewFollow.js';
 import { CONC } from './concourse-dialogue.js';
 import { APPR } from './appraisal-dialogue.js';
+import { SIEGE } from './siege-dialogue.js';
+import { SHORE } from './shore-dialogue.js';
 
 const ZERO = new THREE.Vector3();
 const HW = 62, Z0 = -112, Z1 = 118; // the deck
@@ -201,6 +203,14 @@ export function createConcourseHub(ctx, S) {
   const npcs = [
     // the dockmaster: what the money is, and the first job
     npc([VARN[0] + 0.4, VARN[1]], 2.7, () => {
+      // chapter 10: she is calling every berth
+      if (S.open10() && S.st10() !== 'done') {
+        const first = S.adv10('called');
+        return speakerLines(SIEGE.dockmaster, first ? SIEGE.call : SIEGE.callAgain);
+      }
+      // (a later chapter, a guest of this deck, may have the dockmaster's next words: `S.guest`)
+      const g = S.guest && S.guest.talk ? S.guest.talk('varn') : null;
+      if (g) return g;
       const st = S.st4();
       if (st === 'docked') {
         queue(CONC.meetCrew);
@@ -211,7 +221,8 @@ export function createConcourseHub(ctx, S) {
       return speakerLines(CONC.dockmaster, CONC.meetBar);
     }, () => true),
     npc(BAR.keep, 2.6, () => speakerLines(CONC.barkeep, CONC.barkeepTalk), () => true),
-    npc(BAR.envoy, 2.6, () => speakerLines(CONC.envoy, CONC.envoyAgain), () => S.reached4('done')),
+    // (chapter 9, world/love.js, has her say other things here, and then takes her aboard for good)
+    npc(BAR.envoy, 2.6, () => (S.love && S.love.envoyTalk(queue)) || speakerLines(CONC.envoy, CONC.envoyAgain), () => S.reached4('done') && !(S.love && S.love.envoyAway())),
     // chapter 5: the assessor, at the berth
     npc(ASSESSOR, 2.6, () => {
       if (S.st5() !== 'idle') return speakerLines(APPR.assessor, APPR.valueAgain);
@@ -224,7 +235,11 @@ export function createConcourseHub(ctx, S) {
   ];
   const consoles = [
     ...[STALLS[1], STALLS[2]].map(([x, z]) => ({ x: x - Math.sign(x) * 2.2, y: 0, z, r: 3.2, prompt: CONC.prompts.market, off: () => !S.reached4('paid'), use: () => (S.market('hub'), null) })),
+    // chapter 14: the bar again, and the argument in it
+    { x: BAR.door[0], y: 0, z: BAR.door[1], r: 3.4, prompt: SHORE.prompts.bar, off: () => !(S.shore && S.shore.barOpen()), use: () => S.shore.barTalk() },
     { x: BAR.door[0], y: 0, z: BAR.door[1], r: 3.4, prompt: CONC.prompts.bar, off: () => S.st4() !== 'traded' || !!scene, use: () => (beginBar(), null) },
+    // chapter 10: from the berth, straight to the light ship's helm
+    { x: PAD[0] - 7, y: 0, z: PAD[1] - 20, r: 3.4, prompt: SIEGE.prompts.toHelm, off: () => S.st10() !== 'called', use: () => ((site.portal = 'siege:helm'), null) },
     { x: HATCH[0], y: 0, z: HATCH[1], r: 3.4, prompt: APPR.prompts.hatch, off: () => S.st5() !== 'tracked' && S.st5() !== 'found', use: () => ((site.portal = 'concourse:hold'), null) },
   ];
   function beginBar() {
@@ -253,27 +268,36 @@ export function createConcourseHub(ctx, S) {
     consoles,
     portal: null,
     onChoice(tag) {
+      const gc = S.guest && S.guest.choice ? S.guest.choice(tag) : undefined;
+      if (gc !== undefined) return gc;
       if (tag !== 'conc:job' || !S.takeJob()) return null;
       uiSound('engage');
       return speakerLines(CONC.dockmaster, CONC.meetTaken);
     },
     mark() {
       if (scene) return null;
+      const gm = S.guest && S.guest.mark ? S.guest.mark() : undefined;
+      if (gm !== undefined) return gm;
       const s4 = S.st4(), s5 = S.st5();
       if (s4 === 'docked') return { x: VARN[0] + 0.4, z: VARN[1] - 3.1, label: CONC.marks.varn };
       if (s4 === 'paid') return S.held() ? { x: STALLS[1][0] - 2.2, z: STALLS[1][1], label: CONC.marks.market } : null;
       if (s4 === 'traded') return { x: BAR.door[0], z: BAR.door[1], label: CONC.marks.bar };
+      if (S.shore && S.shore.mark()) return { x: BAR.door[0], z: BAR.door[1], label: S.shore.mark() };
+      if (S.open10() && S.st10() === 'idle') return { x: VARN[0] + 0.4, z: VARN[1] - 3.1, label: SIEGE.marks.varn };
+      if (S.st10() === 'called') return { x: PAD[0] - 7, z: PAD[1] - 20, label: SIEGE.marks.berth };
       if (S.open5() && s5 === 'idle') return { x: ASSESSOR[0], z: ASSESSOR[1], label: APPR.marks.assessor };
       if (s5 === 'tracked') return { x: HATCH[0], z: HATCH[1], label: APPR.marks.hatch };
+      if (S.love && S.love.mark('hub')) return { x: BAR.door[0], z: BAR.door[1], label: S.love.mark('hub') }; // chapter 9: she is asking for him
       return null;
     },
-    held: () => !!scene,
+    held: () => !!scene || !!(S.guest && S.guest.held && S.guest.held()),
     act() {
       if (scene) scene.clock.skip();
+      else if (S.guest && S.guest.act) S.guest.act();
     },
-    heldPrompt: () => (scene ? CONC.skip : ''),
+    heldPrompt: () => (scene ? CONC.skip : S.guest && S.guest.heldPrompt ? S.guest.heldPrompt() : ''),
     camera(pos, target) {
-      if (!scene) return false;
+      if (!scene) return S.guest && S.guest.camera ? S.guest.camera(pos, target) : false;
       // in through the bar's open side, toward the table at the back
       const u = Math.max(0, scene.clock.u()), k = u / C.CONC_BAR_T;
       pos.set(BAR.door[0] - 6 + 16 * k, 2.6 - 0.6 * k, BAR.door[1] + 4 - 4 * k);
@@ -304,10 +328,12 @@ export function createConcourseHub(ctx, S) {
       // back up from berth forty with it settled: chapter 5 is over, bar the walk to the berth
       if (S.st5() === 'found') S.adv5('done');
       crew.set(ctx.voyage.crew());
+      if (S.guest && S.guest.enter) S.guest.enter();
     },
     onLeave() {
       if (!inside) return;
       inside = false;
+      if (S.guest && S.guest.leave) S.guest.leave();
       if (scene) {
         scene.clock.stop();
         scene = null;
@@ -322,7 +348,7 @@ export function createConcourseHub(ctx, S) {
     },
     inside: () => inside,
     update() {
-      envoy.group.visible = S.st4() === 'traded' || S.reached4('done');
+      envoy.group.visible = (S.st4() === 'traded' || S.reached4('done')) && !(S.love && S.love.envoyAway());
       assessor.group.visible = S.open5() && !S.reached5('tracked');
     },
     tick(dt, t) {
@@ -359,6 +385,8 @@ export function createConcourseHub(ctx, S) {
         scene.clock.tick(d);
         return;
       }
+      // (a guest chapter's own frame: true while its scene has the screen)
+      if (S.guest && S.guest.tick && S.guest.tick(d, t)) return;
       // --- chapter 4: the hail, before anything else here ---
       if (S.st4() === 'arrived' && !hailOpen && !isDialogueOpen()) {
         hailOpen = true;
@@ -389,6 +417,7 @@ export function createConcourseHub(ctx, S) {
           });
         }
       }
+      if (S.love) S.love.onDeck(queue); // chapter 9: its forecast, before anything else of it
       if (later.length && !isDialogueOpen() && chapterHud.state().line == null) {
         const l = later.shift();
         if (l.by !== undefined) say(l, 7);

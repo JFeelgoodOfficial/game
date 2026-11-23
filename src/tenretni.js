@@ -61,6 +61,7 @@ import { createEndgame } from './endgame.js';
 import { createFarside } from './farside.js';
 import { createChapter } from './chapter.js';
 import { createVoyage } from './voyage.js';
+import { ARCHIVE_GONE_NOTE } from '../world/season-dialogue.js';
 import { createHomebase } from './homebase.js';
 import { createHorizon } from './horizon.js';
 import { buildPlanet, bakePlanet } from './planet.js';
@@ -1074,6 +1075,7 @@ function initVoyage() {
     base: () => (chapter.open() && homebase ? homebase.getBay() : null),
     fleets: () => fleets,
     crewTalk: (c) => homebase.crewTalk(c, 'trip'),
+    catalog: () => catalog(), // the holodeck's rows, for a chapter that needs to know what the archive holds
     // a world made after boot (world/example-system.js): out of space until its system is mounted
     addPlanet(cfg) {
       try {
@@ -1497,7 +1499,9 @@ const holoOff = new Set(); // programs that could not be started this session
 export function catalog() {
   // (`rooms`: records the chapter past the horizon has shut, src/horizon.js effects())
   const shut = (horizon && chapter.open() && horizon.effects().rooms) || {};
-  const rows = ARCHIVE.filter((r) => holoKind(r.id)).map((r) => ({ id: r.id, label: r.label, note: r.id === 'neptunia' && game && game.reachBlown() ? 'THE WRECK' : r.note, unlocked: !holoOff.has(r.id) && shut[r.id] !== false, show: true }));
+  // (`gone`: worlds a later chapter gave up for good, src/voyage.js archiveGone(); `kind`: for a chapter that asks which rows are worlds)
+  const gone = voyage ? voyage.archiveGone() : [];
+  const rows = ARCHIVE.filter((r) => holoKind(r.id)).map((r) => ({ id: r.id, label: r.label, kind: r.kind, note: r.id === 'neptunia' && game && game.reachBlown() ? 'THE WRECK' : r.note, unlocked: !holoOff.has(r.id) && shut[r.id] !== false && !gone.includes(r.id), show: true, lockedNote: gone.includes(r.id) ? ARCHIVE_GONE_NOTE : undefined }));
   for (const r of ARCHIVE_LOCKED) rows.push({ id: r.id, label: r.label || '', note: '', unlocked: false, show: !!r.show });
   return rows;
 }
