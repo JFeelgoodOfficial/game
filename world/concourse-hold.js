@@ -129,6 +129,8 @@ export function createConcourseHold(ctx, S) {
         },
       },
       { x: DOOR[0], y: 0, z: DOOR[1], r: 2.2, prompt: APPR.prompts.out, off: () => !S.reached5('found'), use: () => ((site.portal = 'concourse:deck'), null) },
+      // (tried too soon: the warden says why, so the door is never just dead)
+      { x: DOOR[0], y: 0, z: DOOR[1], r: 2.2, prompt: APPR.prompts.shut, off: () => S.reached5('found') || !!scene, use: () => ({ speaker: APPR.warden, lines: APPR.doorShut, cine: true }) },
     ],
     portal: null,
     onChoice(tag) {
@@ -138,7 +140,8 @@ export function createConcourseHold(ctx, S) {
       later.push(APPR.judgeCrew[option === 'held' ? 'hold' : 'free']);
       return { speaker: option === 'held' ? APPR.warden : APPR.thief, lines: option === 'held' ? APPR.held : APPR.freed, cine: true };
     },
-    mark: () => (scene ? null : !opened ? { x: CASE[0], z: CASE[1], label: APPR.hud.case } : null),
+    // the compass: the case, then the two on the bench, then (once they are settled) the way out
+    mark: () => (scene ? null : !opened ? { x: CASE[0], z: CASE[1], label: APPR.hud.case } : !S.reached5('found') ? { x: THIEVES[0][0], z: THIEVES[0][1], label: APPR.hud.thieves } : null),
     held: () => !!scene,
     act() {
       if (scene) scene.clock.skip();

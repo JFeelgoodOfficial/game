@@ -24,11 +24,14 @@ export const APPR = {
     count: 'TOUCHED ',
     berth: 'BERTH FORTY, LOWER DOCK',
     case: 'THE SEALED CASE',
+    thieves: 'THE TWO ON THE BENCH',
     out: 'BACK UP TO THE DECK',
     done: 'DONE — BACK TO THE LIGHT SHIP',
   },
   marks: { assessor: 'ASSESSOR', hatch: 'BERTH 40' },
-  prompts: { check: 'E — LOOK AT THIS ONE', hatch: 'E — GO DOWN TO BERTH FORTY', case: 'E — OPEN THE SEALED CASE', out: 'E — BACK UP TO THE DECK' },
+  prompts: { check: 'E — LOOK AT THIS ONE', hatch: 'E — GO DOWN TO BERTH FORTY', case: 'E — OPEN THE SEALED CASE', out: 'E — BACK UP TO THE DECK', shut: 'E — THE DOOR' },
+  // the hold's door, tried before the two on the bench are settled: why it will not open yet
+  doorShut: ['Not yet. Those two on the bench are yours to settle first.', 'Talk to them. Hand them over, or let them go. Then the door is yours.'],
   skip: 'E — SKIP',
 
   // --- the valuation ---
