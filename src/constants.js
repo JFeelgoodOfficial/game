@@ -776,6 +776,19 @@ export const C = {
   CONC_BAR_T: 18.0, // seconds the scene in the bar runs
   CONC_HOLD_T: 20.0, // ...and the one in berth forty
   CONC_ALARM_DELAY: 9.0, // seconds from the valuation to the light ship's alarm
+  // --- Season 1, chapter 8: The Weight of Hands (world/swarm-system.js, world/swarm-yard.js, GDD 5.7.9) ---
+  SWARM_LAMP_POWER: 0.25, // the lamp carried by hand on the yard, against what it reaches in open space
+  SWARM_READ_TIME: 1.6, // seconds the X-ray band must be held on a builder to read it
+  SWARM_READ_RANGE: 34.0, // ...from no further off than this
+  SWARM_PACE: 3.2, // a builder walking its beat (u/s)
+  SWARM_BUILDERS: 6.0, // builders on the yard beside the four that are read
+  SWARM_MIRRORS: 1500.0, // mirrors of the swarm that are drawn
+  SWARM_SHELL_R: 60000.0, // the swarm's radius, as it is drawn in the sky
+  SWARM_SHELL_DIST: 200000.0, // ...and how far off its middle is (the star is drawn at BASE_STAR_DIST)
+  SWARM_ARRIVE_T: 27.0, // seconds the scene on the pad runs
+  SWARM_READ_T: 27.0, // ...what the four add up to
+  SWARM_END_T: 30.0, // ...and what follows the work order
+  SWARM_OFFER_DELAY: 6.0, // seconds from the four being read to the two offers
 };
 
 // The Long Dusk: when each group comes at the fires if the edge is held
