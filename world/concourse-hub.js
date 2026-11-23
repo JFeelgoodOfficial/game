@@ -89,9 +89,9 @@ export function createConcourseHub(ctx, S) {
     }
     // the dockmaster's desk: a booth with its back to the rail
     lit.push(tint(box(9, 4.2, 0.4, VARN[0] - 1, 2.1, VARN[1] + 4.2), 0x2c3340), tint(box(0.4, 4.2, 8, VARN[0] - 5.4, 2.1, VARN[1]), 0x2c3340), tint(box(9.6, 0.3, 8.6, VARN[0] - 1, 4.3, VARN[1]), 0x3c4658));
-    lit.push(tint(box(4.4, 1.0, 1.3, VARN[0] + 0.4, 0.5, VARN[1] - 2.2), 0x4a5364));
-    glow.push(tint(box(4.0, 0.06, 0.9, VARN[0] + 0.4, 1.04, VARN[1] - 2.2), 0xffd9a0, 1.4), tint(box(6, 0.5, 0.1, VARN[0] - 1, 3.4, VARN[1] + 3.95), 0xffb060, 1.5));
-    colliders.push({ x: VARN[0] + 0.4, z: VARN[1] - 2.2, r: 2.0, top: Infinity });
+    lit.push(tint(box(4.4, 1.0, 1.1, VARN[0] + 0.4, 0.5, VARN[1] - 1.5), 0x4a5364));
+    glow.push(tint(box(4.0, 0.06, 0.8, VARN[0] + 0.4, 1.04, VARN[1] - 1.5), 0xffd9a0, 1.4), tint(box(6, 0.5, 0.1, VARN[0] - 1, 3.4, VARN[1] + 3.95), 0xffb060, 1.5));
+    colliders.push({ x: VARN[0] + 0.4, z: VARN[1] - 1.5, r: 0.9, top: Infinity }); // (small: she is talked to across it)
     // the market: open stalls, each under an awning of its own colour
     const AWN = [0xc8553a, 0x3a8fc8, 0xd0a030, 0x5ab06a, 0x9a5ac8, 0xd06a9a];
     STALLS.forEach(([x, z], i) => {
@@ -254,7 +254,7 @@ export function createConcourseHub(ctx, S) {
     mark() {
       if (scene) return null;
       const s4 = S.st4(), s5 = S.st5();
-      if (s4 === 'docked' || s4 === 'hauled') return { x: VARN[0] + 0.4, z: VARN[1] - 4, label: CONC.marks.varn };
+      if (s4 === 'docked') return { x: VARN[0] + 0.4, z: VARN[1] - 3.1, label: CONC.marks.varn };
       if (s4 === 'paid') return S.held() ? { x: STALLS[1][0] - 2.2, z: STALLS[1][1], label: CONC.marks.market } : null;
       if (s4 === 'traded') return { x: BAR.door[0], z: BAR.door[1], label: CONC.marks.bar };
       if (S.open5() && s5 === 'idle') return { x: ASSESSOR[0], z: ASSESSOR[1], label: APPR.marks.assessor };
@@ -393,7 +393,7 @@ export function createConcourseHub(ctx, S) {
       if (text !== panelText) chapterHud.panel((panelText = text));
     },
     queue,
-    places: { pad: [PAD[0] - 7, PAD[1] - 14], varn: [VARN[0] + 0.4, VARN[1] - 4], market: [STALLS[1][0] - 2.2, STALLS[1][1]], bar: BAR.door, envoy: BAR.envoy, assessor: ASSESSOR, hatch: HATCH },
+    places: { pad: [PAD[0] - 7, PAD[1] - 14], varn: [VARN[0] + 0.4, VARN[1] - 3.1], market: [STALLS[1][0] - 2.2, STALLS[1][1]], bar: BAR.door, envoy: BAR.envoy, assessor: ASSESSOR, hatch: HATCH },
     info: () => ({ inside, scene: scene ? { kind: scene.kind, u: +scene.clock.u().toFixed(2) } : null, envoy: envoy.group.visible, assessor: assessor.group.visible, alarm: +alarmT.toFixed(1), panel: panelText, crowd: crowd.length }),
     dbg: { bar: beginBar, skip: () => (scene ? scene.clock.skip() : false), alarm: () => ((alarmT = 0.1), true) },
   };
