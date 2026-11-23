@@ -822,6 +822,23 @@ export const C = {
   LOVE_STEER: 15.0, // how fast the pilot crosses the slope (u/s)
   LOVE_DINNER_T: 31.0, // seconds the meal with her runs
   LOVE_STAY_T: 27.0, // ...and first bell, on the patio
+  // --- Season 1, chapters 12 and 13 (sealed: world/SEALED-engine-*.js; the legend is in world/SEALED-engine-ship.js) ---
+  EN_V1: 62.0, EN_V2: 1.5, // u/s^2, 1/s
+  EN_L1: 0.5, // 0..1
+  EN_L2: 1.6, // seconds
+  EN_L3: 300.0, // units
+  EN_P1: 16.0, // seconds
+  EN_P2: 0.05, // 0..1
+  EN_P3: 26.0, // u/s^2
+  EN_S1: 28.0, EN_S2: 21.0, EN_S3: 42.0, EN_S4: 19.0, EN_S5: 50.0, // scene lengths, seconds
+  EN_G1: 48.0, EN_G2: 420.0, // units
+  EN_G3: 62.0, // u/s
+  EN_W1: 14.0, // seconds
+  EN_W2: 0.9, // multiplier
+  EN_W3: 44.0, EN_W4: 300.0, // units
+  EN_C1: 14.0, EN_C2: 62.0, // seconds
+  EN_C3: 1500.0, // units
+  EN_C4: 16.0, // u/s^2
 };
 
 // The Long Dusk: when each group comes at the fires if the edge is held

@@ -1136,6 +1136,29 @@ Checks that must hold:
 - After the chapter the crew deck's first console is its own again, and with no guest the dinner is the one it was (15 seconds, two captains' lines).
 - `I.go9(stage, how)` jumps it either way.
 
+### Chapters 12 and 13 (sealed)
+
+Structure only: what happens in them is in files named `SEALED-engine-*`, which are not to be opened or quoted. System id `engine`; it is on the chart only once `season().resolve('refugees', 'sold')` (any `how`) has been called. For her presence set `season().set('ch9.ione', 'stayed')` and `season().resolve('defection', 'trusts' | 'wary')` first.
+
+`I = __debug.tenretni.voyage().instance('engine')` after `voyage().travel('engine')`; `systemDock()` + `systemStepOut()`. `I.state()` → `{a, b, k1, k2, open13, core, ione, pending, merger, dock, reach, coreSite, places: {dock: {pad, hatch, envoy}, reach: {start, exit, things: [{id, p}]}, core: {gaps, struts, core, clear}}}`. `reach` and `coreSite` are null until each place has been entered. `I.skip()` skips the scene of the place being walked; `I.dbg(name, ...args)` calls one of its handles.
+
+Chapter 12, by handles, waiting on `a`:
+1. Stepping out starts a scene (`dock.scene`); `I.skip()`: `en_1`.
+2. `cap.place` at `places.dock.hatch` (y 0.14), `e`: `reach.inside`, a scene; `e` skips: `en_2`.
+3. For each of `places.reach.things` (six, in the lamp's band order): `I.dbg('band', id)`, then `I.dbg('put', { at: [p[0], p[1], p[2] + 170], look: p })` repeated every second or so (the vessel is moved about) until its bit is set in `k1`. A band other than its own sets nothing. `reach.strain` leaves 1 once every 16 game seconds.
+4. With `k1` 63 a scene starts by itself (`reach.scene.kind === 'all'`); at its end `en_4`.
+5. `put` the vessel 70 short of `places.reach.exit` looking at it and hold `w`: back on the dock, `en_5`. `voyage().debrief()` key `engine`; `open13` is true only after it has played on the bridge.
+
+Chapter 13, waiting on `b` (`I.go13('ex_1')` starts it without chapter 12):
+1. On the dock with `open13`: a `comm` forecast; skip: `ex_1`. `e` at the hatch: `coreSite.inside`, a scene; skip.
+2. `coreSite.part === 'lines'`: the vessel is carried along -z. Keep it at each of `places.core.gaps` in turn (`put` with that x and y and the vessel's own z); `coreSite.line` counts to 3: `ex_2`. Elsewhere at a crossing, the same rank is flown again.
+3. `part === 'waves'`: `put` at each of `places.core.struts` in turn, `I.dbg('wave', 0.6)`, wait 2 s; `coreSite.strut` counts 0..3. A wave with the vessel anywhere else restarts from the last one reached. Then `put` 260 short of `places.core.core`, hold `w`: `ex_3`.
+4. A `comm` scene with two options within about 6 game seconds. `x` leaves it (`pending.key === 'ch13.core'`, `ex_3`) and it comes again. `cine.pick(0)` or `(1)`: `ex_4`; the saved record still reads `ex_3`.
+5. `coreSite.act` rises to 1 in 14 game seconds (`I.dbg('act', 0.97)`); `part === 'run'`, `coreSite.run` counts down. `I.dbg('merger', 1)` there ends at `ex_3` with `core` null and the question again. Otherwise `put` at `core` + z (`clear` - 220), yaw 0, hold `w`: a scene (`kind: 'end'`); at its end `ex_5`, then the dock and `ex_6`.
+6. Afterwards: `core`, `ione` and `merger.how` are set, `pending` is null, `voyage().debrief()` has key `unforecast`, a reload keeps all of it, and none of `ez-lamp`, `ch-cine`, `ch-race` is on `body`.
+
+Checks that must hold: with nobody aboard (`chapter().setCrewDebug([])` first) every scene still shows lines and none names a captain; both values of the choice, with her `trusts`, `wary` and absent, reach `ex_6`; a fresh profile writes no `fgsf.voyage`.
+
 ## The chapter past the horizon (GDD 5.7.7)
 
 Structure only: what happens in it is in files named `SEALED-*`, which are not

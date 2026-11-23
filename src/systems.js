@@ -42,6 +42,7 @@ import { createSwarmSystem } from '../world/swarm-system.js';
 import { SWARM } from '../world/swarm-dialogue.js';
 import { createChoirSystem } from '../world/choir-system.js';
 import { CHOIR } from '../world/choir-dialogue.js';
+import { ENGINE_PLACE } from '../world/SEALED-engine-place.js';
 
 export const SYSTEMS = [
   // Chapter one (GDD 5.7.7): where the light ship is when that chapter lets it
@@ -113,6 +114,16 @@ export const SYSTEMS = [
     label: CHOIR.label, star: { dir: [0.5, 0.4, 0.77], color: 0xdfe8ff }, nebula: 0.22, fleet: false,
     base: [0, 0, 0],
     create: createChoirSystem,
+  },
+  // Season 1, chapters 12 and 13 (GDD 5.7.9; sealed). What it is called and
+  // what is there are the chapters' own to say. It is charted once chapter
+  // 11's fixed event has happened.
+  {
+    id: 'engine', sealed: true,
+    label: ENGINE_PLACE.label, star: ENGINE_PLACE.star, nebula: ENGINE_PLACE.nebula, fleet: ENGINE_PLACE.fleet,
+    base: [0, 0, 0],
+    needs: (chapter, voyage) => voyage.fixed.resolved('refugees'),
+    create: ENGINE_PLACE.create,
   },
 ];
 

@@ -161,5 +161,29 @@ export const FIXED = [
   },
   { id: 'siege', chapter: 10, label: 'THE OUTER RING FALLS' },
   { id: 'refugees', chapter: 11, label: 'A HOME IS NEEDED' },
-  { id: 'merger', chapter: 13, label: 'THE MERGER' },
+  {
+    id: 'merger', chapter: 13, label: 'THE MERGER',
+    forecast: {
+      from: 'FORECAST',
+      speaker: { name: 'The light ship', species: 'her instruments', cityId: 'Season 1' },
+      lines: [
+        'TWO BLACK HOLES IN A CLOSING ORBIT. EVERY TURN IS SHORTER THAN THE LAST.',
+        'AN ORBIT LIKE THAT ENDS ONE WAY. NOTHING ABOARD CAN SLOW IT.',
+      ],
+      certain: 'CERTAIN: THE BLACK HOLES MERGE.',
+      open: `NOT CERTAIN: WHETHER THE ${N.rival.toUpperCase()} COME OUT OF IT BLIND, OR CURIOUS.`,
+    },
+    remember: {
+      blind: {
+        marrow: `The ${N.rival} cannot see ahead any more. I keep wondering what they are looking at instead.`,
+        lux: 'They do not know what tomorrow is now. Welcome, I suppose. It is awful here. You get used to it.',
+        vask: 'The war is over. I have closed that count. I have opened another, of what it cost them.',
+      },
+      curious: {
+        marrow: `The ${N.rival} are curious now. It is the same thing the Tenretni caught. I think it is catching.`,
+        lux: 'They stopped forecasting and started looking. I did not know you could just stop.',
+        vask: 'No forecast has been issued since. I check each morning. I hope I never have anything to report.',
+      },
+    },
+  },
 ];
