@@ -38,6 +38,8 @@ import { createConcourseSystem } from '../world/concourse-system.js';
 import { CONC } from '../world/concourse-dialogue.js';
 import { createFuturesSystem } from '../world/futures-system.js';
 import { FUT } from '../world/futures-dialogue.js';
+import { createSwarmSystem } from '../world/swarm-system.js';
+import { SWARM } from '../world/swarm-dialogue.js';
 
 export const SYSTEMS = [
   // Chapter one (GDD 5.7.7): where the light ship is when that chapter lets it
@@ -91,6 +93,15 @@ export const SYSTEMS = [
     label: FUT.label, star: { dir: [0.35, 0.72, 0.6], color: 0xfff0d0 }, nebula: 0.28, fleet: false,
     base: [0, 0, 0],
     create: createFuturesSystem,
+  },
+  // Season 1, chapter 8 (GDD 5.7.9): a dim star, half a swarm of mirrors round
+  // it, and the yard where the other half is still being built. No `needs`:
+  // the season's standalone chapters can be flown in any order.
+  {
+    id: SWARM.id, sealed: false,
+    label: SWARM.label, star: { dir: [0.35, 0.45, -0.82], color: 0xff9a4a }, nebula: 0.2, fleet: false,
+    base: [0, 0, 0],
+    create: createSwarmSystem,
   },
 ];
 

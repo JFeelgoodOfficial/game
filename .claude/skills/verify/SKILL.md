@@ -1073,6 +1073,23 @@ A pass, waiting on `stage`:
 4. `I.dbg.hour(1.5)`: `missed`. `city.late` is where she is (it moves: re-read it); stand just inside it, `e`, skip: `found`.
 5. `e` at the Keeper, `cine.skip()` stops at SIGN / TALK HER DOWN. `x` leaves it (`found`, `signed` null). `cine.pick(0)` → `signed: true`, `flood.how: 'bound'`; `pick(1)` → `false`, `'free'`. The scene `fix` follows by itself; at its end `done`.
 6. `voyage().debrief()` title `CHAPTER 6 — FUTURES`. `voyage().instance('concourse').state().prices` are doubled from then on.
+### Chapter 8: The Weight of Hands
+
+`I = __debug.tenretni.voyage().instance('swarm')` after `voyage().travel('swarm')`. One dock, `yard`: reach it as for the dusk camp (`systemApproach(1500)` and `g`, or `systemDock()` + `systemStepOut()`). `I.state()` → `{stage, seen, decision, pending, yard, places: {pad, post, frame, old, cradle}}`; `yard` → `{inside, scene: {kind, u} | null, lamp, read, seen, offer, panel, builders: [{id, at, y, read, hold}], crowd, stopped, sending, made, mirrors}`. `builders` is the four that are read, in the order hauler, welder, maker, old; the Hauler and the Welder move.
+
+A pass, waiting on state each time (the scenes are 27 to 30 game seconds: wait on `yard.scene`, and do not `cap.place` while one is up):
+1. First step out: `yard.scene.kind === 'arrive'`, prompt `E — SKIP`, key `e`: stage `docked`, `yard.lamp` set, panel `READ 0 / 4`.
+2. `q` four times: `yard.lamp.band === 'xray'` (reach 175). For each builder, `cap.place` about 15 from its `at` and set `cWalk.yaw = atan2(dx, dz)`, `pitch` 0.07, re-aiming at the two that move: its `read` goes true after 1.6 game seconds, and `#chHud .line` names it. On any other band, or from further than 34, nothing is read; aimed from too far the line says to come closer. `I.dbg.read(i)` reads one without the lamp.
+3. With all four read and their lines said, scene `read` starts by itself; `I.skip()`: stage `read`. About 6 game seconds later a `comm` scene (`cine.text().from` ends `TWO OFFERS`); `cine.skip()`: stage `offered`.
+4. `cap.place` at `places.post`, prompt `E — THE WORK ORDER`, `e`, `cine.skip()` (stops at the choice; two options). `x` leaves it (`pending.key === 'ch8.builders'`, stage `offered`); `e` again and `cine.pick(0)` END or `pick(1)` ASSIGN: `decision` is `freed` or `contracted`, `pending` null, and after the reply the scene `end` starts. `I.skip()` or wait: stage `done`.
+5. Freed: `yard.stopped` 1, `yard.made` 1. Contracted: `yard.sending` 1. `voyage().debrief()` has title `CHAPTER 8 — THE WEIGHT OF HANDS`.
+
+Checks that must hold:
+- With nobody aboard (`chapter().setCrewDebug([])` first) every line is the `solo` one and the work order's first line is the order itself, with no captain's word before it.
+- A reload at `offered` keeps `seen` 15 and the offers do not come again; `base.door('swarm:post')` stands the pilot at the post with the lamp in hand.
+- `base.door('base:bridge')` while the scene `end` plays leaves stage `done`, with neither `ch-cine` nor `ez-lamp` on `body`.
+- `I.go(stage, opt)` jumps either way; `go('decided', opt)` lands on `done`.
+- A fresh profile writes no `fgsf.voyage`.
 
 ## The chapter past the horizon (GDD 5.7.7)
 

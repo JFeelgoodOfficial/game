@@ -1330,6 +1330,36 @@ Lux's chapter. `world/futures-system.js` (system, stages, record), `world/future
 **Debug.** `__debug.tenretni.voyage().instance('futures')`: `state()` (`stage`, `signed`, `flood`, `city`, `places`), `go(stage, 'signed' | 'refused')`, `skip()`, `decide('signed' | 'refused')`, `dbg.nearly(sec)` (runs the city's clock on to just before the next watched arrival), `dbg.hour(left)`.
 
 **Science.** The premise is the stretch, and the file's header says so: a city is a chaotic system, and no measurement is fine enough to forecast one for an afternoon.
+#### Chapter 8: The Weight of Hands (`swarm`)
+
+Vask's chapter. `world/swarm-system.js` (system, stages, record, doors), `world/swarm-yard.js` (the place), `world/swarm-dialogue.js` (every word and name). No `needs`. No fixed event.
+
+**The place.** A dim star with half a Dyson swarm round it, and the High Yard: a `capitalWalk` dock in the world, a deck 144 by 164 with a pad, a six-sided mirror frame stood on edge between two gantries, stacked stock, a pattern post, a cradle, and a ring of lamps round a builder that stopped long ago. The swarm is drawn as sky: `SWARM_MIRRORS` instanced plates on a part-shell (`SWARM_SHELL_R`) whose middle is carried `SWARM_SHELL_DIST` along the star's direction from the camera, the way `src/voyage.js` carries the star, so the two never part. Near plates are seen from behind and are dark; far ones face the star and the eye and are bright.
+
+**The builders.** Four that are read (the Hauler, the Welder, the Maker, the Old Hand) and `SWARM_BUILDERS` more walking beats (`SWARM_PACE`). Each is a casing and, inside it, a second mesh that only the X-ray band draws (`lampLit(4.0, p)`, no depth test): the casing goes to a ghost of its edges in the beam and what is inside shows through it. Once read, the inside stays faintly lit in every band.
+
+**Reading.** The lamp is carried by hand from the first scene on (Q steps the band, L is the lamp; `SWARM_LAMP_POWER`). Holding the X-ray beam on one of the four for `SWARM_READ_TIME` from within `SWARM_READ_RANGE` reads it: what is inside is said, then what a miner makes of it. Aimed from too far, the screen says to come closer. Which have been read is saved (`seen`, one bit each).
+
+**Stages** (append-only):
+
+| Stage | Reached when | Shown as |
+|---|---|---|
+| `arrived` | the ship is here | the passage (5.7.8) |
+| `docked` | first step out | scene, `SWARM_ARRIVE_T`: the swarm from the pad |
+| `read` | all four read | scene, `SWARM_READ_T`: one X-ray beam from overhead with all four in it |
+| `offered` | `SWARM_OFFER_DELAY` later: two buyers on one channel | a transmission |
+| `decided` | at the pattern post (E): END THE ORDER or ASSIGN THE OUTPUT (`ch8.builders`: `freed` \| `contracted`) | cinematic talk with a choice; each captain aboard says their word first |
+| `done` | what follows has been watched | scene, `SWARM_END_T` |
+
+**The choice.** Freed: every builder stops, the yard's working lamps go out, and the Welder goes to the Old Hand and starts something that is in no pattern; the port does not get the star's power. Contracted: the swarm brightens and a line of light leaves it for the port's relay; the builders work on and are not told. Nothing here can kill the pilot, so the decision is offered, made and survived in one step; `decided` is saved as `done`, and leaving while the last scene plays ends at `done`. Chapter 10 reads `ch8.builders` for who comes to the siege.
+
+**Doors.** `swarm:pad`, `swarm:post`.
+
+**Tunables.** The `SWARM_*` block in `src/constants.js`.
+
+**Debug.** `__debug.tenretni.voyage().instance('swarm')`: `state()` (`stage`, `seen`, `decision`, `pending`, `yard`, `places`), `go(stage, 'freed' | 'contracted')`, `seek(u)`, `skip()`, `decide(option)`, and `dbg` (`read(i)`, `understood()`, `offers()`).
+
+**Science.** Real: a Dyson swarm of independent collectors (a rigid shell is not stable); a star a tenth as bright as the Sun still giving about 4e25 W; self-replicating machines as von Neumann proposed them. Stretched, and marked in `world/swarm-yard.js`: such machines would finish a swarm in decades, not leave it half done after ten thousand years; an X-ray picture needs a detector behind its subject; and the builders' inner lives are the story's.
 
 **Ending a chapter.** A system instance may offer `debrief()`: once the
 chapter has ended, `{ title, complete, lines: [[captain id, text]], nextCourse,
