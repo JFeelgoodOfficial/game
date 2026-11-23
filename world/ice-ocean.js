@@ -1000,6 +1000,7 @@ body.ch-cine #icePads { display: none !important; }`;
       const stick = input.moveX !== 0 || input.moveY !== 0;
       const lift = talk ? 0 : (input.brake ? 1 : 0) - (input.sink || (input.sprint && !stick) ? 1 : 0);
       const fwd = talk ? 0 : axes.fwd, strafe = talk ? 0 : axes.strafe;
+      const shown = !!scene; // (a frame that began in a scene ends in it, even if the scene ended on it: the stage read above is stale)
       if (scene) scene.clock.tick(d);
       else if (isDialogueOpen()) vel.multiplyScalar(Math.exp(-3 * d));
       else for (let rem = d; rem > 1e-5; rem -= 1 / 60) step(Math.min(rem, 1 / 60), fwd, strafe, lift);
@@ -1034,7 +1035,7 @@ body.ch-cine #icePads { display: none !important; }`;
       signal += ((radio ? near : 0) - signal) * Math.min(1, d * 5);
       setRadio(radio, signal);
 
-      if (scene) {
+      if (shown) {
         placeCallers(d, t);
         panel();
         lampHud.update();
