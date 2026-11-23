@@ -1109,6 +1109,14 @@ Checks that must hold:
 - `I.restore({ stage: 'done' })` with no `ch7.choir` on record gives stage `sung`.
 - On leaving: neither `ez-lamp` nor `#choirPads.on`, and `sun.ambient.intensity` is what it was before the hall (0.95 inside it).
 
+### Chapter 10: The Siege
+
+At the port: `I.go10('idle')` opens it (and marks chapters 4 and 5 done). Set the season facts that decide who comes first: `season().set('ch7.choir', 'free')`, `('ch8.builders', 'freed')`, `('ch4.fee', 'split')`, `('ch5.thieves', 'held')`. `e` at the dockmaster: `s10: 'called'`. `cap.place(-7, 0, 72)`, prompt `E — TO THE LIGHT SHIP'S HELM`, `e`: `state().siege.inside`. A `comm` forecast (skip), then the scene `intro` (`e` skips), then the pad opens (`siege.pad`).
+
+Drawing: `const m = await import('/src/drawPad.js'); m.drawPadDebug.stroke(points); m.drawPadDebug.done()`. Points are pad units, -1..1, y up; the chart's z is `-y`. `siege.columns` are the lines (`from`, `to`, chart units) and `siege.flag` the flagship's. A circle of radius 0.46 crosses every column; from the second pass draw the arc that leaves out about 1.2 rad either side of the flagship's bearing. `siege.phase` goes `plan → fly → after`, `broken` and `reached` count, and `ring` is the eight sections' points.
+
+Checks: a stroke through `flag` gives the line `…DRAW THE PASS AGAIN` and the same pass again. After the third pass a `comm` scene with two options; `x` leaves it and it is asked again within 5 game seconds; `cine.pick(0)` → `decision: 'evac'`, `pick(1)` → `'hold'`. Lost on the fourth pass: `decision` null and the question again. After the fourth: scene `fall`; skip: `s10: 'done'`, back on the deck, `siegeEvent.how` `evacuated` or `held`, `voyage().debrief()` key `siege`. Afterwards neither `ch-pad` nor `ch-cine` is on `body`.
+
 ## The chapter past the horizon (GDD 5.7.7)
 
 Structure only: what happens in it is in files named `SEALED-*`, which are not

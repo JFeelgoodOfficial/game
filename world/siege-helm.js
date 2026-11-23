@@ -9,9 +9,9 @@
 //               the grey columns and the lines they will keep to, and, from
 //               the second pass, the red circle of the flagship's guns.
 //   the pass    One stroke. The light ship flies it, start to end, in
-//               SIEGE_FLY seconds, and for SIEGE_WAKE seconds after it has
-//               passed a place, anything grey within SIEGE_CUT of it is
-//               broken: they keep to their lines, and their lines did not
+//               SIEGE_FLY seconds, and where it has been (for SIEGE_WAKE
+//               seconds: the whole pass) anything grey that comes within
+//               SIEGE_CUT is broken: they keep to their lines, and their lines did not
 //               have this in them. What is not broken reaches the ring.
 //   the red     A pass drawn through the flagship's circle loses the ship.
 //               The pass is drawn again.
@@ -469,6 +469,7 @@ export function createSiegeHelm(ctx, S) {
       place(0, 0);
       light.visible = wakeLine.visible = false;
       phase = 'forecast';
+      chapterHud.racing(true); // (seated at the chart: the on-foot hints and the compass are not for this)
     },
     onLeave() {
       setMusicArea(1);
@@ -480,6 +481,7 @@ export function createSiegeHelm(ctx, S) {
         scene = null;
       }
       closeDrawPad();
+      chapterHud.racing(false);
       group.visible = false;
       setEventRumble(0);
       chapterHud.clear();

@@ -789,7 +789,7 @@ export const C = {
   SIEGE_ALLY_THIN: 0.4, // how much of a column an ally in that quarter of the sky has already broken
   SIEGE_ZONE: 0.17, // the flagship's reach (chart units: the chart is 2 across)
   SIEGE_CUT: 0.07, // how near the light ship's wake breaks a grey ship
-  SIEGE_WAKE: 3.5, // seconds the wake lasts behind the ship
+  SIEGE_WAKE: 9.0, // seconds the wake lasts behind the ship (the whole pass: what is drawn stays drawn)
   SIEGE_FLY: 9.0, // seconds a drawn pass takes to fly
   SIEGE_INTRO_T: 19.0, // seconds the fleet's arrival runs
   SIEGE_FALL_T: 34.0, // ...and the outer ring's fall

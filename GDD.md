@@ -1388,6 +1388,24 @@ Vask's chapter. `world/swarm-system.js` (system, stages, record, doors), `world/
 
 **Science.** Real: millisecond pulsars and their use as clocks; glitches (the crust spun up, all at once, by the superfluid inside); a fast pulsar heard as a pitch. Stretched, and marked in `world/choir-hall.js`: a real glitch is a part in a million or less, far too small to hear, and here it is about a semitone so that it can be sung; and a beam sweeping hundreds of times a second is drawn as the steady smear it would be.
 
+#### Chapter 10: The Siege of the Concourse (`concourse`, `s10`)
+
+Fought at the free port, from the light ship's helm chart. `world/siege-helm.js` (the battle), `world/siege-dialogue.js` (its words), and a third stage machine in `world/concourse-system.js` (`idle → called → done`). It opens once the chapters before it at the port have been played and talked over (`S.open10()`).
+
+**How it is reached.** On the port's deck the dockmaster calls every berth (E): `called`. A console at the berth then takes the pilot straight to the helm (`siege:helm`), a site under the pause with one seat.
+
+**The helm chart, drawn.** `src/drawPad.js` gained two options for this, and is otherwise as it was: `back(g, w, h)` paints under the ink, and `minInk`. Each pass the pad opens over the chart: the port, the eight sections of its outer ring, the grey columns and the dashed lines they will keep to (`SIEGE_WAVES`), and from the second pass the red circles of the flagship's guns along its own line. The pilot draws; FLY IT; the light ship flies the stroke in `SIEGE_FLY` seconds. Where it has been, any grey ship that comes within `SIEGE_CUT` is broken. What is not broken reaches the section it was aimed at (`SIEGE_HITS` arrivals a point, `SIEGE_SEG_HP` points a section). A stroke through the red loses the ship, and the pass is drawn again.
+
+**Who fights beside the port** is what was done earlier in the season: the Choir if `ch7.choir` is `free`, the swarm's builders if `ch8.builders` is `freed`, the cable crew if `ch4.fee` is `split`. Each thins the columns in one quarter of the sky by `SIEGE_ALLY_THIN`, and is named before the first pass. With none of them, that is said too.
+
+**The choice,** before the fourth pass, as a transmission with each captain aboard saying their side: COVER THE LIFEBOATS (the defenders close on the ring, the ring takes no more hits because it is given up, and all but one section's people get out) or HOLD THE LINE (the pass is flown for the ring; whoever is in a section that has gone dark stays in it). `ch10.ring`: `evac` | `hold`. Lost on that last pass, the choice is unmade and asked again.
+
+**The fixed event.** `siege` is forecast at the helm before anything else, and resolved by the fall: a scene (`SIEGE_FALL_T`) in which every section goes dark and comes away, either way. `how: 'evacuated' | 'held'`, `detail: { saved, of: 8, allies, debtors }`; `ch10.saved` is the sections whose people got out. If the two thieves of chapter 5 were handed over they were on the debtors' deck of the outer ring, and the scene says whether they got out.
+
+**Tunables.** `SIEGE_*`, and the table `SIEGE_WAVES`.
+
+**Debug.** `instance('concourse')`: `go10(stage, 'evac' | 'hold')`, `state().siege` (`phase`, `wave`, `pad`, `alive`, `broken`, `reached`, `ring`, `standing`, `allies`, `flag`, `columns`, `decision`, `outcome`), `siege().dbg` (`skip()`, `wave(n)`, `ask()`, `decide(option)`). The pad is driven with `drawPadDebug.stroke(points)` and `.done()`.
+
 **Ending a chapter.** A system instance may offer `debrief()`: once the
 chapter has ended, `{ title, complete, lines: [[captain id, text]], nextCourse,
 nextNone }`. The first time the pilot is on the bridge after that, the captains
