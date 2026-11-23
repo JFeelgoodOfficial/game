@@ -1008,6 +1008,26 @@ Checks that must hold:
 - With no crew, each scene's lines on `#chHud .line` are the `solo` ones and none carries a captain's name.
 - A fresh profile writes no `fgsf.voyage`; a 5.7.8 save (`{v, at, visited, crew, chapters}`) is written back byte for byte, with no `season` key.
 
+### Chapter 3: Under the Ice
+
+`I = __debug.tenretni.voyage().instance('ice')` after `voyage().travel('ice')`. Reach the surface as for the dusk camp (`systemDock()` + `systemStepOut()`, or `systemApproach(1500)` and `g`). `I.state()` → `{stage, decision, pending, contact, surface: {inside, plume, panel, ground(x, z)}, ocean, places: {surface: {pad, bore}, ocean: {first, city, roof, under, bore}}}`. `ocean` is null until the vessel has gone down once; then `{inside, at, yaw, pitch, speed, scene: {kind, u} | null, lamp, signal, tone: {round, phase, got, want} | null, lead, callers, asking, melt, pull, leave, open, dead, panel, pads}`. Ocean frame: the bore's mouth at the origin, y 0 the underside of the ice, the floor about -520.
+
+A pass, waiting on state each time. The ocean runs at a few frames a second under SwiftShader and its scenes are 20 to 36 game seconds: wait on `ocean.scene` and the stage, never on a timeout, and do not `put` the vessel while a scene has it.
+1. First step out: `cine.kind() === 'comm'`, `cine.skip()`: stage `forecast`.
+2. `cap.place` at `places.surface.bore`, prompt `E — RIDE THE VESSEL DOWN`, key `e`, `cine.skip()`, `cine.pick(0)`: `base.state().isolated.active`, `ocean.scene.kind === 'descent'`; key `e` skips: stage `down`. (`base.door('ice:down')` skips the console.)
+3. By ear: `I.dbg.put({ look: places.ocean.first })`. Off the radio band `ocean.signal` is 0 and the panel says to switch; `I.dbg.band('radio')` and it rises past 0.6; `put` looking the other way and it falls to 0. Holding `w` moves `ocean.at` at up to about 39 u/s.
+4. `put` the vessel 110 from `first` looking at it, on the radio band: stage `heard` within 1.5 game seconds. Wait for `tone.phase === 'input'`, then press `tone.want` (keys `Digit1`..`Digit3`, or `I.dbg.press(i)`); a wrong key sets `phase: 'gap'` and the call is said again. After round 2 the scene `answered` starts; `I.skip()`: stage `answered`, `ocean.callers` 16.
+5. `ocean.lead` moves toward `places.ocean.city` only while the vessel is within 220 of it. `put` within 260 of `city`: scene `city`; skip: stage `city`. `put` within 260 of `under`: stage `asked`, and a few seconds later `cine.active()` with two options. Key `x` leaves it unasked (`pending.key === 'ch3.decision'`, stage `asked`) and it is asked again within about 7 game seconds.
+6. SHOW (`cine.pick(0)`): `put({ at: under, pitch: 1.2 })`; `ocean.melt` reaches 1 in 12 game seconds, then `ocean.pull` counts from 0 and `ocean.open` is 1. Hands off, the vessel is taken up the hole. Hold `s` and `Shift` and it is not; after 16 game seconds the scene `sky` starts. Skip: stage `contact`, `contact.how === 'shown'`. `put({ at: [0, 20, 0] })` and hold `Space`: back on the ice, stage `done`, `surface.plume` true.
+7. LEAVE (`cine.pick(1)`): `ocean.leave` counts down from 110. `put({ at: [0, -70, 10] })`: scene `away`; at its end the pilot is on the ice, stage `done`, `contact.how === 'left'`, `season().state().facts['ch3.archived'] === false`.
+8. `voyage().debrief()` is non-null with title `CHAPTER 3 — UNDER THE ICE`; on the bridge it plays once.
+
+Checks that must hold:
+- `I.dbg.time(2)` after LEAVE, or hands off under the hole after SHOW, ends at stage `asked` with `decision` null, `pending.key` set, `ocean.at` equal to `places.ocean.under`, and the death's line on `#chHud .line`.
+- A reload at stage `decided` comes back as `asked` with `decision` null; `base.door('ice:ask')` then puts the vessel under the thin ice and the question is asked again.
+- After surfacing: `base.state().isolated.active` false, and neither `ez-lamp` nor `ch-cine` on `body`.
+- With nobody aboard (`chapter().setCrewDebug([])` first) every scene's lines are the `solo` ones and the question's speaker is the vessel.
+
 ## The chapter past the horizon (GDD 5.7.7)
 
 Structure only: what happens in it is in files named `SEALED-*`, which are not

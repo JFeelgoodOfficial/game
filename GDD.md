@@ -1264,6 +1264,45 @@ charted yet). It plays once (`season` fact `debrief.<system>`); the bay's
 welcome says the captains are waiting while it has not. The Long Dusk's ends
 with Renn's goodbye, and its lines follow how the flare went.
 
+#### Chapter 3: Under the Ice (`ice`)
+
+`world/ice-system.js` (system, stages, record, doors), `world/ice-surface.js` (the bore, on the ice), `world/ice-ocean.js` (the ocean), `world/ice-dialogue.js` (every word and name). No `needs`: the standalone chapters can be flown in any order.
+
+**The place.** A rogue planet: `star: null`, so the only light is what the freighter brought. The dock is a pad on the ice beside a bore melted through it, built on a globe of its own as the dusk camp is. E at the bore's head is a plain choice (GO DOWN / NOT YET) and the door `ice:down`. Below is a second site, walked under the pause (look `dive`): the vessel of Entry Zero, flown as it was there (W A S D, Space / Shift, mouse; Q / E the lamp's band, L the lamp), in an ocean `ICE_DEPTH` deep under a ceiling of ice. It is built the first time the vessel goes down.
+
+**Sound and radio over sight.** The people there (`ICE.people`) talk on the 21 cm band, which the lamp only hears. On that band the signal is strongest along the way the vessel points (the corner panel's `SIGNAL` bar, and `setRadio` in the ear); off it the panel says to switch. Everything in the chapter is found that way.
+
+**First contact by tone.** The first one, found and held on the radio band for `ICE_HEAR_TIME` within `ICE_HEAR_R`, stops calling, then calls in three notes (`ICE_NOTES`). The call is given back on the hull's sounder: keys 1, 2, 3, or three pads on screen (`#icePads`, for touch). Three calls, longer each time (`ICE_PHRASES`). A wrong note and it says it again. The call is only heard, and only advances, while the lamp is on the radio band.
+
+**Stages** (append-only):
+
+| Stage | Reached when | Shown as |
+|---|---|---|
+| `arrived` | the ship is here | the passage (5.7.8) |
+| `forecast` | first step out on the ice | `fixed.forecast('contact')` |
+| `down` | the vessel is in the water | scene, `ICE_DESCENT_T` |
+| `heard` | the first caller has been found by ear | lines |
+| `answered` | three calls given back | scene, `ICE_ANSWERED_T`: the others come |
+| `city` | followed to the vents (`ICE_ARRIVE_R`) | scene, `ICE_CITY_T`, every band at once |
+| `asked` | followed up to the thinnest ice | a transmission with a choice; each captain aboard says their side first |
+| `decided` | SHOW or LEAVE picked | |
+| `contact` | settled: `fixed.resolve('contact', 'shown' \| 'left', { archived })`, `season.survive` | scene, `ICE_SKY_T` or `ICE_AWAY_T` |
+| `done` | back on the ice | the debrief, on the bridge |
+
+They lead and wait: the one that leads keeps `ICE_LEAD_GAP` ahead at `ICE_LEAD_SPEED` and stops when the vessel falls behind.
+
+**The choice.** Marrow says show them, Lux says leave them, Vask counts what cannot be undone. SHOW: nose up under the thin ice (`ICE_ROOF_R`, `ICE_MELT_TIME`) until it opens; the sea rushes up the hole for `ICE_PULL_TIME` (`ICE_PULL`) and the vessel has to be driven clear, or it goes up with it (`ICE_HOLE_R`). Then the sky, through the hole, and `ch3.archived: true`. LEAVE: the bore is freezing shut (`ICE_LEAVE_TIME`); reach it in time and the way up plays, with `ch3.archived: false`. Afterwards the plume from the hole stands on the surface's horizon if it was opened.
+
+**Deaths.** Taken up the hole (`vented`), or under the ice when the bore closes (`sealed`). The ocean sets `portal = 'ice:back'`; the pilot is put back under the thin ice with the choice unmade and is asked again. Leaving the water with the choice not lived through unmakes it the same way.
+
+**Doors.** `ice:down`, `ice:up`, `ice:back`, `ice:ask`.
+
+**Tunables.** The `ICE_*` block in `src/constants.js`, and the tables `ICE_PHRASES`, `ICE_NOTES`, `ICE_PLACES`.
+
+**Debug.** `__debug.tenretni.voyage().instance('ice')`: `state()` (`stage`, `decision`, `pending`, `contact`, `surface`, `ocean`, `places`), `go(stage, opt)`, `seek(u)`, `skip()`, `decide('show' | 'leave')`, `kill(cause)`, and `dbg` once the ocean is built (`put({ at, look, yaw, pitch })`, `band(id)`, `press(i)`, `ask()`, `melt(v)`, `time(left)`).
+
+**Science.** Real: rogue planets; an ocean kept liquid under ice by radiogenic heat with no star; vent life fed by chemistry; water boiling and freezing into a plume in vacuum; the 21 cm hydrogen line, and cold ice passing radio at that wavelength. Stretched, and marked in `world/ice-ocean.js`: liquid water swallows 1.4 GHz within centimetres, so nobody could talk across an ocean on it, and a hole held open by a warm plume would skin over.
+
 ### 5.8 The Sky City (Saturnia)
 
 Saturnia has no surface, so it gets a place instead: a floating city 320 units

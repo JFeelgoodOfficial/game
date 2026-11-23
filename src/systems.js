@@ -32,6 +32,8 @@ import { EXAMPLE } from '../world/example-dialogue.js';
 import { HORIZON_PLACE } from '../world/SEALED-horizon-place.js';
 import { createDuskSystem } from '../world/dusk-system.js';
 import { DUSK } from '../world/dusk-dialogue.js';
+import { createIceSystem } from '../world/ice-system.js';
+import { ICE } from '../world/ice-dialogue.js';
 
 export const SYSTEMS = [
   // Chapter one (GDD 5.7.7): where the light ship is when that chapter lets it
@@ -59,6 +61,15 @@ export const SYSTEMS = [
     label: DUSK.label, star: { dir: [1, 0, 0], color: 0xff5a36 }, nebula: 0.25, fleet: false,
     base: [0, 0, 0],
     create: createDuskSystem,
+  },
+  // Season 1, chapter 3 (GDD 5.7.9): a rogue planet. No star: the only light
+  // is what the freighter brought. No `needs`: the season's standalone
+  // chapters can be flown in any order.
+  {
+    id: ICE.id, sealed: false,
+    label: ICE.label, star: null, nebula: 0.12, fleet: false,
+    base: [0, 0, 0],
+    create: createIceSystem,
   },
 ];
 

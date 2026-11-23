@@ -54,7 +54,32 @@ export const FIXED = [
       },
     },
   },
-  { id: 'contact', chapter: 3, label: 'THE SKY IS LEARNED OF' },
+  {
+    id: 'contact', chapter: 3, label: 'NOT ALONE',
+    forecast: {
+      from: 'FORECAST',
+      speaker: { name: 'The light ship', species: 'her instruments', cityId: 'Under the Ice' },
+      lines: [
+        'A PLANET WITH NO STAR. UNDER ITS ICE, AN OCEAN ITS OWN CORE KEEPS WARM.',
+        'THERE IS A SIGNAL COMING UP THROUGH THE ICE, ON THE 21 CENTIMETRE BAND. IT REPEATS. IT IS MADE.',
+        'IT CAN BE HEARD FROM ORBIT, BY ANY SHIP THAT LISTENS. THIS ONE DID. ANOTHER WILL.',
+      ],
+      certain: 'CERTAIN: WHOEVER IS CALLING WILL LEARN THEY ARE NOT ALONE.',
+      open: 'NOT CERTAIN: WHO THEY LEARN IT FROM, AND WHAT THAT ONE WANTS.',
+    },
+    remember: {
+      shown: {
+        marrow: 'They named our sky. I have the call. I play it, some nights, with the lights down.',
+        lux: 'I wanted to leave them alone. They looked up and they were fine. I am still working out what that says about me.',
+        vask: 'One hole, eleven metres deep, open for good. It is the smallest thing we have done and I think the largest.',
+      },
+      left: {
+        marrow: 'They are still calling for the stranger who went home. I hear it when it is quiet.',
+        lux: 'They are happy. I keep that. Whoever finds them next, they had this long.',
+        vask: 'Nothing in the archive. I check the empty entry anyway. It is still empty.',
+      },
+    },
+  },
   { id: 'flood', chapter: 6, label: `THE ${N.hub.toUpperCase()} FLOODS` },
   { id: 'defection', chapter: 9, label: 'THE ENVOY CROSSES' },
   { id: 'siege', chapter: 10, label: 'THE OUTER RING FALLS' },
