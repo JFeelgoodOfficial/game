@@ -57,6 +57,7 @@ import {
   nearestVessel, vesselSite, holdVessel, placeFleets, wormholeCapture, farGate, enterFar, farSite, farDoor, farBeyond, farWantsLanding, farMarkLanded,
   engageWarp, farHop, baseDock, voyageDock, holoCatalog, holoKind, holoSite, holoFailed, tripCrew, debriefWaiting,
 } from './tenretniLazy.js';
+import { protoDebug } from './protoLazy.js';
 import { BASE } from '../world/base-dialogue.js';
 import {
   interiorScene,
@@ -799,6 +800,7 @@ if (import.meta.env.DEV) {
     },
     navState,
     tenretni: tenretniDebug(),
+    proto: protoDebug(), // visual prototypes (src/protoLazy.js; GDD 5.7.10): reached from here and nowhere else
     // The light ship as a home base (GDD 5.7.8): fly the bay's approach from a
     // direction ([x, y, z] from the hull) / park in the bay / step out / launch
     // (the scripted run out of the forward mouth) / go through a door by key

@@ -826,6 +826,40 @@ export const C = {
   VAULT_PEOPLE: 12.0, // figures of the outer ring's people on the deck
   VAULT_END_T: 24.0, // seconds the scene of them going to where they are to live runs
   VAULT_WORLD_DIST: 90000.0, // how far off a recompiled world stands in the port's sky
+  // --- Season 2 prototype: glass that holds light (world/proto-glass.js, GDD 5.7.10) ---
+  GLASS_RING_R: 62.0, // the crown's radius
+  GLASS_SHARD_LEN: 54.0, // a shard, end to end
+  GLASS_SPIN: 0.05, // rad/s the crown turns round its star
+  GLASS_REFRACT: 0.085, // how far a facet bends what is behind it (screen heights, at a grazing facet)
+  GLASS_DISPERSE: 0.18, // how far red and blue part company in it (0: none)
+  GLASS_ABSORB: 0.9, // how much the glass takes of what passes through its thickest part
+  GLASS_MIND: 1.1, // how bright the colour moving inside it is
+  GLASS_MIND_SPEED: 0.07, // ...and how fast it moves
+  GLASS_RIM: 1.1, // the light a facet's edge catches from the star
+  GLASS_STAR: 2.0, // the captured star's brightness
+  GLASS_BEAM: 0.2, // the lattice of bent light between star and shards
+  GLASS_ORBIT: 0.07, // rad/s the camera goes round
+  GLASS_EXPOSURE: 1.0, // the look: exposure, and the bloom's threshold and strength
+  GLASS_BLOOM_T: 0.9,
+  GLASS_BLOOM_S: 0.5,
+  // --- Season 2 prototype: a battle lit only by a pulsar's beam (world/proto-strobe.js, GDD 5.7.10) ---
+  STROBE_RATE: 0.5,// sweeps of the beam across the field per second (a real one: hundreds). Never above STROBE_MAX_RATE.
+  STROBE_MAX_RATE: 3.0, // the ceiling: three flashes a second, the photosensitivity guideline
+  STROBE_WIDTH: 0.16, // the beam's half width (rad): wide enough to take the whole field at once; with the rate, a flash of about a tenth of a second
+  STROBE_PEAK: 5.0, // how bright the beam is on a hull at its middle
+  STROBE_SOFT_WIDTH: 0.45, // softer mode: a wider beam, a lower peak, and never fully dark
+  STROBE_SOFT_PEAK: 1.3,
+  STROBE_SOFT_FLOOR: 0.06,
+  STROBE_FIELD_R: 4200.0, // the battle's radius
+  STROBE_PULSAR_DIST: 24000.0, // how far off the pulsar is
+  STROBE_SHIP_SPEED: 150.0, // a hull under way (u/s)
+  STROBE_LOSS: 0.06, // the chance a hull is destroyed between one sweep and the next
+  STROBE_DEBRIS: 14.0, // pieces a destroyed hull leaves
+  STROBE_SHAFT: 0.1, // how visible the beam itself is as it swings past
+  STROBE_ORBIT: 0.035, // rad/s the camera goes round
+  STROBE_EXPOSURE: 1.0,
+  STROBE_BLOOM_T: 0.8,
+  STROBE_BLOOM_S: 0.9,
   VAULT_WORLD_R: 9000.0, // ...and how big it is drawn
 };
 
@@ -839,6 +873,18 @@ export const DUSK_GROUPS_Z = [-105, 5, 110];
 // first caller also has a depth).
 export const ICE_PHRASES = [[0, 2], [1, 0, 2], [2, 2, 0, 1]];
 export const ICE_NOTES = [196, 262, 349];
+// The Season 2 prototypes, per tier (GDD 5.7.10). Glass: shards in the crown; whether what is
+// behind the glass is really drawn again to be refracted (`scene`, at `rt` of the frame's size) or
+// stood in for by the sky's own function (cheaper); samples through the glass's thickness for the
+// colour inside it; dispersion. Strobe: hulls in the field.
+export const GLASS_TIER = {
+  low: { shards: 9, scene: false, steps: 2, disperse: false, rt: 0 },
+  medium: { shards: 12, scene: true, steps: 3, disperse: false, rt: 0.5 },
+  high: { shards: 16, scene: true, steps: 4, disperse: true, rt: 0.5 },
+  ultra: { shards: 16, scene: true, steps: 5, disperse: true, rt: 1 },
+};
+export const STROBE_TIER = { low: { ships: 36, field: 0.6 }, medium: { ships: 60, field: 0.8 }, high: { ships: 96, field: 1 }, ultra: { ships: 128, field: 1.12 } }; // field: the share of STROBE_FIELD_R the battle fills (fewer hulls, a smaller field: as dense)
+
 // The free port: what is traded, and its base price at each end. A thing is
 // cheap where it is made and dear where it is wanted.
 export const CONC_GOODS = [

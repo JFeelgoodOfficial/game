@@ -1152,6 +1152,22 @@ Checks that must hold:
 - With nobody aboard no captain's line precedes the choice and the scene's lines are the `solo` ones.
 - A reload keeps `stage`, `world`, `friend` and `how`.
 
+## Season 2 visual prototypes (GDD 5.7.10)
+
+Two test scenes, in no story. `__debug` is a dev-server object, so they are not in a production build at all; in dev they are one lazy chunk (`world/proto-scenes.js`), fetched on the first `open()`.
+
+After `__debug.launch()` and free flight: `P = __debug.proto`. `await P.glass.open()` / `await P.strobe.open()` take the view (opening one closes the other); `.close()` (or `P.close()`) gives it back; `P.which()` names the open one. A prototype is built for the tier that is set when it is first opened on that tier (`__debug.quality.set('low' | 'high')` before `open()`).
+
+- Glass: `P.glass.state()` → `{open, tier, view, shards, scene, steps, disperse, target, frames, fps, uniforms}` (`scene: false` and `target: null` on LOW: no second drawing). `P.glass.set({ view: 'crown' | 'figure', orbit, angle, dist, height, spin, refract, disperse, absorb, mind, mindSpeed, rim, beam })`; `dist: null` and `height: null` go back to the view's own.
+- Strobe: `P.strobe.state()` → `{open, tier, ships, alive, debris, sweeps, rate, asked, maxRate, soft, hold, phase, lit, width, peak, floor, frames, fps}`. `P.strobe.set({ rate, soft, hold, orbit, angle, dist, height, loss, shaft, reset })`: `hold: 0` stops the beam on the field's middle (a lit still), `hold: Math.PI` stops it on the far side (dark), `hold: false` lets it run. `P.strobe.step(n)` moves the battle on `n` sweeps at once.
+
+Checks that must hold:
+- `JSON.stringify(__debug.renderState())`, `__debug.paused`, `__debug.hideCockpit` and `document.body.className` are the same after `close()` as before `open()`, for each, twice over.
+- `P.strobe.set({ rate: 20 }).rate` is 3 (`STROBE_MAX_RATE`).
+- With `hold: Math.PI` and `soft: false` a screenshot shows stars and the pulsar and no hull; with `hold: 0` the hulls are lit from one side.
+- After `step(8)`, `alive` is lower and `debris` is above 0.
+- Under SwiftShader a frame is slow and `dt` is capped at 0.1 s, so sweeps come slower than `rate` says; count frames from `state().frames` over wall time for a frame rate.
+
 ## The chapter past the horizon (GDD 5.7.7)
 
 Structure only: what happens in it is in files named `SEALED-*`, which are not
