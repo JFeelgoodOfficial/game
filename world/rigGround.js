@@ -34,6 +34,17 @@ function drop(g, l) {
   return g.pelvis.position.y + l.top - l.upper * Math.cos(h) - l.lower * Math.cos(h + l.knee.rotation.x) - l.radius;
 }
 
+// Sit a rig down: thighs forward, shins down, feet on the floor at `floorY`
+// (so the seat it reads as sitting on is about a shin's length up). Call it
+// after anything that poses the legs, every frame it is to stay seated.
+export function sitRig(rig, floorY) {
+  const j = rig.joints;
+  j.legL.hip.rotation.x = j.legR.hip.rotation.x = -1.45;
+  j.legL.knee.rotation.x = j.legR.knee.rotation.x = 1.5;
+  j.torso.rotation.x = 0.1;
+  return standRig(rig, floorY);
+}
+
 export function standRig(rig, floorY) {
   const g = rig.ground || measureRig(rig).ground;
   const low = Math.min(drop(g, g.L), drop(g, g.R));
