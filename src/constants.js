@@ -782,6 +782,17 @@ export const C = {
   FUT_HOUR_WAIT: 26.0, // seconds from the third arrival to the hour the fourth is forecast for
   FUT_CLOCK_T: 20.0, // seconds the hour striking runs
   FUT_FIX_T: 27.0, // ...and the correction
+  // --- Season 1, chapter 10: The Siege (world/siege-helm.js, world/concourse-system.js, GDD 5.7.9) ---
+  SIEGE_COLUMN: 60.0, // grey ships in each column
+  SIEGE_SEG_HP: 3.0, // what each section of the outer ring can take
+  SIEGE_HITS: 8.0, // grey ships reaching a section for each point it loses
+  SIEGE_ALLY_THIN: 0.4, // how much of a column an ally in that quarter of the sky has already broken
+  SIEGE_ZONE: 0.17, // the flagship's reach (chart units: the chart is 2 across)
+  SIEGE_CUT: 0.07, // how near the light ship's wake breaks a grey ship
+  SIEGE_WAKE: 3.5, // seconds the wake lasts behind the ship
+  SIEGE_FLY: 9.0, // seconds a drawn pass takes to fly
+  SIEGE_INTRO_T: 19.0, // seconds the fleet's arrival runs
+  SIEGE_FALL_T: 34.0, // ...and the outer ring's fall
   // --- Season 1, chapter 8: The Weight of Hands (world/swarm-system.js, world/swarm-yard.js, GDD 5.7.9) ---
   SWARM_LAMP_POWER: 0.25, // the lamp carried by hand on the yard, against what it reaches in open space
   SWARM_READ_TIME: 1.6, // seconds the X-ray band must be held on a builder to read it
@@ -834,6 +845,15 @@ export const APPR_TOUCHED = [[0, 1], [2, 3], [4, 2]];
 // chord, and the star as it now is, a semitone sharp of where the hymn expects it.
 export const CHOIR_PHRASES = [[0, 2, 3], [1, 0, 3, 2], [2, 3, 0, 1, 3]];
 export const CHOIR_NOTES = [196, 247, 294, 311];
+// The Siege: each pass's columns (how many, the bearing the first comes from,
+// how far round the ring it is aimed) and, from the second, the bearing the
+// flagship stands at.
+export const SIEGE_WAVES = [
+  { columns: 3, from: 0.4, bend: 0.25 },
+  { columns: 4, from: 1.3, bend: -0.3, flag: 2.6 },
+  { columns: 5, from: 0.1, bend: 0.35, flag: 4.4 },
+  { columns: 6, from: 0.9, bend: -0.2, flag: 0.7 },
+];
 export const ICE_PLACES = { first: [760, -150, -620], city: [-420, -1780], roof: [-1500, -640] };
 
 // How far each band of the lamp reaches, in units, by what it is shining

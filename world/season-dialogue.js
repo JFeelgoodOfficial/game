@@ -107,7 +107,32 @@ export const FIXED = [
     },
   },
   { id: 'defection', chapter: 9, label: 'THE ENVOY CROSSES' },
-  { id: 'siege', chapter: 10, label: 'THE OUTER RING FALLS' },
+  {
+    id: 'siege', chapter: 10, label: 'THE OUTER RING FALLS',
+    forecast: {
+      from: 'FORECAST',
+      speaker: { name: 'The light ship', species: 'her instruments', cityId: `The ${N.hub}` },
+      lines: [
+        `A ${N.rival.toUpperCase()} FLEET IS INBOUND ON THE ${N.hub.toUpperCase()}. ITS COURSE WAS FILED A YEAR AGO, AS A NOTICE.`,
+        'EVERY MOVE OF IT IS ALREADY FORECAST, AND SO IS EVERY MOVE OF THE DEFENCE.',
+        'ONE SHIP IS ON NOBODY\'S FORECAST. THIS ONE.',
+      ],
+      certain: 'CERTAIN: THE SIEGE COMES TODAY, AND THE OUTER RING FALLS.',
+      open: 'NOT CERTAIN: WHO FIGHTS BESIDE YOU, AND WHO IS STILL IN THE RING WHEN IT GOES.',
+    },
+    remember: {
+      evacuated: {
+        marrow: 'I watched the lifeboats leave the ring. I counted lights. I do not usually count.',
+        lux: 'I said run, and you let them run. It is the only order I have ever been proud of.',
+        vask: 'We gave up the ring to get them out. It cost the fleet. I have never minded a cost less.',
+      },
+      held: {
+        marrow: 'The line held and the ring went dark with people in it. I saw which sections. I still see them.',
+        lux: 'I said get them out. I keep saying it. It was a long time ago now and I keep saying it.',
+        vask: 'We kept the fleet. We lost the people in the ring. Both numbers are in the log and neither is small.',
+      },
+    },
+  },
   { id: 'refugees', chapter: 11, label: 'A HOME IS NEEDED' },
   { id: 'merger', chapter: 13, label: 'THE MERGER' },
 ];
