@@ -1511,6 +1511,37 @@ The season's last chapter: `world/shore.js`, `world/shore-dialogue.js`, a fifth 
 
 Debug: `instance('concourse').go14(stage, 'blind' | 'curious', 'aboard' | 'gone' | 'lost')`, `state()` (`s14`, `open14`, `shore`).
 
+#### Chapters 12 and 13 (sealed; structure only)
+
+The owner has not played these two chapters. This section is their structure only: no plot, no account of what is in them or how they end. The story, every line and the legend of their tunables are in files whose names start with `SEALED-engine-`, each headed `SEALED: the owner has not played this yet. Do not open.`
+
+**Where they sit.** One system, id `engine`, `sealed: true` in `src/systems.js`, its chart label taken from `world/SEALED-engine-place.js` as chapter one's is from its own place file. It is charted once chapter 11's fixed event has happened (`needs`: `voyage.fixed.resolved('refugees')`). Two stage machines in one instance, as the free port has.
+
+**Files.**
+
+| File | What it is |
+|---|---|
+| `world/SEALED-engine-place.js` | label, star, nebula, and the way in to the rest |
+| `world/SEALED-engine-ship.js` | the system: both stage machines, the record, the doors, the debug handles, what the places share, and the legend of `EN_*` |
+| `world/SEALED-engine-dock.js` | a dock, in the world (`gantry`) |
+| `world/SEALED-engine-reach.js` | a site under the pause, look `dive` |
+| `world/SEALED-engine-core.js` | a site under the pause, look `dive` |
+| `world/SEALED-engine-words.js` | every word |
+
+**Stages.** Chapter 12 (`a`): `en_0`, `en_1`, `en_2`, `en_3`, `en_4`, `en_5`. Chapter 13 (`b`): `ex_0`, `ex_1`, `ex_2`, `ex_3`, `ex_4`, `ex_5`, `ex_6`. Chapter 13 opens once chapter 12's debrief has played (`debrief.engine`). `ex_4` is a decision made and not yet lived through: it is never saved (it is written and read back as `ex_3`), and leaving its place, or being lost in it, returns to `ex_3` with the decision unmade (5.7.9, "Dying, and decisions").
+
+**Record** (`fgsf.voyage.chapters.engine`, `undefined` while pristine): `a`, `b` (stage ids), `k1` (integer bitmask, 0..63), `k2` (integer, 0..3).
+
+**Season record.** Reads `ch9.ione`, the fixed event `defection`, and `chapter.crew()`. Writes the facts `ch13.core` (`'destroyed' | 'fed'`) and `ch13.ione` (`'aboard' | 'gone' | 'lost'`), and resolves the fixed event `merger` with `how: 'blind' | 'curious'`. `merger`'s forecast is shown at `ex_0 → ex_1`. Decision key: `ch13.core`.
+
+**Doors.** `en:reach`, `en:core`, `en:dock`, `en:back`.
+
+**Debriefs.** Keys `engine` (after `en_5`) and `unforecast` (after `ex_6`).
+
+**Tunables.** The `EN_*` block in `src/constants.js`, named blank on purpose; the legend is in `world/SEALED-engine-ship.js`.
+
+**Debug.** `__debug.tenretni.voyage().instance('engine')`: `state()` (`a`, `b`, `k1`, `k2`, `open13`, `core`, `ione`, `pending`, `merger`, each place's `info()`, `places`), `go12(stage)`, `go13(stage, 'destroyed' | 'fed')`, `skip()`, and `dbg(name, ...args)` for the handles of the place being walked: reach `put`, `band`, `read`; core `put`, `ask`, `decide`, `wave`, `act`, `merger`.
+
 **Ending a chapter.** A system instance may offer `debrief()`: once the
 chapter has ended, `{ title, complete, lines: [[captain id, text]], nextCourse,
 nextNone }`. The first time the pilot is on the bridge after that, the captains
