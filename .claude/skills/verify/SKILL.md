@@ -1028,6 +1028,30 @@ Checks that must hold:
 - After surfacing: `base.state().isolated.active` false, and neither `ez-lamp` nor `ch-cine` on `body`.
 - With nobody aboard (`chapter().setCrewDebug([])` first) every scene's lines are the `solo` ones and the question's speaker is the vessel.
 
+### Chapters 4 and 5: the free port
+
+`I = __debug.tenretni.voyage().instance('concourse')` after `voyage().travel('concourse')`. Two docks, `port` and `tender`: `systemDock()` takes whichever is nearer the ship, so to go to one put the ship over it first (`ship.position.copy(voyage().dock(id).site.group.position); ship.position.y += 300`), then `systemDock()` and `systemStepOut()`. To board from a deck: `cap.place` on the pad (port (0, 0.14, 92), tender (0, 0.14, 34)) and key `g`. `I.state().places` → `{hub: {pad, varn, market, bar, envoy, assessor, hatch}, tender: {pad, boss, stores}, hold: {door, case, thief}}`. The market is `__debug.holodeck.panel()` → `{open, rows, pick(i)}`: eight rows, BUY then SELL for each of the four goods; `Digit1`..`Digit8`, `x` closes.
+
+Chapter 4, waiting on `I.state().s4` each time:
+1. Step out at the port: `cine.kind() === 'comm'`, `cine.skip()`: `docked`.
+2. `cap.place` at `places.hub.varn`, prompt `E — TALK`, `e`, `cine.skip()` (stops at TAKE IT / NOT YET), `cine.pick(0)`: `met`.
+3. Tender: stand at `places.tender.boss`, `e`, `cine.skip()`: `hauled`, `ticks` 40, and KEEP / SPLIT is up. `x` leaves it (`hauled` still, `fee` null) and `e` puts it again. `pick(0)`: `paid`, `fee: 'kept'`, 40 ticks; `pick(1)`: `fee: 'split'`, 20.
+4. `places.tender.stores`, `e`: the panel. `Digit1` buys vent glass: `cargo.glass` up, `ticks` down by `prices.tender[0]`, and `prices` change after every trade. A row the purse or the hold cannot cover is locked.
+5. Port: `places.hub.market`, `e`, `Digit2` sells it: with `prices.hub[0]` above what was paid, `traded`.
+6. `places.hub.bar` (stand 1 short of it), prompt `E — GO IN`, `e`: `hub.scene.kind === 'bar'`; `e` skips; the envoy's talk opens (`cine.text().speaker`); skip it: `done`. `voyage().debrief()` has key `concourse`.
+7. On the bridge the debrief plays; when it has, `state().open5` is true and not before.
+
+Chapter 5, waiting on `s5`:
+1. Back on the deck (`base.door('concourse:deck')`): `hub.assessor` true. `e` at `places.hub.assessor`, skip: `valued`; about 9 game seconds later a `comm` scene from the light ship; skip: `robbed`.
+2. `base.door('base:archive')`: `state().guest` → `{rooms, touched, counted, panel}`. Every plinth's prompt is `E — LOOK AT THIS ONE` (the archive's own TAKE prompts are behind it). At an untouched one `found` stays as it was; at each of `guest.touched` (stand a fifth of the way from it to its room's middle) it gains a bit. With all three (`found` 7): `tracked`.
+3. Deck again, `places.hub.hatch`, `e`: `hold.inside`, scene `hold`; `e` skips. `places.hold.case` (stand 1.6 short), `e`: a `comm` scene; `I.hold().dbg.sealed()` is its lines, the third naming whoever is aboard. Then `e` at `places.hold.thief`: HAND THEM OVER / LET THEM GO. `x` leaves it; `pick(0)` → `thieves: 'held'`, `pick(1)` → `'freed'`: `found`. The door's console only then: `e` at `places.hold.door`: back on the deck, `done`, `debrief()` key `appraisal`.
+
+Checks that must hold:
+- With nobody aboard the scenes' lines are the `solo` ones and the forecast's third line says the pilot comes alone.
+- A reload keeps `s4`, `s5`, `ticks`, `cargo`, `fee`, `thieves`, `found`, `sealed`.
+- After chapter 5 the archive's first console is its own again (no `LOOK AT THIS ONE`).
+- `I.go4(stage)` and `I.go5(stage)` jump either chapter; `go5` sets `debrief.concourse`.
+
 ## The chapter past the horizon (GDD 5.7.7)
 
 Structure only: what happens in it is in files named `SEALED-*`, which are not

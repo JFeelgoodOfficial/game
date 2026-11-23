@@ -26,7 +26,7 @@ import { APPR } from './appraisal-dialogue.js';
 const ZERO = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 const HW = 9, HL = 13; // the hold: x -9..9, z -13..13
-const CASE = [0, -8.5], THIEVES = [[-5.5, -2], [-5.8, 1.2]], WARDEN = [-2.6, -0.6], DOOR = [0, 11.5];
+const CASE = [0, -8.5], THIEVES = [[-5.5, -2], [-5.8, 1.2]], WARDEN = [-3.2, 4.6], DOOR = [0, 11.5];
 const REC = [[4.6, -4], [5.6, -1.6], [4.4, 0.8]];
 
 export function createConcourseHold(ctx, S) {
