@@ -776,6 +776,12 @@ export const C = {
   CONC_BAR_T: 18.0, // seconds the scene in the bar runs
   CONC_HOLD_T: 20.0, // ...and the one in berth forty
   CONC_ALARM_DELAY: 9.0, // seconds from the valuation to the light ship's alarm
+  CONC_FLOOD: 2.0, // what every price at the port is multiplied by once the cheap ticks have flooded it (chapter 6)
+  // --- Season 1, chapter 6: Futures (world/futures-system.js, world/futures-city.js, GDD 5.7.9) ---
+  FUT_WATCH_R: 10.0, // how near the forecast place the pilot has to stand to have seen an arrival
+  FUT_HOUR_WAIT: 26.0, // seconds from the third arrival to the hour the fourth is forecast for
+  FUT_CLOCK_T: 20.0, // seconds the hour striking runs
+  FUT_FIX_T: 27.0, // ...and the correction
 };
 
 // The Long Dusk: when each group comes at the fires if the edge is held

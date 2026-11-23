@@ -80,7 +80,32 @@ export const FIXED = [
       },
     },
   },
-  { id: 'flood', chapter: 6, label: `THE ${N.hub.toUpperCase()} FLOODS` },
+  {
+    id: 'flood', chapter: 6, label: `THE ${N.hub.toUpperCase()} FLOODS`,
+    forecast: {
+      from: 'FORECAST',
+      speaker: { name: 'The light ship', species: 'her instruments', cityId: 'Futures' },
+      lines: [
+        `THE ${N.rival.toUpperCase()} HAVE OPENED A MINE DEEPER THAN ANY NEUTRON STAR. IT MAKES ${N.currency.toUpperCase()}S FASTER THAN THE ${N.hub.toUpperCase()} CAN SPEND THEM.`,
+        'MORE MONEY CHASING THE SAME GOODS. PRICES CLIMB. WHAT WAS SAVED BUYS HALF OF WHAT IT DID.',
+        'NOTHING IS FIRED. NOBODY IS BOARDED. IT IS STILL THE FIRST MOVE OF A WAR.',
+      ],
+      certain: `CERTAIN: THE ${N.hub.toUpperCase()} FLOODS WITH CHEAP ${N.currency.toUpperCase()}S. PRICES THERE DOUBLE.`,
+      open: 'NOT CERTAIN: WHETHER THE LIGHT SHIP GOES INTO WHAT FOLLOWS BOUND BY A FORECAST OF ITS OWN.',
+    },
+    remember: {
+      bound: {
+        marrow: 'We have a forecast now. I find I listen less. I am trying to stop that.',
+        lux: 'I signed us onto a schedule. Some nights it is the only reason I sleep. Some nights it is the reason I do not.',
+        vask: 'Everything we do is on a page somewhere that we may not read. I count anyway. It may not be the same number.',
+      },
+      free: {
+        marrow: 'Nobody knows what we will do tomorrow. I had not known that was a thing a ship could own.',
+        lux: 'I wanted that forecast. You said no. I am frightened every day, and it is mine.',
+        vask: 'Prices doubled and our savings halved, and we still said no to knowing. It was the dearer choice. I would make it again.',
+      },
+    },
+  },
   { id: 'defection', chapter: 9, label: 'THE ENVOY CROSSES' },
   { id: 'siege', chapter: 10, label: 'THE OUTER RING FALLS' },
   { id: 'refugees', chapter: 11, label: 'A HOME IS NEEDED' },

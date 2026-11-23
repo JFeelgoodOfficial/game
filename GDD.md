@@ -1350,6 +1350,29 @@ They lead and wait: the one that leads keeps `ICE_LEAD_GAP` ahead at `ICE_LEAD_S
 
 **Science.** Real: rogue planets; an ocean kept liquid under ice by radiogenic heat with no star; vent life fed by chemistry; water boiling and freezing into a plume in vacuum; the 21 cm hydrogen line, and cold ice passing radio at that wavelength. Stretched, and marked in `world/ice-ocean.js`: liquid water swallows 1.4 GHz within centimetres, so nobody could talk across an ocean on it, and a hole held open by a warm plume would skin over.
 
+### 5.7.10 Season 2: The Glass Crown
+
+The season's story is `plans/season-2-arc.md`: ten chapters. No Season 2 chapter is built until Season 1 is, because nearly every one reads the Season 1 record (5.7.9: `fgsf.voyage.season`).
+
+**Fixed events.** Season 2 follows the rule of 5.7.9, "How history works": its big events happen whatever the pilot does (the Choir falls; the Concourse is lost and retaken; someone dies at the Chonga; the pilot goes), and the pilot's decisions change who, how and what is left. Each one is forecast on screen before it happens and remembered afterwards (`src/fixedEvents.js`). Its rows are added to `FIXED` in `world/season-dialogue.js` as its chapters are built.
+
+**What it reads from Season 1.**
+
+| Season 1 outcome | Where it is kept | What it changes in Season 2 |
+|---|---|---|
+| The Foregone came out of Ch 13 blind or curious | fixed event `merger`, `how` | Blind: the Remnant is most of what is left of them, and the forged forecast in Ch 7 is cruelly easy to sell. Curious: the Remnant is a small splinter, the rest are a possible ally, and Ch 7 is about winning them over. |
+| Ione stayed, or did not | fixed event `defection`, and Ch 13's record | If she stayed, she is the person the pilot loses at the Choir. If not, it is the Concourse dockmaster, and the chapter is written for that. |
+| A captain was lost | `chapter.crew()`, `chapter.lost(id)` | Every role moves along. Lux gone: Vask takes command in Ch 2. Marrow gone: the death at the Chonga falls on whoever is left who believed in it, and with nobody left, on the Pulsar Choir's eldest. No captains at all: the pilot carries Ch 2 alone from inside the glass. |
+| The swarm builders were freed or contracted (S1 Ch 8) | fact `ch8.builders` | Freed: they arrive at the Long Way Back unasked, and their ships turn the battle. Contracted: the Claudians encased them, and they are fought. |
+| Lux signed the forecast (S1 Ch 6) | fact `ch6.signed`; fixed event `flood`, `how: 'bound' \| 'free'` | Signed: the Claudians find the light ship through the contract, and part of Ch 1 is learning how they knew. |
+| A world was sold or recompiled (S1 Ch 11) | Ch 11's facts, fixed event `refugees` | A recompiled world is in the war as a place the Claudians can reach. A sold world turns up in Ch 10, in the hands of whoever bought it. |
+
+Also kept from Season 1, for chapters that want them: `ch2.decision`, `ch3.decision`, `ch4.fee`, `ch5.thieves`, `ch7.choir`, `ticks`.
+
+**Placeholder names.** Claudians, Chonga, Remnant and Marshal are placeholders, kept in one constants file as Season 1's four are (`world/season-names.js`), and spelled nowhere else in code or dialogue.
+
+**Rules for every Season 2 chapter.** Those of 5.7.9, and: nothing in the season changes the pilot's model (an encased figure is a figure inside glass, not the pilot's own); each chapter has a named set piece, built first; Star Trek gives the structure only, and nothing is copied from it.
+
 ### 5.8 The Sky City (Saturnia)
 
 Saturnia has no surface, so it gets a place instead: a floating city 320 units

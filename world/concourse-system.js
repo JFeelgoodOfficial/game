@@ -61,7 +61,9 @@ export function createConcourseSystem(ctx) {
   // what a thing costs, at a place, as the market stands
   const price = (place, i) => {
     const g = CONC_GOODS[i];
-    return Math.max(1, Math.round(g[place] * (1 + C.CONC_SWING * Math.sin(clock * 0.83 + i * 1.9 + (place === 'hub' ? 0 : 2.1)))));
+    // (once the cheap ticks have flooded the port, chapter 6, everything costs twice the ticks)
+    const flood = ctx.fixed.resolved('flood') ? C.CONC_FLOOD : 1;
+    return Math.max(1, Math.round(g[place] * flood * (1 + C.CONC_SWING * Math.sin(clock * 0.83 + i * 1.9 + (place === 'hub' ? 0 : 2.1)))));
   };
 
   function market(place) {
