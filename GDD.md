@@ -1301,6 +1301,36 @@ The sealed forecast names whoever is aboard, by the names in `world/chapter-dial
 
 **Science.** Real: Lagrange points, and the stability of L4; gravitational time dilation, which near a neutron star is tens of per cent. Past known physics, and marked in `world/concourse-tender.js`: that the time a machine did not live can be banked and spent.
 
+#### Chapter 6: Futures (`futures`)
+
+Lux's chapter. `world/futures-system.js` (system, stages, record), `world/futures-city.js` (the square), `world/futures-dialogue.js` (every word and name). No `needs`.
+
+**The place.** The Orrery: a world that sold its whole future to the season's rival three hundred years ago. The dock is a pad at the edge of a round square with a clock tower at its middle. Sixteen citizens each walk one beat between a door and a place in the square, on a period of their own, and where every one of them is, is a function of one clock (`ct`): that is what makes them predictable. Everyone on schedule wears a lit band at the ankle.
+
+**The board.** The corner panel says who reaches where, and in how long. Three are watched being on time: stand within `FUT_WATCH_R` of the place as each arrives. The fourth is forecast to sit down on the south bench on the hour (`FUT_HOUR_WAIT` later) and does not come. She is the one figure with no band, walking the square the other way round.
+
+**Stages** (append-only): `arrived → forecast → welcomed → predicted → missed → found → decided → done`.
+
+| Stage | Reached when | Shown as |
+|---|---|---|
+| `forecast` | first step out | `fixed.forecast('flood')` |
+| `welcomed` | the Keeper of Hours (E) has explained, and the hour has struck | cinematic talk, then a scene (`FUT_CLOCK_T`) |
+| `predicted` | three arrivals watched | the board; a chime each |
+| `missed` | the hour, and an empty bench | lines |
+| `found` | the late one (E) | cinematic talk |
+| `decided` | the Keeper offers the light ship a forecast of its own: SIGN, or refuse (`ch6.signed`: true \| false) | a choice; asked again if left |
+| `done` | she has been walked back to her bench | scene (`FUT_FIX_T`), the same either way |
+
+**The fixed event.** `flood` is forecast on the first step out and resolved by the decision: `how: 'bound'` if the ship is forecast, `'free'` if not. Once it is resolved, `world/concourse-system.js` multiplies every price at the free port by `CONC_FLOOD`: what was saved buys half.
+
+**Crew.** The offer is Lux's temptation. With Lux lost the choice reads SIGN IT / REFUSE IT and the line is said by whoever is aboard; with nobody aboard it is the pilot's alone. Nothing here can kill the pilot, so the decision is survived as it is made.
+
+**Tunables.** `FUT_*`, and `CONC_FLOOD` in the port's block.
+
+**Debug.** `__debug.tenretni.voyage().instance('futures')`: `state()` (`stage`, `signed`, `flood`, `city`, `places`), `go(stage, 'signed' | 'refused')`, `skip()`, `decide('signed' | 'refused')`, `dbg.nearly(sec)` (runs the city's clock on to just before the next watched arrival), `dbg.hour(left)`.
+
+**Science.** The premise is the stretch, and the file's header says so: a city is a chaotic system, and no measurement is fine enough to forecast one for an afternoon.
+
 **Ending a chapter.** A system instance may offer `debrief()`: once the
 chapter has ended, `{ title, complete, lines: [[captain id, text]], nextCourse,
 nextNone }`. The first time the pilot is on the bridge after that, the captains

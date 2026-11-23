@@ -1062,6 +1062,18 @@ Checks that must hold:
 - After chapter 5 the archive's first console is its own again (no `LOOK AT THIS ONE`).
 - `I.go4(stage)` and `I.go5(stage)` jump either chapter; `go5` sets `debrief.concourse`.
 
+### Chapter 6: Futures
+
+`I = __debug.tenretni.voyage().instance('futures')` after `voyage().travel('futures')`; `systemDock()` + `systemStepOut()`. `I.state()` → `{stage, signed, flood, city: {inside, ct, seen, hour, scene, pending, next: {who, at, in}, late, citizens, panel}, places: {pad, keeper, stations}}`.
+
+A pass, waiting on `stage`:
+1. First step out: a `comm` forecast; `cine.skip()`: `forecast`.
+2. `cap.place` at `places.keeper`, `e`, `cine.skip()`: the scene `hour` starts by itself once the talk has closed; at its end `welcomed`.
+3. The board: `city.next` is who arrives where and in how many seconds. Away from it when it happens, the line is `YOU WERE NOT THERE…` and `seen` stays. Stand within 10 of `next.at`, then `I.dbg.nearly(1.5)`: `seen` goes up on the second. Three times: `predicted`, and `city.hour` counts down from 26.
+4. `I.dbg.hour(1.5)`: `missed`. `city.late` is where she is (it moves: re-read it); stand just inside it, `e`, skip: `found`.
+5. `e` at the Keeper, `cine.skip()` stops at SIGN / TALK HER DOWN. `x` leaves it (`found`, `signed` null). `cine.pick(0)` → `signed: true`, `flood.how: 'bound'`; `pick(1)` → `false`, `'free'`. The scene `fix` follows by itself; at its end `done`.
+6. `voyage().debrief()` title `CHAPTER 6 — FUTURES`. `voyage().instance('concourse').state().prices` are doubled from then on.
+
 ## The chapter past the horizon (GDD 5.7.7)
 
 Structure only: what happens in it is in files named `SEALED-*`, which are not

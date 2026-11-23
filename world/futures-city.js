@@ -338,8 +338,10 @@ export function createFuturesCity(ctx, story) {
         pos.set(Math.cos(a) * 60, 30 + u * 0.5, Math.sin(a) * 60 + 30);
         target.set(0, 4, 0);
       } else {
-        pos.set(snapD[0] * 0.4 + 14, 5, snapD[1] * 0.4 + 30);
-        target.set(derry.rig.group.position.x, 1.6, derry.rig.group.position.z);
+        // near enough to see her face: a little ahead of where she is walked
+        const g = derry.rig.group.position;
+        pos.set(g.x + 7 + (snapD[0] - g.x) * 0.15, 2.6, g.z + 9 + (snapD[1] - g.z) * 0.15);
+        target.set(g.x, 1.7, g.z);
       }
       return true;
     },
@@ -392,7 +394,6 @@ export function createFuturesCity(ctx, story) {
       const lampPh = (((ct + citizens[0].off) / citizens[0].P) % 1 + 1) % 1;
       northLamp.material.color.setHex(lampPh >= 0.35 && lampPh < 0.85 ? 0xfff0b0 : 0x4a4436);
       if (!scene) poseAll(d, t, inside);
-      if (derry.band) derry.band.visible = true;
     },
     tick(dt, t) {
       chapterHud.tick(dt);
