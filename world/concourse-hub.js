@@ -36,6 +36,7 @@ import { createCrewFollow } from './crewFollow.js';
 import { CONC } from './concourse-dialogue.js';
 import { APPR } from './appraisal-dialogue.js';
 import { SIEGE } from './siege-dialogue.js';
+import { SHORE } from './shore-dialogue.js';
 
 const ZERO = new THREE.Vector3();
 const HW = 62, Z0 = -112, Z1 = 118; // the deck
@@ -234,6 +235,8 @@ export function createConcourseHub(ctx, S) {
   ];
   const consoles = [
     ...[STALLS[1], STALLS[2]].map(([x, z]) => ({ x: x - Math.sign(x) * 2.2, y: 0, z, r: 3.2, prompt: CONC.prompts.market, off: () => !S.reached4('paid'), use: () => (S.market('hub'), null) })),
+    // chapter 14: the bar again, and the argument in it
+    { x: BAR.door[0], y: 0, z: BAR.door[1], r: 3.4, prompt: SHORE.prompts.bar, off: () => !(S.shore && S.shore.barOpen()), use: () => S.shore.barTalk() },
     { x: BAR.door[0], y: 0, z: BAR.door[1], r: 3.4, prompt: CONC.prompts.bar, off: () => S.st4() !== 'traded' || !!scene, use: () => (beginBar(), null) },
     // chapter 10: from the berth, straight to the light ship's helm
     { x: PAD[0] - 7, y: 0, z: PAD[1] - 20, r: 3.4, prompt: SIEGE.prompts.toHelm, off: () => S.st10() !== 'called', use: () => ((site.portal = 'siege:helm'), null) },
@@ -279,6 +282,7 @@ export function createConcourseHub(ctx, S) {
       if (s4 === 'docked') return { x: VARN[0] + 0.4, z: VARN[1] - 3.1, label: CONC.marks.varn };
       if (s4 === 'paid') return S.held() ? { x: STALLS[1][0] - 2.2, z: STALLS[1][1], label: CONC.marks.market } : null;
       if (s4 === 'traded') return { x: BAR.door[0], z: BAR.door[1], label: CONC.marks.bar };
+      if (S.shore && S.shore.mark()) return { x: BAR.door[0], z: BAR.door[1], label: S.shore.mark() };
       if (S.open10() && S.st10() === 'idle') return { x: VARN[0] + 0.4, z: VARN[1] - 3.1, label: SIEGE.marks.varn };
       if (S.st10() === 'called') return { x: PAD[0] - 7, z: PAD[1] - 20, label: SIEGE.marks.berth };
       if (S.open5() && s5 === 'idle') return { x: ASSESSOR[0], z: ASSESSOR[1], label: APPR.marks.assessor };

@@ -48,6 +48,7 @@ import { SIEGE } from './siege-dialogue.js';
 import { createLove, LOVE_STAGES } from './love.js'; // chapter 9: a third chapter in this place
 import { LOVE } from './love-dialogue.js';
 import { createVault } from './vault.js';
+import { createShore, SHORE_STAGES } from './shore.js'; // chapter 14: the last chapter of the season, in this place
 
 export const CONC_STAGES = ['arrived', 'docked', 'met', 'hauled', 'paid', 'traded', 'done'];
 export const APPR_STAGES = ['idle', 'valued', 'robbed', 'tracked', 'found', 'done'];
@@ -59,6 +60,7 @@ export function createConcourseSystem(ctx) {
   const { season } = ctx;
   let s4 = 'arrived', s5 = 'idle', s10 = 'idle';
   let s9 = 'idle'; // chapter 9 (world/love.js)
+  let s14 = 'idle'; // chapter 14 (world/shore.js)
   const i9 = (s) => LOVE_STAGES.indexOf(s);
   let clock = 0; // the market's: one turn for every trade
   let cargo = {}, paid = {}; // what is in the hold, and what each unit of it cost
@@ -139,6 +141,16 @@ export function createConcourseSystem(ctx) {
       ctx.save();
       return true;
     },
+    // --- chapter 14: shore leave. It opens once the season's finale has been played and talked over;
+    // it is done once its own talk on the bridge has been played (src/voyage.js keeps that) ---
+    st14: () => (s14 === 'counted' && season.get('debrief.shore') ? 'done' : s14),
+    adv14(to) {
+      if (SHORE_STAGES.indexOf(to) <= SHORE_STAGES.indexOf(s14)) return false;
+      s14 = to;
+      ctx.save();
+      return true;
+    },
+    open14: () => ctx.fixed.resolved('merger') && !!season.get('debrief.unforecast'),
     // --- chapter 10: the siege ---
     st10: () => s10,
     adv10(to) {
@@ -185,6 +197,9 @@ export function createConcourseSystem(ctx) {
     // what the corner of the screen says, on the deck or at the tender
     panel(place) {
       const rows = [];
+      // chapter 14 has the corner of the screen when it is open
+      const sp = S.shore ? S.shore.panel(place) : null;
+      if (sp) return sp;
       // (a guest chapter's line, under the purse, in place of the port's own)
       const gp = S.guest && S.guest.panel ? S.guest.panel(place) : undefined;
       if (gp !== undefined) return [`${CONC.hud.purse}${ticks()}`, gp].filter(Boolean).join('\n');
@@ -235,6 +250,8 @@ export function createConcourseSystem(ctx) {
   const love = createLove(ctx, S); // chapter 9
   S.love = love;
   const vault = createVault(ctx, S, hub);
+  const shore = createShore(ctx, S); // chapter 14
+  S.shore = shore;
   S.guest = vault;
   let hold = null, holdBroken = false;
   let siege = null, siegeBroken = false; // the helm chart, in battle: built the first time it is fought
@@ -260,7 +277,7 @@ export function createConcourseSystem(ctx) {
     }
     return hold;
   }
-  const pristine = () => s9 === 'idle' && s4 === 'arrived' && s5 === 'idle' && s10 === 'idle' && !clock && !held() && !found && !sealed && !vault.serialize();
+  const pristine = () => s9 === 'idle' && s4 === 'arrived' && s5 === 'idle' && s10 === 'idle' && !clock && !held() && !found && !sealed && !vault.serialize() && s14 === 'idle' && !shore.serialize();
 
   return {
     docks: [
@@ -295,7 +312,7 @@ export function createConcourseSystem(ctx) {
       return love.door();
     },
     // who of this chapter's is aboard the light ship (world/lightship.js asks, for its archive)
-    aboard: (room) => (room === 'archive' && (s5 === 'robbed' || s5 === 'tracked') ? guest : room === 'archive' && vault.guest.active() ? vault.guest : love.aboard(room)),
+    aboard: (room) => (room === 'archive' && (s5 === 'robbed' || s5 === 'tracked') ? guest : room === 'archive' && vault.guest.active() ? vault.guest : love.aboard(room) || shore.aboard(room)),
     // a holodeck program has been started aboard (src/voyage.js `holo`)
     holo: (id) => vault.holo(id),
     talk: (captainId) => (s4 !== 'done' ? CONC.talk[captainId] || null : love.talk(captainId) || (S.open10() && s10 !== 'done' ? SIEGE.talk[captainId] || null : null)),
@@ -317,7 +334,7 @@ export function createConcourseSystem(ctx) {
         const how = ctx.fixed.outcome('siege')?.how === 'held' ? D.hold : D.evac;
         return { key: 'siege', title: D.title, complete: D.complete, lines: [D.open, ...D.body, how, D.close], nextCourse: D.nextCourse, nextNone: D.nextNone };
       }
-            return vault.debrief();
+            return vault.debrief() || shore.debrief();
     },
     serialize() {
       if (pristine()) return undefined;
@@ -325,6 +342,8 @@ export function createConcourseSystem(ctx) {
       if (s5 !== 'idle') rec.s5 = s5;
       if (s9 !== 'idle') rec.s9 = s9;
       if (s10 !== 'idle') rec.s10 = s10;
+      if (s14 !== 'idle') rec.s14 = s14;
+      if (shore.serialize()) rec.shore = shore.serialize();
       if (clock) rec.clock = clock;
       if (held()) {
         rec.cargo = { ...cargo };
@@ -341,6 +360,8 @@ export function createConcourseSystem(ctx) {
       if (APPR_STAGES.includes(raw.s5)) s5 = raw.s5;
       if (LOVE_STAGES.includes(raw.s9)) s9 = raw.s9;
       if (SIEGE_STAGES.includes(raw.s10)) s10 = raw.s10;
+      if (SHORE_STAGES.includes(raw.s14) && raw.s14 !== 'done') s14 = raw.s14;
+      shore.restore(raw.shore);
       if (Number.isFinite(raw.clock)) clock = Math.max(0, Math.floor(raw.clock));
       cargo = {};
       paid = {};
@@ -358,6 +379,7 @@ export function createConcourseSystem(ctx) {
       vault.restore(raw.vault);
     },
     state: () => ({
+      s14: S.st14(), open14: S.open14(), shore: shore.state(),
       s4, s5, s9, s10, open5: S.open5(), open9: S.open9(), open10: S.open10(), love: love.state(), siege: siege ? siege.info() : null, siegeEvent: ctx.fixed.outcome('siege'), ring: season.get('ch10.ring'), ticks: ticks(), clock, cargo: { ...cargo }, held: held(), found, sealed,
       fee: season.get('ch4.fee'), thieves: season.get('ch5.thieves'),
       prices: { hub: CONC_GOODS.map((g, i) => price('hub', i)), tender: CONC_GOODS.map((g, i) => price('tender', i)) },
@@ -440,6 +462,20 @@ export function createConcourseSystem(ctx) {
     },
     siege: () => siege,
     love,
+    // chapter 14: with everything before it taken as played. `how`: 'blind' | 'curious'; `ione`: 'aboard' | 'gone' | 'lost'
+    go14(s, how, ione) {
+      if (!SHORE_STAGES.includes(s)) return false;
+      s4 = s5 = s9 = s10 = 'done';
+      for (const k of ['concourse', 'appraisal', 'love', 'siege', 'vault', 'engine', 'unforecast']) season.set(`debrief.${k}`, true);
+      if (!ctx.fixed.resolved('siege')) ctx.fixed.resolve('siege', 'evacuated', { saved: 7, of: 8 });
+      if (!ctx.fixed.resolved('refugees')) ctx.fixed.resolve('refugees', 'sold', {});
+      if (!ctx.fixed.resolved('merger') || how) ctx.fixed.resolve('merger', how === 'curious' ? 'curious' : 'blind', {});
+      if (ione || !season.get('ch13.ione')) season.set('ch13.ione', ione || 'aboard');
+      s14 = s === 'done' ? 'counted' : s;
+      season.set('debrief.shore', s === 'done' ? true : null);
+      ctx.save();
+      return true;
+    },
     // ...and chapter 11's (world/vault.js): `opt` 'sold' | 'recompiled' | 'friend' | 'rest', `id` the world on the table
     go11(s, opt, id) {
       s4 = 'done';
