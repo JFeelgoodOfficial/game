@@ -323,6 +323,11 @@ export function createBaseDeck(ctx) {
     return { c, rig, at: CREW_CHAIRS[c.id] || CHAIR(3, 1), on: false };
   });
   let talk = []; // [[seconds, captain id, line]] for this meal
+  // A later chapter's guest aboard (src/voyage.js `aboard('deck')`, ctx.guest): { active(), consoles(), enter(site),
+  // leave(), tick(dt, t, walker), dinner(hereIds) -> { rig, T, lines: [[seconds, who, text]], done() -> a door | null } | null }.
+  // With no guest nothing here changes.
+  let guest = null, guestConsoles = [], meal = null;
+  const GUEST_CHAIR = CHAIR(0, 1);
   let talkSaid = -1;
   const _pilotPose = { x: PILOT_CHAIR[0], z: PILOT_CHAIR[1], y: 0, yaw: PILOT_CHAIR[2], mode: 'lift' };
   function sitDown() {
@@ -343,6 +348,15 @@ export function createBaseDeck(ctx) {
       pick.push([id, l]);
     }
     talk = pick.map(([id, l], i) => [2.2 + i * 5.4, id, l]);
+    // a guest's meal: they sit down too, the talk is theirs, and it runs as long as they say
+    meal = guest && guest.dinner ? guest.dinner(here.map((c) => c.id)) : null;
+    if (meal) {
+      group.add(meal.rig.group);
+      meal.rig.group.position.set(GUEST_CHAIR[0], 0, GUEST_CHAIR[1]);
+      meal.rig.group.rotation.y = GUEST_CHAIR[2];
+      talk = meal.lines;
+      DO.eat = meal.T;
+    }
     talkSaid = -1;
     chapterHud.cine(true);
   }
@@ -366,7 +380,13 @@ export function createBaseDeck(ctx) {
     if (doing === 'eat') {
       standUpFromTable();
       const who = crewAboard().map((c) => c.short);
-      chapterHud.say(who.length ? DECK.eatWith.replace('{who}', named(who)) : DECK.eatAlone, 6);
+      if (meal) {
+        group.remove(meal.rig.group);
+        DO.eat = 15;
+        const to = meal.done();
+        meal = null;
+        if (to && inside) site.portal = to;
+      } else chapterHud.say(who.length ? DECK.eatWith.replace('{who}', named(who)) : DECK.eatAlone, 6);
     }
     if (doing === 'scan') chapterHud.say(DECK.scanSay, 6);
     chapterHud.white(0);
@@ -473,6 +493,13 @@ export function createBaseDeck(ctx) {
       ctx.hideFleet();
       u = -1;
       doing = null;
+      guest = ctx.guest ? ctx.guest() : null;
+      if (guest && !guest.active()) guest = null;
+      if (guest) {
+        guest.enter(site);
+        guestConsoles = guest.consoles();
+        consoles.unshift(...guestConsoles);
+      }
       readSky();
       muster();
     },
@@ -481,6 +508,12 @@ export function createBaseDeck(ctx) {
       inside = false;
       group.visible = false;
       if (u >= 0) finish();
+      if (guest) {
+        consoles.splice(0, guestConsoles.length);
+        guest.leave();
+        guest = null;
+        guestConsoles = [];
+      }
       chapterHud.clear();
       ctx.scene.fog = prev.fog;
       sun.light.position.copy(prev.lightPos);
@@ -504,9 +537,13 @@ export function createBaseDeck(ctx) {
           while (talkSaid + 1 < talk.length && u >= talk[talkSaid + 1][0]) {
             const [, id, l] = talk[++talkSaid];
             const c = CAPTAINS.find((x) => x.id === id);
-            chapterHud.say(`${c.short} — ${l}`, 5);
+            chapterHud.say(c ? `${c.short} — ${l}` : id ? `${id} — ${l}` : l, 5); // (a guest's line names its own speaker)
           }
           const d = Math.min(dt, 0.1);
+          if (meal) {
+            poseRig(meal.rig, d, t, 'idle', 0);
+            sitRig(meal.rig, 0);
+          }
           const speaking = talkSaid >= 0 && u - talk[talkSaid][0] < 4 ? talk[talkSaid][1] : null;
           for (const m of diners) {
             if (!m.on) continue;

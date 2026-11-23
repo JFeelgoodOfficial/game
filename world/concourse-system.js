@@ -43,6 +43,8 @@ import { createConcourseHold } from './concourse-hold.js';
 import { createArchiveGuest } from './appraisal-archive.js';
 import { CONC } from './concourse-dialogue.js';
 import { APPR } from './appraisal-dialogue.js';
+import { createLove, LOVE_STAGES } from './love.js'; // chapter 9: a third chapter in this place
+import { LOVE } from './love-dialogue.js';
 
 export const CONC_STAGES = ['arrived', 'docked', 'met', 'hauled', 'paid', 'traded', 'done'];
 export const APPR_STAGES = ['idle', 'valued', 'robbed', 'tracked', 'found', 'done'];
@@ -51,6 +53,8 @@ export const APPR_STAGES = ['idle', 'valued', 'robbed', 'tracked', 'found', 'don
 export function createConcourseSystem(ctx) {
   const { season } = ctx;
   let s4 = 'arrived', s5 = 'idle';
+  let s9 = 'idle'; // chapter 9 (world/love.js)
+  const i9 = (s) => LOVE_STAGES.indexOf(s);
   let clock = 0; // the market's: one turn for every trade
   let cargo = {}, paid = {}; // what is in the hold, and what each unit of it cost
   let found = 0; // chapter 5: which touched plinths have been looked at (one bit each)
@@ -132,6 +136,16 @@ export function createConcourseSystem(ctx) {
     },
     // chapter 5 opens once chapter 4 has been talked over on the bridge
     open5: () => s4 === 'done' && !!season.get('debrief.concourse'),
+    // --- chapter 9: it opens once chapter 5 has been talked over on the bridge ---
+    st9: () => s9,
+    reached9: (s) => i9(s9) >= i9(s),
+    adv9(to) {
+      if (i9(to) <= i9(s9)) return false;
+      s9 = to;
+      ctx.save();
+      return true;
+    },
+    open9: () => s5 === 'done' && !!season.get('debrief.appraisal'),
     held,
     market,
     // --- chapter 4 ---
@@ -165,9 +179,9 @@ export function createConcourseSystem(ctx) {
         if (s5 === 'idle') rows.push(APPR.hud.assessor);
         else if (s5 === 'robbed') rows.push(APPR.hud.home);
         else if (s5 === 'tracked') rows.push(APPR.hud.berth);
-        else if (s5 === 'done') rows.push(APPR.hud.done);
+        else if (s5 === 'done') rows.push((S.open9() && love.panel('hub')) || (s9 === 'done' ? LOVE.hud.done : S.open9() ? '' : APPR.hud.done));
       }
-      return rows.length ? rows.join('\n') : null;
+      return rows.filter(Boolean).length ? rows.filter(Boolean).join('\n') : null;
     },
     // --- chapter 5 ---
     touched: (i) => !!(found & (1 << i)),
@@ -195,6 +209,8 @@ export function createConcourseSystem(ctx) {
   const hub = createConcourseHub(ctx, S);
   const tender = createConcourseTender(ctx, S);
   const guest = createArchiveGuest(ctx, S);
+  const love = createLove(ctx, S); // chapter 9
+  S.love = love;
   let hold = null, holdBroken = false;
   function getHold() {
     if (!hold && !holdBroken) {
@@ -207,7 +223,7 @@ export function createConcourseSystem(ctx) {
     }
     return hold;
   }
-  const pristine = () => s4 === 'arrived' && s5 === 'idle' && !clock && !held() && !found && !sealed;
+  const pristine = () => s9 === 'idle' && s4 === 'arrived' && s5 === 'idle' && !clock && !held() && !found && !sealed;
 
   return {
     docks: [
@@ -220,6 +236,8 @@ export function createConcourseSystem(ctx) {
         const s = getHold();
         return s ? { site: s, spawn: s.spawn, yaw: s.spawnYaw, look: 'dive' } : null;
       }
+      const lh = love.hop(key);
+      if (lh) return lh;
       if (key === 'concourse:deck') {
         ctx.voyage.place();
         return { site: hub, spawn: hub.fromHatch, yaw: 0, out: true };
@@ -233,11 +251,11 @@ export function createConcourseSystem(ctx) {
         s.portal = null;
         return to;
       }
-      return null;
+      return love.door();
     },
     // who of this chapter's is aboard the light ship (world/lightship.js asks, for its archive)
-    aboard: (room) => (room === 'archive' && (s5 === 'robbed' || s5 === 'tracked') ? guest : null),
-    talk: (captainId) => (s4 === 'done' ? null : CONC.talk[captainId] || null),
+    aboard: (room) => (room === 'archive' && (s5 === 'robbed' || s5 === 'tracked') ? guest : love.aboard(room)),
+    talk: (captainId) => (s4 === 'done' ? love.talk(captainId) : CONC.talk[captainId] || null),
     // one chapter's debrief at a time: chapter 4's, then (once it has been played) chapter 5's
     debrief() {
       if (s4 === 'done' && !season.get('debrief.concourse')) {
@@ -250,12 +268,14 @@ export function createConcourseSystem(ctx) {
         const end = season.get('ch5.thieves') === 'freed' ? D.freed : D.held;
         return { key: 'appraisal', title: D.title, complete: D.complete, lines: [D.open, ...D.body, end, D.close], nextCourse: D.nextCourse, nextNone: D.nextNone };
       }
+      if (s9 === 'done' && !season.get('debrief.love')) return love.debrief();
       return null;
     },
     serialize() {
       if (pristine()) return undefined;
       const rec = { s4 };
       if (s5 !== 'idle') rec.s5 = s5;
+      if (s9 !== 'idle') rec.s9 = s9;
       if (clock) rec.clock = clock;
       if (held()) {
         rec.cargo = { ...cargo };
@@ -269,6 +289,7 @@ export function createConcourseSystem(ctx) {
       if (!raw || typeof raw !== 'object') return;
       if (CONC_STAGES.includes(raw.s4)) s4 = raw.s4;
       if (APPR_STAGES.includes(raw.s5)) s5 = raw.s5;
+      if (LOVE_STAGES.includes(raw.s9)) s9 = raw.s9;
       if (Number.isFinite(raw.clock)) clock = Math.max(0, Math.floor(raw.clock));
       cargo = {};
       paid = {};
@@ -285,7 +306,7 @@ export function createConcourseSystem(ctx) {
       sealed = !!raw.sealed;
     },
     state: () => ({
-      s4, s5, open5: S.open5(), ticks: ticks(), clock, cargo: { ...cargo }, held: held(), found, sealed,
+      s4, s5, open5: S.open5(), s9, open9: S.open9(), love: love.state(), ticks: ticks(), clock, cargo: { ...cargo }, held: held(), found, sealed,
       fee: season.get('ch4.fee'), thieves: season.get('ch5.thieves'),
       prices: { hub: CONC_GOODS.map((g, i) => price('hub', i)), tender: CONC_GOODS.map((g, i) => price('tender', i)) },
       hub: hub.info(), tender: tender.info(), hold: hold ? hold.info() : null, guest: guest.state(),
@@ -319,6 +340,30 @@ export function createConcourseSystem(ctx) {
       ctx.save();
       return true;
     },
+    // chapter 9's stage, with the season's record made to agree. `how`: 'trusts' | 'wary'
+    go9(s, how) {
+      if (!LOVE_STAGES.includes(s)) return false;
+      s4 = 'done';
+      s5 = 'done';
+      season.set('debrief.concourse', true);
+      season.set('debrief.appraisal', true);
+      s9 = s;
+      if (i9(s) >= i9('patio')) {
+        const h = how === 'wary' ? 'wary' : how === 'trusts' ? 'trusts' : ctx.fixed.outcome('defection')?.how || 'trusts';
+        season.decide('ch9.why', h === 'trusts' ? 'nothing' : 'engine');
+        ctx.fixed.resolve('defection', h, { asked: h === 'trusts' ? 'nothing' : 'engine' });
+        season.set('ch9.ione', 'stayed');
+      } else {
+        season.set('ch9.why', null);
+        season.set('ch9.ione', null);
+        season.clearEvent('defection');
+        if (i9(s) >= i9('forecast')) ctx.fixed.forecast('defection');
+      }
+      if (s !== 'done') season.set('debrief.love', null);
+      ctx.save();
+      return true;
+    },
+    love,
     trade,
     price,
     S,

@@ -106,7 +106,32 @@ export const FIXED = [
       },
     },
   },
-  { id: 'defection', chapter: 9, label: 'THE ENVOY CROSSES' },
+  {
+    id: 'defection', chapter: 9, label: 'THE ENVOY CROSSES',
+    forecast: {
+      from: 'FORECAST',
+      speaker: { name: 'The light ship', species: 'her instruments', cityId: 'The free port' },
+      lines: [
+        `THE ${N.rival.toUpperCase()} ENVOY HAS FILED NO REPORT FOR SIX DAYS. THEIR ENVOYS FILE DAILY.`,
+        'SHE HAS ASKED THE BAR THREE TIMES WHEN THE FREIGHTER IS DUE. SHE HAS NEVER HAD TO ASK ANYTHING.',
+        'A PEOPLE WHO ARE NEVER SURPRISED DO NOT KEEP AN ENVOY WHO SURPRISES THEM.',
+      ],
+      certain: 'CERTAIN: SHE LEAVES THEM. SHE DOES NOT GO BACK.',
+      open: 'NOT CERTAIN: WHY SHE DOES IT, AND WHETHER SHE TRUSTS YOU WHEN SHE HAS.',
+    },
+    remember: {
+      trusts: {
+        marrow: 'She stays out on the patio some nights, not knowing what comes next. I have started doing it too.',
+        lux: 'You asked her for nothing. I would have asked for everything. She is still here, so I suppose you were right.',
+        vask: 'She was offered as a source and declined as one. She is aboard as a person. It is a harder line to keep on a manifest.',
+      },
+      wary: {
+        marrow: 'She gave us everything she knew, and stayed. I watch her watching us, and I think she is still deciding what she stayed for.',
+        lux: 'We have what she knows about the engine. It was the sensible thing. She is very polite to me now.',
+        vask: 'Forty pages on the engine, in her hand. Worth a great deal. I have not found the column for what it cost.',
+      },
+    },
+  },
   { id: 'siege', chapter: 10, label: 'THE OUTER RING FALLS' },
   { id: 'refugees', chapter: 11, label: 'A HOME IS NEEDED' },
   { id: 'merger', chapter: 13, label: 'THE MERGER' },

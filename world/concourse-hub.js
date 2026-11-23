@@ -211,7 +211,8 @@ export function createConcourseHub(ctx, S) {
       return speakerLines(CONC.dockmaster, CONC.meetBar);
     }, () => true),
     npc(BAR.keep, 2.6, () => speakerLines(CONC.barkeep, CONC.barkeepTalk), () => true),
-    npc(BAR.envoy, 2.6, () => speakerLines(CONC.envoy, CONC.envoyAgain), () => S.reached4('done')),
+    // (chapter 9, world/love.js, has her say other things here, and then takes her aboard for good)
+    npc(BAR.envoy, 2.6, () => (S.love && S.love.envoyTalk(queue)) || speakerLines(CONC.envoy, CONC.envoyAgain), () => S.reached4('done') && !(S.love && S.love.envoyAway())),
     // chapter 5: the assessor, at the berth
     npc(ASSESSOR, 2.6, () => {
       if (S.st5() !== 'idle') return speakerLines(APPR.assessor, APPR.valueAgain);
@@ -265,6 +266,7 @@ export function createConcourseHub(ctx, S) {
       if (s4 === 'traded') return { x: BAR.door[0], z: BAR.door[1], label: CONC.marks.bar };
       if (S.open5() && s5 === 'idle') return { x: ASSESSOR[0], z: ASSESSOR[1], label: APPR.marks.assessor };
       if (s5 === 'tracked') return { x: HATCH[0], z: HATCH[1], label: APPR.marks.hatch };
+      if (S.love && S.love.mark('hub')) return { x: BAR.door[0], z: BAR.door[1], label: S.love.mark('hub') }; // chapter 9: she is asking for him
       return null;
     },
     held: () => !!scene,
@@ -322,7 +324,7 @@ export function createConcourseHub(ctx, S) {
     },
     inside: () => inside,
     update() {
-      envoy.group.visible = S.st4() === 'traded' || S.reached4('done');
+      envoy.group.visible = (S.st4() === 'traded' || S.reached4('done')) && !(S.love && S.love.envoyAway());
       assessor.group.visible = S.open5() && !S.reached5('tracked');
     },
     tick(dt, t) {
@@ -389,6 +391,7 @@ export function createConcourseHub(ctx, S) {
           });
         }
       }
+      if (S.love) S.love.onDeck(queue); // chapter 9: its forecast, before anything else of it
       if (later.length && !isDialogueOpen() && chapterHud.state().line == null) {
         const l = later.shift();
         if (l.by !== undefined) say(l, 7);

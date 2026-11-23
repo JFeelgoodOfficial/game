@@ -805,6 +805,12 @@ export const C = {
   CHOIR_ARRIVE_T: 22.0, // seconds the arrival runs
   CHOIR_CHORUS_T: 31.0, // ...the hall taking the hymn up
   CHOIR_ANSWER_T: 14.0, // ...and the hall's answer to what was chosen
+  // --- Season 1, chapter 9: The Forecast of Love (world/love.js, world/love-places.js, GDD 5.7.9) ---
+  LOVE_RUN_LEN: 520.0, // the ski run, top to bottom
+  LOVE_RUN_SPEED: 24.0, // how fast it is skied (u/s)
+  LOVE_STEER: 15.0, // how fast the pilot crosses the slope (u/s)
+  LOVE_DINNER_T: 31.0, // seconds the meal with her runs
+  LOVE_STAY_T: 27.0, // ...and first bell, on the patio
 };
 
 // The Long Dusk: when each group comes at the fires if the edge is held
