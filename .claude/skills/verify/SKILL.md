@@ -1090,6 +1090,24 @@ Checks that must hold:
 - `base.door('base:bridge')` while the scene `end` plays leaves stage `done`, with neither `ch-cine` nor `ez-lamp` on `body`.
 - `I.go(stage, opt)` jumps either way; `go('decided', opt)` lands on `done`.
 - A fresh profile writes no `fgsf.voyage`.
+### Chapter 7: The Pulsar Choir
+
+`I = __debug.tenretni.voyage().instance('choir')` after `voyage().travel('choir')`; one dock (`systemDock()` + `systemStepOut()`, or `systemApproach(1500)` and `g`). `I.state()` → `{stage, choir, pending, hall, places: {pad, eldest, actuary, rose, stand}}`; `hall` → `{inside, scene: {kind, u} | null, lamp, signal, hear, atStand, tone: {round, phase, got, want} | null, table, actuary, bells, panel, pads, starDir}`. Hall frame: the forecourt and pad at (0, 150), the nave down -z, the stand at (0, -20) on a dais 0.5 high, the listening ring at (0, -98), the First Voice at (0, -122), the rose at z -190.
+
+A pass, waiting on `stage` and `hall.scene` each time (scenes are 14 to 31 game seconds and run slowly under SwiftShader; never `place` during one):
+1. On the first step out `hall.scene.kind === 'arrive'`, prompt `E — SKIP`; `e`: `docked`, `hall.lamp` set.
+2. `cap.place` at `places.eldest`, prompt `E — TALK`, `e`, `cine.skip()`: `met`.
+3. `cap.place` at `places.rose`; `I.dbg.aim()` points the look at the star. Off the radio band `hall.signal` is 0; step the lamp to radio (`q`, or `I.dbg.band('radio')`) and it reads 1; look away (`cWalk.yaw = 0`) and it falls to 0. Held above 0.6 on the ring for 2 game seconds: `heard`.
+4. `cap.place(0, 0.5, -18.5)`, prompt `E — TAKE THE CANTOR'S STAND`, `e`: `hall.atStand`, and after the teaching line `hall.tone`. Wait for `tone.phase === 'input'`, then press `tone.want` (`Digit1`..`Digit4`, or `I.dbg.press(i)`). `Digit4` off the radio band says so and leaves `tone` as it was; a wrong bell sets `phase: 'gap'` and the verse comes again. After verse 2 the scene `chorus` starts; `I.skip()`: `sung`.
+5. `e` at the First Voice, `cine.skip()` (stops at the two options). `x` leaves it (`sung`, `pending.key === 'ch7.choir'`); `e` again and `cine.pick(0)` → `choir: 'free'`, `pick(1)` → `'forecast'`: `decided`, `pending` null. Once the reply and the crew's line have gone, the scene `answer` plays by itself and ends at `done`.
+6. `voyage().debrief()` has title `CHAPTER 7 — THE PULSAR CHOIR`.
+
+Checks that must hold:
+- `'forecast'`: `hall.table` true and `hall.actuary` true after `done`; his talk is the forecast line. `'free'`: both false after `done`, and there is no `E — TALK` where he stood.
+- With nobody aboard (`chapter().setCrewDebug([])` first) every scene's lines are the `solo` ones, with no captain named.
+- A reload keeps `stage` and `choir`. `I.go('decided', 'free')` then `base.door('choir:nave')` starts the `answer` scene at once.
+- `I.restore({ stage: 'done' })` with no `ch7.choir` on record gives stage `sung`.
+- On leaving: neither `ez-lamp` nor `#choirPads.on`, and `sun.ambient.intensity` is what it was before the hall (0.95 inside it).
 
 ## The chapter past the horizon (GDD 5.7.7)
 
