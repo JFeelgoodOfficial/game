@@ -82,7 +82,12 @@ export function createHomebase(ctx) {
   function chart() {
     const v = voyage();
     const here = v.system();
-    const lines = [BASE.chartHere.replace('{here}', here.label)];
+    // (a chapter may have the helm: `voyage().aboard('helm')` -> { refuse() -> lines | null: nothing is charted yet;
+    //  before() -> lines said ahead of the chart's own }. With none, the chart is as it was.)
+    const g = v.aboard('helm');
+    const no = g && g.refuse ? g.refuse() : null;
+    if (no) return { speaker: BASE.chartSpeaker, lines: no };
+    const lines = [...(g && g.before ? g.before() : []), BASE.chartHere.replace('{here}', here.label)];
     if (!ctx.shuttleHome()) return { speaker: BASE.chartSpeaker, lines: [...lines, BASE.chartNeedShuttle] };
     const courses = v.courses();
     if (!courses.length) return { speaker: BASE.chartSpeaker, lines: [...lines, BASE.chartNowhere] };

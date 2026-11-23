@@ -30,6 +30,7 @@
 import { createExampleSystem } from '../world/example-system.js';
 import { EXAMPLE } from '../world/example-dialogue.js';
 import { HORIZON_PLACE } from '../world/SEALED-horizon-place.js';
+import { createAftermath } from '../world/SEALED-aftermath.js';
 import { createDuskSystem } from '../world/dusk-system.js';
 import { DUSK } from '../world/dusk-dialogue.js';
 import { createIceSystem } from '../world/ice-system.js';
@@ -50,7 +51,8 @@ export const SYSTEMS = [
     id: 'horizon', sealed: true,
     label: HORIZON_PLACE.label, star: HORIZON_PLACE.star, nebula: HORIZON_PLACE.nebula, fleet: HORIZON_PLACE.fleet,
     base: [0, 0, 0],
-    create: HORIZON_PLACE.create || null,
+    // (chapter one of the voyage is played here, aboard: world/SEALED-aftermath.js)
+    create: HORIZON_PLACE.create || createAftermath,
   },
   // The example: not story. A relay to dock at and a bare world to land on.
   {
