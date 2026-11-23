@@ -1152,6 +1152,16 @@ Checks that must hold:
 - With nobody aboard no captain's line precedes the choice and the scene's lines are the `solo` ones.
 - A reload keeps `stage`, `world`, `friend` and `how`.
 
+### Chapter 1 (sealed) and the helm chart
+
+A fresh open-space save (`ch.stage: 'hz_open'`, never travelled) is now at stage `a1` of chapter 1, and **the helm chart refuses until it is `a3`**. For any test that needs the chart by hand, first `voyage().instance('horizon').go('a3')`. `voyage().travel(id)` is not affected.
+
+Handles only: `H = voyage().instance('horizon')`; `H.state()` → `{stage, seen, shown, skipped, lost, places: {deck, archive}}` (`places` fill once the room has been entered). A pass: `base.door('base:deck')`, `cap.place` at each of `places.deck` (two prompts), `e`, `cine.skip()`; `base.door('base:archive')`, the one in `places.archive`, `e`, skip: `stage: 'a2'`, `seen: 7`. `base.door('base:bridge')`: `base().state().bridge.debrief` is set; `e` until `stage: 'a3'`. Then the helm (`e` to sit, `e` again) lists the courses. Check with a captain in `ez.lost` and with `chapter().setCrewDebug([])`.
+
+### Chapter 14: Shore Leave
+
+At the port: `I.go14('idle', 'blind' | 'curious', 'aboard' | 'gone' | 'lost')`. Stand 1 short of `places.hub.bar`, prompt `E — GO IN`, `e`, skip: `s14: 'bar'`. `base.door('base:deck')`, the table's SIT DOWN TO EAT: the meal is this chapter's (34 s; with `aboard` she is at the table); at its end `s14: 'dinner'`. `base.door('base:archive')`, `cap.place(-2.2, 0, places.archive.aft z - 2)`, `e`: `counted`; `state().shore.holds` are the lines. On the bridge the debrief's title is `SEASON 1 — THE VOYAGE`; once played, `s14: 'done'`, and the helm says three lines ahead of the chart, once.
+
 ## The chapter past the horizon (GDD 5.7.7)
 
 Structure only: what happens in it is in files named `SEALED-*`, which are not

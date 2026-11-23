@@ -1488,6 +1488,29 @@ The port's deck has four small hooks for a later chapter (`S.love` in `world/con
 
 **Science.** All of it is past known physics: recompiling a world, or a person, from a record is the Tenretni's art. The header of `world/vault.js` says so.
 
+#### Chapter 1 (sealed; structure only)
+
+Played aboard the light ship in the first system (`horizon`), so it is that system's instance: `world/SEALED-aftermath.js`, words in `world/SEALED-aftermath-words.js`, registered as `create` on the first entry of `SYSTEMS`. It answers the chapter of 5.7.7 and is sealed with it. It reads `chapter.hz` and that chapter's own `facts()`.
+
+- Stages: `a1 → a2 → a3`. `a3` is derived: the season fact `debrief.horizon`. A save that had already travelled when this chapter first exists is taken as `a3` and asked for nothing (it writes nothing either).
+- It is a guest aboard (`aboard(room)`): two consoles on the crew deck, one in the archive. With all three used: `a2`, and `debrief()` is offered on the bridge.
+- The helm. `voyage().aboard('helm')` may return `{ refuse() -> lines | null, before() -> lines }`, read by the chart in `src/homebase.js`: `refuse` keeps the chart shut, `before` is said once ahead of it. Until `a3` the chart is refused here.
+- Record: `{ seen, shown? }` under `chapters.horizon`.
+- Debug: `instance('horizon')`: `state()` (`stage`, `seen`, `shown`, `skipped`, `lost`, `places`), `go('a1' | 'a2' | 'a3')`, `look(i)`.
+
+#### Chapter 14: Shore Leave (`concourse`, `s14`)
+
+The season's last chapter: `world/shore.js`, `world/shore-dialogue.js`, a fifth stage machine at the free port. It opens once the finale has been played and talked over (`S.open14()`: the fixed event `merger` resolved, and `debrief.unforecast`). It reads how the season went (`merger.how`, `ch13.ione`, `ch13.core`, `ch11.choice`, `ch3.decision`) and offers no choice.
+
+| Stage | Reached when | Shown as |
+|---|---|---|
+| `bar` | the bar on the port's deck (E) | cinematic talk: what a second is worth now, by how the season ended |
+| `dinner` | the crew deck's own SIT DOWN TO EAT, as this chapter's meal (the deck's guest hook) | the long table: whoever made it, and the envoy if she is aboard; alone, the pilot's own lines |
+| `counted` | a console in the archive | cinematic talk: what the archive holds now, from what was done |
+| `done` | its debrief has played on the bridge (derived: `debrief.shore`) | the card SEASON 1 — THE VOYAGE, COMPLETE; then, once, at the helm: the next blank sky |
+
+Debug: `instance('concourse').go14(stage, 'blind' | 'curious', 'aboard' | 'gone' | 'lost')`, `state()` (`s14`, `open14`, `shore`).
+
 **Ending a chapter.** A system instance may offer `debrief()`: once the
 chapter has ended, `{ title, complete, lines: [[captain id, text]], nextCourse,
 nextNone }`. The first time the pilot is on the bridge after that, the captains
