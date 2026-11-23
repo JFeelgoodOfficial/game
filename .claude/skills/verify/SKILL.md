@@ -909,6 +909,12 @@ docks, planets, star, record}`, `travel(id)` (the swap itself, no passage),
 `setCrew(ids)`, `instance(id)` (a built system: the example's has `go(stage)`).
 `tenretni.openSpace()` is what the chapter of 5.7.7 calls at its end.
 
+A meal: at the lounge table (`place(-10, 0, 5.8)`, `e`) the pilot and every
+captain aboard are sat at the table (`deck.doing === 'eat'` for 15 game
+seconds, bars up, the camera going slowly round), two lines of table talk from
+`DECK.dinner` come up on `#chHud .line`, E skips, and it ends on `YOU EAT
+WITH …`.
+
 The crew deck (`world/basedeck.js`): on the bridge `place(4.6, 0, 4.6)` reads
 `E — CREW DECK`; `e` and `tenretni.base().state().inside` is `'deck'`
 (`deck` info → `{doing, u, lost, star, rooms}`; `places.deck` has
@@ -919,8 +925,12 @@ EAT, `(18.4, 0, 4.8)` CHECK-UP: each sets `doing` for a few seconds and ends on
 a `#chHud .line`. A lost captain's room (`ez.lost`) has `own` lights hidden and
 the candle shown. `place(-20.4, 0, 0.8)` and `e` is back on the bridge.
 
-The chart by hand: `walkSite().capital.place(0, 0, -5.2)` on the bridge, `e`,
-`e`, then a digit. `#dlgPanel` lists every charted system but the current one
+The chart by hand: the helm is the pilot's seat. `walkSite().capital.place(0.9,
+0, -4.1)` on the bridge reads `E — SIT AT THE HELM`; `e` sits
+(`bridge.seated()`, the pilot shown seated by `site.pilotPose()`, the prompt
+`E — THE CHART · MOVE — STAND UP`), `e` again opens the chart, `e`, then a
+digit. Any move stands the pilot up. The captains aboard sit in their own
+seats behind it (`places.crewSeats`). `#dlgPanel` lists every charted system but the current one
 and STAY HERE; picking one sets `bridge.going`, `bridge.u` runs 0..9 with the
 bars up (`e` skips), `voyage().state().at` changes at the middle, and
 `fgsf.voyage` is written. With the freighter out of the bay the chart refuses.

@@ -27,6 +27,9 @@ import { sun } from '../src/sun.js';
 import { chapterHud } from '../src/chapterHud.js';
 import { floorOf, tint, box, cyl, mergedMesh } from './capital.js';
 import { CAPTAINS } from './chapter-dialogue.js';
+import { poseRig } from './aliens.js';
+import { sitRig } from './rigGround.js';
+import { buildCaptain, liveCaptain } from './captainDress.js';
 import { DECK } from './base-dialogue.js';
 import { VERT, SKY_FRAG, MAX_BODIES } from './basebridge.js';
 
@@ -306,7 +309,47 @@ export function createBaseDeck(ctx) {
   // --- what is done here ---
   // one clock for whichever small thing is being done (rest, a meal, a scan): -1 when nothing is
   let u = -1, doing = null;
-  const DO = { rest: 5.5, eat: 4.5, scan: 5.0 };
+  const DO = { rest: 5.5, eat: 15, scan: 5.0 };
+
+  // --- a meal, shown: the pilot and whoever is aboard, sat at the table ---
+  // Chairs are [x, z, yaw]: the near side faces the window (+z), the far side faces back.
+  const CHAIR = (i, s) => [TB.x - 3.3 + i * 2.2, TB.z + s * 1.25, s < 0 ? 0 : Math.PI];
+  const PILOT_CHAIR = CHAIR(1, -1);
+  const CREW_CHAIRS = { marrow: CHAIR(1, 1), lux: CHAIR(2, -1), vask: CHAIR(2, 1) };
+  const diners = CAPTAINS.map((c) => {
+    const rig = buildCaptain(c.id);
+    rig.group.visible = false;
+    group.add(rig.group);
+    return { c, rig, at: CREW_CHAIRS[c.id] || CHAIR(3, 1), on: false };
+  });
+  let talk = []; // [[seconds, captain id, line]] for this meal
+  let talkSaid = -1;
+  const _pilotPose = { x: PILOT_CHAIR[0], z: PILOT_CHAIR[1], y: 0, yaw: PILOT_CHAIR[2], mode: 'lift' };
+  function sitDown() {
+    const here = crewAboard();
+    for (const m of diners) {
+      m.on = here.includes(m.c);
+      m.rig.group.visible = m.on;
+      m.rig.group.position.set(m.at[0], 0, m.at[1]);
+      m.rig.group.rotation.y = m.at[2];
+    }
+    // two things said across the table, by two of whoever is there
+    const pool = here.flatMap((c) => (DECK.dinner[c.id] || []).map((l) => [c.id, l]));
+    const pick = [];
+    while (pool.length && pick.length < 2) {
+      const k = Math.floor(Math.random() * pool.length);
+      const [id, l] = pool.splice(k, 1)[0];
+      if (pick.some((p) => p[0] === id) && pool.some((p) => !pick.some((q) => q[0] === p[0]))) continue;
+      pick.push([id, l]);
+    }
+    talk = pick.map(([id, l], i) => [2.2 + i * 5.4, id, l]);
+    talkSaid = -1;
+    chapterHud.cine(true);
+  }
+  function standUpFromTable() {
+    for (const m of diners) m.rig.group.visible = m.on = false;
+    chapterHud.cine(false);
+  }
   const crewAboard = () => CAPTAINS.filter((c) => ctx.aboard(c.id));
   const lost = (id) => id !== 'pilot' && chapter && chapter.lost && chapter.lost(id);
   const named = (list) => (list.length <= 1 ? list.join('') : `${list.slice(0, -1).join(', ')} AND ${list[list.length - 1]}`);
@@ -315,11 +358,13 @@ export function createBaseDeck(ctx) {
     doing = what;
     u = 0;
     if (what === 'scan') scanSheet.visible = true;
+    if (what === 'eat') sitDown();
     return null;
   }
   function finish() {
     if (doing === 'rest') chapterHud.say(DECK.restSay, 6);
     if (doing === 'eat') {
+      standUpFromTable();
       const who = crewAboard().map((c) => c.short);
       chapterHud.say(who.length ? DECK.eatWith.replace('{who}', named(who)) : DECK.eatAlone, 6);
     }
@@ -389,6 +434,21 @@ export function createBaseDeck(ctx) {
     onChoice: () => null,
     portal: null,
     held: () => u >= 0,
+    // at the table: the pilot is shown in their chair
+    pilotPose: () => (doing === 'eat' ? _pilotPose : null),
+    // ...and the meal is watched: slowly round the table from the corridor side, the window and the stars beyond
+    camera(pos, target) {
+      if (doing !== 'eat') return false;
+      const a = Math.PI + 0.55 - 0.7 * ease(0, DO.eat, u);
+      pos.set(TB.x - 0.6 + Math.sin(a) * 4.6, 2.05, TB.z + Math.cos(a) * 4.6);
+      target.set(TB.x - 0.6, 0.95, TB.z + 0.2);
+      return true;
+    },
+    // E: the meal is over (a small thing; nothing is missed)
+    act() {
+      if (doing === 'eat') u = Math.max(u, DO.eat - 0.6);
+    },
+    heldPrompt: () => (doing === 'eat' ? 'E — SKIP' : ''),
     setWalker(p) {
       walker = p || null;
     },
@@ -438,7 +498,32 @@ export function createBaseDeck(ctx) {
         u += Math.min(dt, 0.1);
         const end = DO[doing];
         if (doing === 'rest') chapterHud.white(ease(0, 1.6, u) * (1 - ease(end - 1.6, end, u)));
-        if (doing === 'eat') chapterHud.white(0.85 * ease(0, 1.2, u) * (1 - ease(end - 1.2, end, u)));
+        if (doing === 'eat') {
+          // a short fade in and out round it
+          chapterHud.white(0.9 * (1 - ease(0, 0.9, u)) + 0.9 * ease(end - 0.8, end, u));
+          while (talkSaid + 1 < talk.length && u >= talk[talkSaid + 1][0]) {
+            const [, id, l] = talk[++talkSaid];
+            const c = CAPTAINS.find((x) => x.id === id);
+            chapterHud.say(`${c.short} — ${l}`, 5);
+          }
+          const d = Math.min(dt, 0.1);
+          const speaking = talkSaid >= 0 && u - talk[talkSaid][0] < 4 ? talk[talkSaid][1] : null;
+          for (const m of diners) {
+            if (!m.on) continue;
+            poseRig(m.rig, d, t, 'idle', 0);
+            // eating: a hand to the mouth now and then, out of step with the others
+            const k = Math.max(0, Math.sin(t * 1.3 + m.rig.params.gaitPhase * 3));
+            m.rig.joints.armR.shoulder.rotation.x = -0.5 - 0.6 * k;
+            m.rig.joints.armR.elbow.rotation.x = -0.9 - 0.9 * k;
+            m.rig.joints.armL.shoulder.rotation.x = -0.45;
+            m.rig.joints.armL.elbow.rotation.x = -0.8;
+            sitRig(m.rig, 0);
+            // whoever is talking looks round the table; the others look at them
+            const sp = speaking && diners.find((x) => x.c.id === speaking);
+            const look = sp && sp !== m ? Math.atan2(sp.at[0] - m.at[0], sp.at[1] - m.at[1]) - m.at[2] : sp === m ? Math.atan2(PILOT_CHAIR[0] - m.at[0], PILOT_CHAIR[1] - m.at[1]) - m.at[2] : 0;
+            liveCaptain(m.rig, d, t, speaking === m.c.id, look);
+          }
+        }
         if (doing === 'scan') {
           const k = ease(0.3, end - 0.6, u);
           scanArch.position.x = BEDS[0].x + 1.4 - 2.8 * k;

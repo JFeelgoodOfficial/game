@@ -22,6 +22,8 @@ export const BASE = {
   holodeck: 'E — THE HOLODECK',
   roster: 'E — WHO COMES ALONG',
   chart: 'E — THE CHART',
+  sit: 'E — SIT AT THE HELM',
+  seated: 'E — THE CHART · MOVE — STAND UP',
   // the holodeck's panel
   holoTitle: 'THE ARCHIVE',
   holoSub: 'EVERY WORLD IT KEEPS · G ENDS A PROGRAM',
@@ -62,6 +64,24 @@ export const DECK = {
   eat: 'E — SIT DOWN TO EAT',
   eatWith: 'YOU EAT WITH {who}.',
   eatAlone: 'YOU EAT ALONE, BY THE WINDOW.',
+  // said across the table, while eating with them: two of these, from whoever is there
+  dinner: {
+    marrow: [
+      'Every place we stop, I save one thing to tell you at dinner. Today it is the light. I will tell you later.',
+      'This is better than the quiet of the archive. I like hearing forks.',
+      'You look tired. Good tired, I think.',
+    ],
+    lux: [
+      'Do not tell Vask, but I like it when the ship is quiet and we are all in one room.',
+      'I made the dessert. Do not ask what is in it. It is fine. It is mostly fine.',
+      'After the last one I did not think I would be hungry. I am starving.',
+    ],
+    vask: [
+      'I count the meals since we left the hole. I am not going to tell you the number. It is a good number.',
+      'Pass the salt. No. The other salt.',
+      'Eat. Whatever is next, it goes better on a full stomach.',
+    ],
+  },
   scan: 'E — CHECK-UP',
   scanSay: 'CHECK-UP DONE. NO INJURIES. YOU ARE FIT TO FLY.',
   look: 'E — LOOK AROUND',

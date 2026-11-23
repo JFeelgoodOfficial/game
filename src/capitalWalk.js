@@ -35,7 +35,11 @@
 //   platform.resolveWalls(pos, r)   push the walker out of the platform's own
 //                        box walls (the circle colliders are not enough for a hull)
 //   console.off()        true while a console is not there to be used
-//   platform.act()       E, while the place is holding the walker (leave a race)
+//   platform.act()       E, while the place is holding the walker (leave a race);
+//                        a dialogue payload it returns is opened
+//   platform.pilotPose()  { x, z, yaw, mode } while the place has sat the pilot
+//                        somewhere (a seat, a chair at a table): the figure is
+//                        shown there in that pose whatever the view, or null
 //   platform.heldPrompt()  what the prompt line says then
 //
 // walk.js dispatches its public surface here whenever capitalActive().
@@ -95,6 +99,7 @@ const _desired = new THREE.Vector3();
 const _camOffset = new THREE.Vector3();
 const _origin = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+const _pp = new THREE.Vector3();
 const _up = new THREE.Vector3();
 const _bearingOut = { angle: 0, dist: 0, label: 'SHIP' };
 
@@ -309,11 +314,19 @@ function pushOut() {
 
 export function updateCapitalVisuals(dt, t) {
   if (!cWalk.active || !astronaut) return;
-  toWorld(cWalk.pos, astronaut.group.position);
-  _q.setFromAxisAngle(_yAxis, cWalk.facingYaw);
+  // (a place that has sat the pilot down shows them there, seated, whatever the view)
+  const pp = site.pilotPose ? site.pilotPose() : null;
+  if (pp) {
+    _pp.set(pp.x, pp.y ?? cWalk.pos.y, pp.z);
+    toWorld(_pp, astronaut.group.position);
+    _q.setFromAxisAngle(_yAxis, pp.yaw);
+  } else {
+    toWorld(cWalk.pos, astronaut.group.position);
+    _q.setFromAxisAngle(_yAxis, cWalk.facingYaw);
+  }
   astronaut.group.quaternion.copy(site.group.quaternion).multiply(_q);
-  astronaut.update(dt, cWalk.mode, cWalk.speed01);
-  astronaut.group.visible = cWalk.view === 'tp' && !gun.active && !site.hidePilot; // (hidePilot: seated out of sight, at a vehicle's controls)
+  astronaut.update(dt, pp ? pp.mode || 'lift' : cWalk.mode, pp ? 0 : cWalk.speed01);
+  astronaut.group.visible = pp ? true : cWalk.view === 'tp' && !gun.active && !site.hidePilot; // (hidePilot: seated out of sight, at a vehicle's controls)
   updateGunVisuals(dt, toWorld);
   site.setWalker(cWalk.pos, cWalk);
   if (site.tick) site.tick(dt, t);
@@ -369,7 +382,10 @@ export function capitalInteract() {
     return undefined;
   }
   if (site.held && site.held()) {
-    if (site.act) site.act();
+    const p = site.act ? site.act() : null;
+    if (p && p.lines && p.lines.length) {
+      openDialogue(p, { onOffer: (offer) => (offer.kind === 'choice' ? site?.onChoice(offer.outcomeTag) ?? null : null) });
+    }
     return undefined;
   }
   const f = focus();

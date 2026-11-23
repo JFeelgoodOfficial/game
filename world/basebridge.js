@@ -2,6 +2,9 @@
 //
 // The deck the saga's last scene was played on (world/launch.js), kept: a
 // round floor, a lit rail, the helm forward and an arc of the archive astern.
+// The helm is the pilot's own seat: sit in it (E) and the chart is in reach;
+// any move stands the pilot up again. Behind it, a chair for each captain,
+// and the captains aboard sit in theirs.
 // Round it now is whatever system the ship is in: the stars, that system's
 // star, and its bodies as points of light where they really are. The captains
 // who are aboard and not out on a trip stand at the rail and can be talked to.
@@ -20,7 +23,8 @@ import { sun } from '../src/sun.js';
 import { chapterHud } from '../src/chapterHud.js';
 import { floorOf, tint, box, cyl, mergedMesh } from './capital.js';
 import { poseRig } from './aliens.js';
-import { standRig } from './rigGround.js';
+import { standRig, sitRig } from './rigGround.js';
+import { input } from '../src/input.js';
 import { buildCaptain, liveCaptain } from './captainDress.js';
 import { CAPTAINS } from './chapter-dialogue.js';
 import { BASE } from './base-dialogue.js';
@@ -28,6 +32,9 @@ import { BASE } from './base-dialogue.js';
 const ZERO = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 const R = 9;
+// where the pilot sits (at the helm) and where each captain sits (CAPTAINS order), all facing -z
+const PILOT_SEAT = { x: 0, z: -R + 4.0 };
+const CREW_SEATS = [{ x: -3.4, z: -R + 6.2 }, { x: 0, z: -R + 7.0 }, { x: 3.4, z: -R + 6.2 }];
 export const MAX_BODIES = 8; // (the sky shader below is shared with the crew deck's windows, world/basedeck.js)
 const ease = (a, b, x) => {
   const k = Math.min(Math.max((x - a) / (b - a), 0), 1);
@@ -134,6 +141,23 @@ export function createBaseBridge(ctx) {
   const glow = [];
   // the chart's face, on the helm
   glow.push(tint(box(1.3, 0.05, 0.6, 0, 1.13, -R + 2.2), 0x7fe6ff, 1.5));
+  // --- the seats: the pilot's at the helm, and one for each captain behind it,
+  // all facing forward. A seat: a base, a cushion, a back, arms, a lit edge. ---
+  const seat = (x, z, col, big) => {
+    const w = big ? 0.9 : 0.75;
+    lit.push(tint(cyl(0.12, 0.2, 0.36, x, 0.18, z, 10), 0x24313a));
+    lit.push(tint(box(w, 0.12, w * 0.95, x, 0.42, z), 0x2a3a44), tint(box(w * 0.92, 0.07, w * 0.85, x, 0.51, z - 0.02), col));
+    lit.push(tint(box(w, 0.75, 0.12, x, 0.84, z + w * 0.48), 0x2a3a44));
+    for (const s of [-1, 1]) lit.push(tint(box(0.08, 0.1, w * 0.8, x + s * (w / 2 + 0.02), 0.68, z), 0x24313a));
+    glow.push(tint(box(w * 0.9, 0.035, 0.035, x, 1.22, z + w * 0.48 + 0.07), col, 1.6));
+  };
+  seat(PILOT_SEAT.x, PILOT_SEAT.z, 0xffd890, true);
+  for (const [i, s] of CREW_SEATS.entries()) {
+    seat(s.x, s.z, [0xb48cff, 0xff6fb4, 0xff8a3c][i] || 0x9fe8ff, false);
+    // a small desk of light at each, in front
+    lit.push(tint(box(0.08, 0.8, 0.08, s.x, 0.4, s.z - 0.75), 0x24313a));
+    glow.push(tint(box(0.7, 0.04, 0.34, s.x, 0.82, s.z - 0.75), 0x8affc8, 1.2));
+  }
   // aft: the way to the archive, under the wall; to port of it, the lift to the bay
   const AFT = { x: 0, z: R - 1.6 }, LIFT = { x: -4.6, z: R - 3.4 }, DECK_DOOR = { x: 4.6, z: R - 3.4 }; // (starboard of the archive: the crew deck, world/basedeck.js)
   glow.push(tint(new THREE.TorusGeometry(1.5, 0.07, 6, 36).rotateX(Math.PI / 2).translate(AFT.x, 0.05, AFT.z), 0xffe2a0, 1.6));
@@ -156,14 +180,13 @@ export function createBaseBridge(ctx) {
   const npcs = [];
   const crew = CAPTAINS.map((c, i) => {
     const rig = buildCaptain(c.id);
-    const a = -Math.PI / 2 + (i - 1) * 0.62; // across the forward rail, either side of the helm
-    const x = Math.cos(a) * (R - 2.0), z = Math.sin(a) * (R - 2.0);
+    const x = CREW_SEATS[i].x, z = CREW_SEATS[i].z; // in their own seats, behind the pilot's
     rig.group.position.set(x, 0, z);
     rig.group.rotation.y = Math.PI;
     standRig(rig, 0);
     rig.group.visible = false;
     group.add(rig.group);
-    const npc = { x: 1e6, y: 0, z: 1e6, role: 'captain', talk: () => ctx.talk(c) };
+    const npc = { x: 1e6, y: 0, z: 1e6, role: 'captain', talk: () => ctx.talk(c), h: 1.6 };
     npcs.push(npc);
     return { c, rig, npc, x, z, on: false };
   });
@@ -220,6 +243,18 @@ export function createBaseBridge(ctx) {
     du = -1;
   }
 
+  // --- the pilot's seat: sat in, the chart is in reach; any move stands the pilot up ---
+  let seated = false, seatT = 0;
+  const _poseOut = { x: 0, z: 0, yaw: 0, mode: 'lift' };
+  function sit() {
+    seated = true;
+    seatT = 0;
+    return null;
+  }
+  function standUp() {
+    seated = false;
+  }
+
   // --- the passage ---
   let u = -1, going = null, arrived = false; // its clock: -1 when the ship is at rest
   let inside = false, prev = null, walker = null;
@@ -262,7 +297,11 @@ export function createBaseBridge(ctx) {
     exit: { x: LIFT.x, z: LIFT.z },
     leaveHint: BASE.toBay.replace('E — ', ''),
     surfaces,
-    colliders: [{ x: 0, z: -R + 2.2, r: 1.1, top: Infinity }],
+    colliders: [
+      { x: 0, z: -R + 2.2, r: 1.1, top: Infinity }, // the helm's console
+      { x: PILOT_SEAT.x, z: PILOT_SEAT.z, r: 0.5, top: Infinity },
+      ...CREW_SEATS.map((s) => ({ x: s.x, z: s.z, r: 0.5, top: Infinity })),
+    ],
     floorYAt: floorOf(surfaces, 1.2),
     snap: 1.2,
     pad: new THREE.Vector3(),
@@ -270,13 +309,13 @@ export function createBaseBridge(ctx) {
     spawnYaw: Math.PI,
     fromAft: new THREE.Vector3(AFT.x, 0, AFT.z - 2.4), // from the archive
     fromAftYaw: Math.PI,
-    atHelm: new THREE.Vector3(0, 0, -R + 4.4), // where a chapter leaves the pilot
+    atHelm: new THREE.Vector3(1.3, 0, -R + 4.4), // where a chapter leaves the pilot: beside the seat
     fromDeck: new THREE.Vector3(DECK_DOOR.x - 1.4, 0, DECK_DOOR.z - 1.6), // back from the crew deck
     fromDeckYaw: Math.PI,
     atHelmYaw: Math.PI,
     npcs,
     consoles: [
-      { x: 0, y: 0, z: -R + 3.6, r: 2.0, prompt: BASE.chart, off: () => u >= 0, use: () => ctx.chart() },
+      { x: PILOT_SEAT.x, y: 0, z: PILOT_SEAT.z, r: 1.7, prompt: BASE.sit, off: () => u >= 0 || seated, use: () => sit() },
       { x: AFT.x, y: 0, z: AFT.z, r: 1.7, prompt: BASE.bridgeAft, off: () => u >= 0, use: () => ((site.portal = 'base:archive'), null) },
       { x: LIFT.x, y: 0, z: LIFT.z, r: 1.7, prompt: BASE.toBay, off: () => u >= 0, use: () => ((site.portal = 'base:bay'), null) },
       { x: DECK_DOOR.x, y: 0, z: DECK_DOOR.z, r: 1.7, prompt: BASE.toDeck, off: () => u >= 0, use: () => ((site.portal = 'base:deck'), null) },
@@ -294,13 +333,27 @@ export function createBaseBridge(ctx) {
       return r || null;
     },
     portal: null,
-    held: () => u >= 0 || du >= 0,
+    held: () => u >= 0 || du >= 0 || seated,
+    // sat at the helm: the pilot is shown in the seat, facing forward
+    pilotPose() {
+      if (!seated) return null;
+      _poseOut.x = PILOT_SEAT.x;
+      _poseOut.z = PILOT_SEAT.z;
+      _poseOut.yaw = Math.PI;
+      return _poseOut;
+    },
     // a passage is watched from behind the helm, over the heads at the rail;
     // a debrief from just behind the helm, at the captains along the rail
     camera(pos, target) {
       if (du >= 0) {
         pos.set(0, 2.6, 3.4);
         target.set(0, 1.4, -R + 2.6);
+        return true;
+      }
+      // sat at the helm, at rest: over the pilot's shoulder, the helm and the sky ahead
+      if (u < 0 && seated) {
+        pos.set(1.25, 2.55, PILOT_SEAT.z + 2.7);
+        target.set(-0.2, 0.9, -R - 3);
         return true;
       }
       if (u < 0) return false;
@@ -320,9 +373,11 @@ export function createBaseBridge(ctx) {
         } else debFinish();
         return;
       }
-      if (u >= 0) site.seek(T);
+      if (u >= 0) return site.seek(T);
+      // sat at the helm: E is the chart
+      if (seated) return ctx.chart();
     },
-    heldPrompt: () => (u >= 0 || du >= 0 ? 'E — SKIP' : ''),
+    heldPrompt: () => (u >= 0 || du >= 0 ? 'E — SKIP' : seated ? BASE.seated : ''),
     setWalker(p) {
       walker = p || null;
     },
@@ -342,7 +397,7 @@ export function createBaseBridge(ctx) {
       sun.light.color.setRGB(0.8, 0.9, 1.0);
       sun.light.intensity = 1.3;
       sun.ambient.color.setRGB(0.4, 0.5, 0.7);
-      sun.ambient.intensity = 0.5;
+      sun.ambient.intensity = 0.85; // (enough to see the faces of whoever is sat behind the helm)
       ctx.hideFleet();
       u = -1;
       pose(T + 1);
@@ -363,6 +418,7 @@ export function createBaseBridge(ctx) {
       }
       u = -1;
       going = null;
+      seated = false;
       // (left in the middle of a debrief: it has been given)
       if (du >= 0) debFinish();
       chapterHud.clear();
@@ -379,6 +435,12 @@ export function createBaseBridge(ctx) {
       time.value = t;
       const d = Math.min(dt, 0.1);
       if (walker) sky.position.copy(walker);
+      // any move stands the pilot up (not during a passage: that is watched from the seat)
+      if (seated && u < 0) {
+        seatT += d;
+        const moving = input.forward || input.reverse || input.left || input.right || Math.hypot(input.moveX || 0, input.moveY || 0) > 0.35;
+        if (seatT > 0.4 && moving) standUp();
+      }
       if (du >= 0) {
         du += d;
         const toCard = deb.lines.length * DLINE + 0.8;
@@ -401,17 +463,22 @@ export function createBaseBridge(ctx) {
       for (const m of crew) {
         if (!m.on) continue;
         // (talking it over, they turn in toward the middle of the deck; otherwise they look out)
+        // (seated, facing forward; for a debrief they stand and turn in to talk it over)
         const face = du >= 0 ? Math.atan2(-m.x, -m.z + 3) : Math.PI;
         m.rig.group.rotation.y += (face - m.rig.group.rotation.y) * Math.min(1, d * 3);
         poseRig(m.rig, d, t, 'idle', 0);
-        standRig(m.rig, 0);
+        if (du >= 0) {
+          m.rig.joints.torso.rotation.x = 0;
+          standRig(m.rig, 0);
+        } else sitRig(m.rig, 0);
         const near = u < 0 && walker && Math.hypot(walker.x - m.x, walker.z - m.z) < 5;
         liveCaptain(m.rig, d, t, false, near ? Math.atan2(walker.x - m.x, walker.z - m.z) - m.rig.group.rotation.y : 0);
       }
     },
     inside: () => inside,
     muster,
-    places: { helm: [0, 0, -R + 4.4], aft: [AFT.x, 0, AFT.z - 1], lift: [LIFT.x, 0, LIFT.z], deck: [DECK_DOOR.x, 0, DECK_DOOR.z] },
+    seated: () => seated,
+    places: { seat: [PILOT_SEAT.x, 0, PILOT_SEAT.z + 0.9], crewSeats: CREW_SEATS.map((s) => [s.x, 0, s.z]), helm: [0, 0, -R + 4.4], aft: [AFT.x, 0, AFT.z - 1], lift: [LIFT.x, 0, LIFT.z], deck: [DECK_DOOR.x, 0, DECK_DOOR.z] },
     info: () => ({
       u: +u.toFixed(1), end: T, warp: +skyU.uWarp.value.toFixed(2), going: going ? going.travel : null,
       crew: crew.filter((m) => m.on).map((m) => m.c.id), figures: extras.filter((e) => e.g).map((e) => e.id), star: skyU.uStarOn.value > 0,
