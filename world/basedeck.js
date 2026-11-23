@@ -540,7 +540,7 @@ export function createBaseDeck(ctx) {
             chapterHud.say(c ? `${c.short} — ${l}` : id ? `${id} — ${l}` : l, 5); // (a guest's line names its own speaker)
           }
           const d = Math.min(dt, 0.1);
-          if (meal) {
+          if (meal && meal.rig.joints) { // (a guest's meal may seat nobody: an empty group, nothing to pose)
             poseRig(meal.rig, d, t, 'idle', 0);
             sitRig(meal.rig, 0);
           }

@@ -468,7 +468,8 @@ export function createConcourseSystem(ctx) {
       s4 = s5 = s9 = s10 = 'done';
       for (const k of ['concourse', 'appraisal', 'love', 'siege', 'vault', 'engine', 'unforecast']) season.set(`debrief.${k}`, true);
       if (!ctx.fixed.resolved('siege')) ctx.fixed.resolve('siege', 'evacuated', { saved: 7, of: 8 });
-      if (!ctx.fixed.resolved('refugees')) ctx.fixed.resolve('refugees', 'sold', {});
+      // (chapter 11 is taken as played: left pending, its forecast would open at the port instead)
+      if (vault.stage() !== 'done') vault.go('done', ctx.fixed.outcome('refugees')?.how || 'sold');
       if (!ctx.fixed.resolved('merger') || how) ctx.fixed.resolve('merger', how === 'curious' ? 'curious' : 'blind', {});
       if (ione || !season.get('ch13.ione')) season.set('ch13.ione', ione || 'aboard');
       s14 = s === 'done' ? 'counted' : s;

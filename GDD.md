@@ -1511,6 +1511,37 @@ The season's last chapter: `world/shore.js`, `world/shore-dialogue.js`, a fifth 
 
 Debug: `instance('concourse').go14(stage, 'blind' | 'curious', 'aboard' | 'gone' | 'lost')`, `state()` (`s14`, `open14`, `shore`).
 
+#### Chapters 12 and 13 (sealed; structure only)
+
+The owner has not played these two chapters. This section is their structure only: no plot, no account of what is in them or how they end. The story, every line and the legend of their tunables are in files whose names start with `SEALED-engine-`, each headed `SEALED: the owner has not played this yet. Do not open.`
+
+**Where they sit.** One system, id `engine`, `sealed: true` in `src/systems.js`, its chart label taken from `world/SEALED-engine-place.js` as chapter one's is from its own place file. It is charted once chapter 11's fixed event has happened (`needs`: `voyage.fixed.resolved('refugees')`). Two stage machines in one instance, as the free port has.
+
+**Files.**
+
+| File | What it is |
+|---|---|
+| `world/SEALED-engine-place.js` | label, star, nebula, and the way in to the rest |
+| `world/SEALED-engine-ship.js` | the system: both stage machines, the record, the doors, the debug handles, what the places share, and the legend of `EN_*` |
+| `world/SEALED-engine-dock.js` | a dock, in the world (`gantry`) |
+| `world/SEALED-engine-reach.js` | a site under the pause, look `dive` |
+| `world/SEALED-engine-core.js` | a site under the pause, look `dive` |
+| `world/SEALED-engine-words.js` | every word |
+
+**Stages.** Chapter 12 (`a`): `en_0`, `en_1`, `en_2`, `en_3`, `en_4`, `en_5`. Chapter 13 (`b`): `ex_0`, `ex_1`, `ex_2`, `ex_3`, `ex_4`, `ex_5`, `ex_6`. Chapter 13 opens once chapter 12's debrief has played (`debrief.engine`). `ex_4` is a decision made and not yet lived through: it is never saved (it is written and read back as `ex_3`), and leaving its place, or being lost in it, returns to `ex_3` with the decision unmade (5.7.9, "Dying, and decisions").
+
+**Record** (`fgsf.voyage.chapters.engine`, `undefined` while pristine): `a`, `b` (stage ids), `k1` (integer bitmask, 0..63), `k2` (integer, 0..3).
+
+**Season record.** Reads `ch9.ione`, the fixed event `defection`, and `chapter.crew()`. Writes the facts `ch13.core` (`'destroyed' | 'fed'`) and `ch13.ione` (`'aboard' | 'gone' | 'lost'`), and resolves the fixed event `merger` with `how: 'blind' | 'curious'`. `merger`'s forecast is shown at `ex_0 → ex_1`. Decision key: `ch13.core`.
+
+**Doors.** `en:reach`, `en:core`, `en:dock`, `en:back`.
+
+**Debriefs.** Keys `engine` (after `en_5`) and `unforecast` (after `ex_6`).
+
+**Tunables.** The `EN_*` block in `src/constants.js`, named blank on purpose; the legend is in `world/SEALED-engine-ship.js`.
+
+**Debug.** `__debug.tenretni.voyage().instance('engine')`: `state()` (`a`, `b`, `k1`, `k2`, `open13`, `core`, `ione`, `pending`, `merger`, each place's `info()`, `places`), `go12(stage)`, `go13(stage, 'destroyed' | 'fed')`, `skip()`, and `dbg(name, ...args)` for the handles of the place being walked: reach `put`, `band`, `read`; core `put`, `ask`, `decide`, `wave`, `act`, `merger`.
+
 **Ending a chapter.** A system instance may offer `debrief()`: once the
 chapter has ended, `{ title, complete, lines: [[captain id, text]], nextCourse,
 nextNone }`. The first time the pilot is on the bridge after that, the captains
@@ -1582,6 +1613,8 @@ Also kept from Season 1, for chapters that want them: `ch2.decision`, `ch3.decis
 **Placeholder names.** Claudians, Chonga, Remnant and Marshal are placeholders, kept in one constants file as Season 1's four are (`world/season-names.js`), and spelled nowhere else in code or dialogue.
 
 **Rules for every Season 2 chapter.** Those of 5.7.9, and: nothing in the season changes the pilot's model (an encased figure is a figure inside glass, not the pilot's own); each chapter has a named set piece, built first; Star Trek gives the structure only, and nothing is copied from it.
+
+**Visual prototypes.** Two looks carry the season, and each has a standalone test scene, opened from `__debug.proto` in free flight and from nowhere else: no story stage, menu or key leads to either (`src/protoLazy.js` lends a scene the screen by drawing it in place of the game's own, and `close()` puts back the renderer, exposure, bloom, pause and HUD exactly). `__debug.proto.glass` (`world/proto-glass.js`) is glass that holds light: one shader that bends what is behind it (on MEDIUM and above the scene is drawn a second time at half size, without the glass, and each facet reads that picture to one side, red and blue apart on HIGH; on LOW the bent ray is looked up in the sky's own function, and the one shard with a figure in it is blended over the figure), takes light by thickness, catches the star on its rim, and has colour moving slowly at several depths inside it. It is shown on a crown of shards turning round a captured star with the star's light drawn between them, and on one made figure (`buildRig`, never the pilot's model) standing inside a shard. `__debug.proto.strobe` (`world/proto-strobe.js`) is a battle with no light of its own: `world/warships.js` hulls, instanced, black except for what a pulsar's sweeping beam puts on them, with the battle moved on in the dark between sweeps (hulls travel, some are lost, wreckage is left). The pulsar is slowed to `STROBE_RATE` (one sweep every two seconds) and can never flash faster than `STROBE_MAX_RATE` (3 a second); `set({ soft: true })` is a gentler mode that is wider, dimmer and never fully dark. Tunables are the `GLASS_*` and `STROBE_*` blocks and the `GLASS_TIER` and `STROBE_TIER` tables in `src/constants.js`. The four placeholder names are spelled in `world/season2-names.js` and nowhere else; the prototypes say "glass" and "pulsar".
 
 ### 5.8 The Sky City (Saturnia)
 
