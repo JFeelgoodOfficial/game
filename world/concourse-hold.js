@@ -54,7 +54,7 @@ export function createConcourseHold(ctx, S) {
     colliders.push({ x: CASE[0], z: CASE[1] - 1.6, r: 1.3, top: Infinity });
     lit.push(tint(cyl(0.9, 0.9, 0.2, DOOR[0], 0.1, DOOR[1], 14), 0x343a46));
     glow.push(tint(new THREE.TorusGeometry(0.8, 0.06, 6, 24).rotateX(Math.PI / 2).translate(DOOR[0], 0.24, DOOR[1]), 0xff8a5a, 1.4));
-    group.add(mergedMesh(lit, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x0c0d10 })));
+    group.add(mergedMesh(lit, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x16181d })));
     group.add(mergedMesh(glow, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false })));
   }
   // the recorders: one fragment's worth of light in each
@@ -165,9 +165,9 @@ export function createConcourseHold(ctx, S) {
       ctx.scene.fog = null;
       sun.light.position.set(0.2, 1, 0.3).normalize();
       sun.light.color.setRGB(1.0, 0.9, 0.78);
-      sun.light.intensity = 1.0;
-      sun.ambient.color.setRGB(0.8, 0.74, 0.7);
-      sun.ambient.intensity = 0.85;
+      sun.light.intensity = 1.5;
+      sun.ambient.color.setRGB(0.9, 0.84, 0.78);
+      sun.ambient.intensity = 1.5;
       later.length = 0;
       panelText = null;
       opened = S.sealedSeen();

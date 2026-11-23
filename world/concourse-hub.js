@@ -118,6 +118,7 @@ export function createConcourseHub(ctx, S) {
       colliders.push({ x: tx, z: tz, r: 1.2, top: Infinity });
     }
     glow.push(tint(box(0.1, 0.9, 9, BAR.x0 - 0.3, 4.2, bz), 0xff7ac8, 1.6));
+    for (let k = 0; k < 3; k++) glow.push(tint(box(1.4, 0.08, 0.5, BAR.x0 + 6 + k * 10, 4.9, bz), 0xffd8a0, 1.5)); // lamps under the roof
     for (let k = 0; k < 6; k++) glow.push(tint(box(0.18, 0.5, 0.18, BAR.x1 - 0.5, 1.6 + (k % 3) * 0.7, BAR.z0 + 5 + k * 3.2), [0x9fffd0, 0xffd27a, 0xff8a8a][k % 3], 1.3));
     // embassy row, across the end of the arm: a door and a banner for each
     const FLAG = [0x3a8fc8, 0xd0a030, 0xe8e8f0, 0x5ab06a, 0xc8553a];
@@ -151,6 +152,8 @@ export function createConcourseHub(ctx, S) {
   const keep = figure(0x0055, BAR.keep[0], BAR.keep[1], -Math.PI / 2, 0.95);
   const envoy = figure(0x10e7e, BAR.envoy[0], BAR.envoy[1], -Math.PI / 2, 1.0);
   const assessor = figure(0xa55e5, ASSESSOR[0], ASSESSOR[1], 0.4, 0.98);
+  // the bar's regulars, at its tables
+  const regulars = [[28, -73, 0.6], [30.4, -71, -2.2], [35, -60, 2.6], [37.6, -58.6, -1.4], [29.4, -59.4, 1.2]].map(([x, z, yaw], i) => figure(0xba20 + i * 3571, x, z, yaw, 0.88 + 0.05 * i));
   // the crowd: a hundred peoples, a dozen of them here, each on a beat of their own
   const crowd = [];
   {
@@ -181,6 +184,7 @@ export function createConcourseHub(ctx, S) {
     onEnd() {
       scene = null;
       chapterHud.cine(false);
+      sun.ambient.intensity = 1.0;
       cWalk.pos.set(BAR.seat[0], 0, BAR.seat[1]);
       cWalk.yaw = Math.atan2(BAR.envoy[0] - BAR.seat[0], BAR.envoy[1] - BAR.seat[1]);
       openDialogue({ speaker: CONC.envoy, lines: CONC.envoyTalk, cine: true }, {
@@ -226,6 +230,8 @@ export function createConcourseHub(ctx, S) {
   function beginBar() {
     if (scene || S.st4() !== 'traded') return false;
     scene = { kind: 'bar', clock: barClock };
+    chapterHud.panel((panelText = null));
+    sun.ambient.intensity = 1.9; // (under its roof: the bar's own lamps)
     chapterHud.cine(true);
     barClock.begin();
     return true;
@@ -344,7 +350,7 @@ export function createConcourseHub(ctx, S) {
         }
         standRig(m.rig, 0);
       }
-      for (const r of [varn, keep, envoy, assessor]) {
+      for (const r of [varn, keep, envoy, assessor, ...regulars]) {
         if (!r.group.visible) continue;
         poseRig(r, d, t, 'idle', 0);
         standRig(r, 0);
