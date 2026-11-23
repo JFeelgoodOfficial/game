@@ -147,7 +147,7 @@ export function createHomebase(ctx) {
     if (!archive) {
       archive = createLightShip({
         scene: ctx.scene, hideFleet: ctx.hideFleet, chapter,
-        base: { fore: 'base:bridge-aft', aft: 'base:bay', forePrompt: BASE.archiveFore, aftPrompt: BASE.toBay, leaveHint: BASE.toBay.replace('E — ', ''), holoPrompt: BASE.holodeck, holodeck },
+        base: { fore: 'base:bridge-aft', aft: 'base:bay', forePrompt: BASE.archiveFore, aftPrompt: BASE.toBay, leaveHint: BASE.toBay.replace('E — ', ''), holoPrompt: BASE.holodeck, holodeck, guest: () => voyage().aboard('archive') },
       });
     }
     return archive;

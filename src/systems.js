@@ -34,6 +34,8 @@ import { createDuskSystem } from '../world/dusk-system.js';
 import { DUSK } from '../world/dusk-dialogue.js';
 import { createIceSystem } from '../world/ice-system.js';
 import { ICE } from '../world/ice-dialogue.js';
+import { createConcourseSystem } from '../world/concourse-system.js';
+import { CONC } from '../world/concourse-dialogue.js';
 
 export const SYSTEMS = [
   // Chapter one (GDD 5.7.7): where the light ship is when that chapter lets it
@@ -70,6 +72,15 @@ export const SYSTEMS = [
     label: ICE.label, star: null, nebula: 0.12, fleet: false,
     base: [0, 0, 0],
     create: createIceSystem,
+  },
+  // Season 1, chapters 4 and 5 (GDD 5.7.9): the free port, at the L4 point of
+  // a binary. The star here is the larger one; the smaller is a neutron star,
+  // drawn by the port itself. Two chapters are played in this one place.
+  {
+    id: CONC.id, sealed: false,
+    label: CONC.label, star: { dir: [0.6, 0.3, 0.74], color: 0xffe2b8 }, nebula: 0.3, fleet: false,
+    base: [0, 0, 0],
+    create: createConcourseSystem,
   },
 ];
 
