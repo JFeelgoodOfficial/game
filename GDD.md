@@ -1301,6 +1301,40 @@ The sealed forecast names whoever is aboard, by the names in `world/chapter-dial
 
 **Science.** Real: Lagrange points, and the stability of L4; gravitational time dilation, which near a neutron star is tens of per cent. Past known physics, and marked in `world/concourse-tender.js`: that the time a machine did not live can be banked and spent.
 
+#### Chapter 7: The Pulsar Choir (`choir`)
+
+`world/choir-system.js` (system, stages, record, door), `world/choir-hall.js` (the place), `world/choir-dialogue.js` (every word and name). Marrow's chapter. No `needs`: a standalone chapter. No fixed event.
+
+**The place.** A millisecond pulsar and the white dwarf beside it (the chart's star is the dwarf; the pulsar is the hall's to draw). The dock is the choir hall: a forecourt and pad, then a nave of stone ribs open to the sky, 280 long, every rib the same, with three bells hung from the ridge and a great rose at the far end. The star stands low over that end, so that it is in the middle of the rose from the west door and still inside it from the listening ring before the altar. It is walked in the world (not paused).
+
+**The star as a note.** A pulse every few milliseconds is not heard as beats: through a speaker it is a pitch. On the lamp's radio band, pointed at the star, the star is a note in the ear (`setRadio`) and a bar on the corner panel, strongest along the way the lamp points and nearest the listening ring. Off the band the panel says to switch.
+
+**Stages** (append-only):
+
+| Stage | Reached when | Shown as |
+|---|---|---|
+| `arrived` | the ship is here | the passage (5.7.8) |
+| `docked` | first step out | scene, `CHOIR_ARRIVE_T`: the hall, and the bells stopping part way through the hour. The lamp is in hand from here. |
+| `met` | the First Voice (E) has said what the star was and what it has done | cinematic talk |
+| `heard` | on the listening ring (`CHOIR_LISTEN_R`), the star held on the radio band for `CHOIR_HEAR_TIME` | lines |
+| `sung` | at the cantor's stand, the old hymn sung back three times | scene, `CHOIR_CHORUS_T`: the hall takes it up |
+| `decided` | KEEP YOUR OWN TIME or TAKE THE TABLE | cinematic talk with a choice; asked again if left |
+| `done` | the hall has answered | scene, `CHOIR_ANSWER_T`, then the debrief on the bridge |
+
+**The hymn.** The choir sings a verse on the three bells and stops where the star's note used to go. The pilot sings it back: 1, 2, 3 for the bells and 4, the star as it now is, in the gap (keys, or four pads on screen, `#choirPads`). The star's pad needs the lamp on the radio band; off it the pad is refused, and that is not counted as a wrong note. Three verses, longer each time (`CHOIR_PHRASES`, `CHOIR_NOTES`). A wrong note and the verse is sung again; stepping more than `CHOIR_STAND_R` from the stand makes the hymn wait. The hymn is not mended: the step is sung.
+
+**The choice.** An actuary of the season's rival stands by the altar with a table of every glitch to come, for the hall and the Choir's word. The First Voice asks the pilot. Season fact `ch7.choir`: `'free'` (they keep their own time, and will come when rung for; chapter 10 reads this) or `'forecast'` (the table is on the altar, the bells are tied, the actuary stays). Nothing here can kill the pilot, so the decision is offered, made and survived in one step. A game left between the choice and the hall's answer plays the answer on coming back.
+
+**Crew.** Marrow's lines carry the teaching. Where she is lost another captain's `other` carries it; with nobody aboard the `solo` lines do, and the First Voice's own talk carries the rest.
+
+**Door.** `choir:nave` (the cantor's stand).
+
+**Tunables.** The `CHOIR_*` block in `src/constants.js`, and the tables `CHOIR_PHRASES` and `CHOIR_NOTES`.
+
+**Debug.** `__debug.tenretni.voyage().instance('choir')`: `state()` (`stage`, `choir`, `pending`, `hall`, `places`), `go(stage, 'free' | 'forecast')`, `seek(u)`, `skip()`, `decide(option)`, and `dbg` (`band(id)`, `aim()`, `stand()`, `press(i)`).
+
+**Science.** Real: millisecond pulsars and their use as clocks; glitches (the crust spun up, all at once, by the superfluid inside); a fast pulsar heard as a pitch. Stretched, and marked in `world/choir-hall.js`: a real glitch is a part in a million or less, far too small to hear, and here it is about a semitone so that it can be sung; and a beam sweeping hundreds of times a second is drawn as the steady smear it would be.
+
 **Ending a chapter.** A system instance may offer `debrief()`: once the
 chapter has ended, `{ title, complete, lines: [[captain id, text]], nextCourse,
 nextNone }`. The first time the pilot is on the bridge after that, the captains

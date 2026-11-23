@@ -36,6 +36,8 @@ import { createIceSystem } from '../world/ice-system.js';
 import { ICE } from '../world/ice-dialogue.js';
 import { createConcourseSystem } from '../world/concourse-system.js';
 import { CONC } from '../world/concourse-dialogue.js';
+import { createChoirSystem } from '../world/choir-system.js';
+import { CHOIR } from '../world/choir-dialogue.js';
 
 export const SYSTEMS = [
   // Chapter one (GDD 5.7.7): where the light ship is when that chapter lets it
@@ -81,6 +83,15 @@ export const SYSTEMS = [
     label: CONC.label, star: { dir: [0.6, 0.3, 0.74], color: 0xffe2b8 }, nebula: 0.3, fleet: false,
     base: [0, 0, 0],
     create: createConcourseSystem,
+  },
+  // Season 1, chapter 7 (GDD 5.7.9): a millisecond pulsar and the white dwarf
+  // beside it. The chart's star is the dwarf; the pulsar is drawn by the hall,
+  // through its rose. No `needs`: a standalone chapter.
+  {
+    id: CHOIR.id, sealed: false,
+    label: CHOIR.label, star: { dir: [0.5, 0.4, 0.77], color: 0xdfe8ff }, nebula: 0.22, fleet: false,
+    base: [0, 0, 0],
+    create: createChoirSystem,
   },
 ];
 

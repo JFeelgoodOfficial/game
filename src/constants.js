@@ -776,6 +776,16 @@ export const C = {
   CONC_BAR_T: 18.0, // seconds the scene in the bar runs
   CONC_HOLD_T: 20.0, // ...and the one in berth forty
   CONC_ALARM_DELAY: 9.0, // seconds from the valuation to the light ship's alarm
+  // --- Season 1, chapter 7: The Pulsar Choir (world/choir-system.js, world/choir-hall.js, GDD 5.7.9) ---
+  CHOIR_LAMP_POWER: 0.3, // the lamp carried by hand in the hall, against what it reaches in open space
+  CHOIR_LISTEN_R: 14.0, // how near the middle of the floor under the rose counts as under it
+  CHOIR_HEAR_TIME: 2.0, // seconds the star has to be held on the radio band there
+  CHOIR_STAND_R: 8.0, // how far from the cantor's stand the hymn still goes on
+  CHOIR_NOTE_TIME: 0.65, // seconds each note of the hymn lasts
+  CHOIR_SINGERS: 16.0, // figures in the ranks down the nave
+  CHOIR_ARRIVE_T: 22.0, // seconds the arrival runs
+  CHOIR_CHORUS_T: 31.0, // ...the hall taking the hymn up
+  CHOIR_ANSWER_T: 14.0, // ...and the hall's answer to what was chosen
 };
 
 // The Long Dusk: when each group comes at the fires if the edge is held
@@ -798,6 +808,13 @@ export const CONC_GOODS = [
 ];
 // Appraisal: the three plinths that were handled, as [room, plinth] (world/lightship.js order).
 export const APPR_TOUCHED = [[0, 1], [2, 3], [4, 2]];
+
+// The Pulsar Choir: the three verses of the old hymn (0 low bell, 1 mid, 2
+// high; 3 is the star's note, which the choir leaves as a gap and the pilot
+// fills), and the notes themselves (Hz): the bells as they were cast, a G major
+// chord, and the star as it now is, a semitone sharp of where the hymn expects it.
+export const CHOIR_PHRASES = [[0, 2, 3], [1, 0, 3, 2], [2, 3, 0, 1, 3]];
+export const CHOIR_NOTES = [196, 247, 294, 311];
 export const ICE_PLACES = { first: [760, -150, -620], city: [-420, -1780], roof: [-1500, -640] };
 
 // How far each band of the lamp reaches, in units, by what it is shining
