@@ -1135,6 +1135,22 @@ Checks that must hold:
 - A reload keeps `s9`, `how` and `ione`; `fgsf.voyage.chapters.concourse.s9` is the stage.
 - After the chapter the crew deck's first console is its own again, and with no guest the dinner is the one it was (15 seconds, two captains' lines).
 - `I.go9(stage, how)` jumps it either way.
+### Chapter 11: The Vault
+
+Played in `concourse`. `I = __debug.tenretni.voyage().instance('concourse')`; `V = I.state().vault` → `{stage, open, world, label, friend, how, event, camp, newWorld, scene, pendingEnd, worlds, places: {camp, record}}`. `I.go11('idle')` sets chapters 4 and 5 done and debriefed, so it is open. The case is decided by who is lost: seed `ez.lost: ['lux']` for one captain lost, or `chapter().setCrewDebug([])` for all three (both give the person case); with nobody lost it is the world case.
+
+A pass, waiting on `V.stage`:
+1. `base.door('concourse:deck')`: a `comm` forecast; `cine.skip()`: `forecast`, `V.camp` true.
+2. `e` at `places.hub.varn`, `cine.skip()`. World case: it stops at WHICH WORLD?, one option per row of `V.worlds`; `x` leaves it; `cine.pick(i)`: `asked`, `V.world` set. Person case: no choice; `asked` at once, `V.friend` set.
+3. `base.door('base:archive')`. World case: the corner panel names the world; at the holodeck console (`cap.place(2.2, 0, 25)`, `e`) pick its row: `walked` as the program starts (`voyage().holo(id)` does the same; another world's id does nothing); `g` ends the program. Person case: `cap.place(-2.4, 0, 25)`, prompt `E — READ THEIR RECORD`, `e`: a `comm` scene; skip: `walked`.
+4. Deck again, `e` at the dockmaster, `cine.skip()`: each captain aboard has a line, then SELL / RECOMPILE (or RECOMPILE THEM / LET THEM REST). `x` leaves it with `season().pending().key === 'ch11.choice'`. `cine.pick(0 | 1)`: `decided`, `V.how` set, and once the talk has closed `V.scene` counts up; `e` skips: `done`, `V.camp` false.
+5. `voyage().debrief()` key `vault`, title `CHAPTER 11 — THE VAULT`.
+
+Checks that must hold:
+- After `sold` or `recompiled`, `holodeck.catalog()` has that world `unlocked: false` with `lockedNote: 'GIVEN UP'`, after a reload and in every other system; picking the row in the panel does nothing. After `friend` or `rest` every world row is as it was and `facts['ch11.world']` is absent.
+- After `recompiled`, `V.newWorld` is true whenever the deck is entered.
+- With nobody aboard no captain's line precedes the choice and the scene's lines are the `solo` ones.
+- A reload keeps `stage`, `world`, `friend` and `how`.
 
 ## The chapter past the horizon (GDD 5.7.7)
 

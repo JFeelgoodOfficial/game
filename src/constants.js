@@ -822,6 +822,11 @@ export const C = {
   LOVE_STEER: 15.0, // how fast the pilot crosses the slope (u/s)
   LOVE_DINNER_T: 31.0, // seconds the meal with her runs
   LOVE_STAY_T: 27.0, // ...and first bell, on the patio
+  // --- Season 1, chapter 11: The Vault (world/vault.js, GDD 5.7.9) ---
+  VAULT_PEOPLE: 12.0, // figures of the outer ring's people on the deck
+  VAULT_END_T: 24.0, // seconds the scene of them going to where they are to live runs
+  VAULT_WORLD_DIST: 90000.0, // how far off a recompiled world stands in the port's sky
+  VAULT_WORLD_R: 9000.0, // ...and how big it is drawn
 };
 
 // The Long Dusk: when each group comes at the fires if the edge is held

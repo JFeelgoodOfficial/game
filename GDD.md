@@ -1446,6 +1446,47 @@ The port's deck has four small hooks for a later chapter (`S.love` in `world/con
 **Tunables.** `LOVE_*`.
 
 **Debug.** `__debug.tenretni.voyage().instance('concourse')`: `state()` adds `s9`, `open9` and `love` (`how`, `ione`, `hill`, `patio`, `archive`, `places`); `go9(stage, 'trusts' | 'wary')`; `love.L.decide(how)`; `love.patio().dbg.skip()`.
+#### Chapter 11: The Vault (played in `concourse`)
+
+`world/vault.js` (stages, the two cases, the decision, the scene, the archive guest), `world/vault-dialogue.js` (every word). It is a guest of the free port's system, as chapter 5 is of the archive: `world/concourse-system.js` builds it, saves it under `chapters.concourse.vault`, and hands it to the deck as `S.guest`.
+
+**When it opens.** `S.open11()` in `world/concourse-system.js`, in one place: for now, chapter 5 done and its debrief played. It becomes `fixed.resolved('siege')` when chapter 10 is built.
+
+**The place.** The port's deck, with the outer ring's people on it (`VAULT_PEOPLE` figures and what they carried, by the berth), and the light ship's archive.
+
+**Stages** (append-only): `idle → forecast → asked → walked → decided → done`.
+
+| Stage | Reached when | Shown as |
+|---|---|---|
+| `forecast` | first step onto the deck once it is open | `fixed.forecast('refugees')` |
+| `asked` | the dockmaster (E) has put the two offers, and what is on the table is settled | cinematic talk; in the world case, a choice of which world |
+| `walked` | the pilot has walked it once more | the holodeck program itself; or the record, a transmission |
+| `decided` | chosen (`ch11.choice`); `fixed.resolve('refugees', how, …)`; `season.survive` | each captain aboard says their side, then the choice |
+| `done` | the ring's people have gone to where they are to live | scene, `VAULT_END_T` |
+
+**The two cases.** Which one a save gets is settled as the dockmaster asks, and kept.
+
+| | Every captain alive: a WORLD | A captain lost: a PERSON |
+|---|---|---|
+| On the table | one of the archive's worlds that can still be walked (the holodeck's `world` rows); the pilot picks which | the first lost captain in the roster's order; the port wants recompiling proved on one complete record before it stakes four thousand lives on it |
+| Walk it once more | start that world's program at the light ship's holodeck (`voyage.holo(id)` tells the chapter) | E at the record, across the walk from the holodeck's plinth in the archive |
+| The choice | SELL (`sold`) or RECOMPILE (`recompiled`) | RECOMPILE THEM (`friend`) or LET THEM REST (`rest`) |
+| Where the refugees go | berths bought with the price; or the world itself | berths the port pays for on the strength of the proof; or the lower docks, on credit |
+| What the archive loses | that world, either way: `ch11.world` is its id | nothing: `ch11.world` is null; `ch11.friend` is the captain's id if recompiled |
+
+**The cost is permanent.** `voyage.archiveGone()` reads `ch11.world`; `catalog()` in `src/tenretni.js` shuts that row in the holodeck for good, in every system, with the note `GIVEN UP` (`ARCHIVE_GONE_NOTE` in `world/season-dialogue.js`). Catalogue rows now carry their `kind`.
+
+**What "made real" is, so far.** A recompiled world is a body in the port's sky (`VAULT_WORLD_DIST`, `VAULT_WORLD_R`), its row is shut, and the crew say so. It cannot be flown to or landed on. A recompiled captain is the fact `ch11.friend` only: `chapter.lost()` is unchanged, and nobody stands in their quarters yet.
+
+**Hooks this chapter added.** `voyage.archive()` (the holodeck's rows), `voyage.archiveGone()`, `voyage.holo(id)` and an instance's optional `holo(id)`; in `src/homebase.js` the holodeck tells the voyage which program is started. On the deck (`world/concourse-hub.js`), `S.guest` may supply `talk('varn')`, `choice(tag)`, `mark()`, `panel(place)`, `held()`, `act()`, `heldPrompt()`, `camera(pos, target)`, `enter()`, `leave()` and `tick(d, t)` (true while its scene has the frame).
+
+**Decision.** Nothing here can kill the pilot, so it is offered, made and survived in one step. Left with X, it is put again.
+
+**Tunables.** `VAULT_*`.
+
+**Debug.** `__debug.tenretni.voyage().instance('concourse')`: `state().vault` (`stage`, `open`, `world`, `label`, `friend`, `how`, `event`, `camp`, `newWorld`, `scene`, `worlds`, `places`), `go11(stage, 'sold' | 'recompiled' | 'friend' | 'rest', worldId)`, `vault.skip()`, `vault.decide(how)`, `vault.settle(worldId)`; `voyage().holo(id)`.
+
+**Science.** All of it is past known physics: recompiling a world, or a person, from a record is the Tenretni's art. The header of `world/vault.js` says so.
 
 **Ending a chapter.** A system instance may offer `debrief()`: once the
 chapter has ended, `{ title, complete, lines: [[captain id, text]], nextCourse,

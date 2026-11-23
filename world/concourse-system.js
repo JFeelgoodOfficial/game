@@ -47,6 +47,7 @@ import { createSiegeHelm } from './siege-helm.js';
 import { SIEGE } from './siege-dialogue.js';
 import { createLove, LOVE_STAGES } from './love.js'; // chapter 9: a third chapter in this place
 import { LOVE } from './love-dialogue.js';
+import { createVault } from './vault.js';
 
 export const CONC_STAGES = ['arrived', 'docked', 'met', 'hauled', 'paid', 'traded', 'done'];
 export const APPR_STAGES = ['idle', 'valued', 'robbed', 'tracked', 'found', 'done'];
@@ -148,6 +149,9 @@ export function createConcourseSystem(ctx) {
     },
     // it opens once the chapters before it at the port have been played and talked over
     open10: () => s9 === 'done' && !!season.get('debrief.love'),
+    // Chapter 11 (world/vault.js) opens once the siege has been fought and talked over on the bridge.
+    open11: () => ctx.fixed.resolved('siege') && !!season.get('debrief.siege'),
+    guest: null, // a later chapter played on this deck (world/concourse-hub.js reads it): chapter 11's
     // chapter 5 opens once chapter 4 has been talked over on the bridge
     open5: () => s4 === 'done' && !!season.get('debrief.concourse'),
     // --- chapter 9: it opens once chapter 5 has been talked over on the bridge ---
@@ -181,6 +185,9 @@ export function createConcourseSystem(ctx) {
     // what the corner of the screen says, on the deck or at the tender
     panel(place) {
       const rows = [];
+      // (a guest chapter's line, under the purse, in place of the port's own)
+      const gp = S.guest && S.guest.panel ? S.guest.panel(place) : undefined;
+      if (gp !== undefined) return [`${CONC.hud.purse}${ticks()}`, gp].filter(Boolean).join('\n');
       if (S.reached4('hauled')) rows.push(`${CONC.hud.purse}${ticks()}`);
       if (S.reached4('paid')) rows.push(`${CONC.hud.hold}${held()} / ${C.CONC_HOLD}`);
       if (s4 === 'docked') rows.push(CONC.hud.seeVarn);
@@ -227,6 +234,8 @@ export function createConcourseSystem(ctx) {
   const guest = createArchiveGuest(ctx, S);
   const love = createLove(ctx, S); // chapter 9
   S.love = love;
+  const vault = createVault(ctx, S, hub);
+  S.guest = vault;
   let hold = null, holdBroken = false;
   let siege = null, siegeBroken = false; // the helm chart, in battle: built the first time it is fought
   function getSiege() {
@@ -251,7 +260,7 @@ export function createConcourseSystem(ctx) {
     }
     return hold;
   }
-  const pristine = () => s9 === 'idle' && s4 === 'arrived' && s5 === 'idle' && s10 === 'idle' && !clock && !held() && !found && !sealed;
+  const pristine = () => s9 === 'idle' && s4 === 'arrived' && s5 === 'idle' && s10 === 'idle' && !clock && !held() && !found && !sealed && !vault.serialize();
 
   return {
     docks: [
@@ -286,7 +295,9 @@ export function createConcourseSystem(ctx) {
       return love.door();
     },
     // who of this chapter's is aboard the light ship (world/lightship.js asks, for its archive)
-    aboard: (room) => (room === 'archive' && (s5 === 'robbed' || s5 === 'tracked') ? guest : love.aboard(room)),
+    aboard: (room) => (room === 'archive' && (s5 === 'robbed' || s5 === 'tracked') ? guest : room === 'archive' && vault.guest.active() ? vault.guest : love.aboard(room)),
+    // a holodeck program has been started aboard (src/voyage.js `holo`)
+    holo: (id) => vault.holo(id),
     talk: (captainId) => (s4 !== 'done' ? CONC.talk[captainId] || null : love.talk(captainId) || (S.open10() && s10 !== 'done' ? SIEGE.talk[captainId] || null : null)),
     // one chapter's debrief at a time: chapter 4's, then (once it has been played) chapter 5's
     debrief() {
@@ -306,7 +317,7 @@ export function createConcourseSystem(ctx) {
         const how = ctx.fixed.outcome('siege')?.how === 'held' ? D.hold : D.evac;
         return { key: 'siege', title: D.title, complete: D.complete, lines: [D.open, ...D.body, how, D.close], nextCourse: D.nextCourse, nextNone: D.nextNone };
       }
-      return null;
+            return vault.debrief();
     },
     serialize() {
       if (pristine()) return undefined;
@@ -321,6 +332,7 @@ export function createConcourseSystem(ctx) {
       }
       if (found) rec.found = found;
       if (sealed) rec.sealed = true;
+      if (vault.serialize()) rec.vault = vault.serialize();
       return rec;
     },
     restore(raw) {
@@ -343,12 +355,13 @@ export function createConcourseSystem(ctx) {
       }
       if (Number.isFinite(raw.found)) found = raw.found & ((1 << APPR_TOUCHED.length) - 1);
       sealed = !!raw.sealed;
+      vault.restore(raw.vault);
     },
     state: () => ({
       s4, s5, s9, s10, open5: S.open5(), open9: S.open9(), open10: S.open10(), love: love.state(), siege: siege ? siege.info() : null, siegeEvent: ctx.fixed.outcome('siege'), ring: season.get('ch10.ring'), ticks: ticks(), clock, cargo: { ...cargo }, held: held(), found, sealed,
       fee: season.get('ch4.fee'), thieves: season.get('ch5.thieves'),
       prices: { hub: CONC_GOODS.map((g, i) => price('hub', i)), tender: CONC_GOODS.map((g, i) => price('tender', i)) },
-      hub: hub.info(), tender: tender.info(), hold: hold ? hold.info() : null, guest: guest.state(),
+      hub: hub.info(), tender: tender.info(), hold: hold ? hold.info() : null, guest: guest.state(), vault: vault.state(),
       places: { hub: hub.places, tender: tender.places, hold: hold ? hold.places : null },
     }),
     // --- dev (through __debug.tenretni.voyage().instance('concourse')) ---
@@ -427,6 +440,21 @@ export function createConcourseSystem(ctx) {
     },
     siege: () => siege,
     love,
+    // ...and chapter 11's (world/vault.js): `opt` 'sold' | 'recompiled' | 'friend' | 'rest', `id` the world on the table
+    go11(s, opt, id) {
+      s4 = 'done';
+      s5 = 'done';
+      season.set('debrief.concourse', true);
+      season.set('debrief.appraisal', true);
+      // (chapter 11 waits for the siege: it is taken as fought, and talked over)
+      s9 = 'done';
+      season.set('debrief.love', true);
+      s10 = 'done';
+      season.set('debrief.siege', true);
+      if (!ctx.fixed.resolved('siege')) ctx.fixed.resolve('siege', 'evacuated', { saved: 7, of: 8 });
+      return vault.go(s, opt, id);
+    },
+    vault,
     trade,
     price,
     S,

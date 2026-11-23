@@ -311,6 +311,18 @@ export function createVoyage(ctx) {
     // whoever of the current chapter's is aboard the light ship, in one of its rooms
     // (world/lightship.js asks for 'archive'): { active(), consoles(), enter(site), leave(), tick(dt, t, walker) } | null
     aboard: (room) => (mounted && mounted.inst && mounted.inst.aboard ? mounted.inst.aboard(room) : null),
+    // --- the archive, for a chapter that gives part of it up (chapter 11) ---
+    // the holodeck's rows as they stand: [{ id, label, kind, unlocked, ... }]
+    archive: () => (ctx.catalog ? ctx.catalog() : []),
+    // ids of archived worlds the season has given up for good: shut in the holodeck in every system
+    archiveGone() {
+      const w = season.get('ch11.world');
+      return typeof w === 'string' ? [w] : [];
+    },
+    // a holodeck program has been started from the light ship (src/homebase.js): the current chapter is told
+    holo(id) {
+      if (mounted && mounted.inst && mounted.inst.holo) mounted.inst.holo(id);
+    },
     instance: (id = at) => built[id]?.inst || null,
     // A chapter that has ended here, and has not yet been talked over on the
     // bridge: { key, title, complete, lines: [[captain id, text]], next } | null.
