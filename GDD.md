@@ -1405,6 +1405,47 @@ Fought at the free port, from the light ship's helm chart. `world/siege-helm.js`
 **Tunables.** `SIEGE_*`, and the table `SIEGE_WAVES`.
 
 **Debug.** `instance('concourse')`: `go10(stage, 'evac' | 'hold')`, `state().siege` (`phase`, `wave`, `pad`, `alive`, `broken`, `reached`, `ring`, `standing`, `allies`, `flag`, `columns`, `decision`, `outcome`), `siege().dbg` (`skip()`, `wave(n)`, `ask()`, `decide(option)`). The pad is driven with `drawPadDebug.stroke(points)` and `.done()`.
+#### Chapter 9: The Forecast of Love (`concourse`, third chapter)
+
+The pilot's chapter. It is played at the free port and aboard the light ship, so it is a third stage machine of the `concourse` system (`s9` in its record, `go9` to jump it, a debrief with `key: 'love'`). `world/love.js` is the chapter, `world/love-places.js` its two places of its own, `world/love-dialogue.js` every word. It opens once chapter 5's debrief has been played (`open9`). The envoy is the figure from the port's bar (the same seed) and the same person.
+
+**Where it is played.**
+
+| Beat | Place | How it is reached |
+|---|---|---|
+| She asks to be shown a world | the port's bar | the deck of chapters 4 and 5; the fixed event's forecast is shown first, on stepping onto the deck |
+| A walk, and a ski run | the hill: a holodeck program of the ski hill on Wyattmattoe, a small site of its own | aboard, she waits in the archive by the holodeck; her console there is the door `love:hill` |
+| What the engine forecast for her | the bottom of the hill | the run ends there |
+| A meal | the crew deck's long table (`world/basedeck.js`), with whoever is aboard | the table's own SIT DOWN TO EAT |
+| The decision | the freighter's patio, at night: a small site of its own | the meal ends on the door `love:patio`; afterwards a console on the crew deck leads aft |
+
+The hill is not the whole Wyattmattoe program (the planet, its town, its lifts): the chapter wants one slope and one other person on it. The run is steered with A / D for `LOVE_RUN_LEN` at `LOVE_RUN_SPEED`; six gates are counted and nothing depends on them; E skips it.
+
+**Stages** (append-only): `idle → forecast → asked → hill → told → dinner → patio → done`.
+
+| Stage | Reached when | Shown as |
+|---|---|---|
+| `forecast` | on the port's deck, once the chapter is open | `fixed.forecast('defection')` |
+| `asked` | the envoy at the bar (E). She leaves the bar for good. | cinematic talk |
+| `hill` | the run has been skied (talk to her at the top, then E at the edge) | play, with her lines said on the way down |
+| `told` | her, at the bottom (E) | cinematic talk |
+| `dinner` | the meal has been eaten | the crew deck's dinner scene, `LOVE_DINNER_T`, E skips |
+| `patio` | ASK HER FOR NOTHING, or ASK WHAT SHE KNOWS ABOUT THE ENGINE | a choice; asked again if left |
+| `done` | first bell: a shuttle leaves without her | scene, `LOVE_STAY_T` |
+
+**The fixed event.** `defection` is resolved by the decision: `how: 'trusts'` (asked for nothing) or `'wary'` (asked what she knows). She stays either way: the fact `ch9.ione` is `'stayed'`, and chapter 13 decides the rest. Nothing here can kill the pilot, so the decision (`ch9.why`: `nothing` | `engine`) is survived as it is made.
+
+**Guests aboard.** Two rooms take a guest from `voyage.aboard(room)`, each doing nothing different when there is none:
+- `'archive'` (5.7.9, chapters 4 and 5): she stands by the holodeck and her console comes before the room's own.
+- `'deck'`: `ctx.guest` in `world/basedeck.js`. Its `consoles()` come first, as in the archive, and it may offer `dinner(hereIds) -> { rig, T, lines: [[seconds, who, text]], done() -> a door | null }`: the guest's figure is sat at the table, the talk and the length of the meal are the guest's, and when it ends the pilot goes through the door `done()` names.
+
+The port's deck has four small hooks for a later chapter (`S.love` in `world/concourse-hub.js`): what the envoy says, whether she is still at the bar, a mark, and a call each frame for the chapter's forecast.
+
+**Crew.** At the table each captain's line is said by whoever is sat there; with nobody aboard the meal is the two of them and she has one line more. Every other crew line has a `solo` or is hers.
+
+**Tunables.** `LOVE_*`.
+
+**Debug.** `__debug.tenretni.voyage().instance('concourse')`: `state()` adds `s9`, `open9` and `love` (`how`, `ione`, `hill`, `patio`, `archive`, `places`); `go9(stage, 'trusts' | 'wary')`; `love.L.decide(how)`; `love.patio().dbg.skip()`.
 
 **Ending a chapter.** A system instance may offer `debrief()`: once the
 chapter has ended, `{ title, complete, lines: [[captain id, text]], nextCourse,

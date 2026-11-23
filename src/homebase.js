@@ -140,7 +140,7 @@ export function createHomebase(ctx) {
     return bridge;
   }
   function getDeck() {
-    if (!deck) deck = createBaseDeck({ scene: ctx.scene, chapter, hideFleet: ctx.hideFleet, sky, aboard: (id) => !chapter.lost(id) && !voyage().along(id) });
+    if (!deck) deck = createBaseDeck({ scene: ctx.scene, chapter, hideFleet: ctx.hideFleet, sky, aboard: (id) => !chapter.lost(id) && !voyage().along(id), guest: () => voyage().aboard('deck') });
     return deck;
   }
   function getArchive() {

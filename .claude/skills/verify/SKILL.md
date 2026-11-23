@@ -1116,6 +1116,25 @@ At the port: `I.go10('idle')` opens it (and marks chapters 4 and 5 done). Set th
 Drawing: `const m = await import('/src/drawPad.js'); m.drawPadDebug.stroke(points); m.drawPadDebug.done()`. Points are pad units, -1..1, y up; the chart's z is `-y`. `siege.columns` are the lines (`from`, `to`, chart units) and `siege.flag` the flagship's. A circle of radius 0.46 crosses every column; from the second pass draw the arc that leaves out about 1.2 rad either side of the flagship's bearing. `siege.phase` goes `plan → fly → after`, `broken` and `reached` count, and `ring` is the eight sections' points.
 
 Checks: a stroke through `flag` gives the line `…DRAW THE PASS AGAIN` and the same pass again. After the third pass a `comm` scene with two options; `x` leaves it and it is asked again within 5 game seconds; `cine.pick(0)` → `decision: 'evac'`, `pick(1)` → `'hold'`. Lost on the fourth pass: `decision` null and the question again. After the fourth: scene `fall`; skip: `s10: 'done'`, back on the deck, `siegeEvent.how` `evacuated` or `held`, `voyage().debrief()` key `siege`. Afterwards neither `ch-pad` nor `ch-cine` is on `body`.
+### Chapter 9: The Forecast of Love
+
+In the `concourse` system: `I = __debug.tenretni.voyage().instance('concourse')`. To start at it: `I.go5('done')` and `tenretni.season().set('debrief.appraisal', true)`; `I.state().open9` is then true. `I.state().love` → `{how, ione, hill: {inside, talked, run: {s, x}, gates, her, panel}, patio: {inside, scene, pending, panel}, archive, places: {hill: {top, her, ski, bottom, out, yB}, patio: {door, her}}}` (a place's entries are null until it has been entered once).
+
+A pass, waiting on `I.state().s9`:
+1. `base.door('concourse:deck')`: a `comm` forecast; `cine.skip()`: `forecast`. The compass reads `BAR`.
+2. Stand 2.5 from `places.hub.envoy`, `e`, skip: `asked`; `hub.envoy` goes false (she has gone aboard) and `voyage().talk('lux')` is a line about her.
+3. `base.door('base:holo')` (the archive): `love.archive` is where she stands. 1.6 to her -x side the prompt is `E — WYATTMATTOE, THE SKI HILL. WITH HER.`; `e`: `love.hill.inside`.
+4. At `places.hill.ski` there is no prompt until she has been talked to (`e` at `places.hill.her`, skip). Then `e` there: `hill.run.s` runs 0 to 1 in about 22 game seconds; holding `d` moves `run.x`; `e` skips to the bottom. At the end `hill`, and the walker is on the flat at `y = places.hill.yB`.
+5. `e` at `places.hill.bottom` (place the walker at `yB`), skip: `told`. `e` at `places.hill.out`: back in the archive, `isolated` still active, panel `DINNER…`.
+6. `base.door('base:deck')`: stand on the console whose prompt has `EAT`, `e`: `base().state().deck.doing === 'eat'` for 31 game seconds (`e` skips), her lines and one captain's between them on `#chHud .line`; at its end `dinner` and the door opens onto the patio by itself (`love.patio.inside`).
+7. `e` at `places.patio.her`, `cine.skip()` stops at two options. `x` leaves it (`dinner`, `season().pending().key === 'ch9.why'`). `cine.pick(0)` → `how: 'trusts'`; `pick(1)` → `'wary'`: `patio`, then the scene `stay` by itself; at its end `done`.
+8. `voyage().debrief()` has key `love`. `e` at `places.patio.door`: the crew deck.
+
+Checks that must hold:
+- With nobody aboard (`chapter().setCrewDebug([])` first) the meal still runs, with only her lines.
+- A reload keeps `s9`, `how` and `ione`; `fgsf.voyage.chapters.concourse.s9` is the stage.
+- After the chapter the crew deck's first console is its own again, and with no guest the dinner is the one it was (15 seconds, two captains' lines).
+- `I.go9(stage, how)` jumps it either way.
 
 ## The chapter past the horizon (GDD 5.7.7)
 
