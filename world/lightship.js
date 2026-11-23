@@ -379,6 +379,7 @@ export function createLightShip(ctx) {
   let inside = false;
   let prev = null;
   let walker = null;
+  let guest = null, guestConsoles = []; // a later chapter, aboard (ctx.base.guest)
   let greeted = false;
 
   const site = {
@@ -424,6 +425,14 @@ export function createLightShip(ctx) {
       sun.ambient.color.set(0xc8b8ff);
       sun.ambient.intensity = 1.1;
       ctx.hideFleet();
+      // a later chapter's guest in the archive (src/voyage.js `aboard`): its consoles come before the room's own
+      guest = base && base.guest ? base.guest() : null;
+      if (guest && !guest.active()) guest = null;
+      if (guest) {
+        guest.enter(site);
+        guestConsoles = guest.consoles();
+        consoles.unshift(...guestConsoles);
+      }
       restack();
       for (const l of LAYERS) drawn[l] = shown[l] ? 1 : 0; // what was taken before is already there
       readySaid = chapter.reached('dive');
@@ -437,6 +446,12 @@ export function createLightShip(ctx) {
       if (!inside) return;
       inside = false;
       group.visible = false;
+      if (guest) {
+        consoles.splice(0, guestConsoles.length);
+        guest.leave();
+        guest = null;
+        guestConsoles = [];
+      }
       chapterHud.clear();
       ctx.scene.fog = prev.fog;
       sun.light.position.copy(prev.lightPos);
@@ -449,6 +464,7 @@ export function createLightShip(ctx) {
     tick(dt, t) {
       chapterHud.tick(dt);
       hullU.uTime.value = t;
+      if (guest) guest.tick(dt, t, walker);
       if (!walker) return;
       const px = (window.innerHeight * Q.pixelRatio * 0.5) / Math.tan((C.FOV * Math.PI) / 360);
 

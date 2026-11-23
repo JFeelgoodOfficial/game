@@ -1254,6 +1254,53 @@ A chapter's stages between deciding and surviving are never saved: its `serializ
 
 **Science.** Real: tidal locking, a habitable terminator, libration, red-dwarf flares, bodies glowing at 10 µm against a cold night, particles steered by a planet's field onto its night side in a band, and a proton aurora's H-alpha glow. Stretched, and marked in `world/dusk-ground.js`: the band being deadly at ground level, and the particles following the light by seconds.
 
+#### Chapters 4 and 5: the free port (`concourse`)
+
+One system for two chapters, because they are in the same place. `world/concourse-system.js` holds both stage machines, the purse, the market, the record and the doors; `concourse-hub.js` is the deck that is walked, `concourse-tender.js` the top end of a tick mine, `concourse-hold.js` the thieves' hold, `appraisal-archive.js` the hunt aboard the light ship. Words: `concourse-dialogue.js` (chapter 4), `appraisal-dialogue.js` (chapter 5). The hub's name, the currency's, the rival's and the envoy's come from `world/season-names.js`.
+
+**The place.** A ring station at the L4 point of a binary whose smaller star is a neutron star. Two docks: `port` (berth nine on one arm of the ring: the dockmaster's desk, six market stalls, a bar, embassy row, a hatch to the lower dock) and `tender` (a pad, a winch house, and a cable going down toward the neutron star). The deck is the same in every chapter that comes back to it; who stands on it and what can be used is the system's to say (`S` in the code), which is what "a hub that changes as the season goes" is built on.
+
+**The money.** Prices are in the season's currency, kept as the season fact `ticks`. Four goods (`CONC_GOODS`), each with a base price at each end, cheap where it is made and dear where it is wanted. Each price swings `CONC_SWING` either side of its base as the market's clock turns, one turn per purchase or sale, so prices move because of what the pilot does. The hold takes `CONC_HOLD` units; what each unit cost is kept, so a sale above cost is known. The market is the list panel (`src/holoPanel.js`): a number buys or sells one, X closes.
+
+**A system with more than one chapter.** `debrief()` may return a `key`; `voyage.debrief()` uses it in place of the system's id for the played-once fact (`debrief.concourse`, then `debrief.appraisal`). Chapter 5 opens only once chapter 4's debrief has been played on the bridge.
+
+**A chapter's guest aboard the light ship.** A system instance may offer `aboard(room)`; `voyage.aboard('archive')` hands it to the home base's archive (`ctx.base.guest` in `world/lightship.js`), which, while the guest is `active()`, takes its `consoles()` before its own and calls its `enter(site)`, `tick(dt, t, walker)` and `leave()`. Chapter 5 uses it to turn the archive into the scene of the theft without the archive knowing the story.
+
+**Chapter 4, The Concourse.** Stages `arrived → docked → met → hauled → paid → traded → done`.
+
+| Stage | Reached when | Shown as |
+|---|---|---|
+| `docked` | first step out | traffic's hail, a transmission |
+| `met` | the dockmaster (E) has said what the money is, and the coolant run is taken | cinematic talk with a choice (TAKE IT / NOT YET) |
+| `hauled` | the coolant is delivered at the tender; `CONC_FEE` ticks paid | cinematic talk |
+| `paid` | KEEP the fee or SPLIT it with the crew who mined it (`ch4.fee`: `kept` \| `split`) | the choice; asked again if left |
+| `traded` | something bought has been sold for more than it cost | the market panel |
+| `done` | the bar: the scene (`CONC_BAR_T`), then the envoy | scene, then cinematic talk |
+
+**Chapter 5, Appraisal.** Stages `idle → valued → robbed → tracked → found → done`.
+
+| Stage | Reached when | Shown as |
+|---|---|---|
+| `valued` | the assessor at the berth (E) | cinematic talk |
+| `robbed` | `CONC_ALARM_DELAY` later | the light ship's alarm, a transmission |
+| `tracked` | aboard, in the archive: the three handled plinths (`APPR_TOUCHED`) have been looked at | lines; a count is said on walking into each room |
+| `found` | in berth forty: the scene (`CONC_HOLD_T`), the sealed case opened, and the two thieves handed over or let go (`ch5.thieves`: `held` \| `freed`) | scene, a transmission, then a choice |
+| `done` | back up on the deck | the debrief, on the bridge |
+
+The sealed forecast names whoever is aboard, by the names in `world/chapter-dialogue.js`; with nobody aboard it says the pilot comes alone.
+
+**Decisions.** Neither chapter can kill the pilot, so each decision is offered, made and survived in one step. Both are season facts for later chapters to read: `ch4.fee` and `ch5.thieves`.
+
+**Record.** `{ s4, s5?, clock?, cargo?, paid?, found?, sealed? }` under `fgsf.voyage.chapters.concourse`; `undefined` while pristine.
+
+**Doors.** `concourse:hold`, `concourse:deck`.
+
+**Tunables.** The `CONC_*` block, and the tables `CONC_GOODS` and `APPR_TOUCHED`.
+
+**Debug.** `__debug.tenretni.voyage().instance('concourse')`: `state()` (`s4`, `s5`, `open5`, `ticks`, `clock`, `cargo`, `held`, `found`, `sealed`, `fee`, `thieves`, `prices`, `hub`, `tender`, `hold`, `guest`, `places`), `go4(stage, 'kept' | 'split')`, `go5(stage, 'held' | 'freed')`, `trade(place, 'b:<i>' | 's:<i>')`, `price(place, i)`, `hub.dbg` (`bar()`, `skip()`, `alarm()`), `hold()` and its `dbg`, `guest.look(room, plinth)`.
+
+**Science.** Real: Lagrange points, and the stability of L4; gravitational time dilation, which near a neutron star is tens of per cent. Past known physics, and marked in `world/concourse-tender.js`: that the time a machine did not live can be banked and spent.
+
 **Ending a chapter.** A system instance may offer `debrief()`: once the
 chapter has ended, `{ title, complete, lines: [[captain id, text]], nextCourse,
 nextNone }`. The first time the pilot is on the bridge after that, the captains

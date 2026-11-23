@@ -308,17 +308,21 @@ export function createVoyage(ctx) {
       const lines = [...here, ...(fixed.remember(captainId) || [])];
       return lines.length ? lines : null;
     },
+    // whoever of the current chapter's is aboard the light ship, in one of its rooms
+    // (world/lightship.js asks for 'archive'): { active(), consoles(), enter(site), leave(), tick(dt, t, walker) } | null
+    aboard: (room) => (mounted && mounted.inst && mounted.inst.aboard ? mounted.inst.aboard(room) : null),
     instance: (id = at) => built[id]?.inst || null,
     // A chapter that has ended here, and has not yet been talked over on the
     // bridge: { key, title, complete, lines: [[captain id, text]], next } | null.
     // `next` is where the story goes from here: a new course, or nothing yet.
     debrief() {
       const inst = mounted && mounted.inst;
-      if (!inst || !inst.debrief || season.get(`debrief.${at}`)) return null;
+      if (!inst || !inst.debrief) return null;
       const d = inst.debrief();
-      if (!d) return null;
+      // (a system with more than one chapter in it names which: `key`)
+      if (!d || season.get(`debrief.${d.key || at}`)) return null;
       const fresh = api.courses().some((c) => !visited.includes(c.id) && !systemById(c.id)?.example);
-      return { ...d, key: at, next: fresh ? d.nextCourse : d.nextNone };
+      return { ...d, key: d.key || at, next: fresh ? d.nextCourse : d.nextNone };
     },
     debriefed(key) {
       season.set(`debrief.${key}`, true);

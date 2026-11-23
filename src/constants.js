@@ -768,6 +768,14 @@ export const C = {
   ICE_SKY_T: 36.0, // ...the sky
   ICE_AWAY_T: 29.0, // ...and the way up, the ice left shut
   ICE_CALLERS: 16.0, // how many of them come
+  // --- Season 1, chapters 4 and 5: the free port (world/concourse-system.js and its places, GDD 5.7.9) ---
+  CONC_HOLD: 6.0, // units of cargo the freighter carries for trade
+  CONC_FEE: 40.0, // what the coolant run pays
+  CONC_SWING: 0.22, // how far a price moves either side of its base as the market turns
+  CONC_WALKERS: 14.0, // figures walking the deck
+  CONC_BAR_T: 18.0, // seconds the scene in the bar runs
+  CONC_HOLD_T: 20.0, // ...and the one in berth forty
+  CONC_ALARM_DELAY: 9.0, // seconds from the valuation to the light ship's alarm
 };
 
 // The Long Dusk: when each group comes at the fires if the edge is held
@@ -780,6 +788,16 @@ export const DUSK_GROUPS_Z = [-105, 5, 110];
 // first caller also has a depth).
 export const ICE_PHRASES = [[0, 2], [1, 0, 2], [2, 2, 0, 1]];
 export const ICE_NOTES = [196, 262, 349];
+// The free port: what is traded, and its base price at each end. A thing is
+// cheap where it is made and dear where it is wanted.
+export const CONC_GOODS = [
+  { id: 'glass', hub: 14, tender: 6 },
+  { id: 'fibre', hub: 6, tender: 11 },
+  { id: 'cores', hub: 24, tender: 12 },
+  { id: 'salt', hub: 9, tender: 5 },
+];
+// Appraisal: the three plinths that were handled, as [room, plinth] (world/lightship.js order).
+export const APPR_TOUCHED = [[0, 1], [2, 3], [4, 2]];
 export const ICE_PLACES = { first: [760, -150, -620], city: [-420, -1780], roof: [-1500, -640] };
 
 // How far each band of the lamp reaches, in units, by what it is shining
