@@ -43,6 +43,7 @@ import { createConcourseHold } from './concourse-hold.js';
 import { createArchiveGuest } from './appraisal-archive.js';
 import { CONC } from './concourse-dialogue.js';
 import { APPR } from './appraisal-dialogue.js';
+import { createVault } from './vault.js';
 
 export const CONC_STAGES = ['arrived', 'docked', 'met', 'hauled', 'paid', 'traded', 'done'];
 export const APPR_STAGES = ['idle', 'valued', 'robbed', 'tracked', 'found', 'done'];
@@ -128,6 +129,10 @@ export function createConcourseSystem(ctx) {
       ctx.save();
       return true;
     },
+    // Chapter 11 (world/vault.js) opens here. For now: once chapter 5 is over and talked through.
+    // When chapter 10 (the siege) lands this becomes `ctx.fixed.resolved('siege')`: the one place to change.
+    open11: () => s5 === 'done' && !!season.get('debrief.appraisal'),
+    guest: null, // a later chapter played on this deck (world/concourse-hub.js reads it): chapter 11's
     // chapter 5 opens once chapter 4 has been talked over on the bridge
     open5: () => s4 === 'done' && !!season.get('debrief.concourse'),
     held,
@@ -151,6 +156,9 @@ export function createConcourseSystem(ctx) {
     // what the corner of the screen says, on the deck or at the tender
     panel(place) {
       const rows = [];
+      // (a guest chapter's line, under the purse, in place of the port's own)
+      const gp = S.guest && S.guest.panel ? S.guest.panel(place) : undefined;
+      if (gp !== undefined) return [`${CONC.hud.purse}${ticks()}`, gp].filter(Boolean).join('\n');
       if (S.reached4('hauled')) rows.push(`${CONC.hud.purse}${ticks()}`);
       if (S.reached4('paid')) rows.push(`${CONC.hud.hold}${held()} / ${C.CONC_HOLD}`);
       if (s4 === 'docked') rows.push(CONC.hud.seeVarn);
@@ -193,6 +201,8 @@ export function createConcourseSystem(ctx) {
   const hub = createConcourseHub(ctx, S);
   const tender = createConcourseTender(ctx, S);
   const guest = createArchiveGuest(ctx, S);
+  const vault = createVault(ctx, S, hub);
+  S.guest = vault;
   let hold = null, holdBroken = false;
   function getHold() {
     if (!hold && !holdBroken) {
@@ -205,7 +215,7 @@ export function createConcourseSystem(ctx) {
     }
     return hold;
   }
-  const pristine = () => s4 === 'arrived' && s5 === 'idle' && !clock && !held() && !found && !sealed;
+  const pristine = () => s4 === 'arrived' && s5 === 'idle' && !clock && !held() && !found && !sealed && !vault.serialize();
 
   return {
     docks: [
@@ -234,7 +244,9 @@ export function createConcourseSystem(ctx) {
       return null;
     },
     // who of this chapter's is aboard the light ship (world/lightship.js asks, for its archive)
-    aboard: (room) => (room === 'archive' && (s5 === 'robbed' || s5 === 'tracked') ? guest : null),
+    aboard: (room) => (room !== 'archive' ? null : s5 === 'robbed' || s5 === 'tracked' ? guest : vault.guest.active() ? vault.guest : null),
+    // a holodeck program has been started aboard (src/voyage.js `holo`)
+    holo: (id) => vault.holo(id),
     talk: (captainId) => (s4 === 'done' ? null : CONC.talk[captainId] || null),
     // one chapter's debrief at a time: chapter 4's, then (once it has been played) chapter 5's
     debrief() {
@@ -248,7 +260,7 @@ export function createConcourseSystem(ctx) {
         const end = season.get('ch5.thieves') === 'freed' ? D.freed : D.held;
         return { key: 'appraisal', title: D.title, complete: D.complete, lines: [D.open, ...D.body, end, D.close], nextCourse: D.nextCourse, nextNone: D.nextNone };
       }
-      return null;
+      return vault.debrief();
     },
     serialize() {
       if (pristine()) return undefined;
@@ -261,6 +273,7 @@ export function createConcourseSystem(ctx) {
       }
       if (found) rec.found = found;
       if (sealed) rec.sealed = true;
+      if (vault.serialize()) rec.vault = vault.serialize();
       return rec;
     },
     restore(raw) {
@@ -281,12 +294,13 @@ export function createConcourseSystem(ctx) {
       }
       if (Number.isFinite(raw.found)) found = raw.found & ((1 << APPR_TOUCHED.length) - 1);
       sealed = !!raw.sealed;
+      vault.restore(raw.vault);
     },
     state: () => ({
       s4, s5, open5: S.open5(), ticks: ticks(), clock, cargo: { ...cargo }, held: held(), found, sealed,
       fee: season.get('ch4.fee'), thieves: season.get('ch5.thieves'),
       prices: { hub: CONC_GOODS.map((g, i) => price('hub', i)), tender: CONC_GOODS.map((g, i) => price('tender', i)) },
-      hub: hub.info(), tender: tender.info(), hold: hold ? hold.info() : null, guest: guest.state(),
+      hub: hub.info(), tender: tender.info(), hold: hold ? hold.info() : null, guest: guest.state(), vault: vault.state(),
       places: { hub: hub.places, tender: tender.places, hold: hold ? hold.places : null },
     }),
     // --- dev (through __debug.tenretni.voyage().instance('concourse')) ---
@@ -317,6 +331,15 @@ export function createConcourseSystem(ctx) {
       ctx.save();
       return true;
     },
+    // ...and chapter 11's (world/vault.js): `opt` 'sold' | 'recompiled' | 'friend' | 'rest', `id` the world on the table
+    go11(s, opt, id) {
+      s4 = 'done';
+      s5 = 'done';
+      season.set('debrief.concourse', true);
+      season.set('debrief.appraisal', true);
+      return vault.go(s, opt, id);
+    },
+    vault,
     trade,
     price,
     S,

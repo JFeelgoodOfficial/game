@@ -83,6 +83,45 @@ export const FIXED = [
   { id: 'flood', chapter: 6, label: `THE ${N.hub.toUpperCase()} FLOODS` },
   { id: 'defection', chapter: 9, label: 'THE ENVOY CROSSES' },
   { id: 'siege', chapter: 10, label: 'THE OUTER RING FALLS' },
-  { id: 'refugees', chapter: 11, label: 'A HOME IS NEEDED' },
+  {
+    id: 'refugees', chapter: 11, label: 'A HOME IS NEEDED',
+    forecast: {
+      from: 'FORECAST',
+      speaker: { name: 'The light ship', species: 'her instruments', cityId: 'The Vault' },
+      lines: [
+        `THE OUTER RING OF THE ${N.hub.toUpperCase()} IS GONE. THE PEOPLE WHO LIVED ON IT ARE NOT.`,
+        'FOUR THOUSAND, ON A PORT BUILT FOR THE NUMBER IT ALREADY HAD. THE AIR HOLDS. THE BERTHS DO NOT.',
+        'THE PORT CANNOT PAY TO HOUSE THEM. THE ONE THING IN THIS SYSTEM WORTH THAT MUCH IS ABOARD THIS SHIP.',
+      ],
+      certain: 'CERTAIN: THEY WILL BE GIVEN SOMEWHERE TO LIVE.',
+      open: 'NOT CERTAIN: WHERE, AND WHAT THE ARCHIVE LOSES TO PAY FOR IT.',
+    },
+    remember: {
+      sold: {
+        marrow: 'I went to the holodeck out of habit. The door was there. The world was not behind it.',
+        lux: 'We sold a world and four thousand people have doors. I check the price in my head. It still comes out right. I still check.',
+        vask: 'One world, struck from the manifest: sold. I have never liked that word next to a place.',
+      },
+      recompiled: {
+        marrow: 'There is a world in that sky that was a memory a month ago. People are being born on it. I think about that when it is quiet.',
+        lux: 'We made a planet. Out of a recording. And gave it away. I do not know what we are any more, and I think I like it.',
+        vask: 'One world, struck from the manifest: made real. First time I have crossed something out because it stopped being a copy.',
+      },
+      friend: {
+        marrow: 'I listen to them at dinner. They laugh in the right places. I am still listening.',
+        lux: 'They said my name the way they always did. I cried. I have not decided what I was crying about.',
+        vask: 'One more at the table than the horizon left us. I have added the name to the roll in pencil.',
+      },
+      rest: {
+        marrow: 'We could have had them back and we did not. Their room still has the one light on. That is how I know it was right.',
+        lux: 'I wanted them back so badly. You said no. They would have said no. I know. I know.',
+        vask: 'The lower docks are three to a berth. The record is still a record. Both entries are true and I keep them on the same page.',
+      },
+    },
+  },
   { id: 'merger', chapter: 13, label: 'THE MERGER' },
 ];
+
+// What the holodeck's panel says of a world the archive has given up for good
+// (chapter 11: sold, or made real; src/voyage.js `archiveGone`).
+export const ARCHIVE_GONE_NOTE = 'GIVEN UP';

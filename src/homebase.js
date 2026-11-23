@@ -63,7 +63,10 @@ export function createHomebase(ctx) {
     }, { title: BASE.rosterTitle, sub: BASE.rosterSub, foot: BASE.rosterFoot });
   }
   function holodeck() {
-    openHoloPanel(ctx.catalog(), (id) => ctx.startHolo(id, 'base:holo'), { title: BASE.holoTitle, sub: BASE.holoSub, locked: BASE.holoLocked });
+    openHoloPanel(ctx.catalog(), (id) => {
+      voyage().holo(id); // (a chapter may be waiting for one to be walked: src/voyage.js)
+      ctx.startHolo(id, 'base:holo');
+    }, { title: BASE.holoTitle, sub: BASE.holoSub, locked: BASE.holoLocked });
   }
 
   // --- what a captain on the bridge says ---
