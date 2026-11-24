@@ -445,7 +445,11 @@ export function createBaseBridge(ctx) {
         du += d;
         const toCard = deb.lines.length * DLINE + 0.8;
         while (debSaid + 1 < deb.lines.length && du >= 0.8 + (debSaid + 1) * DLINE) debSay(++debSaid);
-        if (du >= toCard && du - d < toCard + 1e-6) chapterHud.card(deb.title, deb.complete, deb.next);
+        if (du >= toCard && du - d < toCard + 1e-6) {
+          // (given from here: so what it unlocks is counted in where to go next)
+          if (ctx.debriefed) ctx.debriefed(deb.key);
+          chapterHud.card(deb.title, deb.complete, ctx.debriefNext ? ctx.debriefNext(deb) : deb.next);
+        }
         if (du >= debEnd()) debFinish();
       }
       if (u >= 0) {

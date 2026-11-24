@@ -143,6 +143,7 @@ export function createHomebase(ctx) {
         arrive: (id) => voyage().travel(id),
         debrief: () => voyage().debrief(),
         debriefed: (key) => voyage().debriefed(key),
+        debriefNext: (d) => voyage().debriefNext(d),
       });
     }
     return bridge;

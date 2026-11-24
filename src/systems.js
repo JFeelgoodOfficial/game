@@ -35,7 +35,7 @@ import { createDuskSystem } from '../world/dusk-system.js';
 import { DUSK } from '../world/dusk-dialogue.js';
 import { createIceSystem } from '../world/ice-system.js';
 import { ICE } from '../world/ice-dialogue.js';
-import { createConcourseSystem } from '../world/concourse-system.js';
+import { createConcourseSystem, concourseWaiting } from '../world/concourse-system.js';
 import { CONC } from '../world/concourse-dialogue.js';
 import { createFuturesSystem } from '../world/futures-system.js';
 import { FUT } from '../world/futures-dialogue.js';
@@ -90,6 +90,8 @@ export const SYSTEMS = [
     label: CONC.label, star: { dir: [0.6, 0.3, 0.74], color: 0xffe2b8 }, nebula: 0.3, fleet: false,
     base: [0, 0, 0],
     create: createConcourseSystem,
+    // a chapter here open and not yet played, from the save alone (src/voyage.js debriefNext)
+    waiting: concourseWaiting,
   },
   // Season 1, chapter 6 (GDD 5.7.9): a world that sold its future. One warm
   // star, always the same afternoon.
