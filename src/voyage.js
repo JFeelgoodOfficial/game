@@ -339,6 +339,22 @@ export function createVoyage(ctx) {
     debriefed(key) {
       season.set(`debrief.${key}`, true);
     },
+    // Where the story goes next, for a debrief's card: asked once it has been
+    // marked given, so a chapter it unlocks counts. Anywhere new on the chart,
+    // and anywhere already visited with a chapter open and not yet played
+    // (an instance's `waiting()`: the free port has several, one after another).
+    debriefNext(d) {
+      const places = [];
+      for (const c of api.courses()) if (!visited.includes(c.id) && !systemById(c.id)?.example) places.push(c.label);
+      for (const s of SYSTEMS) {
+        // (built: ask it; not built since the load: read its saved record)
+        const inst = built[s.id]?.inst;
+        const w = inst && inst.waiting ? inst.waiting() : !inst && s.waiting ? s.waiting(records[s.id], season, fixed) : null;
+        if (w && !places.includes(w)) places.push(s.id === at ? `${w} (THE SHIP IS ALREADY HERE)` : w);
+      }
+      if (!places.length) return d.nextNone;
+      return `NEXT: ${places.join(' · ')}. SET A COURSE FROM THE CHART AT THE HELM.`;
+    },
     state: () => ({
       open: chapter.open(), applied, at, visited: visited.slice(), crew: api.crew(),
       systems: SYSTEMS.map((s) => ({ id: s.id, label: s.sealed ? null : s.label, sealed: !!s.sealed, built: !!built[s.id] })),

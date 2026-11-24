@@ -56,6 +56,22 @@ export const APPR_STAGES = ['idle', 'valued', 'robbed', 'tracked', 'found', 'don
 export const SIEGE_STAGES = ['idle', 'called', 'done'];
 
 // ctx: { scene, camera, chapter, voyage, sunDir, save(), crewTalk(captain), season, fixed }
+// Is a chapter at the port open and not yet played? From its saved record
+// alone (`rec`: what serialize() wrote), so the light ship can point back here
+// without building the port (src/voyage.js debriefNext). The same rules as the
+// instance's open5 / open9 / open10 / open11 / open14 below.
+export function concourseWaiting(rec, season, fixed) {
+  const r = rec || {};
+  const s4 = r.s4 || 'arrived', s5 = r.s5 || 'idle', s9 = r.s9 || 'idle', s10 = r.s10 || 'idle', s14 = r.s14 || 'idle';
+  const deb = (k) => !!season.get(`debrief.${k}`);
+  const open = (s4 === 'done' && deb('concourse') && s5 !== 'done')
+    || (s5 === 'done' && deb('appraisal') && s9 !== 'done')
+    || (s9 === 'done' && deb('love') && s10 !== 'done')
+    || (fixed.resolved('siege') && deb('siege') && (r.vault?.st || 'idle') !== 'done')
+    || (fixed.resolved('merger') && deb('unforecast') && !(s14 === 'counted' && deb('shore')));
+  return open ? CONC.label : null;
+}
+
 export function createConcourseSystem(ctx) {
   const { season } = ctx;
   let s4 = 'arrived', s5 = 'idle', s10 = 'idle';
@@ -317,6 +333,13 @@ export function createConcourseSystem(ctx) {
     holo: (id) => vault.holo(id),
     talk: (captainId) => (s4 !== 'done' ? CONC.talk[captainId] || null : love.talk(captainId) || (S.open10() && s10 !== 'done' ? SIEGE.talk[captainId] || null : null)),
     // one chapter's debrief at a time: chapter 4's, then (once it has been played) chapter 5's
+    // a chapter here that is open and not yet played: what a debrief elsewhere
+    // should point the pilot back to (src/voyage.js debriefNext)
+    waiting() {
+      const open = (S.open5() && s5 !== 'done') || (S.open9() && s9 !== 'done') || (S.open10() && s10 !== 'done')
+        || (S.open11() && vault.stage() !== 'done') || (S.open14() && S.st14() !== 'done');
+      return open ? CONC.label : null;
+    },
     debrief() {
       if (s4 === 'done' && !season.get('debrief.concourse')) {
         const D = CONC.debrief;
