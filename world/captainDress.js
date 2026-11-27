@@ -14,6 +14,14 @@
 //            lapels, a lit name badge, a headset, shoes with lit soles; her
 //            lights run three times too fast and will not hold
 //
+// and the envoy:
+//
+//   ione     Ione Vey, envoy of the Foregone: a long ink coat closed to a
+//            high collar, one silver seam down the front; white gloves; dark
+//            hair drawn back to a knot; a silver circlet at the brow with one
+//            light in it, and a small dial at the lapel. (Her seed is the one
+//            the bar's figure always had: world/aliens.js sends it here.)
+//
 // and two who hold a town (world/citizens.js stands them in the penthouse):
 //
 //   rynva    Baron, Rustia: a long burgundy frock coat with brass buttons,
@@ -43,7 +51,7 @@ import { liveSignature } from './signatures.js';
 
 // the Pavilion's own three (the same seeds everywhere, so the same bodies),
 // and the two governors
-export const CAPTAIN_SEED = { vask: 0x51a, marrow: 0x7c3, lux: 0x2e9, rynva: 0x6b1, governor: 0x4d7 };
+export const CAPTAIN_SEED = { vask: 0x51a, marrow: 0x7c3, lux: 0x2e9, rynva: 0x6b1, governor: 0x4d7, ione: 0x10e7e };
 
 const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0.05, ...o });
 const lit = (color, k = 1.6) => new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: k, roughness: 0.4 });
@@ -218,6 +226,43 @@ const DRESS = {
     // (brows up in the middle: she worries. Her pupils are her lights' colour.)
     face(j, d, { eye: 0xff9bd4, brow: 0.3, pupil: sig ? sig.mat : undefined });
   },
+};
+
+DRESS.ione = function ione({ joints: j, dims: d }) {
+  const s = d.scaleY, w = d.buildWidth * s, l = d.limbScale * s, h = d.headScale * s;
+  const coat = std(0x262a36, { roughness: 0.45, metalness: 0.08 }), ivory = std(0xe9e6f2, { roughness: 0.6 }), hair = std(0x2a2438, { roughness: 0.4 });
+  const silver = std(0xbfc6d6, { metalness: 0.75, roughness: 0.28 }), seam = lit(0xcfd8ff, 1.1), point = lit(0xd8d2ff, 2.4), glove = std(0xf4f2f8, { roughness: 0.55 }), dark = std(0x15161c, { roughness: 0.5 });
+  // the coat: close over the chest, then straight down to the ankle
+  add(j.torso, new THREE.CylinderGeometry(0.255 * w, 0.268 * w, 0.72 * s, 16, 1, true), coat, 0, 0.2 * s, 0);
+  add(j.pelvis, new THREE.CylinderGeometry(0.268 * w, 0.37 * w, 0.8 * l + 0.1 * s, 16, 1, true), coat, 0, -0.36 * l - 0.06 * s, 0);
+  add(j.pelvis, new THREE.CylinderGeometry(0.372 * w, 0.374 * w, 0.03 * s, 16, 1, true), silver, 0, -0.76 * l - 0.11 * s, 0); // the hem
+  // a high standing collar, ivory inside
+  add(j.torso, new THREE.CylinderGeometry(0.115 * w, 0.2 * w, 0.075 * s, 16, 1, true), coat, 0, 0.575 * s, 0);
+  add(j.torso, new THREE.CylinderGeometry(0.108 * w, 0.19 * w, 0.07 * s, 16, 1, true), ivory, 0, 0.577 * s, 0);
+  // one seam of light down the front, chest to hem
+  add(j.torso, new THREE.BoxGeometry(0.012 * s, 0.52 * s, 0.01 * s), seam, 0, 0.3 * s, 0.262 * w);
+  add(j.pelvis, new THREE.BoxGeometry(0.012 * s, 0.8 * l, 0.01 * s), seam, 0, -0.36 * l - 0.04 * s, 0.31 * w, -0.11);
+  // the dial at the lapel: a ring and one hand
+  add(j.torso, new THREE.TorusGeometry(0.03 * s, 0.006 * s, 6, 16), silver, -0.12 * w, 0.42 * s, 0.258 * w);
+  add(j.torso, new THREE.BoxGeometry(0.004 * s, 0.026 * s, 0.004 * s), point, -0.12 * w, 0.43 * s, 0.262 * w, 0, 0, -0.6);
+  // sleeves to the wrist, white gloves
+  for (const side of [-1, 1]) add(j.shoulders, new THREE.SphereGeometry(0.07 * s, 10, 8), coat, side * 0.27 * w, 0.0, 0);
+  for (const arm of [j.armL, j.armR]) {
+    add(arm.shoulder, new THREE.CylinderGeometry(0.058 * l, 0.052 * l, 0.29 * l, 10, 1, true), coat, 0, -0.14 * l, 0);
+    add(arm.elbow, new THREE.CylinderGeometry(0.05 * l, 0.054 * l, 0.22 * l, 10, 1, true), coat, 0, -0.11 * l, 0);
+    add(arm.elbow, new THREE.CylinderGeometry(0.056 * l, 0.056 * l, 0.02 * l, 10, 1, true), silver, 0, -0.215 * l, 0);
+    add(arm.elbow, new THREE.SphereGeometry(0.048 * l, 10, 8).scale(0.8, 1.2, 0.9), glove, 0, -0.3 * l, 0);
+  }
+  // narrow dark shoes
+  for (const leg of [j.legL, j.legR]) add(leg.knee, new THREE.BoxGeometry(0.09 * l, 0.045 * l, 0.2 * l), dark, 0, -0.335 * l, 0.04 * l);
+  // hair: smooth over the crown and drawn back to a knot
+  add(j.head, new THREE.SphereGeometry(0.126 * h, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.5), hair, 0, 0.23 * h, -0.004 * h);
+  add(j.head, new THREE.SphereGeometry(0.112 * h, 16, 10), hair, 0, 0.17 * h, -0.03 * h); // the back of the head
+  add(j.head, new THREE.SphereGeometry(0.058 * h, 12, 10), hair, 0, 0.17 * h, -0.14 * h);
+  // the circlet at the brow, and its one light
+  add(j.head, new THREE.TorusGeometry(0.129 * h, 0.006 * h, 6, 28).rotateX(Math.PI / 2 - 0.1), silver, 0, 0.255 * h, 0);
+  add(j.head, new THREE.OctahedronGeometry(0.014 * h), point, 0, 0.268 * h, 0.132 * h);
+  face(j, d, { eye: 0xd8d2ff, brow: 0.06 });
 };
 
 export function buildCaptain(id) {
