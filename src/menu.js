@@ -10,9 +10,11 @@ import { openSettings } from './settingsPanel.js';
 
 const CSS = `
 #menu {
-  position: fixed; inset: 0; z-index: 30;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 28px; background: radial-gradient(ellipse at center, rgba(8,2,14,0.25), rgba(4,0,10,0.78));
+  position: fixed; inset: 0; z-index: 30; box-sizing: border-box; padding: 0 16px;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  /* the sky through the canopy stays in view above; the dash, its buttons
+     and the CODEX disc go dark under the title's lower half */
+  background: linear-gradient(to bottom, rgba(4,0,10,0.18) 0%, rgba(4,0,10,0.3) 30%, rgba(4,0,10,0.92) 48%, rgba(4,0,10,0.98) 64%);
   font-family: 'Courier New', ui-monospace, monospace; color: #a9f7ff;
   transition: opacity 0.5s; user-select: none;
 }
@@ -27,6 +29,12 @@ const CSS = `
   max-width: 92vw; text-align: center;
   text-shadow: 0 0 8px rgba(130,247,255,0.5);
 }
+#menu h1 { margin-top: max(15vh, env(safe-area-inset-top)); margin-bottom: auto; }
+#menu .sub:empty { display: none; }
+#menu .sub { margin-bottom: 20px; }
+#menu .row { display: flex; gap: 18px; align-items: center; justify-content: center; flex-wrap: wrap; margin-bottom: 26px; }
+#menu .row ~ .sub { opacity: 0.75; font-size: 11px; }
+#menu > :last-child { margin-bottom: max(8vh, env(safe-area-inset-bottom)); }
 #menu .keys {
   display: grid; grid-template-columns: repeat(5, auto); gap: 10px 26px;
   justify-content: center; font-size: 11px; letter-spacing: 0.2em; color: #9fd8e8;
@@ -209,7 +217,9 @@ export function initMenu(launchCallback) {
     title.textContent = 'FEELGOOD SPACE FLIGHT';
     sub = el('div', null, menu);
     sub.className = 'sub';
-    button = el('button', null, menu);
+    const row = el('div', null, menu);
+    row.className = 'row';
+    button = el('button', null, row);
   }
   button.disabled = false; // the game is loaded now — enable LAUNCH
   button.addEventListener('click', () => onLaunch && onLaunch());
@@ -218,7 +228,8 @@ export function initMenu(launchCallback) {
   // button — inserted around the adopted static nodes (audit additions)
   sub2 = document.createElement('div');
   sub2.className = 'sub';
-  sub.insertAdjacentElement('afterend', sub2);
+  // (under LAUNCH and SETTINGS, at the foot of the title)
+  (button.parentElement === menu ? button : button.parentElement).insertAdjacentElement('afterend', sub2);
   settingsBtn = document.createElement('button');
   settingsBtn.className = 'minor';
   settingsBtn.textContent = 'SETTINGS';
@@ -262,7 +273,7 @@ export function showMenu(mode, reason) {
     // A phone has none of these keys: the first-flight coach walks a touch
     // pilot through the dash instead.
     if (sub2) {
-      if (isTouch) sub2.textContent = 'WHEEL ON THE RIGHT STEERS · THROTTLE ON THE LEFT · SIX BUTTONS DO THE REST';
+      if (isTouch) sub2.textContent = 'RIGHT WHEEL STEERS · LEFT THROTTLE · DASH BUTTONS DO THE REST';
       else sub2.replaceChildren(keyGrid());
     }
     button.textContent = 'LAUNCH';

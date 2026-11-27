@@ -54,9 +54,11 @@
     /* Static title screen — painted immediately, before the game module loads.
        menu.js adopts these same nodes and injects its fuller stylesheet. */
     #menu {
-      position: fixed; inset: 0; z-index: 30;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 28px; background: radial-gradient(ellipse at center, rgba(8,2,14,0.25), rgba(4,0,10,0.78));
+      position: fixed; inset: 0; z-index: 30; box-sizing: border-box; padding: 0 16px;
+      display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+      /* the sky through the canopy stays in view above; the dash, its buttons
+         and the CODEX disc go dark under the title's lower half */
+      background: linear-gradient(to bottom, rgba(4,0,10,0.18) 0%, rgba(4,0,10,0.3) 30%, rgba(4,0,10,0.92) 48%, rgba(4,0,10,0.98) 64%);
       font-family: 'Courier New', ui-monospace, monospace; color: #a9f7ff;
       transition: opacity 0.5s; user-select: none;
     }
@@ -78,6 +80,12 @@
       box-shadow: 0 0 22px rgba(212,64,143,0.25), inset 0 0 18px rgba(212,64,143,0.08);
       transition: background 0.2s, box-shadow 0.2s;
     }
+    #menu h1 { margin-top: max(15vh, env(safe-area-inset-top)); margin-bottom: auto; }
+    #menu .sub:empty { display: none; }
+    #menu .sub { margin-bottom: 20px; }
+    #menu .row { display: flex; gap: 18px; align-items: center; justify-content: center; flex-wrap: wrap; margin-bottom: 26px; }
+    #menu .row ~ .sub { opacity: 0.75; font-size: 11px; }
+    #menu > :last-child { margin-bottom: max(8vh, env(safe-area-inset-bottom)); }
     #menu button[disabled] { opacity: 0.5; cursor: default; }
     /* Pointer-lock hint: input.js toggles .hidden on lock changes, game.js
        toggles .off outside flight/walk (menu, pause). */
@@ -181,8 +189,8 @@
 <body>
   <div id="menu">
     <h1>FEELGOOD SPACE FLIGHT</h1>
-    <div class="sub">LOADING…</div>
-    <button disabled>LOADING…</button>
+    <div class="sub"></div>
+    <div class="row"><button disabled>LOADING…</button></div>
   </div>
   <div id="hint" class="hidden off">MOUSE FREE — CLICK VIEW TO STEER · BACKSPACE — PAUSE</div>
   <div id="rotate">
