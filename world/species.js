@@ -46,6 +46,18 @@ export const SPECIES = {
     antennae: false, crest: false, tail: false, gait: [0.9, 1.1],
     dress: ['#1F4A52', '#E8C547', '#16252B'],
   },
+  // The Foregone (plans/season-1-arc.md): no crowd of them is walked
+  // anywhere, so no world names them in SPECIES_BY_WORLD. Their one figure is
+  // the envoy (CAPTAINS.ione). Tall and narrow, a still face, no signature:
+  // what marks one of them is the dress.
+  foregone: {
+    people: 'Foregone', height: [1.8, 1.9], build: [0.86, 0.94], limb: [1.06, 1.14],
+    headScale: [1.0, 1.06], headShape: 'elongated', eyes: 2, eyeScale: 1.1, eyeColor: '#D8D2FF',
+    skin: ['#CFC9DD', '#B9B3CB'], skinRoughness: 0.45,
+    signature: null,
+    antennae: false, crest: false, tail: false, gait: [0.8, 0.9],
+    dress: ['#262A36', '#E9E6F2', '#BFC6D6'],
+  },
   // Terra and Wyattmattoe: world/people.js crowds as they are. No signature.
   human: { people: 'Humans', worlds: ['terra', 'wyattmattoe'], builder: 'world/people.js', signature: null },
   // One body for all (world/capital.js buildRobot, 3.3 m), green on the
@@ -65,6 +77,9 @@ export const CAPTAINS = {
   rynva: { species: 'rustia', height: 2.05, build: 1.32, skin: '#6B3E2C', seamBrightness: 0.3, extras: ['oreRing', 'oreChain', 'frockCoat#4A2326'] },
   marrow: { species: 'saturnia', height: 1.52, build: 0.86, skin: '#E9DDC2', eyeScale: 1.5, ringWidth: 1.4, extras: ['ringBells5', 'replaceCirclet'], keepDress: true },
   lux: { species: 'wavemall', height: 1.57, build: 1.12, skin: '#B8B2CC', lightSpeed: 3.0, extras: ['flicker'], keepDress: true },
+  // Ione Vey (world/season-names.js `envoy`), envoy of the Foregone. Built
+  // wherever she is met by her seed (world/aliens.js hands that seed here).
+  ione: { species: 'foregone', height: 1.84, build: 0.9, skin: '#CBC5DA', eyeScale: 1.1 },
   // The governor of the Indigo Reach. In the town the office is held by
   // Madame Ossva (world/cityRegistry.js), who wears this body; the name here
   // is the owner's, and is not shown anywhere yet.

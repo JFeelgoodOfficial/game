@@ -34,6 +34,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { SPECIES } from './species.js';
 import { buildSignature, liveSignature } from './signatures.js';
+import { buildCaptain, CAPTAIN_SEED } from './captainDress.js';
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -229,6 +230,9 @@ function speciesForCity(cityId) {
 // draws a face draws them). With no species nothing below changes: the same
 // seed makes the same figure it always did.
 export function buildRig(seed, cityId, opts) {
+  // The envoy is met in five places, each of which builds her by her seed:
+  // that seed is her own figure now (world/captainDress.js), not a roll
+  if (seed === CAPTAIN_SEED.ione && !(opts && opts.dress)) return buildCaptain('ione');
   const rng = mulberry32(seed);
   const sp = opts && opts.species ? SPECIES[opts.species] : null;
   const over = (opts && opts.over) || {};

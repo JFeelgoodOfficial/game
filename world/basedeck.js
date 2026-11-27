@@ -3,8 +3,8 @@
 // Off the bridge, through a door at its starboard aft. One straight corridor,
 // and off it:
 //
-//   to the north   four quarters, one each: the pilot's and the three
-//                  captains'. The outer wall of each is glass from floor to
+//   to the north   five quarters: the pilot's, the three captains', and at
+//                  the east end one kept for a guest. The outer wall of each is glass from floor to
 //                  ceiling, onto whatever system the ship is in (the bridge's
 //                  own sky, world/basebridge.js). A bed, a desk, a seat in the
 //                  window, and something of the one who lives there.
@@ -14,6 +14,11 @@
 //
 // A captain lost in a chapter keeps their quarters: the lights are down and
 // one small light is left on. Nobody is moved in.
+//
+// The envoy (season facts `ch9.ione`, `ch13.ione`): while she is aboard her
+// coat hangs in the guest quarters. Once she is not, the pilot keeps a small
+// figure of her and her glass by the window, and if she is lost (`'lost'`),
+// a light beside them.
 //
 // What can be done here is small and has no story in it: rest in the pilot's
 // bed, sit down to eat, have a check-up, look round a captain's room.
@@ -30,6 +35,7 @@ import { CAPTAINS } from './chapter-dialogue.js';
 import { poseRig } from './aliens.js';
 import { sitRig } from './rigGround.js';
 import { buildCaptain, liveCaptain } from './captainDress.js';
+import { measureRig } from './rigGround.js';
 import { DECK } from './base-dialogue.js';
 import { VERT, SKY_FRAG, MAX_BODIES } from './basebridge.js';
 
@@ -37,15 +43,16 @@ const ZERO = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 const H = 3.2; // floor to ceiling
 const T = 0.3; // a wall's thickness
-const CX0 = -22, CX1 = 22, CW = 2; // the corridor: x from CX0 to CX1, z from -CW to CW
+const CX0 = -22, CX1 = 33, CW = 2; // the corridor: x from CX0 to CX1, z from -CW to CW
 const QZ0 = -10.4, QZ1 = -2.4; // the quarters, between the corridor and the glass
 const SZ0 = 2.4, SZ1 = 12.4; // the lounge and the medical bay
 const LOUNGE = { x0: -22, x1: 2 }, MED = { x0: 2.4, x1: 22 };
 const BRIDGE_DOOR = { x: -20.4, z: 0 };
 
 // who lives where, west to east: the pilot, then the captains in CAPTAINS order
-const COLOUR = { pilot: 0x6fe3ff, marrow: 0xb48cff, lux: 0xff6fb4, vask: 0xff8a3c };
-const ROOMS = [{ id: 'pilot', x: -16.5 }, ...CAPTAINS.map((c, i) => ({ id: c.id, x: -5.5 + 11 * i }))];
+const COLOUR = { pilot: 0x6fe3ff, marrow: 0xb48cff, lux: 0xff6fb4, vask: 0xff8a3c, guest: 0xd8d2ff };
+const ROOMS = [{ id: 'pilot', x: -16.5 }, ...CAPTAINS.map((c, i) => ({ id: c.id, x: -5.5 + 11 * i })), { id: 'guest', x: 27.5 }];
+const KEEP = { x: -18.7, z: -9.3 }; // in the pilot's quarters, by the window: what is kept of the envoy
 const QHW = 5.3; // a quarter's half width (walls between them at the gaps)
 
 const ease = (a, b, x) => {
@@ -127,6 +134,8 @@ export function createBaseDeck(ctx) {
     lit.push(tint(box(x1 - x0, 0.14, 0.2, (x0 + x1) / 2, 0.07, z), TRIM), tint(box(x1 - x0, 0.14, 0.2, (x0 + x1) / 2, H - 0.07, z), TRIM));
   };
 
+  const flatG = (list) => list.map((g) => (g.index ? g.toNonIndexed() : g));
+
   // --- the corridor ---
   room(CX0, CX1, -CW, CW);
   wallZ(CX0, -CW, CW);
@@ -177,7 +186,7 @@ export function createBaseDeck(ctx) {
     glow.push(tint(box(0.08, 2.4, 0.08, r.x - 0.95, 1.2, -CW - 0.02), col, 1.5), tint(box(0.08, 2.4, 0.08, r.x + 0.95, 1.2, -CW - 0.02), col, 1.5), tint(box(1.98, 0.08, 0.08, r.x, 2.42, -CW - 0.02), col, 1.5));
     glow.push(tint(box(0.03, 0.05, QZ1 - QZ0 - 0.3, x0 + 0.17, 1.05, (QZ0 + QZ1) / 2), col, 0.9), tint(box(0.03, 0.05, QZ1 - QZ0 - 0.3, x1 - 0.17, 1.05, (QZ0 + QZ1) / 2), col, 0.9));
     // the sign by the door, on the corridor side
-    const p = plate(r.id === 'pilot' ? DECK.platePilot : CAPTAINS.find((c) => c.id === r.id).short, col);
+    const p = plate(r.id === 'pilot' ? DECK.platePilot : r.id === 'guest' ? DECK.plateGuest : CAPTAINS.find((c) => c.id === r.id).short, col);
     p.position.set(r.x + 1.75, 1.75, -CW - 0.04);
     group.add(p);
     // the room's own light: overhead, the desk lamp, and its one thing
@@ -205,6 +214,11 @@ export function createBaseDeck(ctx) {
     } else if (r.id === 'vask') {
       // a piece of ore from home on a plinth, still warm
       own.push(tint(box(0.5, 0.8, 0.5, r.x - 2.2, 0.4, -9.3), STEEL, 1), tint(new THREE.OctahedronGeometry(0.32, 0).translate(r.x - 2.2, 1.1, -9.3), 0xff8a3c, 2.2));
+    } else if (r.id === 'guest') {
+      // made up for whoever comes: towels folded on the bed, a lamp on the sill, a stand for a coat
+      own.push(tint(box(0.6, 0.12, 0.45, x0 + 1.2, 0.86, -7.2), 0xd8d2ff, 1), tint(box(0.6, 0.1, 0.45, x0 + 2.0, 0.85, -7.2), 0xf2f4f7, 1));
+      own.push(tint(cyl(0.12, 0.16, 0.3, r.x - 1.6, 0.66, QZ0 + 0.6, 10), STEEL, 1), tint(new THREE.SphereGeometry(0.16, 10, 8).translate(r.x - 1.6, 0.98, QZ0 + 0.6), 0xe9e4ff, 1.8));
+      own.push(tint(cyl(0.025, 0.025, 1.9, r.x - 2.6, 0.95, -4.0, 6), STEEL, 1), tint(cyl(0.25, 0.28, 0.05, r.x - 2.6, 0.03, -4.0, 12), STEEL, 1), tint(box(0.6, 0.04, 0.04, r.x - 2.6, 1.85, -4.0), STEEL, 1));
     }
     const ownMesh = mergedMesh(own.map((g) => (g.index ? g.toNonIndexed() : g)), new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }));
     group.add(ownMesh);
@@ -219,6 +233,44 @@ export function createBaseDeck(ctx) {
   wallZ(ROOMS[0].x - QHW - T / 2, QZ0, QZ1);
   for (let i = 0; i < ROOMS.length - 1; i++) wallZ((ROOMS[i].x + ROOMS[i + 1].x) / 2, QZ0, QZ1);
   wallZ(ROOMS[ROOMS.length - 1].x + QHW + T / 2, QZ0, QZ1);
+
+  // --- the envoy's ---
+  // her coat on the stand in the guest quarters, while she is aboard
+  const gx = ROOMS[ROOMS.length - 1].x - 2.6;
+  const coat = mergedMesh(flatG([
+    tint(cyl(0.2, 0.34, 1.5, gx, 1.02, -4.0, 14), 0x262a36), tint(cyl(0.12, 0.2, 0.1, gx, 1.8, -4.0, 14), 0x262a36),
+    tint(box(0.012, 1.4, 0.012, gx, 1.05, -4.0 + 0.27), 0xcfd8ff, 1.6),
+  ]), new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }));
+  coat.visible = false;
+  group.add(coat);
+  // ...and once she is gone, in the pilot's quarters by the window: a plinth, a small figure of her, her glass
+  const keep = new THREE.Group();
+  keep.visible = false;
+  group.add(keep);
+  keep.add(mergedMesh(flatG([
+    tint(box(0.55, 0.9, 0.55, KEEP.x, 0.45, KEEP.z), STEEL), tint(box(0.6, 0.04, 0.6, KEEP.x, 0.92, KEEP.z), TRIM),
+  ]), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x1d262f })));
+  const glassG = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.038, 0.11, 14), new THREE.MeshBasicMaterial({ color: 0xbfe6ff, transparent: true, opacity: 0.35, depthWrite: false, fog: false }));
+  glassG.position.set(KEEP.x + 0.16, 0.995, KEEP.z + 0.1);
+  const drink = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.034, 0.06, 14), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.3, 0.75, 0.3), fog: false }));
+  drink.position.set(KEEP.x + 0.16, 0.97, KEEP.z + 0.1);
+  keep.add(drink, glassG);
+  const her = measureRig(buildCaptain('ione'));
+  her.group.scale.setScalar(0.17);
+  her.group.position.set(KEEP.x - 0.08, 0.94, KEEP.z);
+  her.group.rotation.y = 0.35; // turned a little to the room
+  poseRig(her, 0.016, 0, 'idle', 0);
+  keep.add(her.group);
+  const keepLight = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 1.25, 0.7), fog: false }));
+  keepLight.position.set(KEEP.x + 0.18, 0.99, KEEP.z - 0.16);
+  keepLight.visible = false;
+  keep.add(keepLight);
+  colliders.push({ x: KEEP.x, z: KEEP.z, r: 0.45, top: Infinity });
+  const envoy = () => {
+    const now = ctx.fact ? ctx.fact('ch13.ione') : null;
+    if (now) return now; // 'aboard' | 'gone' | 'lost'
+    return ctx.fact && ctx.fact('ch9.ione') === 'stayed' ? 'aboard' : null;
+  };
 
   // --- the dining lounge ---
   const LD = [-14, -6], MD = 9; // doorways off the corridor
@@ -365,7 +417,7 @@ export function createBaseDeck(ctx) {
     chapterHud.cine(false);
   }
   const crewAboard = () => CAPTAINS.filter((c) => ctx.aboard(c.id));
-  const lost = (id) => id !== 'pilot' && chapter && chapter.lost && chapter.lost(id);
+  const lost = (id) => id !== 'pilot' && id !== 'guest' && chapter && chapter.lost && chapter.lost(id);
   const named = (list) => (list.length <= 1 ? list.join('') : `${list.slice(0, -1).join(', ')} AND ${list[list.length - 1]}`);
   function start(what) {
     if (u >= 0) return null;
@@ -396,6 +448,7 @@ export function createBaseDeck(ctx) {
     doing = null;
   }
   function look(id) {
+    if (id === 'guest') return { speaker: { name: DECK.plateGuest, species: '', cityId: DECK.where }, lines: envoy() === 'aboard' ? DECK.guestHers : DECK.guestRoom };
     const c = CAPTAINS.find((x) => x.id === id);
     return { speaker: { name: c.name, species: c.species, cityId: DECK.where }, lines: lost(id) ? DECK.lostRoom.map((l) => l.replace('{NAME}', c.short)) : DECK.room[id] };
   }
@@ -406,6 +459,7 @@ export function createBaseDeck(ctx) {
     { x: TB.x, y: 0, z: TB.z - 1.9, r: 2.6, prompt: DECK.eat, off: () => u >= 0, use: () => start('eat') },
     { x: BEDS[0].x, y: 0, z: BEDS[0].z - 1.4, r: 1.6, prompt: DECK.scan, off: () => u >= 0, use: () => start('scan') },
     ...ROOMS.slice(1).map((r) => ({ x: r.x, y: 0, z: -4.2, r: 1.6, prompt: DECK.look, off: () => u >= 0, use: () => look(r.id) })),
+    { x: KEEP.x, y: 0, z: KEEP.z + 1.1, r: 1.0, prompt: DECK.keepPrompt, off: () => u >= 0 || !keep.visible, use: () => ({ speaker: { name: DECK.keepName, species: '', cityId: DECK.where }, lines: envoy() === 'lost' ? DECK.keepLost : DECK.keepGone }) },
   ];
 
   let inside = false, prev = null, walker = null;
@@ -432,6 +486,10 @@ export function createBaseDeck(ctx) {
       roomGlow[r.id].own.visible = !gone;
       roomGlow[r.id].candle.visible = gone;
     }
+    const e = envoy();
+    coat.visible = e === 'aboard';
+    keep.visible = e === 'gone' || e === 'lost';
+    keepLight.visible = e === 'lost';
   }
 
   const site = {
@@ -575,9 +633,9 @@ export function createBaseDeck(ctx) {
     places: {
       bridgeDoor: [BRIDGE_DOOR.x, 0, BRIDGE_DOOR.z],
       quarters: Object.fromEntries(ROOMS.map((r) => [r.id, [r.x, 0, -6.4]])),
-      lounge: [TB.x, 0, TB.z - 2.4], med: [BEDS[0].x - 1, 0, BEDS[0].z - 1.6],
+      lounge: [TB.x, 0, TB.z - 2.4], med: [BEDS[0].x - 1, 0, BEDS[0].z - 1.6], keepsake: [KEEP.x, 0, KEEP.z + 1.1],
     },
-    info: () => ({ doing, u: +u.toFixed(1), lost: ROOMS.filter((r) => lost(r.id)).map((r) => r.id), star: skyU.uStarOn.value > 0, rooms: rooms.length }),
+    info: () => ({ envoy: envoy(), keep: keep.visible, coat: coat.visible, doing, u: +u.toFixed(1), lost: ROOMS.filter((r) => lost(r.id)).map((r) => r.id), star: skyU.uStarOn.value > 0, rooms: rooms.length }),
   };
   return site;
 }

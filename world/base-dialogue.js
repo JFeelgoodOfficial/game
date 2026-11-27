@@ -6,6 +6,10 @@
 // the ship and the trip in hand; a chapter that wants them to say something
 // about itself gives its own lines (src/systems.js `talk`).
 
+import { SEASON_NAMES as N } from './season-names.js';
+
+const FIRST = N.envoy.split(' ')[0];
+
 export const BASE = {
   // toasts and prompts
   aboard: 'THE LIGHT SHIP — YOUR FREIGHTER IS IN THE BAY',
@@ -59,6 +63,7 @@ export const DECK = {
   plateBridge: 'BRIDGE',
   plateLounge: 'DINING',
   plateMed: 'MEDICAL',
+  plateGuest: 'GUEST',
   rest: 'E — REST',
   restSay: 'YOU SLEEP FOR A WHILE. THE SHIP KEEPS GOING.',
   eat: 'E — SIT DOWN TO EAT',
@@ -91,6 +96,14 @@ export const DECK = {
     lux: ["Lux's quarters. Plants on every surface, and more lamps than anyone needs.", 'Lux does not like the dark. This room never has any.'],
     vask: ["Vask's quarters. A piece of ore from Rustia on a stand, still warm.", 'Scratched into the desk: a tally mark for every trip the ship has made.'],
   },
+  // the guest quarters: empty, or hers while she is aboard
+  guestRoom: ['The guest quarters. The bed is made and nobody has slept in it.', 'Whoever comes aboard next gets the window.'],
+  guestHers: [`${FIRST}'s coat is on the stand. The bed is made very neatly, and she has not slept in it much.`, 'She has turned the chair to face the window. Nobody forecast that view for her.'],
+  // what the pilot keeps of her, by the window in the pilot's quarters
+  keepPrompt: `E — ${FIRST.toUpperCase()}`,
+  keepName: N.envoy,
+  keepGone: [`A small figure of ${FIRST}, in her long coat, and the glass from the bar. She ordered that drink for you before you had said a word.`, 'She went her own way. It was not on anyone\'s page.'],
+  keepLost: [`A small figure of ${FIRST}, in her long coat, and the glass from the bar. She ordered that drink for you before you had said a word.`, 'She chose where to be, at the end. Somebody keeps a light on beside her.'],
   // ...and kept for one who is not coming back
   lostRoom: ['{NAME} is not coming back. The room is kept as they left it.', 'Someone leaves a small light on in here.'],
 };
