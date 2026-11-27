@@ -93,14 +93,25 @@ export function createShore(ctx, S) {
     lines.push(season.get('ch13.core') === 'fed' ? A.fed : A.kept, A.close);
     return lines;
   }
-  let archiveConsoles = [], panelText = null;
+  let archiveConsoles = [], panelText = null, ring = null, ringSite = null;
+  const ARCHIVE_AT = { x: -2.2, dz: -2 }; // across the hall from the holodeck, by the aft door
   const archiveGuest = {
     active: () => S.st14() === 'dinner',
     consoles: () => archiveConsoles,
+    // the compass points here until it has been looked at
+    mark: () => (S.st14() === 'dinner' && ringSite ? { x: ARCHIVE_AT.x, z: ringSite.places.aft[2] + ARCHIVE_AT.dz, label: SHORE.marks.archive } : null),
     enter(site) {
       const aft = site.places.aft;
+      // a lit ring on the floor where to stand
+      if (!ring) {
+        ring = new THREE.Mesh(new THREE.TorusGeometry(1.4, 0.07, 6, 40).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.5, 1.35, 2.0), fog: false }));
+      }
+      ring.position.set(ARCHIVE_AT.x, 0.06, aft[2] + ARCHIVE_AT.dz);
+      ring.visible = S.st14() === 'dinner';
+      site.group.add(ring);
+      ringSite = site;
       archiveConsoles = [{
-        x: -2.2, y: 0, z: aft[2] - 2, r: 2.0, prompt: SHORE.prompts.archive, off: () => S.st14() !== 'dinner',
+        x: ARCHIVE_AT.x, y: 0, z: aft[2] + ARCHIVE_AT.dz, r: 2.0, prompt: SHORE.prompts.archive, off: () => S.st14() !== 'dinner',
         use() {
           S.adv14('counted');
           logChime();
@@ -111,10 +122,16 @@ export function createShore(ctx, S) {
     },
     leave() {
       archiveConsoles = [];
+      if (ring && ringSite) ringSite.group.remove(ring);
+      ringSite = null;
       if (panelText != null) chapterHud.panel(null);
       panelText = null;
     },
-    tick() {
+    tick(dt, t) {
+      if (ring) {
+        ring.visible = S.st14() === 'dinner';
+        ring.material.color.setRGB(1.5, 1.35, 2.0).multiplyScalar(0.75 + 0.25 * Math.sin((t || 0) * 2.4));
+      }
       const text = S.st14() === 'dinner' ? SHORE.hud.archive : S.st14() === 'counted' ? SHORE.hud.bridge : null;
       if (text !== panelText) chapterHud.panel((panelText = text));
     },

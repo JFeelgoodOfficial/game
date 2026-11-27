@@ -23,7 +23,7 @@ export const SHORE = {
     bridge: 'BACK TO THE BRIDGE',
     done: 'THE HELM CHART',
   },
-  marks: { bar: 'BAR' },
+  marks: { bar: 'BAR', archive: 'ARCHIVE' },
   prompts: { bar: 'E — GO IN', archive: 'E — WHAT THE ARCHIVE HOLDS NOW' },
 
   // --- the bar: the argument about what a second is worth ---

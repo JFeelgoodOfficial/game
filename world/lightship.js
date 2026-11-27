@@ -403,6 +403,8 @@ export function createLightShip(ctx) {
     npcs,
     consoles,
     onChoice: () => null,
+    // a guest's place to go, for the compass (src/capitalWalk.js), or the way out
+    mark: () => (guest && guest.mark ? guest.mark() : null),
     portal: null, // 'gallery' once the pilot has asked to leave, 'bridge' to go forward
     setWalker(p) {
       walker = p || null;
