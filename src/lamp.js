@@ -55,6 +55,7 @@ export const lamp = {
   dir: new THREE.Vector3(0, 0, 1),
   reach: 0, // of the band it is on, in this medium
   changed: 0, // counts band changes (the HUD and the sound watch it)
+  signal: -1, // on the radio band, how loud what the lamp points at is (0..1); -1 when nothing is listening (world/entryzero-audio.js setRadio)
 };
 
 export const LAMP_U = {

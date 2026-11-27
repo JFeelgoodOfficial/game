@@ -14,6 +14,7 @@
 //   hush()                   everything long-lived down to nothing (leaving)
 
 import { settings } from '../src/settings.js';
+import { lamp } from '../src/lamp.js';
 
 let ctx = null, master = null, noise = null;
 let hum = null, radio = null, roar = null, dread = null, weather = null;
@@ -141,6 +142,9 @@ export function bandClick(i) {
 }
 
 export function setRadio(on, near) {
+  // (what is heard is shown too, as a signal bar on the lamp's readout, src/lampHud.js:
+  // with the sound down, or on a phone, the radio band is otherwise impossible)
+  lamp.signal = on ? Math.max(0, Math.min(1, near || 0)) : -1;
   if (!on && !radio) return;
   const c = ensure();
   if (!c) return;
