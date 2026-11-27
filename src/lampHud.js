@@ -28,6 +28,11 @@ const CSS = `
 #ezHud .fill { height: 100%; width: 0; background: #a9f7ff; box-shadow: 0 0 8px rgba(130, 247, 255, 0.8); }
 #ezHud .m.warn { color: #ffc27a; } #ezHud .m.warn .fill { background: #ffc27a; box-shadow: 0 0 8px #ffa640; }
 #ezHud .m.bad { color: #ff7a8c; } #ezHud .m.bad .fill { background: #ff7a8c; box-shadow: 0 0 8px #ff4a66; }
+/* the radio band: how loud what the lamp points at is. Hidden unless something is listening */
+#ezHud .m.sig { display: none; }
+#ezHud.radio .m.sig { display: flex; }
+#ezHud .m.sig .fill { background: #9fb3c8; }
+#ezHud .m.sig.lock { color: #9dffb0; } #ezHud .m.sig.lock .fill { background: #9dffb0; box-shadow: 0 0 10px #5cff86; }
 #ezHud .keys { margin-top: 0.8em; font-size: clamp(9px, 1.05vw, 12px); opacity: 0.75; }
 #ezHud .tap { display: none; gap: 0.7em; justify-content: center; margin-top: 0.9em; pointer-events: auto; }
 #ezHud .tap div { padding: 0.75em 0.9em; border: 1px solid rgba(130, 247, 255, 0.6); background: rgba(4, 12, 20, 0.6); font-size: 12px; touch-action: none; user-select: none; }
@@ -48,7 +53,8 @@ let root = null, bandEl = null, keysEl = null;
 const meters = {};
 let shownBand = -1, shownOn = null, shownAll = null;
 let keysText = null;
-const shown = { energy: -1, dose: -1, cabin: -1 };
+const shown = { energy: -1, dose: -1, cabin: -1, signal: -1 };
+const RADIO = BANDS.findIndex((b) => b.id === 'radio');
 
 function meter(name, label) {
   const m = document.createElement('div');
@@ -88,7 +94,8 @@ function build() {
   bandEl.className = 'band';
   const row = document.createElement('div');
   row.className = 'row';
-  row.append(meter('energy', 'LAMP'), meter('dose', 'DOSE'), meter('cabin', 'CABIN'));
+  row.append(meter('energy', 'LAMP'), meter('dose', 'DOSE'), meter('cabin', 'CABIN'), meter('signal', 'SIGNAL'));
+  meters.signal.el.classList.add('sig');
   keysEl = document.createElement('div');
   keysEl.className = 'keys';
   const taps = document.createElement('div');
@@ -150,6 +157,17 @@ export const lampHud = {
     level('energy', lamp.energy, 0.3, 0.12, false);
     level('dose', lamp.dose, 0.5, 0.8, true);
     level('cabin', lamp.cabin, 0.45, 0.2, false);
+    // the signal: shown only while something is listening on the radio band
+    const sig = lamp.signal >= 0 && lamp.band === RADIO;
+    root.classList.toggle('radio', sig);
+    if (sig) {
+      const pct = Math.round(lamp.signal * 50) * 2;
+      if (pct !== shown.signal) {
+        shown.signal = pct;
+        meters.signal.fill.style.width = `${pct}%`;
+        meters.signal.el.classList.toggle('lock', lamp.signal > 0.55); // (about where a reading is taken)
+      }
+    }
   },
   state: () => ({ on: !!root && root.classList.contains('on'), band: bandEl ? bandEl.textContent : null }),
 };
