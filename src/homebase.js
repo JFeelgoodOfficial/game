@@ -33,6 +33,9 @@ import { createLightCity } from '../world/lightcity.js';
 import { CAPTAINS } from '../world/chapter-dialogue.js';
 import { BASE, CREW_TALK } from '../world/base-dialogue.js';
 import { openHoloPanel } from './holoPanel.js';
+import { HAILS, POD } from '../world/hail-dialogue.js';
+import { systemById, FIRST_SYSTEM } from './systems.js';
+import { cineOnce } from './cineTalk.js';
 import * as THREE from 'three';
 
 const PROGRAM_AT = new THREE.Vector3(0, 0, -14);
@@ -103,6 +106,35 @@ export function createHomebase(ctx) {
     return to ? { travel: to.id, label: to.label } : null;
   }
 
+  // --- who calls the ship, and the lifepod (world/hail-dialogue.js) ---
+  // Season facts: `med.pod` 'aboard' (her beacon heard, cold on the bed) -> 'woke' -> 'gone' (the next arrival).
+  const fact = (k) => voyage().season?.get(k) ?? null;
+  const setFact = (k, v) => voyage().season?.set(k, v);
+  // a first arrival somewhere with someone waiting to call (asked before the ship is there)
+  function hailFor(id) {
+    const h = HAILS[id];
+    if (!h || voyage().visited().includes(id)) return null;
+    return { h, title: systemById(id)?.label || '', start: () => cineOnce(`hail:${id}`) };
+  }
+  // the beacon is heard once the voyage is under way: somewhere has been visited past the first
+  // system, the ship is not there, and no chapter has the helm or a debrief waiting
+  function podDue() {
+    const v = voyage();
+    if (!chapter.open() || fact('med.pod')) return false;
+    if (v.at() === FIRST_SYSTEM || !v.visited().some((id) => id !== FIRST_SYSTEM && !systemById(id)?.example)) return false;
+    return !v.aboard('helm') && !v.debrief();
+  }
+  const podHail = () => ({ h: POD, card: POD.card, start: () => setFact('med.pod', 'aboard') });
+  // the passage's middle: the ship is somewhere else. (A line to show once it is over, or nothing.)
+  function arrive(id) {
+    voyage().travel(id);
+    if (fact('med.pod') === 'woke') {
+      setFact('med.pod', 'gone');
+      return POD.goneSay;
+    }
+    return null;
+  }
+
   // --- the rooms ---
   function getBay() {
     if (!bay) {
@@ -140,7 +172,7 @@ export function createHomebase(ctx) {
         aboard: (id) => !chapter.lost(id) && !voyage().along(id),
         figures: () => fx()?.figures || [],
         talk, chart, choose,
-        arrive: (id) => voyage().travel(id),
+        arrive, hailFor, podDue, podHail,
         debrief: () => voyage().debrief(),
         debriefed: (key) => voyage().debriefed(key),
         debriefNext: (d) => voyage().debriefNext(d),
@@ -149,7 +181,7 @@ export function createHomebase(ctx) {
     return bridge;
   }
   function getDeck() {
-    if (!deck) deck = createBaseDeck({ scene: ctx.scene, chapter, hideFleet: ctx.hideFleet, sky, aboard: (id) => !chapter.lost(id) && !voyage().along(id), guest: () => voyage().aboard('deck'), fact: (k) => voyage().season?.get(k) ?? null });
+    if (!deck) deck = createBaseDeck({ scene: ctx.scene, chapter, hideFleet: ctx.hideFleet, sky, aboard: (id) => !chapter.lost(id) && !voyage().along(id), guest: () => voyage().aboard('deck'), fact, setFact });
     return deck;
   }
   function getArchive() {
@@ -221,6 +253,9 @@ export function createHomebase(ctx) {
       inside: bridge && bridge.inside() ? 'bridge' : archive && archive.inside() ? 'archive' : bay && bay.inside() ? 'bay' : deck && deck.inside() ? 'deck' : null,
       bay: bay ? bay.info() : null, bridge: bridge ? bridge.info() : null, archive: archive ? archive.info() : null, deck: deck ? deck.info() : null,
       bridgeSeek: (x) => bridge && bridge.seek(x),
+      // (dev) a hail on the bridge's screen now: a system id from world/hail-dialogue.js, or 'pod'
+      bridgeHail: (id) => bridge && bridge.hail(id === 'pod' ? podHail() : HAILS[id] ? { h: HAILS[id], title: systemById(id)?.label || id } : null),
+      pod: () => fact('med.pod'),
       places: { bay: bay ? bay.places : null, bridge: bridge ? bridge.places : null, archive: archive ? archive.places : null, deck: deck ? deck.places : null },
       crew: CAPTAINS.map((c) => ({ id: c.id, lost: chapter.lost(c.id), along: voyage().along(c.id) })),
     }),

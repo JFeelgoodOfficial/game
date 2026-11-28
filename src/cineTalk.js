@@ -139,11 +139,8 @@ export function cineOpen(cine, h) {
   fromEl.textContent = kind === 'comm' ? 'INCOMING TRANSMISSION' + (cine.from ? ' — ' + cine.from : '') : '';
   fromEl.style.display = kind === 'comm' ? '' : 'none';
   active = true;
-  shot = 0;
-  lineNo = 0;
-  blend = 0;
-  cut = false; // ease into the first shot from wherever the camera is
-  haveLook = false;
+  framing = false;
+  resetShots(); // (ease into the first shot from wherever the camera is)
   root.classList.add('open');
   chapterHud.cine(true);
   if (kind === 'comm' && !keyHandler) {
@@ -199,6 +196,37 @@ export function cineRender(d) {
   }
 }
 
+// A plain talk (the #dlgPanel, no bars) with someone who is speaking to the
+// pilot frames them the same way: dialogue.js opens it, and each line can
+// change the angle. The walkers ask talkFramed() and hand their camera to
+// cineCamera() as they do for a scene; a walker that lets the pilot walk away
+// from a plain talk (src/walk.js) gives the camera back the moment they move.
+let framing = false;
+function resetShots() {
+  shot = 0;
+  lineNo = 0;
+  blend = 0;
+  cut = false;
+  haveLook = false;
+}
+export function talkFrameOpen() {
+  framing = true;
+  resetShots();
+}
+export function talkFrameLine(hint, choosing) {
+  if (!framing) return;
+  if (choosing) return setShot(1);
+  lineNo++;
+  if (hint === 'close') setShot(1);
+  else if (hint === 'two') setShot(0);
+  else if (lineNo > 1 && lineNo % 2 === 1) setShot(1 - shot);
+}
+export function talkFrameClose() {
+  framing = false;
+}
+// a talk of either kind has the camera on its speaker
+export const talkFramed = () => (active && kind === 'talk') || framing;
+
 function setShot(s) {
   if (s === shot) return;
   shot = s;
@@ -248,7 +276,7 @@ export const cineComm = () => active && kind === 'comm';
 // frame and eased as an offset from the player, so a floating-origin rebase
 // passes through it unharmed.
 export function cineCamera(camera, player, speaker, up, delta = 0.016, height = 1.75) {
-  if (!active || kind !== 'talk' || !speaker) return false;
+  if (!talkFramed() || !speaker) return false;
   _dir.subVectors(speaker, player);
   _dir.addScaledVector(up, -_dir.dot(up)); // flat, player -> speaker
   const dist = _dir.length();

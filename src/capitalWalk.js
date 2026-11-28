@@ -50,7 +50,7 @@ import { input, moveAxes } from './input.js';
 import { ship } from './ship.js';
 import { createShip as createParkedShip } from '../world/ship.js';
 import { openDialogue, advanceDialogue, isDialogueOpen, closeDialogue } from './dialogue.js';
-import { cineHeld, cineCamera } from './cineTalk.js';
+import { cineHeld, cineCamera, cineComm, talkFramed } from './cineTalk.js';
 import { gun, enterGun, leaveGun, stepGun, pullTrigger, updateGunVisuals, gunCamera } from './turretGun.js';
 import {
   getViewPref,
@@ -202,7 +202,7 @@ export function stepCapitalWalk(dt) {
     ship.velocity.set(0, 0, 0);
     return;
   }
-  if (cineHeld()) input.mouseX = input.mouseY = 0; // a scene has the camera
+  if (cineHeld() || (talkFramed() && talkAt)) input.mouseX = input.mouseY = 0; // a scene (or whoever is talking) has the camera
   cWalk.yaw -= input.mouseX * LOOK_SENS;
   cWalk.pitch -= input.mouseY * LOOK_SENS;
   cWalk.pitch = Math.min(Math.max(cWalk.pitch, -MAX_PITCH), MAX_PITCH);
@@ -326,7 +326,7 @@ export function updateCapitalVisuals(dt, t) {
   }
   astronaut.group.quaternion.copy(site.group.quaternion).multiply(_q);
   astronaut.update(dt, pp ? pp.mode || 'lift' : cWalk.mode, pp ? 0 : cWalk.speed01);
-  astronaut.group.visible = pp ? true : cWalk.view === 'tp' && !gun.active && !site.hidePilot; // (hidePilot: seated out of sight, at a vehicle's controls)
+  astronaut.group.visible = pp ? true : (cWalk.view === 'tp' || (talkFramed() && !!talkAt)) && !gun.active && !site.hidePilot; // (a talk is shot over the pilot's shoulder; hidePilot: seated out of sight, at a vehicle's controls)
   updateGunVisuals(dt, toWorld);
   site.setWalker(cWalk.pos, cWalk);
   if (site.tick) site.tick(dt, t);
@@ -378,7 +378,7 @@ export function capitalInteract() {
     return undefined;
   }
   if (isDialogueOpen()) {
-    advanceDialogue();
+    if (!cineComm()) advanceDialogue(); // (a transmission reads E itself: src/cineTalk.js)
     return undefined;
   }
   if (site.held && site.held()) {
@@ -402,6 +402,12 @@ export function capitalInteract() {
     onClose: () => { talkAt = null; },
   });
   return undefined;
+}
+
+// Before the composer draws (src/walk.js walkPreRender): a place that draws
+// into a texture of its own (the bridge's screen) is handed the renderer.
+export function capitalPreRender(renderer) {
+  if (cWalk.active && site && site.preRender) site.preRender(renderer);
 }
 
 export function capitalPromptText() {
@@ -471,8 +477,8 @@ export function updateCapitalCamera(camera, delta = 0) {
     camSnap = true;
     return;
   }
-  // a cinematic talk frames whoever is speaking (cineTalk.js)
-  if (cineHeld() && talkAt && site) {
+  // a talk frames whoever is speaking, a scene's or a plain one (cineTalk.js)
+  if (talkFramed() && talkAt && site) {
     toWorld(cWalk.pos, _cineP);
     toWorld(_cineS.set(talkAt.x, talkAt.y ?? cWalk.pos.y, talkAt.z), _cineS);
     // deck figures (robots, fleet captains) stand taller than a citizen

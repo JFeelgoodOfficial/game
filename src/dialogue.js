@@ -13,7 +13,7 @@
 // pick it, tap LEAVE to go.
 
 import { isTouch } from './touchText.js';
-import { cineOpen, cineRender, cineClose } from './cineTalk.js';
+import { cineOpen, cineRender, cineClose, talkFrameOpen, talkFrameLine, talkFrameClose } from './cineTalk.js';
 import { addMet } from './journal.js';
 
 const CSS = `
@@ -125,6 +125,7 @@ function render() {
     });
     return;
   }
+  talkFrameLine(payload.shots ? payload.shots[lineIndex] : undefined, choosing); // (a walker framing the speaker cuts on some lines)
   const s = payload.speaker;
   speakerEl.innerHTML = '';
   const name = document.createElement('span');
@@ -224,6 +225,7 @@ export function openDialogue(p, callbacks = {}) {
   };
   document.addEventListener('keydown', keyHandler);
   if (cine) cineOpen(cine, { advance: advanceDialogue, pick: pickOption, skip: skipDialogue });
+  else talkFrameOpen();
   render();
   if (!cine) panel.classList.add('open');
 }
@@ -272,6 +274,7 @@ export function closeDialogue() {
     keyHandler = null;
   }
   if (panel) panel.classList.remove('open');
+  talkFrameClose();
   if (cine) {
     cine = null;
     cineClose();
