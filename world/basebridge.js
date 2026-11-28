@@ -28,6 +28,8 @@ import { input } from '../src/input.js';
 import { buildCaptain, liveCaptain } from './captainDress.js';
 import { CAPTAINS } from './chapter-dialogue.js';
 import { BASE } from './base-dialogue.js';
+import { openDialogue, isDialogueOpen, closeDialogue } from '../src/dialogue.js';
+import { createHailScreen, SCREEN_W, SCREEN_H } from './hailScreen.js';
 
 const ZERO = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
@@ -110,7 +112,10 @@ const WALL_FRAG = /* glsl */ `
 //        figures(): [{ id, build() -> THREE.Group, talk(), at?: [x, z] }] others a chapter has left aboard
 //        talk(captain) -> dialogue payload, chart() -> dialogue payload,
 //        choose(tag) -> payload | null | { travel: id, label },  arrive(id),
-//        debrief() -> a chapter's debrief waiting (src/voyage.js) | null, debriefed(key) }
+//        debrief() -> a chapter's debrief waiting (src/voyage.js) | null, debriefed(key),
+//        hailFor(id) -> { h, title } | null: who calls as the passage to `id` ends (world/hail-dialogue.js),
+//        podDue() -> the lifepod's beacon is to be heard here now, podHail() -> { h, title, done() } }
+//        (arrive(id) may return a line to show once the passage is over)
 export function createBaseBridge(ctx) {
   const { chapter } = ctx;
   const group = new THREE.Group();
@@ -176,6 +181,22 @@ export function createBaseBridge(ctx) {
   wall.frustumCulled = false;
   group.add(wall);
 
+  // --- the big screen, high over the helm: whoever hails the ship (world/hailScreen.js) ---
+  // (high enough that a passage, watched from behind the helm, is seen under it)
+  const SCREEN = { y: 5.0, z: -R - 0.8 };
+  const screen = createHailScreen();
+  screen.mesh.position.set(0, SCREEN.y, SCREEN.z);
+  group.add(screen.mesh);
+  {
+    // its frame, lit faintly when it is dark
+    const fw = SCREEN_W / 2 + 0.08, fh = SCREEN_H / 2 + 0.08;
+    const frame = [
+      box(SCREEN_W + 0.3, 0.07, 0.07, 0, SCREEN.y + fh, SCREEN.z - 0.02), box(SCREEN_W + 0.3, 0.07, 0.07, 0, SCREEN.y - fh, SCREEN.z - 0.02),
+      box(0.07, SCREEN_H + 0.3, 0.07, -fw, SCREEN.y, SCREEN.z - 0.02), box(0.07, SCREEN_H + 0.3, 0.07, fw, SCREEN.y, SCREEN.z - 0.02),
+    ];
+    group.add(mergedMesh(frame.map((g) => tint(g, 0x3c6f80, 1)), new THREE.MeshBasicMaterial({ vertexColors: true, fog: false })));
+  }
+
   // --- the captains aboard ---
   const npcs = [];
   const crew = CAPTAINS.map((c, i) => {
@@ -218,19 +239,22 @@ export function createBaseBridge(ctx) {
 
   // --- a chapter's debrief: the captains talk it over, then its card ---
   // One clock `du` (-1 when none), lines every DLINE seconds, then the card.
-  let du = -1, deb = null, debSaid = -1;
+  let du = -1, deb = null, debSaid = -1, debBy = null;
   const DLINE = 6.2, DCARD = 7;
   const debEnd = () => (deb ? deb.lines.length * DLINE + 0.8 + DCARD : 0);
   function debSay(i) {
     const [id, text] = deb.lines[i];
     const here = crew.filter((m) => m.on);
     const by = here.find((m) => m.c.id === id) || here[i % Math.max(1, here.length)];
+    debBy = by || null; // (the camera is on them while they say it)
     chapterHud.say(by ? `${by.c.short} — ${text}` : text.toUpperCase(), DLINE - 0.3);
   }
   function debStart(d) {
     deb = d;
     du = 0;
     debSaid = -1;
+    debBy = null;
+    podArmed = false; // (the captains have the bridge: no beacon on top of them)
     chapterHud.cine(true);
   }
   function debFinish() {
@@ -241,6 +265,68 @@ export function createBaseBridge(ctx) {
     chapterHud.cine(false);
     deb = null;
     du = -1;
+    debBy = null;
+  }
+  // a close shot of one captain, from the middle of the deck: into pos / target, bridge-local
+  const _head = new THREE.Vector3();
+  function frameCaptain(m, pos, target) {
+    m.rig.group.updateMatrixWorld(true);
+    group.worldToLocal(m.rig.joints.head.getWorldPosition(_head));
+    // from where they are turned to (the middle of the deck, a little aft), off to one side
+    let dx = -_head.x, dz = 1.5 - _head.z;
+    const l = Math.hypot(dx, dz) || 1;
+    dx /= l;
+    dz /= l;
+    const side = _head.x <= 0.01 ? 1 : -1;
+    // (from above the chair backs behind them, looking a little down)
+    pos.set(_head.x + dx * 1.9 - dz * 0.5 * side, _head.y + 0.65, _head.z + dz * 1.9 + dx * 0.5 * side);
+    target.set(_head.x, _head.y - 0.05, _head.z);
+  }
+
+  // --- a hail: the screen lights, the caller is on it, then the chapter's card ---
+  // hail: { h, title, done, t, stage: 'on' | 'talk' | 'card' } | null
+  // (the lifepod's beacon is heard on walking onto the bridge, never straight after another hail)
+  let hail = null, pendingHail = null, arriveNote = null, podT = 0, podArmed = false;
+  const HAIL_ON = 1.3, HAIL_CARD = 6.5;
+  function startHail(x) {
+    if (!x || !x.h) return;
+    hail = { ...x, t: 0, stage: 'on' };
+    podArmed = false;
+    screen.show(x.h.face);
+    chapterHud.say(null);
+    chapterHud.cine(true);
+    if (x.start) x.start();
+  }
+  function hailTalk() {
+    hail.stage = 'talk';
+    screen.voice(true);
+    openDialogue({ speaker: hail.h.speaker, cine: { kind: 'comm', from: hail.h.from }, lines: hail.h.lines }, {
+      onClose: () => {
+        if (!hail) return;
+        screen.voice(false);
+        screen.hide();
+        hail.stage = 'card';
+        hail.t = 0;
+        chapterHud.cine(true); // (the transmission's bars went with it; the card has its own)
+        const c = hail.card || hail.h.card || {};
+        chapterHud.card(hail.title || c.title || '', c.word || '', c.note || '');
+      },
+    });
+  }
+  function endHail() {
+    if (!hail) return;
+    const h = hail;
+    hail = null;
+    if (isDialogueOpen()) closeDialogue();
+    screen.voice(false);
+    screen.hide();
+    chapterHud.card(null);
+    chapterHud.cine(false);
+    if (h.done) h.done();
+    if (arriveNote) {
+      chapterHud.say(arriveNote, 6);
+      arriveNote = null;
+    }
   }
 
   // --- the pilot's seat: sat in, the chart is in reach; any move stands the pilot up ---
@@ -286,6 +372,14 @@ export function createBaseBridge(ctx) {
     pose(T + 1);
     chapterHud.cine(false);
     muster();
+    // someone at the other end has been waiting for the ship to come out of it
+    if (pendingHail) {
+      startHail(pendingHail);
+      pendingHail = null;
+    } else if (arriveNote) {
+      chapterHud.say(arriveNote, 6);
+      arriveNote = null;
+    }
   }
 
   const surfaces = [{ kind: 'disc', cx: 0, cz: 0, r: R - 0.5, y: 0 }];
@@ -323,6 +417,7 @@ export function createBaseBridge(ctx) {
     onChoice(tag) {
       const r = ctx.choose(tag);
       if (r && r.travel) {
+        pendingHail = ctx.hailFor ? ctx.hailFor(r.travel) : null; // (asked before the ship is there: a first arrival)
         going = r;
         arrived = false;
         u = 0;
@@ -333,7 +428,7 @@ export function createBaseBridge(ctx) {
       return r || null;
     },
     portal: null,
-    held: () => u >= 0 || du >= 0 || seated,
+    held: () => u >= 0 || du >= 0 || seated || !!hail,
     // sat at the helm: the pilot is shown in the seat, facing forward
     pilotPose() {
       if (!seated) return null;
@@ -345,6 +440,17 @@ export function createBaseBridge(ctx) {
     // a passage is watched from behind the helm, over the heads at the rail;
     // a debrief from just behind the helm, at the captains along the rail
     camera(pos, target) {
+      // a hail: up at the screen from behind the helm, pushing in a little while they talk
+      if (hail) {
+        const k = ease(0, 14, hail.stage === 'card' ? 14 : hail.t);
+        pos.set(0.7 - 0.3 * k, 2.6 + 0.5 * k, -3.6 - 1.4 * k);
+        target.set(0, SCREEN.y - 0.25, SCREEN.z);
+        return true;
+      }
+      if (du >= 0 && debBy && debSaid >= 0) {
+        frameCaptain(debBy, pos, target);
+        return true;
+      }
       if (du >= 0) {
         pos.set(0, 2.6, 3.4);
         target.set(0, 1.4, -R + 2.6);
@@ -363,6 +469,10 @@ export function createBaseBridge(ctx) {
     },
     // E skips a passage to its end (the SKIP of a scene with no talk in it)
     act() {
+      if (hail) {
+        if (hail.stage === 'card') endHail();
+        return;
+      }
       if (du >= 0) {
         // the talk to its card; the card to its end
         const toCard = deb.lines.length * DLINE + 0.8;
@@ -377,7 +487,11 @@ export function createBaseBridge(ctx) {
       // sat at the helm: E is the chart
       if (seated) return ctx.chart();
     },
-    heldPrompt: () => (u >= 0 || du >= 0 ? 'E — SKIP' : seated ? BASE.seated : ''),
+    heldPrompt: () => (hail ? (hail.stage === 'card' ? 'E — SKIP' : '') : u >= 0 || du >= 0 ? 'E — SKIP' : seated ? BASE.seated : ''),
+    // before the composer draws: the caller's face into the screen (src/capitalWalk.js capitalPreRender)
+    preRender(renderer) {
+      if (inside) screen.preRender(renderer);
+    },
     setWalker(p) {
       walker = p || null;
     },
@@ -406,6 +520,8 @@ export function createBaseBridge(ctx) {
       // back from a chapter that has ended: the captains want a word
       const d = ctx.debrief ? ctx.debrief() : null;
       if (d) debStart(d);
+      podT = 0;
+      podArmed = true;
     },
     onLeave() {
       if (!inside) return;
@@ -421,6 +537,11 @@ export function createBaseBridge(ctx) {
       seated = false;
       // (left in the middle of a debrief: it has been given)
       if (du >= 0) debFinish();
+      // (left in the middle of a hail: it has been heard)
+      if (hail) endHail();
+      pendingHail = null;
+      arriveNote = null;
+      screen.tick(1, 0);
       chapterHud.clear();
       ctx.scene.fog = prev.fog;
       sun.light.position.copy(prev.lightPos);
@@ -434,6 +555,20 @@ export function createBaseBridge(ctx) {
       chapterHud.tick(dt);
       time.value = t;
       const d = Math.min(dt, 0.1);
+      screen.tick(dt, t);
+      if (hail) {
+        hail.t += d;
+        if (hail.stage === 'on' && hail.t >= HAIL_ON) hailTalk();
+        else if (hail.stage === 'card' && hail.t >= HAIL_CARD) endHail();
+      } else if (podArmed && u < 0 && du < 0 && !isDialogueOpen() && ctx.podDue && ctx.podDue()) {
+        // a beacon, a few seconds after the pilot is on the bridge (src/homebase.js says when)
+        podT += d;
+        if (podT > 3.5) {
+          podT = 0;
+          seated = false;
+          startHail(ctx.podHail());
+        }
+      }
       if (walker) sky.position.copy(walker);
       // any move stands the pilot up (not during a passage: that is watched from the seat)
       if (seated && u < 0) {
@@ -458,7 +593,8 @@ export function createBaseBridge(ctx) {
         // at the middle of it, with nothing to be seen but the lines, one sky is changed for the other
         if (!arrived && u >= T * 0.5) {
           arrived = true;
-          ctx.arrive(going.travel);
+          const note = ctx.arrive(going.travel);
+          if (typeof note === 'string') arriveNote = note;
           readSky();
           chapterHud.say(BASE.arriveSay.replace('{to}', going.label), 6);
         }
@@ -475,6 +611,9 @@ export function createBaseBridge(ctx) {
           m.rig.joints.torso.rotation.x = 0;
           standRig(m.rig, 0);
         } else sitRig(m.rig, 0);
+        // (stood up to talk it over: a step out from the chair, so it is not in front of them)
+        const off = du >= 0 ? 0.95 : 0;
+        m.rig.group.position.z += (m.z + off - m.rig.group.position.z) * Math.min(1, d * 4);
         const near = u < 0 && walker && Math.hypot(walker.x - m.x, walker.z - m.z) < 5;
         liveCaptain(m.rig, d, t, false, near ? Math.atan2(walker.x - m.x, walker.z - m.z) - m.rig.group.rotation.y : 0);
       }
@@ -487,11 +626,14 @@ export function createBaseBridge(ctx) {
       u: +u.toFixed(1), end: T, warp: +skyU.uWarp.value.toFixed(2), going: going ? going.travel : null,
       crew: crew.filter((m) => m.on).map((m) => m.c.id), figures: extras.filter((e) => e.g).map((e) => e.id), star: skyU.uStarOn.value > 0,
       bodies: skyU.uBody.value.filter((b) => b.w > 0).length,
-      debrief: deb ? { key: deb.key, u: +du.toFixed(1), lines: deb.lines.length, said: debSaid } : null,
+      debrief: deb ? { key: deb.key, u: +du.toFixed(1), lines: deb.lines.length, said: debSaid, by: debBy ? debBy.c.id : null } : null,
+      hail: hail ? { from: hail.h.from, stage: hail.stage, t: +hail.t.toFixed(1), screen: +screen.on().toFixed(2) } : null,
     }),
     seek(x) {
       if (u >= 0) u = Math.max(u, x);
     },
+    // (dev) play a hail now: { h, title, card?, done? }
+    hail: (x) => startHail(x),
   };
   void chapter;
   return site;

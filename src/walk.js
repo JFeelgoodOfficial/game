@@ -18,7 +18,7 @@
 import * as THREE from 'three';
 import { C } from './constants.js';
 import { input, moveAxes } from './input.js';
-import { cineHeld, cineCamera } from './cineTalk.js';
+import { cineHeld, cineCamera, cineComm, talkFramed } from './cineTalk.js';
 import { ship } from './ship.js';
 import { planets, SUN, setPlanetSpinFrozen } from './planet.js';
 import { Astronaut } from './astronaut.js';
@@ -1187,6 +1187,8 @@ export function stepWalk(dt) {
   // --- mouse look ---
   // A cinematic talk (cineTalk.js) has the camera: no looking about.
   if (cineHeld() || sleepT >= 0) input.mouseX = input.mouseY = 0;
+  // (framed in a plain talk, looking about is held too: the walker's own view comes back with a step)
+  else if (talkCam()) input.mouseX = input.mouseY = 0;
   wzLookDX += input.mouseX;
   wzLookDY += input.mouseY;
   // Aiming down sights slows the look, the way a magnified sight picture does.
@@ -1263,6 +1265,7 @@ export function stepWalk(dt) {
   _right.crossVectors(walk.heading, _up).normalize();
   const axes = moveAxes(); // WASD, or the analog touch stick when it's pushed
   if (cineHeld() || sleepT >= 0) axes.fwd = axes.strafe = axes.mag = 0; // stood still, being spoken to (or asleep)
+  else if (axes.mag > 0.2 && isDialogueOpen()) talkWalked = true; // (walking off from a plain talk: the camera is the walker's again)
   const fwd = axes.fwd;
   const strafe = axes.strafe;
   const moveMag = axes.mag; // scales speed, so a half-pushed stick walks
@@ -1903,7 +1906,7 @@ export function updateWalkVisuals(dt, t) {
   // The body is only drawn in third person: the FP camera sits inside the
   // helmet and the rig has no first-person-safe arms.
   // (a cinematic talk shoots over the walker's shoulder, so it shows too)
-  astronaut.group.visible = viewMode() === 'tp' || cineHeld();
+  astronaut.group.visible = viewMode() === 'tp' || cineHeld() || talkCam();
 
   // planet.sunDir, not SUN: while you walk, the planet's spin is frozen and
   // its sun swings instead, so the day still passes over rigid ground.
@@ -2056,6 +2059,12 @@ function entityDistSq(entity) {
   return entity.pos.distanceToSquared(_playerLocal);
 }
 
+// A talk frames whoever is speaking (src/cineTalk.js). A scene holds the
+// pilot; a plain talk lets them walk away, and gives the camera back the
+// moment they start to.
+let talkWalked = false;
+const talkCam = () => talkFramed() && !!talkEntity && (cineHeld() || !talkWalked);
+
 // One module's slice of the per-frame interaction pass. With a dialogue open
 // it only watches the speaker's distance (the walk-away hangup); otherwise it
 // bids the module's nearest interactable for this frame's focus.
@@ -2091,7 +2100,7 @@ export function walkInteract() {
   if (coinWalk.coinActive()) return coinWalk.coinInteract();
   if (sub) return sub.interact();
   if (isDialogueOpen()) {
-    advanceDialogue();
+    if (!cineComm()) advanceDialogue(); // (a transmission reads E itself: src/cineTalk.js)
     return;
   }
   if (!focusEntity || !focusModule) return;
@@ -2114,6 +2123,7 @@ export function walkInteract() {
   });
   talkEntity = entity;
   talkModule = module;
+  talkWalked = false;
 }
 
 // Bottom-center prompt line for main.js ("C — STAND UP" idiom). The dialogue
@@ -2674,6 +2684,7 @@ export function walkPreRender(renderer, bloomPass) {
   // The cottage runs without walk.active — it is its own walker, and its sky
   // needs a PMREM bake on the first frame, so it is checked before the gate.
   cottageWalk.cottagePreRender(renderer);
+  capitalWalk.capitalPreRender(renderer); // (the light ship's rooms are their own walker too)
   if (!walk.active) return;
   // Underground the surface sky must NOT run: it rewrites fog and exposure
   // every frame, and the mine owns both while it holds the floor.
@@ -2784,7 +2795,7 @@ export function updateWalkCamera(camera, delta = 0) {
   _up.subVectors(ship.position, planet.body.position).normalize();
   // A cinematic talk frames the speaker (cineTalk.js). The walker's own
   // camera resumes on a snap when it ends.
-  if (cineHeld() && talkEntity && cineCamera(camera, _cinePlayer.copy(ship.position), talkWorld(_cineSpeaker), _up, delta)) {
+  if (talkCam() && cineCamera(camera, _cinePlayer.copy(ship.position), talkWorld(_cineSpeaker), _up, delta)) {
     camSnap = true;
     return;
   }
@@ -2958,7 +2969,7 @@ function viewMode() {
 
 // Viewmodel overlay (game.js, right after composer.render()).
 export function walkPostRender(renderer) {
-  if (warzone && walk.active && !sub && !cineHeld()) warzone.renderViewmodel(renderer); // no rifle underground, or in a scene
+  if (warzone && walk.active && !sub && !cineHeld() && !talkCam()) warzone.renderViewmodel(renderer); // no rifle underground, in a scene, or with the camera on whoever is talking
 }
 
 // A coarse pointer means thumbs on a look stick — the warzone gives those

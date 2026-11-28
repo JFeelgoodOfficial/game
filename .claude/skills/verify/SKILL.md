@@ -925,6 +925,29 @@ EAT, `(18.4, 0, 4.8)` CHECK-UP: each sets `doing` for a few seconds and ends on
 a `#chHud .line`. A lost captain's room (`ez.lost`) has `own` lights hidden and
 the candle shown. `place(-20.4, 0, 0.8)` and `e` is back on the bridge.
 
+Hails: seed `fgsf.voyage` at `proving` with `visited: ['horizon', 'proving']`,
+sit at the helm and set a course for THE LONG DUSK; `bridgeSeek(8.9)` and
+`tenretni.base().state().bridge.hail` → `{from, stage: 'on' | 'talk' | 'card',
+t, screen}`. Each E must advance exactly one line (`cine.text().line`); after
+the last, `#chHud .card` reads the label, `CHAPTER 2` and the note; E ends it.
+`base().state().bridgeHail(id)` plays any hail now (`'pod'` for the beacon).
+A rig face is drawn into its texture only from `site.preRender`, so a face that
+reads blank means `capitalPreRender` is not being reached.
+
+The lifepod: seed `visited: ['horizon', 'proving', 'dusk']`, `at: 'dusk'` and
+walk onto the bridge: about 3.5 game seconds later `bridge.hail.from` is
+`DISTRESS BEACON — AUTOMATED` and `base().state().pod()` is `'aboard'`. On the
+deck, `place(18.4, 0, 4.6)` reads `E — THE PATIENT`; `e`, then `1` starts it
+(`deck.revive` → `{phase, temp, flow}`). Press `e` whenever `flow < 0.45`:
+`temp` climbs to 30, `phase` goes `vf` → `charge` → `ready`; `e` shocks
+(`beat`), then `wake` and a scene with her. Afterwards `pod()` is `'woke'`, she
+sits on the bed's edge and `place(17.6, 0, 3.6)` + `e` is a plain talk with the
+camera on her. The next passage sets `'gone'` and `place(19.5, 0, 4.7)` reads
+`E — THE PILLOW`.
+
+Seed `chapters: { dusk: { stage: 'done' } }` to get the dusk debrief on the
+bridge: `bridge.debrief.by` names the captain on camera for each line.
+
 The chart by hand: the helm is the pilot's seat. `walkSite().capital.place(0.9,
 0, -4.1)` on the bridge reads `E — SIT AT THE HELM`; `e` sits
 (`bridge.seated()`, the pilot shown seated by `site.pilotPose()`, the prompt

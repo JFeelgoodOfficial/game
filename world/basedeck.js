@@ -21,7 +21,12 @@
 // a light beside them.
 //
 // What can be done here is small and has no story in it: rest in the pilot's
-// bed, sit down to eat, have a check-up, look round a captain's room.
+// bed, sit down to eat, have a check-up, look round a captain's room. The one
+// exception is the lifepod's passenger (world/hail-dialogue.js POD, season
+// fact `med.pod`): once her beacon has been heard on the bridge she is on the
+// first bed, cooled almost to death, and the pilot warms her (E, a little at
+// a time) and, at thirty degrees, starts her heart. She sits up, talks, and
+// is gone at the next arrival, leaving a coin on the pillow.
 //
 // A platform-walker site (src/capitalWalk.js), walked under the universe's
 // pause like every room of the ship but the bay. Frame: +y up, the corridor
@@ -32,8 +37,10 @@ import { sun } from '../src/sun.js';
 import { chapterHud } from '../src/chapterHud.js';
 import { floorOf, tint, box, cyl, mergedMesh } from './capital.js';
 import { CAPTAINS } from './chapter-dialogue.js';
-import { poseRig } from './aliens.js';
-import { sitRig } from './rigGround.js';
+import { poseRig, buildRig } from './aliens.js';
+import { sitRig, standRig } from './rigGround.js';
+import { POD } from './hail-dialogue.js';
+import { openDialogue } from '../src/dialogue.js';
 import { buildCaptain, liveCaptain } from './captainDress.js';
 import { measureRig } from './rigGround.js';
 import { DECK } from './base-dialogue.js';
@@ -82,7 +89,8 @@ function plate(text, col, w = 1.5, h = 0.36) {
 }
 
 // ctx: { scene, chapter, hideFleet(), sky() (as the bridge's),
-//        aboard(id): the captain is on the ship (alive, not out on a trip) }
+//        aboard(id): the captain is on the ship (alive, not out on a trip),
+//        fact(key), setFact(key, value): the season's facts (src/season.js) }
 export function createBaseDeck(ctx) {
   const { chapter } = ctx;
   const group = new THREE.Group();
@@ -354,6 +362,52 @@ export function createBaseDeck(ctx) {
   scanSheet.visible = false;
   group.add(scanSheet);
 
+  // --- the lifepod's passenger, on the first bed (`med.pod`: 'aboard' cold, 'woke' sat up, 'gone') ---
+  const BED = BEDS[0];
+  const pod = () => (ctx.fact ? ctx.fact('med.pod') : null);
+  let patient = null, patientCold = [], lying = 0; // lying: 1 on her back, 0 sat on the bed's edge
+  const _ice = new THREE.Color(0xbfe4ff);
+  function getPatient() {
+    if (patient) return patient;
+    patient = measureRig(buildRig(0x7e0d0, 'concourse'));
+    // (her own materials, to frost and thaw without touching anyone else's)
+    patient.group.traverse((o) => {
+      if (!o.isMesh || !o.material || Array.isArray(o.material)) return;
+      o.material = o.material.clone();
+      if (o.material.color) patientCold.push({ m: o.material, c: o.material.color.clone() });
+    });
+    patient.group.visible = false;
+    group.add(patient.group);
+    standRig(patient, 0);
+    patient.foot = patient.group.position.y; // origin to the soles, standing
+    return patient;
+  }
+  function frost(k) {
+    for (const p of patientCold) p.m.color.copy(p.c).lerp(_ice, 0.55 * k);
+  }
+  // on her back, head to the pillow (+x); or sat on the edge, facing the corridor
+  function layPatient(t) {
+    const p = getPatient();
+    p.group.visible = true;
+    if (lying > 0.5) {
+      p.group.rotation.set(-Math.PI / 2, -Math.PI / 2, 0, 'YXZ');
+      p.group.position.set(BED.x - 1.35 + p.foot, 0.92, BED.z);
+    } else {
+      p.group.rotation.set(0, Math.PI, 0, 'XYZ');
+      p.group.position.set(BED.x - 0.2, 0, BED.z - 0.35);
+      poseRig(p, 0.016, t, 'idle', 0);
+      sitRig(p, 0.36);
+    }
+  }
+  const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.015, 20), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 1.3, 0.6), fog: false }));
+  coin.position.set(BED.x + 1.1, 0.94, BED.z);
+  coin.visible = false;
+  group.add(coin);
+  // the revival: one record while it is being done (null when it is not)
+  // rv: { temp, flow, phase: 'warm' | 'vf' | 'charge' | 'ready' | 'beat' | 'wake', t, warn, said }
+  let rv = null;
+  const R_START = 19, R_SHOCK = 30, R_WAKE = 33.5;
+
   const flat = (list) => list.map((g) => (g.index ? g.toNonIndexed() : g));
   group.add(mergedMesh(flat(lit), new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x1d262f })));
   group.add(mergedMesh(flat(glow), new THREE.MeshBasicMaterial({ vertexColors: true, fog: false })));
@@ -361,7 +415,7 @@ export function createBaseDeck(ctx) {
   // --- what is done here ---
   // one clock for whichever small thing is being done (rest, a meal, a scan): -1 when nothing is
   let u = -1, doing = null;
-  const DO = { rest: 5.5, eat: 15, scan: 5.0 };
+  const DO = { rest: 5.5, eat: 15, scan: 5.0, revive: Infinity };
 
   // --- a meal, shown: the pilot and whoever is aboard, sat at the table ---
   // Chairs are [x, z, yaw]: the near side faces the window (+z), the far side faces back.
@@ -417,6 +471,15 @@ export function createBaseDeck(ctx) {
     chapterHud.cine(false);
   }
   const crewAboard = () => CAPTAINS.filter((c) => ctx.aboard(c.id));
+  // the rig of whoever at the table is saying a line just now (a captain, or the guest), or null
+  const _head = new THREE.Vector3();
+  function speakingRig() {
+    if (talkSaid < 0 || u - talk[talkSaid][0] >= 4.2) return null;
+    const id = talk[talkSaid][1];
+    const m = diners.find((x) => x.on && x.c.id === id);
+    if (m) return m.rig;
+    return id && meal && meal.rig && meal.rig.joints ? meal.rig : null;
+  }
   const lost = (id) => id !== 'pilot' && id !== 'guest' && chapter && chapter.lost && chapter.lost(id);
   const named = (list) => (list.length <= 1 ? list.join('') : `${list.slice(0, -1).join(', ')} AND ${list[list.length - 1]}`);
   function start(what) {
@@ -441,6 +504,16 @@ export function createBaseDeck(ctx) {
       } else chapterHud.say(who.length ? DECK.eatWith.replace('{who}', named(who)) : DECK.eatAlone, 6);
     }
     if (doing === 'scan') chapterHud.say(DECK.scanSay, 6);
+    if (doing === 'revive') {
+      chapterHud.panel(null);
+      chapterHud.cine(false);
+      // (left before her heart was going: she is as cold as she was, for next time)
+      if (rv && rv.phase !== 'wake') {
+        lying = 1;
+        frost(1);
+      }
+      rv = null;
+    }
     chapterHud.white(0);
     scanSheet.visible = false;
     scanArch.position.x = BEDS[0].x + 1.4;
@@ -457,10 +530,110 @@ export function createBaseDeck(ctx) {
     { x: BRIDGE_DOOR.x, y: 0, z: BRIDGE_DOOR.z, r: 1.6, prompt: DECK.toBridge, off: () => u >= 0, use: () => ((site.portal = 'base:bridge-deck'), null) },
     { x: ROOMS[0].x - QHW + 1.6, y: 0, z: -6.3, r: 1.5, prompt: DECK.rest, off: () => u >= 0, use: () => start('rest') },
     { x: TB.x, y: 0, z: TB.z - 1.9, r: 2.6, prompt: DECK.eat, off: () => u >= 0, use: () => start('eat') },
-    { x: BEDS[0].x, y: 0, z: BEDS[0].z - 1.4, r: 1.6, prompt: DECK.scan, off: () => u >= 0, use: () => start('scan') },
+    { x: BEDS[0].x, y: 0, z: BEDS[0].z - 1.4, r: 1.6, prompt: DECK.scan, off: () => u >= 0 || pod() === 'aboard' || pod() === 'woke', use: () => start('scan') },
+    { x: BED.x, y: 0, z: BED.z - 1.4, r: 1.6, prompt: POD.prompt, off: () => u >= 0 || pod() !== 'aboard', use: () => ({ speaker: POD.patient, lines: POD.look, offer: { kind: 'choice', prompt: POD.begin, options: [{ label: POD.go, outcomeTag: 'med:warm' }, { label: POD.wait, outcomeTag: 'med:wait' }] } }) },
+    { x: BED.x + 1.1, y: 0, z: BED.z - 1.3, r: 1.0, prompt: POD.pillowPrompt, off: () => u >= 0 || pod() !== 'gone', use: () => ({ speaker: { name: 'The first bed', species: '', cityId: DECK.where }, lines: POD.pillow }) },
     ...ROOMS.slice(1).map((r) => ({ x: r.x, y: 0, z: -4.2, r: 1.6, prompt: DECK.look, off: () => u >= 0, use: () => look(r.id) })),
     { x: KEEP.x, y: 0, z: KEEP.z + 1.1, r: 1.0, prompt: DECK.keepPrompt, off: () => u >= 0 || !keep.visible, use: () => ({ speaker: { name: DECK.keepName, species: '', cityId: DECK.where }, lines: envoy() === 'lost' ? DECK.keepLost : DECK.keepGone }) },
   ];
+
+  // awake, sat on the bed's edge: talked to like anyone (the camera on her)
+  const patientNpc = { x: 1e6, y: 0, z: 1e6, h: 1.35, role: 'patient', talk: () => ({ speaker: POD.patient, lines: POD.after }) };
+  function placePatient(t = 0) {
+    const st = pod();
+    coin.visible = st === 'gone';
+    if (st !== 'aboard' && st !== 'woke') {
+      if (patient) patient.group.visible = false;
+      patientNpc.x = patientNpc.z = 1e6;
+      return;
+    }
+    if (!rv) lying = st === 'aboard' ? 1 : 0;
+    frost(st === 'aboard' ? 1 : 0);
+    layPatient(t);
+    const awake = st === 'woke' && !rv;
+    patientNpc.x = awake ? BED.x - 0.2 : 1e6;
+    patientNpc.z = awake ? BED.z - 0.35 : 1e6;
+  }
+  function startRevive() {
+    if (u >= 0 || pod() !== 'aboard') return;
+    doing = 'revive';
+    u = 0;
+    rv = { temp: R_START, flow: 0, phase: 'warm', t: 0, warn: 0, said: false };
+    chapterHud.cine(true);
+    chapterHud.say(POD.say.start, 5);
+    scanSheet.visible = true;
+    scanArch.position.x = BED.x + 0.2;
+    scanSheet.position.x = scanArch.position.x;
+  }
+  function reviveAct() {
+    if (!rv) return;
+    if (rv.phase === 'warm') rv.flow += 0.34;
+    else if (rv.phase === 'ready') {
+      rv.phase = 'beat';
+      rv.t = 0;
+      chapterHud.white(0.85);
+      chapterHud.say(POD.say.shocked, 5);
+    }
+  }
+  const bars = (k) => '■'.repeat(Math.round(k * 10)) + '□'.repeat(10 - Math.round(k * 10));
+  function reviveTick(d, t) {
+    rv.t += d;
+    if (rv.phase === 'warm') {
+      rv.flow -= rv.flow * 0.55 * d;
+      rv.temp += rv.flow * 0.9 * d;
+      rv.warn = Math.max(0, rv.warn - d);
+      if (rv.flow > 1.15) {
+        // afterdrop: too fast, and the cold blood of the limbs comes back to the core
+        rv.temp = Math.max(R_START, rv.temp - 1.2);
+        rv.flow = 0.15;
+        rv.warn = 2.5;
+        chapterHud.say(POD.say.afterdrop, 5);
+      }
+      // one word from the bridge, from whoever is aboard
+      if (!rv.said && rv.t > 4) {
+        rv.said = true;
+        const here = CAPTAINS.filter((c) => ctx.aboard(c.id) && POD.intercom[c.id]);
+        if (here.length) chapterHud.say(POD.intercom[here[Math.floor(Math.random() * here.length)].id], 6);
+      }
+      if (rv.temp >= R_SHOCK) {
+        rv.temp = R_SHOCK;
+        rv.phase = 'vf';
+        rv.t = 0;
+        chapterHud.say(POD.say.thirty, 6);
+      }
+    } else if (rv.phase === 'vf' && rv.t > 1.2) {
+      rv.phase = 'charge';
+      rv.t = 0;
+    } else if (rv.phase === 'charge' && rv.t > 1.6) {
+      rv.phase = 'ready';
+    } else if (rv.phase === 'beat') {
+      chapterHud.white(0.85 * (1 - ease(0, 0.6, rv.t)));
+      rv.temp = Math.min(R_WAKE, rv.temp + d * 0.9);
+      if (rv.t > 4.2) {
+        rv.phase = 'wake';
+        if (ctx.setFact) ctx.setFact('med.pod', 'woke');
+        scanSheet.visible = false;
+        chapterHud.panel(null);
+        chapterHud.cine(false);
+        lying = 0;
+        layPatient(t);
+        rv.t = 0;
+        openDialogue({ speaker: POD.patient, lines: POD.woke, cine: true }, { onClose: () => { if (doing === 'revive') finish(); placePatient(t); } });
+      }
+    }
+    // the cold leaves her as she warms; the shock jolts her
+    frost(1 - ease(R_START, R_WAKE, rv.temp));
+    if (patient && lying > 0.5) {
+      const jolt = rv.phase === 'beat' ? Math.max(0, 1 - rv.t * 4) : 0;
+      patient.group.position.y = 0.92 + 0.08 * jolt;
+    }
+    if (rv.phase !== 'wake') {
+      const band = rv.flow < 0.25 ? POD.slow : rv.flow <= 0.85 ? POD.good : POD.fast;
+      const heart = rv.phase === 'warm' ? POD.none : rv.phase === 'beat' ? POD.sinus : POD.vf;
+      chapterHud.panel(`${POD.core} ${rv.temp.toFixed(1)} °C\n${POD.rate} ${bars(Math.min(1, rv.flow / 1.15))} ${rv.phase === 'warm' ? band : ''}\n${POD.heart} ${heart}`);
+    }
+    scanSheet.material.opacity = 0.14 * (0.6 + 0.4 * Math.sin(t * (rv.phase === 'beat' ? 7 : 3)));
+  }
 
   let inside = false, prev = null, walker = null;
   function readSky() {
@@ -507,16 +680,45 @@ export function createBaseDeck(ctx) {
     pad: new THREE.Vector3(),
     spawn: new THREE.Vector3(BRIDGE_DOOR.x + 2.2, 0, 0), // in from the bridge, facing down the corridor
     spawnYaw: Math.PI / 2,
-    npcs: [],
+    npcs: [patientNpc],
     consoles,
-    onChoice: () => null,
+    onChoice(tag) {
+      if (tag === 'med:warm') startRevive();
+      return null;
+    },
     portal: null,
     held: () => u >= 0,
     // at the table: the pilot is shown in their chair
     pilotPose: () => (doing === 'eat' ? _pilotPose : null),
     // ...and the meal is watched: slowly round the table from the corridor side, the window and the stars beyond
     camera(pos, target) {
+      if (doing === 'revive') {
+        if (rv && rv.phase === 'wake') {
+          // close on her, sat up on the bed's edge
+          pos.set(BED.x - 1.6, 1.55, BED.z - 2.3);
+          target.set(BED.x - 0.2, 1.1, BED.z - 0.35);
+        } else {
+          // from the foot of the bed, over her, the scanner's light
+          pos.set(BED.x - 2.9, 2.55, BED.z - 2.2);
+          target.set(BED.x + 0.2, 0.85, BED.z);
+        }
+        return true;
+      }
       if (doing !== 'eat') return false;
+      // whoever is speaking across the table, while they say it
+      const sp = speakingRig();
+      if (sp) {
+        sp.group.updateMatrixWorld(true);
+        group.worldToLocal(sp.joints.head.getWorldPosition(_head));
+        // over the pilot's shoulder: whoever is talking turns to the pilot's chair to say it
+        let dx = PILOT_CHAIR[0] - _head.x, dz = PILOT_CHAIR[1] - _head.z;
+        const l = Math.hypot(dx, dz) || 1;
+        dx /= l;
+        dz /= l;
+        pos.set(PILOT_CHAIR[0] + dx * 0.9 + dz * 0.45, 1.75, PILOT_CHAIR[1] + dz * 0.9 - dx * 0.45);
+        target.set(_head.x, _head.y - 0.05, _head.z);
+        return true;
+      }
       const a = Math.PI + 0.55 - 0.7 * ease(0, DO.eat, u);
       pos.set(TB.x - 0.6 + Math.sin(a) * 4.6, 2.05, TB.z + Math.cos(a) * 4.6);
       target.set(TB.x - 0.6, 0.95, TB.z + 0.2);
@@ -525,8 +727,9 @@ export function createBaseDeck(ctx) {
     // E: the meal is over (a small thing; nothing is missed)
     act() {
       if (doing === 'eat') u = Math.max(u, DO.eat - 0.6);
+      if (doing === 'revive') reviveAct();
     },
-    heldPrompt: () => (doing === 'eat' ? 'E — SKIP' : ''),
+    heldPrompt: () => (doing === 'eat' ? 'E — SKIP' : doing === 'revive' && rv ? (rv.phase === 'warm' ? POD.tap : rv.phase === 'ready' ? POD.shockKey : rv.phase === 'charge' || rv.phase === 'vf' ? POD.charging : '') : ''),
     setWalker(p) {
       walker = p || null;
     },
@@ -560,6 +763,7 @@ export function createBaseDeck(ctx) {
       }
       readSky();
       muster();
+      placePatient(0);
     },
     onLeave() {
       if (!inside) return;
@@ -585,6 +789,11 @@ export function createBaseDeck(ctx) {
       chapterHud.tick(dt);
       time.value = t;
       if (walker) sky.position.copy(walker);
+      // sat up and getting her strength back
+      if (patient && patient.group.visible && lying < 0.5 && !(rv && rv.phase !== 'wake')) {
+        poseRig(patient, Math.min(dt, 0.1), t, 'idle', 0);
+        sitRig(patient, 0.36);
+      }
       if (u >= 0) {
         u += Math.min(dt, 0.1);
         const end = DO[doing];
@@ -619,6 +828,7 @@ export function createBaseDeck(ctx) {
             liveCaptain(m.rig, d, t, speaking === m.c.id, look);
           }
         }
+        if (doing === 'revive' && rv && rv.phase !== 'wake') reviveTick(Math.min(dt, 0.1), t);
         if (doing === 'scan') {
           const k = ease(0.3, end - 0.6, u);
           scanArch.position.x = BEDS[0].x + 1.4 - 2.8 * k;
@@ -635,7 +845,7 @@ export function createBaseDeck(ctx) {
       quarters: Object.fromEntries(ROOMS.map((r) => [r.id, [r.x, 0, -6.4]])),
       lounge: [TB.x, 0, TB.z - 2.4], med: [BEDS[0].x - 1, 0, BEDS[0].z - 1.6], keepsake: [KEEP.x, 0, KEEP.z + 1.1],
     },
-    info: () => ({ envoy: envoy(), keep: keep.visible, coat: coat.visible, doing, u: +u.toFixed(1), lost: ROOMS.filter((r) => lost(r.id)).map((r) => r.id), star: skyU.uStarOn.value > 0, rooms: rooms.length }),
+    info: () => ({ pod: pod(), revive: rv ? { phase: rv.phase, temp: +rv.temp.toFixed(1), flow: +rv.flow.toFixed(2) } : null, envoy: envoy(), keep: keep.visible, coat: coat.visible, doing, u: +u.toFixed(1), lost: ROOMS.filter((r) => lost(r.id)).map((r) => r.id), star: skyU.uStarOn.value > 0, rooms: rooms.length }),
   };
   return site;
 }
